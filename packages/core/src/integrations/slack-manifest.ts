@@ -14,7 +14,7 @@ export interface SlackAgentManifestUrls {
 }
 
 /**
- * Build the canonical Slack app manifest for Agent Native.
+ * Build the canonical Slack app manifest for Agent-Native.
  *
  * Slack app capabilities are controlled by the app configuration, not by an
  * individual workspace's OAuth install. Keeping this manifest in core gives
@@ -25,8 +25,8 @@ export function buildSlackAgentManifest(urls: SlackAgentManifestUrls) {
   return {
     _metadata: { major_version: 2, minor_version: 1 },
     display_information: {
-      name: "Agent Native",
-      description: "Delegate work to your Agent Native apps from Slack.",
+      name: "Agent-Native",
+      description: "Delegate work to your Agent-Native apps from Slack.",
       background_color: "#0f172a",
     },
     features: {
@@ -41,7 +41,7 @@ export function buildSlackAgentManifest(urls: SlackAgentManifestUrls) {
       },
       agent_view: {
         agent_description:
-          "Delegate work to your Agent Native apps from Slack.",
+          "Delegate work to your Agent-Native apps from Slack.",
         suggested_prompts: [
           {
             title: "Start a task",

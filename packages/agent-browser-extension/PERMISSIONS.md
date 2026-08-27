@@ -19,7 +19,7 @@
 - `debugger`: used only by the shared reviewed browser-control engine after an
   opaque page handle resolves to an exact tab and origin. Tier-0 read capture
   never attaches the debugger.
-- `nativeMessaging`: connects the shared engine to Agent Native Desktop only
+- `nativeMessaging`: connects the shared engine to Agent-Native Desktop only
   when no usable paired relay is available.
 - `alarms`: retries Desktop and wakes the direct relay fallback.
 - `tabs`: follows the current page, resolves user-shared page handles,

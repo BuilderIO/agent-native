@@ -79,7 +79,7 @@ export default function PricingPage() {
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
-    <main className="mx-auto w-full max-w-[1120px] overflow-x-clip px-6">
+    <main className="mx-auto w-full max-w-site overflow-x-clip px-6">
       <header className="flex min-h-[72vh] flex-col justify-center py-20 sm:py-28">
         <div className="mb-8 inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-sm font-medium text-[var(--fg-secondary)]">
           <span aria-hidden className="font-mono text-[10px] opacity-70">

@@ -9,7 +9,7 @@ description: "app/ 및 public/ 디렉터리: 에이전트 네이티브 앱의 �
 
 일반적인 프런트엔드와의 유일한 아키텍처상 차이점은 이 레이어에는 자체적인 backend-for-frontend가 없다는 것입니다. 이 레이어는 에이전트가 호출하는 것과 동일한 actions를 통해 데이터를 읽고 쓰므로, 여기서 연결한 모든 것은 자동으로 에이전트도 수행할 수 있는 작업이 됩니다.
 
-<Diagram id="doc-block-client-overview-1" title={"전통적인 프런트엔드 vs. Agent Native"} summary={"전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다."}>
+<Diagram id="doc-block-client-overview-1" title={"전통적인 프런트엔드 vs. Agent-Native"} summary={"전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent-Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다."}>
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ description: "app/ 및 public/ 디렉터리: 에이전트 네이티브 앱의 �
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React 프런트엔드)</div>
       <div class="diagram-node">에이전트</div>

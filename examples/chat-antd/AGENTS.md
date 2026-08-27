@@ -53,7 +53,7 @@ workflow needs durable UI around the conversation.
 
 ## Framework Docs Lookup
 
-- Before implementing or explaining non-trivial Agent Native behavior, use the
+- Before implementing or explaining non-trivial Agent-Native behavior, use the
   `agent-native-docs` skill and the built-in `docs-search` action/tool to read
   the version-matched framework docs bundled with `@agent-native/core`.
 - Use the built-in `source-search` action/tool, or search

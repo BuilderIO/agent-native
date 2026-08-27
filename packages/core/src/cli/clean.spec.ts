@@ -680,10 +680,10 @@ describe("performClean byte accounting", () => {
 });
 
 describe("apps/ scoping", () => {
-  it("one Agent Native app does not license cleaning its neighbours", async () => {
+  it("one Agent-Native app does not license cleaning its neighbours", async () => {
     // `build/`, `dist/` and `.output/` are ordinary directory names. A Rust
     // project and a personal folder can sit beside the app that authorized
-    // the run, and neither is Agent Native build output.
+    // the run, and neither is Agent-Native build output.
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "workspace" }),
       "apps/realapp/package.json": AGENT_NATIVE_PACKAGE_JSON,
@@ -793,11 +793,11 @@ describe("runClean (CLI)", () => {
     const { io, err } = captureIo();
 
     expect(await runClean(["--cwd", root, "--builds", "--apply"], io)).toBe(2);
-    expect(err.join("\n")).toMatch(/not the root of an Agent Native project/);
+    expect(err.join("\n")).toMatch(/not the root of an Agent-Native project/);
     expect(fs.existsSync(path.join(root, "build/notes/draft.txt"))).toBe(true);
   });
 
-  it("refuses a plain npm project — package.json is not an Agent Native marker", async () => {
+  it("refuses a plain npm project — package.json is not an Agent-Native marker", async () => {
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "my-photo-scripts" }),
       "build/vacation/IMG_0001.raw": "x".repeat(400),
@@ -806,7 +806,7 @@ describe("runClean (CLI)", () => {
     const { io, err } = captureIo();
 
     expect(await runClean(["--cwd", root, "--builds", "--apply"], io)).toBe(2);
-    expect(err.join("\n")).toMatch(/not the root of an Agent Native project/);
+    expect(err.join("\n")).toMatch(/not the root of an Agent-Native project/);
     expect(fs.existsSync(path.join(root, "build/vacation/IMG_0001.raw"))).toBe(
       true,
     );
@@ -821,14 +821,14 @@ describe("runClean (CLI)", () => {
     const { io, err } = captureIo();
 
     expect(await runClean(["--cwd", root, "--builds", "--apply"], io)).toBe(2);
-    expect(err.join("\n")).toMatch(/not the root of an Agent Native project/);
+    expect(err.join("\n")).toMatch(/not the root of an Agent-Native project/);
     expect(
       fs.existsSync(path.join(root, "apps/mail/build/client/bundle.js")),
     ).toBe(true);
   });
 
-  it("refuses a pnpm-workspace.yaml root with no Agent Native app under it", async () => {
-    // A workspace marker says "monorepo", not "Agent Native monorepo" — every
+  it("refuses a pnpm-workspace.yaml root with no Agent-Native app under it", async () => {
+    // A workspace marker says "monorepo", not "Agent-Native monorepo" — every
     // pnpm repo on the machine has one, `$HOME` included for some setups.
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "other-monorepo" }),
@@ -838,13 +838,13 @@ describe("runClean (CLI)", () => {
     const { io, err } = captureIo();
 
     expect(await runClean(["--cwd", root, "--builds", "--apply"], io)).toBe(2);
-    expect(err.join("\n")).toMatch(/not the root of an Agent Native project/);
+    expect(err.join("\n")).toMatch(/not the root of an Agent-Native project/);
     expect(
       fs.existsSync(path.join(root, "apps/mail/build/client/bundle.js")),
     ).toBe(true);
   });
 
-  it("refuses an npm workspaces root with no Agent Native app under it", async () => {
+  it("refuses an npm workspaces root with no Agent-Native app under it", async () => {
     const root = makeTempRoot({
       "package.json": JSON.stringify({
         name: "other-monorepo",
@@ -857,13 +857,13 @@ describe("runClean (CLI)", () => {
     const { io, err } = captureIo();
 
     expect(await runClean(["--cwd", root, "--builds", "--apply"], io)).toBe(2);
-    expect(err.join("\n")).toMatch(/not the root of an Agent Native project/);
+    expect(err.join("\n")).toMatch(/not the root of an Agent-Native project/);
     expect(fs.existsSync(path.join(root, "build/site/index.html"))).toBe(true);
     expect(fs.existsSync(path.join(root, "dist/bundle.js"))).toBe(true);
     expect(fs.existsSync(path.join(root, ".output/server.mjs"))).toBe(true);
   });
 
-  it("accepts a workspace root once an app under apps/ is Agent Native", async () => {
+  it("accepts a workspace root once an app under apps/ is Agent-Native", async () => {
     const root = makeTempRoot({
       "package.json": JSON.stringify({ name: "workspace" }),
       "pnpm-workspace.yaml": "packages:\n  - apps/*\n",

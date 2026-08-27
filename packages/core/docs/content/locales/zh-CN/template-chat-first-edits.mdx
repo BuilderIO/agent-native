@@ -1,31 +1,31 @@
 ---
-title: "在 Chat 中添加你的第一个功能"
-description: "渲染 Chat 入门屏幕的唯一文件、它的真实 props 做什么，以及从头到尾添加一个功能的完整演练。"
+title: "聊天：你的第一个功能"
+description: "渲染聊天入门屏幕的唯一文件、它的真实 props 做什么，以及从头到尾添加一个功能的完整演练。"
 ---
 
-# 在 Chat 中添加你的第一个功能
+# 你的第一个功能
 
-本页面面向扩展[聊天模板](/docs/template-chat)的开发者。它介绍渲染入门聊天屏幕的唯一文件，然后演练当你要求一个真实功能时代理通常会涉及的一切。
+本页面适用于扩展 [聊天模板](/docs/template-chat) 的开发者。它介绍了渲染入门聊天屏幕的唯一文件，然后演练当你要求实现一个真实功能时，代理通常会涉及的所有内容。
 
-## 要检查的第一个代码 {#first-code}
+## 首先要检查的代码 {#first-code}
 
-- `actions/hello.ts` 是代理可以调用的启动行为。更换它或
-  在其旁边添加 actions。
-- `app/routes/_index.tsx` 渲染全页聊天界面。调整
-  建议、空状态、作曲家或周围布局。
-- `AGENTS.md` 告诉内置代理如何在此应用程序内工作。
+- `actions/hello.ts` 是代理可以调用的启动行为。替换它，或在旁边
+  添加新的 actions。
+- `app/routes/_index.tsx` 渲染整页聊天界面。在这里调整
+  建议、空状态、composer 或周围的布局。
+- `AGENTS.md` 告诉内置代理如何在此应用中工作。
 
 <FileTree
-  id="doc-block-jyzkc1"
-  title={"Chat 模板布局"}
+  id="doc-block-chat3"
+  title="聊天模板结构"
   entries={[
     {
       path: "actions/hello.ts",
-      note: "一个示例 action；替换它或在旁边添加 actions",
+      note: "唯一的示例 action；替换它，或在旁边添加新的 actions",
     },
     {
       path: "actions/view-screen.ts",
-      note: "代理读取的标准上下文 action",
+      note: "代理最先调用的标准上下文 action",
     },
     {
       path: "actions/navigate.ts",
@@ -33,38 +33,113 @@ description: "渲染 Chat 入门屏幕的唯一文件、它的真实 props 做�
     },
     {
       path: "app/routes/_index.tsx",
-      note: "渲染整页 chat 界面；编辑建议、空状态和 composer",
+      note: "渲染整页聊天界面；在这里编辑建议、空状态、composer",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "重新导出 _index.tsx，因此 /chat/:threadId 会渲染带有 URL 中线程 id 的相同界面",
+      note: "重新导出 _index.tsx，使 /chat/:threadId 用 URL 中的线程 id 渲染同一个界面",
     },
     {
       path: "AGENTS.md",
-      note: "内置代理读取的以 chat 为先的指南",
+      note: "内置代理读取的、以聊天为先的指南",
     },
   ]}
 />
 
-真正的入门文件不仅仅是一个简单的 `<AgentChatSurface />`；线程 URL 同步、标签页身份和 hero composer 布局请参阅 `app/routes/_index.tsx`。
+真正的起始文件不只是一个简单的 `<AgentChatSurface />` —— 它接好了线程 URL 同步、用于多标签页运行的标签页身份，以及一个 hero composer 布局，并且它的文案来自 i18n key，而不是字面字符串：
 
-## 使用您自己的代理后端 {#own-agent-backend}
-
-该模板默认使用内置的应用程序代理循环。要连接自定义后端，请交换代理聊天插件后面的聊天运行时，而不是重写 UI。聊天路由应该在共享聊天界面周围保留一个薄渲染器；后端选择属于服务器插件/运行时适配器。
-
-当您的模型编排已经存在于其他地方，但您仍然想要一个具有身份验证、线程、actions、UI 状态和可部署页面的应用程序时，请使用此选项。
+<AnnotatedCode
+  id="doc-block-chat4"
+  title="app/routes/_index.tsx（精简版）"
+  filename="app/routes/_index.tsx"
+  language="tsx"
+  code={
+    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "19-21",
+      label: "线程 URL 同步",
+      note: "`/chat/:threadId`（`chat.$threadId.tsx`）重新导出了同一个组件。当路由带有线程 id 时，`threadUrlSync` 会让 URL 和当前活动线程保持同步：切换线程会 push 到 `/chat/<id>`，打开该 URL 则会恢复该线程。",
+    },
+    {
+      lines: "38",
+      label: "标签页身份",
+      note: "`TAB_ID`（`app/lib/tab-id.ts`，每个浏览器标签页生成一次的随机 id）让共享聊天运行时能够区分同一个应用打开的多个标签页，因此在一个标签页中启动的运行不会被误认为是另一个标签页中的运行。",
+    },
+    {
+      lines: "39-44",
+      label: "建议文案是 i18n key",
+      note: '建议文案来自 `t("chat.suggestionCapabilities")` 等调用（参见 `app/i18n/en-US.ts`），而不是字面英文字符串，并且 `dynamicSuggestions={false}` 会关闭运行时自身的建议生成功能，改用这三条建议。',
+    },
+    {
+      lines: "46-47",
+      label: "Hero composer 布局",
+      note: '`composerLayoutVariant="hero"` 加上 `centerComposerWhenEmpty` 会让 composer 居中显示，并在上方带有标题/描述，而不是其他 `mode="page"` 聊天路由使用的普通底部固定 composer。',
+    },
+    {
+      lines: "49-54",
+      label: "composerSlot 插槽",
+      note: "只有当 composer 居中显示时，才会在其上方渲染的任意 JSX —— “我能帮什么？”这行标题就在这里。编辑这里即可更改空状态的宣传文案，而不需要改动运行时。",
+    },
+    {
+      lines: "23-31",
+      label: "主页交接",
+      note: '当一次运行在此页面上启动时，`markAgentChatHomeHandoff("chat")` 会记录主页界面拥有这次活动运行，因此离开后再返回会重新接上这次运行，而不会丢失它。',
+    },
+  ]}
+/>
 
 ## 首次编辑 {#first-edits}
 
-搭好脚手架后，询问代理：
+大多数的第一个功能都遵循相同的形态：一张表、一两个 actions、一个路由、一个导航条目，以及一次 `AGENTS.md` 更新。向代理提出：
 
-> 添加 `notes` 的数据模型。注释有 ID、标题、正文和所有者。在 `/notes` 渲染笔记页面，添加创建/列出 actions，并保持聊天能够创建笔记。
+> 为 `notes` 添加一个数据模型。一条笔记有 id、标题、正文和所有者。在 `/notes` 渲染一个笔记页面，添加创建/列出 actions，并保持聊天仍能创建笔记。
 
-代理应添加 Drizzle 架构、actions、路线、导航和说明。然后您可以使用 UI 或聊天中的注释功能。
+聊天默认根本没有 `server/db/schema.ts`（参见 [包含哪些内容](/docs/template-chat#what-ships)），因此第一处改动就是新增一个文件，遵循其他所有模板都使用的相同 `table`/`text`/`ownableColumns` 形态：
 
-## 下一步是什么
+<Diff
+  id="doc-block-chat5"
+  title="一张新的 notes 表"
+  filename="server/db/schema.ts"
+  language="ts"
+  before={""}
+  after={
+    'import {\n  table,\n  text,\n  ownableColumns,\n} from "@agent-native/core/db/schema";\n\nexport const notes = table("notes", {\n  id: text("id").primaryKey(),\n  title: text("title").notNull(),\n  body: text("body").notNull(),\n  createdAt: text("created_at").notNull(),\n  updatedAt: text("updated_at").notNull(),\n  ...ownableColumns(),\n});'
+  }
+  annotations={[
+    {
+      lines: "1-5",
+      label: "共享的 schema 辅助函数",
+      note: "`table`/`text`/`ownableColumns` 来自 `@agent-native/core/db/schema` —— 与其他所有模板使用的完全一样、与具体数据库方言无关的辅助函数，因此这个文件在 SQLite/Postgres 之间保持可移植。",
+    },
+    {
+      lines: "13",
+      label: "ownableColumns 辅助函数",
+      note: "`...ownableColumns()` 会添加框架的 `accessFilter`/`resolveAccess` 辅助函数所期望的所有者/组织列，因此 notes 无需额外的接线，就能直接融入标准的按用户/按组织共享模型。",
+    },
+  ]}
+/>
 
-- [**聊天模板**](/docs/template-chat) — 默认包含哪些内容以及何时选择它
-- [**Chat — 运行时与管理界面**](/docs/template-chat-developers) — 核心表、身份验证和管理页面
-- [**Actions**](/docs/actions-overview) - 操作系统聊天和 UI 都调用
+剩下的功能由此展开：
+
+- `actions/create-note.ts` — 一个带有 Zod schema（`title`、`body`）的 `defineAction`，形态与 `actions/hello.ts` 相同。
+- `actions/list-notes.ts` — 一个只读 action（`readOnly: true`，与 `actions/view-screen.ts` 相同），通过 `accessFilter` 查询新表。
+- `app/routes/notes.tsx` — 一个新路由；该应用使用基于文件系统的路由（`app/routes.ts` 中的 `flatRoutes()`），因此添加这个文件就足以挂载 `/notes`。
+- 在 `app/components/layout/Sidebar.tsx` 的 `navItems` 数组中添加一个指向 `/notes` 的新条目。
+- 在 `AGENTS.md` 中添加说明，告诉代理 notes 的存在，以及由哪些 actions 管理它们。
+
+一个新的 action 一旦存在，聊天就可以立即调用它 —— 每个 `defineAction` 默认都是一个 tool，除非它设置了 `agentTool: false`。不过它不一定会出现在模型的第一次请求中：`server/plugins/agent-chat.ts` 设置了 `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`，它只控制第一轮会发送哪些 tool schema。其他一切，包括全新的 `create-note`，仍然可以通过 `tool-search` 到达，并按需加载 —— 只有当你想让它从第一条消息起就出现在模型的默认工具集中时，才把它的名字加入这个列表。
+
+## 使用你自己的代理后端 {#own-agent-backend}
+
+该模板默认使用内置的应用代理循环。要连接自定义后端，请更换代理聊天插件背后的聊天运行时，而不是重写 UI。聊天路由应该始终是围绕共享聊天界面的一个精简渲染器；后端的选择属于服务器插件/运行时适配器。
+
+当你的模型编排已经存在于别处，但你仍然想要一个具有身份验证、线程、actions、UI 状态和可部署页面的应用时，请使用这种方式。
+
+## 接下来
+
+- [**聊天**](/docs/template-chat) — 默认包含哪些内容，以及何时选择它
+- [**聊天：开发者指南**](/docs/template-chat-developers) — 快速入门、actions、核心表、身份验证，以及管理页面
+- [**Actions**](/docs/actions-overview) — 聊天和 UI 都会调用的 action 系统
 - [**Native 聊天界面**](/docs/native-chat-ui) — 聊天界面基元和运行时选项

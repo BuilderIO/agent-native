@@ -14,7 +14,7 @@ const sendEmail = vi.hoisted(() =>
 
 const publishedForm = {
   id: "form_1",
-  title: "Agent Native Feedback",
+  title: "Agent-Native Feedback",
   slug: "agent-native-feedback",
   fields: JSON.stringify([
     { id: "msg", type: "textarea", label: "Feedback", required: false },
@@ -131,7 +131,7 @@ describe("submitForm pageUrl pass-through", () => {
     expect(sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "owner@example.com",
-        subject: "New response: Agent Native Feedback",
+        subject: "New response: Agent-Native Feedback",
       }),
     );
     expect(state.requestContexts).toContainEqual({

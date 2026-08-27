@@ -73,7 +73,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('localSourceAccess === "available"');
     expect(source).toContain("data-local-source-read-only");
-    expect(source).toContain('device: "Agent Native Desktop"');
+    expect(source).toContain('device: "Agent-Native Desktop"');
     expect(source).toContain("canEdit={editorCanEdit}");
     expect(toolbar).toContain(
       "disabled={!canEdit || revealLocalSource.isPending}",
@@ -995,5 +995,20 @@ describe("document editor layout", () => {
     expect(source).toContain("<DropdownMenu modal={false}");
     expect(source).toContain('item.iconKind === "folder"');
     expect(source).toContain('menuItem.iconKind === "folder"');
+  });
+
+  it("keeps filesystem time separate from the SQL save watermark", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      "const sqlUpdatedAt = documentUpdatedAtRef.current",
+    );
+    expect(source).toContain("updatedAt: sqlUpdatedAt ?? persisted.updatedAt");
+    expect(source).toContain("updatedAt: document.updatedAt");
   });
 });

@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useMemo } from "react";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 
 import { SqlChart } from "@/components/dashboard/SqlChart";
@@ -102,6 +103,17 @@ export default function ChartRoute() {
     if (!raw) return { error: "Missing panel parameter" };
     return decodePanel(raw);
   }, [raw]);
+
+  const panelTitle = "error" in result ? undefined : result.title;
+  useEffect(() => {
+    if (!panelTitle) return;
+    const nextTitle = `${normalizeDocumentTitle(panelTitle, "Chart")} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [panelTitle]);
 
   if ("error" in result) {
     return <ChartError message={result.error} />;

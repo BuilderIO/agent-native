@@ -93,6 +93,14 @@ export function parseMcpToolName(
 export interface McpClientManagerOptions {
   /** Emit debug logs on startup */
   debug?: boolean;
+  /**
+   * Per-server budget for the connect and tools/list handshake. The default
+   * suits an interactive surface that must not stall on a dead server; raise it
+   * only for a caller whose target is expected to be cold-starting, and stay
+   * under the platform request wall. An explicit
+   * `AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS` still overrides this.
+   */
+  connectTimeoutMs?: number;
 }
 
 export interface McpToolCallOptions {
@@ -165,7 +173,7 @@ type SdkModules = {
 
 const DEFAULT_MCP_CONNECT_TIMEOUT_MS = 5_000;
 
-function mcpConnectTimeoutMs(): number {
+function mcpConnectTimeoutMs(configured?: number): number {
   const raw =
     typeof process !== "undefined"
       ? process.env.AGENT_NATIVE_MCP_CLIENT_CONNECT_TIMEOUT_MS ||
@@ -173,6 +181,9 @@ function mcpConnectTimeoutMs(): number {
       : undefined;
   const parsed = raw ? Number(raw) : NaN;
   if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  if (Number.isFinite(configured) && (configured as number) >= 0) {
+    return configured as number;
+  }
   return DEFAULT_MCP_CONNECT_TIMEOUT_MS;
 }
 
@@ -198,6 +209,7 @@ async function withConnectTimeout<T>(
 export class McpClientManager {
   private readonly servers: Map<string, ServerEntry> = new Map();
   private readonly debug: boolean;
+  private readonly connectTimeoutMs: number | undefined;
   private started = false;
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
@@ -210,6 +222,7 @@ export class McpClientManager {
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
     this.config = config;
     this.debug = !!options.debug;
+    this.connectTimeoutMs = options.connectTimeoutMs;
   }
 
   /**
@@ -493,7 +506,7 @@ export class McpClientManager {
     // process (stdio) or pending HTTP session — otherwise repeated failures
     // leak transports. Assign to the entry only after the handshake succeeds.
     try {
-      const timeoutMs = mcpConnectTimeoutMs();
+      const timeoutMs = mcpConnectTimeoutMs(this.connectTimeoutMs);
       await withConnectTimeout(
         Promise.resolve(client.connect(transport)),
         `MCP server ${entry.id} connect`,

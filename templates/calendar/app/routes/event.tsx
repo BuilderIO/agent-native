@@ -4,6 +4,7 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconClock,
@@ -14,6 +15,7 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
+import { useEffect } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -175,6 +177,20 @@ export default function EventPreviewRoute() {
     id ? { id, calendarId } : undefined,
     { enabled: !!id, retry: false },
   );
+  const result = data as EventPreviewResult | undefined;
+  const event = result && !("error" in result) ? result : null;
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      event?.title,
+      "Event",
+    )} — Calendar`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [event?.title]);
 
   if (!id) {
     return <ErrorCard message={t("eventPreview.noEventId")} />;
@@ -188,7 +204,6 @@ export default function EventPreviewRoute() {
     );
   }
 
-  const result = data as EventPreviewResult | undefined;
   if (error || !result || "error" in result) {
     return (
       <ErrorCard

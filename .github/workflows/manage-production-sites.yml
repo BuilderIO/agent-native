@@ -1,4 +1,4 @@
-name: Manage Agent Native production sites
+name: Manage Agent-Native production sites
 
 # Production is intentionally manual. Use deploy-main to publish the latest
 # main commit, or rollback to restore each selected site's previous or chosen

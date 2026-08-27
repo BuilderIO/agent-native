@@ -254,6 +254,22 @@ named migrations को version number से स्वतंत्र track क
   migrate:production` देता है।
 </Callout>
 
+### Drizzle Kit के साथ नए ऐप माइग्रेशन बनाएं {#drizzle-migrations}
+
+ऐप स्कीमा में नए बदलावों के लिए समीक्षा योग्य SQL बनाने हेतु
+`pnpm db:generate` चलाएं। इससे `server/db/migrations/<id_name>.sql`
+बनता है और `runDrizzleMigrations` इन फ़ाइलों को Node.js और Node-आधारित serverless
+रनटाइम में साझा Agent-Native रनर में लोड करता है। प्रोडक्शन बदलावों की
+जिम्मेदारी release चरण की रहती है। डायलेक्ट-विशिष्ट SQL, D1 व्यवहार, backfill और
+स्थगित JavaScript चरणों के लिए `runMigrations()` का उपयोग जारी रखें।
+
+फ़ाइल-सिस्टम आधारित loader Cloudflare Workers/Pages या D1 सहित उन edge रनटाइम में
+उपलब्ध नहीं है जहाँ deployable फ़ाइल-सिस्टम नहीं होता। वहाँ worker bundle में
+embedded SQL entries के साथ `runMigrations()` का उपयोग करें। एक Drizzle output
+folder में dialect-specific metadata baseline एक ही होता है, इसलिए primary
+deployment dialect के लिए generate करें और उसी folder को SQLite और PostgreSQL के
+बीच न बदलें।
+
 <Callout tone="risk">
   उत्पादन डेटाबेस के विरुद्ध कभी भी `drizzle-kit push` न चलाएं। टेम्प्लेट स्कीमा
   केवल ऐप-विशिष्ट तालिकाओं को परिभाषित करते हैं; इनमें केंद्रीय फ्रेमवर्क
@@ -263,7 +279,7 @@ named migrations को version number से स्वतंत्र track क
   होगी।
 </Callout>
 
-प्रत्येक ऐप की जड़ में `drizzle.config.ts` स्थानीय विकास स्कीमा निरीक्षण के लिए drizzle-kit को कॉन्फ़िगर करता है:
+प्रत्येक ऐप की जड़ में `drizzle.config.ts` स्थानीय विकास स्कीमा निरीक्षण के लिए drizzle-kit को कॉन्फ़िगर करता है। यदि एक migration folder कई backends के लिए है, तो primary deployment dialect स्पष्ट रूप से दें, जैसे `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
@@ -342,7 +358,7 @@ const rows = await db
 
 ## SQL-समर्थित सिंक {#sync}
 
-Agent-native फ़ाइल सिस्टम वॉचर्स या स्टिकी इन-मेमोरी स्टेट पर निर्भर नहीं करता। जब कोई Action डेटाबेस में लिखती है, तो एक सिंक संस्करण बढ़ जाता है। क्लाइंट का `useDbSync()` हुक `/_agent-native/poll` को पोल करता है और जब उसे उच्चतर संस्करण दिखता है तो React Query कैश को अमान्य कर देता है।
+Agent-Native फ़ाइल सिस्टम वॉचर्स या स्टिकी इन-मेमोरी स्टेट पर निर्भर नहीं करता। जब कोई Action डेटाबेस में लिखती है, तो एक सिंक संस्करण बढ़ जाता है। क्लाइंट का `useDbSync()` हुक `/_agent-native/poll` को पोल करता है और जब उसे उच्चतर संस्करण दिखता है तो React Query कैश को अमान्य कर देता है।
 
 यह सर्वर रहित और मल्टी-इंस्टेंस डिप्लॉयमेंट में काम करता है क्योंकि डेटाबेस समन्वय बिंदु है। यदि आप actions के बाहर कस्टम म्यूटेशन लिखते हैं, तो फ्रेमवर्क हेल्पर्स का उपयोग करें या उपयुक्त सिंक इनवैलिडेशन उत्सर्जित करें ताकि खुले UI रिफ्रेश हो सकें।
 

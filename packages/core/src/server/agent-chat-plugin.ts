@@ -1687,7 +1687,7 @@ export function createAgentChatPlugin(
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
-        description: `Agent-native ${options?.appId ?? "app"} agent`,
+        description: `Agent-Native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(externalActions),
         authenticatedSkills: buildAuthenticatedAgentA2ASkills(
           externalFullActions ?? externalActions,
@@ -2524,7 +2524,7 @@ export function createAgentChatPlugin(
           appId: options?.appId,
           description:
             mcpOptions.description ??
-            `Agent-native ${options?.appId ?? "app"} agent`,
+            `Agent-Native ${options?.appId ?? "app"} agent`,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
           actions: externalActions,
@@ -3301,7 +3301,7 @@ export function createAgentChatPlugin(
           return [
             options?.appId
               ? `You are speaking from the ${options.appId} app.`
-              : "You are speaking from an Agent Native app.",
+              : "You are speaking from an Agent-Native app.",
             options?.systemPrompt?.trim()
               ? `App guidance:\n${options.systemPrompt.trim()}`
               : "",
@@ -3575,7 +3575,7 @@ This chat is rendered by the app itself. It must never edit this app's source fi
 When the user asks to add a feature, edit a component, fix a bug in the app itself, change styles, add a route, scaffold a new app, run shell commands that modify code, or do anything else that requires touching source files:
 
 1. Do NOT use dev shell/filesystem tools, write code inline, list source files, propose patches, or describe file-level implementation steps from this chat.
-2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent Native Desktop, Claude Code, or Codex in the project directory.
+2. For host-app source changes in Act mode, call \`connect-builder\` when that tool is available so a separate Builder/cloud agent can do the work. If Builder is unavailable, give a short handoff to the outer dev frame, Agent-Native Desktop, Claude Code, or Codex in the project directory.
 3. If the request is specifically to add or scaffold a new workspace app and no Builder handoff is available, mention \`npx @agent-native/core@latest add-app\` in this workspace directory as the CLI path.
 
 Non-code requests are still fine on this surface: read data, navigate the UI, summarize, search, create/update extensions (sandboxed Alpine.js mini-apps stored in SQL), and call template actions. The restriction is specifically about direct edits to the host app's own source files.

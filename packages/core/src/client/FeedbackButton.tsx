@@ -237,7 +237,7 @@ export interface FeedbackButtonProps {
   label?: string;
   /**
    * Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. First-party agent-native.com
-   * apps fall back to the Agent Native feedback form; other apps stay hidden.
+   * apps fall back to the Agent-Native feedback form; other apps stay hidden.
    * Pass null to explicitly hide the control.
    */
   url?: string | null;

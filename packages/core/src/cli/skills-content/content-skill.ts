@@ -94,7 +94,7 @@ to connect and pull it. A typical root looks like:
 
 Local-folder synchronization does not make the host language model local, and
 the hosted Content app cannot read private repo files by itself. File access
-requires a local Content app, Agent Native Desktop, or another trusted bridge.
+requires a local Content app, Agent-Native Desktop, or another trusted bridge.
 
 ## MDX And Components
 

@@ -1,4 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import type { FormField } from "@shared/types";
 import {
   IconArrowLeft,
@@ -10,7 +11,7 @@ import {
   IconArrowsSort,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,18 @@ export function ResponsesPage() {
   const { id } = useParams<{ id: string }>();
   const { data: form } = useForm(id!);
   const { data, isLoading, error, refetch } = useFormResponses(id!);
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      form?.title,
+      "Responses",
+    )} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [form?.title]);
 
   const responses = data?.responses || [];
   const fields: FormField[] = useMemo(

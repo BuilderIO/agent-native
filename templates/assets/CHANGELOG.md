@@ -3,6 +3,12 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-22
+
+### Fixed
+
+- Fixed the Library page (and the /brand-kits, /libraries, and /picker links that redirect to it) getting stuck on a loading spinner instead of showing your folders and assets.
+
 ## 2026-08-11
 
 ### Improved
@@ -39,7 +45,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ## 2026-07-29
 

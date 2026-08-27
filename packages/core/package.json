@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.175.0",
+  "version": "0.175.5",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -109,6 +109,7 @@
     "./db-admin": "./dist/db-admin/index.js",
     "./db/schema": "./dist/db/schema.js",
     "./db/drizzle-config": "./dist/db/drizzle-config.js",
+    "./db/drizzle-migrations": "./dist/db/drizzle-migrations.js",
     "./client": "./dist/client/index.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/chat-first": "./dist/client/chat-first/index.js",
@@ -134,6 +135,7 @@
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
     "./client/use-db-sync": "./dist/client/use-db-sync.js",
+    "./client/zoom-gesture": "./dist/client/zoom-gesture.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/uploads": "./dist/client/uploads/index.js",
     "./client/widgets": "./dist/client/widgets/index.js",

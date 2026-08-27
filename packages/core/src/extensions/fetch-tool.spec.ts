@@ -74,6 +74,82 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it("attaches public image responses as vision context", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("jpeg bytes", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/frame.jpg"),
+    ).resolves.toEqual({
+      status: 200,
+      statusText: "OK",
+      contentType: "image/jpeg",
+      url: "https://93.184.216.34/frame.jpg",
+      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
+    });
+  });
+
+  it.each([
+    {
+      name: "an Authorization header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ Authorization: "Bearer example-token" }),
+      },
+    },
+    {
+      name: "userinfo in the URL",
+      args: { url: "https://user:password@93.184.216.34/frame.jpg" },
+    },
+    {
+      name: "a signed URL query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?X-Amz-Signature=example-signature",
+      },
+    },
+    {
+      name: "a bare key query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?key=example-key",
+      },
+    },
+    {
+      name: "a compact credential header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ "x-rapidapi-key": "example-key" }),
+      },
+    },
+    {
+      name: "a credential-bearing URL fragment",
+      args: {
+        url: "https://93.184.216.34/frame.jpg#access_token=example-token",
+      },
+    },
+  ])(
+    "does not attach credentialed image responses with $name",
+    async ({ args }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("jpeg bytes", {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+
+      const result = await createFetchToolEntry()["web-request"].run(args);
+
+      expect(result).toContain("HTTP 200 OK");
+      expect(result).not.toContain("anBlZyBieXRlcw==");
+      expect(result).not.toContain("_agentImages");
+    },
+  );
+
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {

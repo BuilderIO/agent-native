@@ -36,6 +36,7 @@ vi.mock("./credential-provider.js", async (importOriginal) => {
 
 import {
   appendBuilderConnectToken,
+  appendBuilderConnectStateCookie,
   buildBuilderCliAuthUrl,
   buildBuilderAgentUserPrompt,
   BUILDER_AGENT_NATIVE_APP_PARAM,
@@ -44,6 +45,7 @@ import {
   BUILDER_AGENT_NATIVE_TEMPLATE_PARAM,
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
+  BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_RELAY_FLOW_HEADER,
   BUILDER_RELAY_SECRET_ENV,
   BUILDER_RELAY_SIGNATURE_HEADER,
@@ -66,10 +68,12 @@ import {
   normalizeBuilderAgentContext,
   resolveBuilderCallbackReturnUrl,
   resolveBuilderConnectCallbackUrl,
+  resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
   resolveBuilderPreviewRelayTargetOrigin,
   resolveBuilderBranchProjectId,
   runBuilderAgent,
+  removeBuilderConnectStateCookie,
   signBuilderConnectToken,
   signBuilderCallbackState,
   signBuilderPreviewRelayState,
@@ -115,6 +119,7 @@ describe("Builder callback CSRF state", () => {
   beforeEach(() => {
     // Pin the secret so signed tokens are stable across calls and the
     // .env.local autogeneration in resolveAuthSecret never fires.
+    delete process.env.OAUTH_STATE_SECRET;
     process.env.BETTER_AUTH_SECRET = "test-secret-9f2a7c";
   });
 
@@ -343,6 +348,24 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("Builder connect OAuth state", () => {
+    it("uses the stable OAuth state secret when auth secret is absent", () => {
+      delete process.env.BETTER_AUTH_SECRET;
+      process.env.OAUTH_STATE_SECRET = "oauth-state-secret-for-tests";
+
+      const state = createBuilderConnectState();
+
+      delete process.env.OAUTH_STATE_SECRET;
+      process.env.OAUTH_STATE_SECRET = "oauth-state-secret-for-tests";
+      expect(isSignedBuilderConnectState(state)).toBe(true);
+    });
+
+    it("accepts an in-flight state signed with the previous auth secret", () => {
+      const state = createBuilderConnectState();
+      process.env.OAUTH_STATE_SECRET = "oauth-state-secret-for-tests";
+
+      expect(isSignedBuilderConnectState(state)).toBe(true);
+    });
+
     it("creates a signed OAuth state", () => {
       expect(isSignedBuilderConnectState(createBuilderConnectState())).toBe(
         true,
@@ -414,6 +437,49 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("binds the OAuth state into the registered callback URL", () => {
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "https",
+      });
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        "https://myapp.up.railway.app/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+    });
+
+    it("recovers state from the callback cookie when Builder omits query state", () => {
+      const state = createBuilderConnectState();
+      const otherState = createBuilderConnectState();
+
+      expect(resolveBuilderConnectCallbackState(null, state)).toBe(state);
+      expect(resolveBuilderConnectCallbackState(state, state)).toBe(state);
+      expect(resolveBuilderConnectCallbackState("returned-state", null)).toBe(
+        "returned-state",
+      );
+      expect(resolveBuilderConnectCallbackState(null, null)).toBeNull();
+      expect(BUILDER_CONNECT_STATE_COOKIE).toBe("an_builder_connect_state");
+
+      const concurrentCookie = appendBuilderConnectStateCookie(
+        appendBuilderConnectStateCookie(null, state),
+        otherState,
+      );
+      expect(
+        resolveBuilderConnectCallbackState(null, concurrentCookie),
+      ).toBeNull();
+      expect(resolveBuilderConnectCallbackState(state, concurrentCookie)).toBe(
+        state,
+      );
+      expect(
+        resolveBuilderConnectCallbackState(
+          "unexpected-state",
+          concurrentCookie,
+        ),
+      ).toBeNull();
+      expect(removeBuilderConnectStateCookie(concurrentCookie, state)).toBe(
+        otherState,
+      );
+    });
+
     it("rejects building a callback URL when the request origin is HTTP in production", () => {
       process.env.NODE_ENV = "production";
       const event = createBuilderBrowserEvent({
@@ -425,10 +491,9 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("buildBuilderCliAuthUrl", () => {
-    // The callback state is optional because legacy /builder/connect clients
-    // can still rely on the server-side pending-connect row. New clients get a
-    // ready-to-open /cli-auth URL from /builder/status with _an_state embedded
-    // in redirect_url so the popup can skip the app trampoline entirely.
+    // New clients get a ready-to-open /cli-auth URL from /builder/status with
+    // _an_state embedded in redirect_url so the popup can skip the app
+    // trampoline entirely.
     it("builds a clean redirect_url (no _an_state) when state is null", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
@@ -515,7 +580,7 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
-    it("adds Agent Native signup attribution to cli-auth and callback URLs", () => {
+    it("adds Agent-Native signup attribution to cli-auth and callback URLs", () => {
       const cliAuthUrl = buildBuilderCliAuthUrl(
         "https://alice.agent-native.com",
         signBuilderCallbackState("alice@example.com"),

@@ -37,4 +37,36 @@ describe("SlideEditor render-phase safety", () => {
     });
     expect(offenders.map((m) => m[0])).toEqual([]);
   });
+
+  it("flushes an active inline draft before browser teardown", () => {
+    expect(source).toContain("flushPendingSaves");
+    expect(source).toContain(
+      'window.addEventListener("beforeunload", flushInlineEditDraft',
+    );
+    expect(source).toContain(
+      'window.addEventListener("pagehide", flushInlineEditDraft',
+    );
+    expect(source).toContain(
+      'document.addEventListener("visibilitychange", flushWhenHidden',
+    );
+  });
+
+  it("keeps the live draft ref across lifecycle flushes", () => {
+    const start = source.indexOf("const flushInlineEditDraft");
+    const end = source.indexOf("const flushWhenHidden", start);
+    const flushBody = source.slice(start, end);
+    expect(flushBody).toContain("flushPendingSaves();");
+    expect(flushBody).not.toContain("inlineEditDraftRef.current = null");
+    expect(flushBody).not.toContain("onUpdateSlideRef.current");
+  });
+
+  it("selects persisted text boxes on plain click while keeping double-click editing", () => {
+    const clickStart = source.indexOf("// For editable text");
+    const clickEnd = source.indexOf("// Non-text elements", clickStart);
+    const clickBody = source.slice(clickStart, clickEnd);
+    expect(clickBody).toContain("includeTextBoxes: false");
+    expect(source).toContain(
+      "const block = findSmartBlock(target, slideContent);",
+    );
+  });
 });

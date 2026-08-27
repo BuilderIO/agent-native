@@ -1,3 +1,4 @@
+import { DEFAULT_CANVAS_MIN_ZOOM } from "@shared/canvas-math";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -686,6 +687,22 @@ describe("computeFitCameraForFrames", () => {
     expect(camera).not.toBeNull();
     // The union bounds span ~1200x1200 — must zoom out to fit both.
     expect(camera!.zoom).toBeLessThan(100);
+  });
+
+  it("still fits a board far too wide to show at a legible zoom", () => {
+    // Zoom to fit must reach the bottom of the zoom range: a floor of 10% caps
+    // an explicit fit at roughly nine 1280px screens in a row.
+    const frames = Array.from({ length: 30 }, (_, index) => ({
+      id: `s${index}`,
+      geometry: { x: index * 1400, y: 0, width: 1280, height: 900 },
+    }));
+    const camera = computeFitCameraForFrames(frames, {
+      width: 1400,
+      height: 900,
+    });
+    expect(camera).not.toBeNull();
+    expect(camera!.zoom).toBeLessThan(10);
+    expect(camera!.zoom).toBeGreaterThanOrEqual(DEFAULT_CANVAS_MIN_ZOOM);
   });
 
   it("clamps the computed zoom to the shared canvas zoom range", () => {

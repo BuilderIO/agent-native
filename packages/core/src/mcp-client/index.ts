@@ -56,6 +56,11 @@ export {
 } from "./oauth-client.js";
 
 export {
+  readMcpOAuthFlowCookiePayload,
+  type McpOAuthFlowCookieReadResult,
+} from "./oauth-flow-cookie.js";
+
+export {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
   getBuiltinMcpCapability,

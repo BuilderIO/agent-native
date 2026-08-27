@@ -21,7 +21,7 @@ Apps that need custom database tables add a third:
 
 ```text
 server/plugins/
-  db.ts          -> register app-owned migrations for local startup
+  db.ts          -> register app-owned migrations for local startup and releases
 ```
 
 ## Auth Plugin {#auth-plugin}
@@ -80,7 +80,33 @@ screen when context matters.`,
 
 ## Database Plugin {#database-plugin}
 
-If your app defines custom database tables, add `server/plugins/db.ts` to register schema migrations for local startup. It uses `runMigrations` from `@agent-native/core/db`:
+If your app defines custom database tables, add `server/plugins/db.ts` to register schema migrations. For new app-owned tables and columns, prefer Drizzle Kit generated SQL with `runDrizzleMigrations`:
+
+```ts filename="server/db/migrations.ts"
+import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
+
+export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
+  table: "my_app_migrations",
+  dialect: "postgresql",
+});
+```
+
+Keep this loader module under `server/db/` and re-export it from
+`server/plugins/db.ts` so `./migrations` resolves correctly from source and
+from the emitted server bundle:
+
+```ts filename="server/plugins/db.ts"
+export { default } from "../db/migrations.js";
+```
+
+This filesystem-backed helper is for Node.js and Node-based serverless
+deployments. Cloudflare Workers/Pages and D1 do not provide a deployable
+filesystem, so use `runMigrations()` with SQL entries embedded in the worker
+bundle instead.
+
+Use `runMigrations` from `@agent-native/core/db` for handwritten entries and
+cases that need dialect-specific SQL, D1-specific behavior, data backfills, or
+deferred JavaScript steps:
 
 ```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
@@ -103,7 +129,17 @@ export default runMigrations(
 );
 ```
 
-Each entry needs a `version` number and a `sql` string. Give it a stable `name` too — `runMigrations` tracks named entries independently of `version`, so it still applies exactly once even if another branch reuses the same version number for unrelated DDL. The `table` option names the migration tracking table. Use a name unique to your app so it does not collide with framework migrations. See [Database](/docs/server-database#migrations) for the full schema authoring guide and the name-based tracking rationale.
+Each handwritten entry needs a `version` number and a `sql` string. Give it a
+stable `name` too. `runMigrations` tracks named entries independently of
+`version`, so it still applies exactly once even if another branch reuses the
+same version number for unrelated DDL. The `table` option names the migration
+tracking table. Use a name unique to your app so it does not collide with
+framework migrations. See [Database](/docs/server-database#migrations) for the
+full schema authoring guide and the name-based tracking rationale.
+
+On Node.js runtimes, `runDrizzleMigrations` reads each committed `<id_name>.sql`
+file lazily after the shared request guard. Both helpers remain release-safe. The explicit
+`migrate:production` command is the production owner of schema changes.
 
 <Callout tone="warning">
   Migrations must be additive. Never put destructive SQL (`DROP TABLE`, `ALTER
