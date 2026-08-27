@@ -5,21 +5,21 @@
 export const OCEAN_TUNING = {
   simulation: {
     oceanSize: 200,
-    worldSize: 400,
+    worldSize: 700,
     timeScale: 0.6,
     spectrumTimeScale: 0.5,
     windSpeed: 12.9,
     windAngle: 4.83,
     amplitude: 1.3,
     choppiness: 1.51,
-    displacementScale: 0.005,
+    displacementScale: 0.035,
     foamThreshold: 0,
   },
   particles: {
-    pointSize: 0.75,
+    pointSize: 1.1,
     fadeNear: 60,
-    fadeFar: 250,
-    fadePower: 3.2,
+    fadeFar: 520,
+    fadePower: 1.8,
     oceanColor: [
       0.003035269835488375, 0.003035269835488375, 0.003035269835488375, 0,
     ] as const,
@@ -27,12 +27,16 @@ export const OCEAN_TUNING = {
     foamColor: [1, 1, 1, 0] as const,
   },
   camera: {
-    // Gallery reframe: the docs canvas is much taller than front's hero strip.
-    // Raising and backing off the rig keeps the horizon in the upper third.
-    eye: [0, 30, 90] as const,
-    target: [0, 5, 55] as const,
-    pitchDegrees: -10,
-    fovDegrees: 90,
+    // Third reframe of this rig. Upstream's gallery values put the horizon in
+    // the upper third, which on a wide, short marketing hero drove the wave
+    // band straight through the headline. The positive pitch tilts the rig up
+    // so the empty sky covers the copy and the wave energy sits under the CTA
+    // row instead. Re-check against the headline at 1440, 1024, and 390 before
+    // changing any of these.
+    eye: [0, 14, 78] as const,
+    target: [0, 0, -60] as const,
+    pitchDegrees: 21,
+    fovDegrees: 95,
     near: 0.1,
     far: 2000,
   },

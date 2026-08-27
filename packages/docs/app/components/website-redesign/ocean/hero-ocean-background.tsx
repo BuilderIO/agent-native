@@ -77,7 +77,7 @@ export function HeroOceanBackground({
     <div
       ref={containerRef}
       aria-hidden="true"
-      className="absolute inset-0 z-[-1] opacity-[var(--b-hero-shader-opacity)]"
+      className="absolute inset-0 z-[-1] opacity-[var(--b-hero-ocean-opacity)]"
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
     </div>
