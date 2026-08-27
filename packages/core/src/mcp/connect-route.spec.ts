@@ -137,11 +137,17 @@ function ev(opts: {
   path?: string;
   body?: any;
   host?: string;
+  acceptLanguage?: string;
 }): any {
   return {
     method: opts.method ?? "GET",
     body: opts.body,
-    headers: { host: opts.host ?? "mail.agent-native.com" },
+    headers: {
+      host: opts.host ?? "mail.agent-native.com",
+      ...(opts.acceptLanguage
+        ? { "accept-language": opts.acceptLanguage }
+        : {}),
+    },
     node: { req: { url: opts.path ?? "/" } },
     path: opts.path ?? "/",
     url: { pathname: (opts.path ?? "/").split("?")[0] },
@@ -210,6 +216,16 @@ describe("handleMcpConnect", () => {
       expect(body).not.toContain(
         '<details id="assistantSetup" class="hosts" open>',
       );
+    });
+
+    it("localizes the shared guide copy from the request language", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain('id="mcp-guide-tab-claude"');
+      expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
     });
 
     it("shows the device user_code when present and well-formed", async () => {

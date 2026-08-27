@@ -34,6 +34,8 @@ import { getMethod, getHeader } from "h3";
 
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
+import type { LocaleCode } from "../localization/shared.js";
 import { getOrgDomain } from "../org/context.js";
 import {
   getSession,
@@ -42,10 +44,12 @@ import {
 } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
-  MCP_CONNECT_GUIDES,
   MCP_CONNECT_MCP_URL_TEMPLATE,
-  MCP_STATIC_TOKEN_FALLBACK,
+  getMcpConnectGuides,
+  getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
+  type McpConnectGuide,
+  type McpConnectGuideId,
 } from "../shared/mcp-connect-content.js";
 import {
   recordMintedToken,
@@ -425,7 +429,8 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
 }
 
 function renderConnectGuide(
-  guide: (typeof MCP_CONNECT_GUIDES)[number],
+  guide: McpConnectGuide,
+  activeGuideId: McpConnectGuideId,
   values: Parameters<typeof interpolateMcpConnectTemplate>[1],
 ): string {
   const guideId = escapeHtml(guide.id);
@@ -457,7 +462,7 @@ function renderConnectGuide(
       : "",
   ].join("\n");
 
-  return `<div class="tab-panel${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tabpanel" data-panel="${guideId}">${content}</div>`;
+  return `<div class="tab-panel${guide.id === activeGuideId ? " is-active" : ""}" role="tabpanel" id="mcp-guide-panel-${guideId}" aria-labelledby="mcp-guide-tab-${guideId}" data-panel="${guideId}">${content}</div>`;
 }
 
 function renderConnectPage(params: {
@@ -467,9 +472,19 @@ function renderConnectPage(params: {
   appUrl: string;
   serverId: string;
   userCode: string | null;
+  locale: LocaleCode;
 }): string {
-  const { connectBasePath, email, appName, appUrl, serverId, userCode } =
-    params;
+  const {
+    connectBasePath,
+    email,
+    appName,
+    appUrl,
+    serverId,
+    userCode,
+    locale,
+  } = params;
+  const guides = getMcpConnectGuides(locale);
+  const staticTokenFallback = getMcpStaticTokenFallback(locale);
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
   const mcpUrl = interpolateMcpConnectTemplate(MCP_CONNECT_MCP_URL_TEMPLATE, {
@@ -486,13 +501,18 @@ function renderConnectPage(params: {
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
-  const guideTabsHtml = MCP_CONNECT_GUIDES.map(
-    (guide) =>
-      `<button type="button" class="tab${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tab" data-tab="${escapeHtml(guide.id)}" aria-selected="${guide.id === MCP_CONNECT_GUIDES[0]?.id ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
-  ).join("\n");
-  const guidePanelsHtml = MCP_CONNECT_GUIDES.map((guide) =>
-    renderConnectGuide(guide, connectTemplateValues),
-  ).join("\n");
+  const activeGuideId = guides[0]?.id ?? "claude";
+  const guideTabsHtml = guides
+    .map(
+      (guide) =>
+        `<button type="button" class="tab${guide.id === activeGuideId ? " is-active" : ""}" role="tab" id="mcp-guide-tab-${escapeHtml(guide.id)}" data-tab="${escapeHtml(guide.id)}" aria-controls="mcp-guide-panel-${escapeHtml(guide.id)}" aria-selected="${guide.id === activeGuideId ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
+    )
+    .join("\n");
+  const guidePanelsHtml = guides
+    .map((guide) =>
+      renderConnectGuide(guide, activeGuideId, connectTemplateValues),
+    )
+    .join("\n");
   const setupHtml = safeUserCode
     ? ""
     : `
@@ -889,7 +909,7 @@ function renderConnectPage(params: {
 
   <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
     <summary>
-      <span class="connections-title">${safeUserCode ? "Authorize this device" : MCP_STATIC_TOKEN_FALLBACK.title}</span>
+      <span class="connections-title">${safeUserCode ? "Authorize this device" : staticTokenFallback.title}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
@@ -899,8 +919,8 @@ function renderConnectPage(params: {
         ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
-        <div class="result-title">${MCP_STATIC_TOKEN_FALLBACK.resultTitle}</div>
-        <p class="result-copy" id="resultMsg">${MCP_STATIC_TOKEN_FALLBACK.resultCopy}</p>
+        <div class="result-title">${staticTokenFallback.resultTitle}</div>
+        <p class="result-copy" id="resultMsg">${staticTokenFallback.resultCopy}</p>
         <div class="section-label">MCP config</div>
         <pre id="mcpJson"></pre>
         <details class="advanced">
@@ -1192,6 +1212,9 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = configuredBasePath();
   const appUrl = `${origin}${basePath}`;
+  const locale = resolveLocaleFromRequest({
+    acceptLanguage: getHeader(event, "accept-language"),
+  }).locale;
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
@@ -1217,6 +1240,7 @@ export async function handleMcpConnect(
           appUrl,
           serverId: serverName(appUrl, options),
           userCode: null,
+          locale,
         }),
       );
     }
@@ -1239,6 +1263,7 @@ export async function handleMcpConnect(
         appUrl,
         serverId: serverName(appUrl, options),
         userCode,
+        locale,
       }),
     );
   }

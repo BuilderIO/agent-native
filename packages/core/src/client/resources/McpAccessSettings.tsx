@@ -1,17 +1,17 @@
 import { IconExternalLink, IconHelpCircle } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { docsUrl } from "../../shared/docs-url.js";
 import {
-  MCP_CONNECT_GUIDES,
   MCP_CONNECT_MCP_URL_TEMPLATE,
-  MCP_STATIC_TOKEN_FALLBACK,
+  getMcpConnectGuides,
+  getMcpStaticTokenFallback,
   interpolateMcpConnectTemplate,
   type McpConnectTemplateValues,
 } from "../../shared/mcp-connect-content.js";
 import { AgentTabFrame } from "../agent-page/AgentTabFrame.js";
 import { appPath } from "../api-path.js";
-import { useT } from "../i18n.js";
+import { useLocale, useT } from "../i18n.js";
 import { cn } from "../utils.js";
 
 interface AccessUrls {
@@ -87,9 +87,15 @@ export function McpAccessSettings({
   appName: appNameProp,
 }: McpAccessSettingsProps) {
   const t = useT();
+  const { locale } = useLocale();
+  const guides = useMemo(() => getMcpConnectGuides(locale), [locale]);
+  const staticTokenFallback = useMemo(
+    () => getMcpStaticTokenFallback(locale),
+    [locale],
+  );
   const [urls, setUrls] = useState<AccessUrls | null>(null);
   const [agentCardAvailable, setAgentCardAvailable] = useState(false);
-  const [activeGuide, setActiveGuide] = useState(MCP_CONNECT_GUIDES[0]?.id);
+  const [activeGuide, setActiveGuide] = useState(guides[0]?.id);
 
   useEffect(() => {
     const origin = window.location.origin;
@@ -149,9 +155,7 @@ export function McpAccessSettings({
         serverId: `agent-native-${window.location.hostname || "app"}`,
       }
     : null;
-  const guide =
-    MCP_CONNECT_GUIDES.find((item) => item.id === activeGuide) ??
-    MCP_CONNECT_GUIDES[0];
+  const guide = guides.find((item) => item.id === activeGuide) ?? guides[0];
 
   return (
     <AgentTabFrame
@@ -196,12 +200,14 @@ export function McpAccessSettings({
                 role="tablist"
                 aria-label={t("settings.mcpChooseAssistant")}
               >
-                {MCP_CONNECT_GUIDES.map((item) => (
+                {guides.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     role="tab"
+                    id={`mcp-guide-tab-${item.id}`}
                     aria-selected={item.id === guide?.id}
+                    aria-controls={`mcp-guide-panel-${item.id}`}
                     onClick={() => setActiveGuide(item.id)}
                     className={cn(
                       "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
@@ -215,7 +221,12 @@ export function McpAccessSettings({
                 ))}
               </div>
               {guide && templateValues && (
-                <div className="space-y-3 pt-1" role="tabpanel">
+                <div
+                  id={`mcp-guide-panel-${guide.id}`}
+                  className="space-y-3 pt-1"
+                  role="tabpanel"
+                  aria-labelledby={`mcp-guide-tab-${guide.id}`}
+                >
                   {guide.steps?.length ? (
                     <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
                       {guide.steps.map((step) => (
@@ -275,10 +286,10 @@ export function McpAccessSettings({
             </section>
             <section className="border-t border-border/70 pt-6">
               <h3 className="text-sm font-semibold text-foreground">
-                {MCP_STATIC_TOKEN_FALLBACK.title}
+                {staticTokenFallback.title}
               </h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {MCP_STATIC_TOKEN_FALLBACK.state}.{" "}
+                {staticTokenFallback.state}.{" "}
                 {t("settings.mcpStaticTokenDescription")}
               </p>
               <a
