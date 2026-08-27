@@ -37,7 +37,14 @@ import {
   IconTransitionRight,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -72,6 +79,10 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
+export type PresentRequest = {
+  preserveNativeNavigation: true;
+};
+
 interface EditorToolbarProps {
   deck: Deck;
   deckId: string;
@@ -142,7 +153,7 @@ interface EditorToolbarProps {
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   /** Flush local edits before entering the full-screen presentation view. */
-  onPresent?: () => Promise<void> | void;
+  onPresent?: (request?: PresentRequest) => boolean | void;
   /** Inserts a blank slide directly below the active slide. Threaded through
    *  to the fallback action cluster below so an empty deck (no current
    *  slide, so the primary element-controls toolbar never mounts) still has
@@ -609,6 +620,23 @@ export default function EditorToolbar({
 
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
+  const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    const preserveNativeNavigation =
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey;
+    if (preserveNativeNavigation) {
+      if (onPresent?.({ preserveNativeNavigation: true }) === true) {
+        event.preventDefault();
+      }
+      return;
+    }
+    event.preventDefault();
+    onPresent?.();
+  };
+
   return (
     <div className="deck-editor-toolbar flex h-12 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
@@ -959,23 +987,8 @@ export default function EditorToolbar({
       {/* Present button — matches Share trigger height (h-9) */}
       <Link
         to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
-        onClick={
-          onPresent
-            ? (event) => {
-                if (
-                  event.button !== 0 ||
-                  event.metaKey ||
-                  event.ctrlKey ||
-                  event.shiftKey ||
-                  event.altKey
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                void onPresent();
-              }
-            : undefined
-        }
+        onClick={onPresent ? handlePresentClick : undefined}
+        onAuxClick={onPresent ? handlePresentClick : undefined}
         className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <IconPlayerPlay className="w-3.5 h-3.5" />

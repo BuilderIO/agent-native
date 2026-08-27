@@ -349,7 +349,7 @@ describe("<EditorToolbar>", () => {
     expect(onPresent).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves native behavior for modified and auxiliary Present clicks", () => {
+  it("flushes before modified and auxiliary Present clicks without hijacking them", () => {
     const onPresent = vi.fn();
 
     render(
@@ -380,6 +380,46 @@ describe("<EditorToolbar>", () => {
       expect(event.defaultPrevented).toBe(false);
     }
 
-    expect(onPresent).not.toHaveBeenCalled();
+    expect(onPresent).toHaveBeenCalledTimes(2);
+    expect(onPresent).toHaveBeenNthCalledWith(1, {
+      preserveNativeNavigation: true,
+    });
+    expect(onPresent).toHaveBeenNthCalledWith(2, {
+      preserveNativeNavigation: true,
+    });
+  });
+
+  it("lets the Present owner prevent native navigation when it opens a waiting tab", () => {
+    const onPresent = vi.fn(() => true);
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onPresent={onPresent}
+        />
+      </TooltipProvider>,
+    );
+
+    const presentLink = screen.getByText("editorToolbar.present").closest("a");
+    expect(presentLink).not.toBeNull();
+
+    const event = createEvent.click(presentLink!, { metaKey: true });
+    fireEvent(presentLink!, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onPresent).toHaveBeenCalledWith({
+      preserveNativeNavigation: true,
+    });
   });
 });
