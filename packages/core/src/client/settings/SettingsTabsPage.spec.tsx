@@ -79,9 +79,8 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    const searchInput = container.querySelector<HTMLInputElement>(
-      'input[type="search"]',
-    );
+    const searchInput =
+      container.querySelector<HTMLInputElement>('input[type="text"]');
     expect(document.activeElement).toBe(searchInput);
   });
 
@@ -95,9 +94,8 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    const searchInput = container.querySelector<HTMLInputElement>(
-      'input[type="search"]',
-    );
+    const searchInput =
+      container.querySelector<HTMLInputElement>('input[type="text"]');
     const navHeader = container.querySelector(
       '[data-testid="settings-nav-header"]',
     );
@@ -146,9 +144,8 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    const searchInput = container.querySelector<HTMLInputElement>(
-      'input[type="search"]',
-    );
+    const searchInput =
+      container.querySelector<HTMLInputElement>('input[type="text"]');
     expect(document.activeElement).not.toBe(searchInput);
   });
 
