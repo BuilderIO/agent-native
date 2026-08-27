@@ -113,6 +113,7 @@ describe("slide animation element parsing", () => {
       `<div class="fmd-slide">
         <style>.fmd-slide { color: red; }</style>
         <div data-fmd-autofit-content>
+          <div class="fmd-layout-spacer"></div>
           <div><span data-target>Target</span></div>
           <div>Sibling</div>
         </div>
@@ -126,7 +127,7 @@ describe("slide animation element parsing", () => {
     expect(target).not.toBeNull();
     if (!root || !target) return;
 
-    expect(getElementPath(root, target)).toEqual([1, 0, 0]);
+    expect(getElementPath(root, target)).toEqual([1, 1, 0]);
     expect(getPersistedElementPath(root, target)).toEqual([1, 0]);
   });
 

@@ -213,9 +213,14 @@ export function getPersistedElementPath(
   const findPath = (parent: Element, parentPath: number[]): number[] | null => {
     let persistedIndex = 0;
     for (const child of Array.from(parent.children)) {
-      const candidates = child.hasAttribute("data-fmd-autofit-content")
-        ? Array.from(child.children)
-        : [child];
+      const candidates = child.classList.contains("fmd-layout-spacer")
+        ? []
+        : child.hasAttribute("data-fmd-autofit-content")
+          ? Array.from(child.children).filter(
+              (grandchild) =>
+                !grandchild.classList.contains("fmd-layout-spacer"),
+            )
+          : [child];
       for (const candidate of candidates) {
         const path = [...parentPath, persistedIndex];
         if (candidate === target) return path;
