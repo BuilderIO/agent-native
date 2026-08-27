@@ -997,6 +997,8 @@ export interface BetterAuthInternalAdapter {
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
+    override?: { expiresAt?: Date },
+    overrideAll?: boolean,
   ) => Promise<{ token: string }>;
   deleteSession: (token: string) => Promise<void>;
   createOAuthUser?: (
@@ -1177,6 +1179,10 @@ type BetterAuthActionSessionOverrides = {
   adapter?: BetterAuthInternalAdapter;
 };
 
+const BRIDGED_SESSION_TTL_MS = 60_000;
+const BRIDGED_SESSION_CLEANUP_TIMEOUT_MS = 5_000;
+// ponytail: the short TTL bounds cleanup leaks; add a durable retry queue if failures need stronger guarantees.
+
 export async function withBetterAuthActionSession<T>(
   email: string,
   requestHeaders: Headers,
@@ -1208,7 +1214,10 @@ export async function withBetterAuthActionSession<T>(
     const authContext = await (
       auth as unknown as {
         $context: Promise<{
-          authCookies: { sessionToken: { name: string } };
+          authCookies: {
+            sessionToken: { name: string };
+            sessionData?: { name: string };
+          };
           secret: string;
         }>;
       }
@@ -1218,10 +1227,19 @@ export async function withBetterAuthActionSession<T>(
       .update(session.token)
       .digest("base64");
     const sessionCookieName = authContext.authCookies.sessionToken.name;
+    const sessionDataCookieName = authContext.authCookies.sessionData?.name;
     const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signature}`)}`;
     const existingCookies = (headers.get("cookie") ?? "")
       .split(";")
-      .filter((part) => part.split("=", 1)[0]?.trim() !== sessionCookieName)
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName !== sessionCookieName &&
+          (!sessionDataCookieName ||
+            (cookieName !== sessionDataCookieName &&
+              !cookieName.startsWith(`${sessionDataCookieName}.`)))
+        );
+      })
       .filter(Boolean);
     headers.set("cookie", [...existingCookies, sessionCookie].join("; "));
     outcome = { ok: true, value: await action(headers) };
@@ -1234,7 +1252,19 @@ export async function withBetterAuthActionSession<T>(
       overrides?.adapter ?? (await getBetterAuthInternalAdapter());
     if (!adapter)
       throw new Error("Better Auth session cleanup is unavailable.");
-    await adapter.deleteSession(session.token);
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        adapter.deleteSession(session.token),
+        new Promise<never>((_, reject) => {
+          cleanupTimer = setTimeout(() => {
+            reject(new Error("Better Auth session cleanup timed out."));
+          }, BRIDGED_SESSION_CLEANUP_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+    }
   } catch (error) {
     console.error(
       "[auth] failed to delete temporary Better Auth session",
@@ -1257,7 +1287,12 @@ export async function createBetterAuthSessionForEmail(
     includeAccounts: false,
   });
   if (!existing) return null;
-  const session = await adapter.createSession(existing.user.id);
+  const session = await adapter.createSession(
+    existing.user.id,
+    true,
+    { expiresAt: new Date(Date.now() + BRIDGED_SESSION_TTL_MS) },
+    true,
+  );
   return {
     email: existing.user.email,
     token: session.token,

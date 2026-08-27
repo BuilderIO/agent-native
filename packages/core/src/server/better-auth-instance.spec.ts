@@ -1,4 +1,4 @@
-import { getTestInstance } from "better-auth/test";
+import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
@@ -406,7 +406,10 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
 
 describe("withBetterAuthActionSession", () => {
   const authContext = {
-    authCookies: { sessionToken: { name: "better-auth.session_token" } },
+    authCookies: {
+      sessionToken: { name: "better-auth.session_token" },
+      sessionData: { name: "better-auth.session_data" },
+    },
     secret: "better-auth-action-session-test-secret",
   };
 
@@ -463,6 +466,7 @@ describe("withBetterAuthActionSession", () => {
           enabled: true,
           requireEmailVerification: false,
         },
+        session: { cookieCache: { enabled: true } },
       },
       {
         testUser: {
@@ -472,7 +476,8 @@ describe("withBetterAuthActionSession", () => {
         },
       },
     );
-    const internalAdapter = (await instance.auth.$context).internalAdapter;
+    const testAuthContext = await instance.auth.$context;
+    const internalAdapter = testAuthContext.internalAdapter;
     const deleteSession = vi.fn(async (token: string) =>
       internalAdapter.deleteSession(token),
     );
@@ -490,20 +495,48 @@ describe("withBetterAuthActionSession", () => {
       };
     };
 
+    let cachedCookieHeader = "";
+    await instance.client.signUp.email({
+      email: "cached@example.com",
+      name: "Cached User",
+      password: "cached-password",
+      fetchOptions: {
+        onSuccess(context) {
+          cachedCookieHeader =
+            convertSetCookieToCookie(new Headers(context.response.headers)).get(
+              "cookie",
+            ) ?? "";
+        },
+      },
+    });
+    const sessionDataCookieName = testAuthContext.authCookies.sessionData.name;
+    const cachedSessionDataCookies = cachedCookieHeader
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName === sessionDataCookieName ||
+          cookieName.startsWith(`${sessionDataCookieName}.`)
+        );
+      })
+      .join("; ");
+    expect(cachedSessionDataCookies).toContain(`${sessionDataCookieName}=`);
+
     const result = await withBetterAuthActionSession(
       "bridge@example.com",
       new Headers({
-        cookie:
-          "better-auth.session_token=stale-session; an_session=legacy-session",
+        cookie: `${cachedSessionDataCookies}; an_session=legacy-session`,
       }),
-      (headers) =>
-        instance.auth.api.changePassword({
+      (headers) => {
+        expect(headers.get("cookie")).not.toContain(sessionDataCookieName);
+        return instance.auth.api.changePassword({
           body: {
             currentPassword: "old-password",
             newPassword: "new-password",
           },
           headers,
-        }),
+        });
+      },
       {
         auth: instance.auth as any,
         createSession,
@@ -558,5 +591,38 @@ describe("withBetterAuthActionSession", () => {
     ).rejects.toBe(actionError);
     expect(log).toHaveBeenCalled();
     log.mockRestore();
+  });
+
+  it("bounds cleanup when deleting a temporary session hangs", async () => {
+    vi.useFakeTimers();
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const deleteSession = vi.fn(() => new Promise<void>(() => {}));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const result = withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      );
+
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(result).resolves.toEqual({ status: true });
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
