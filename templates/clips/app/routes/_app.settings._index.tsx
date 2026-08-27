@@ -157,7 +157,7 @@ export default function SettingsIndexRoute() {
         Boolean(
           builderConnect.configured ||
           builderStatus.status?.configured ||
-          storageStatus.data?.builderConfigured ||
+          storageStatus.data?.builderConfigured,
         ),
       loading:
         storageStatus.isLoading ||

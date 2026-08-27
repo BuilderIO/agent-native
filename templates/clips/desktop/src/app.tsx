@@ -472,6 +472,7 @@ function serverUrlForPendingUpload(
 // an unparseable/non-OK response). An "unknown" result must never downgrade an
 // already-connected user to the setup flow.
 type VideoStorageProbe = "configured" | "missing" | "unknown";
+type FileUploadStatusProbe = VideoStorageProbe | "reauthorization-required";
 
 // Poll cadence for the caller's re-check loop is 5s; bound each probe request
 // well above that so a hung request can't wedge the poll's in-flight guard.
@@ -498,8 +499,11 @@ async function hasConfiguredVideoStorage(
   const base = serverUrl.replace(/\/+$/, "");
 
   // One endpoint's answer: "configured", "missing" (a definitive
-  // not-configured), or "unknown" (threw, non-OK, or unparseable).
-  const probeEndpoint = async (path: string): Promise<VideoStorageProbe> => {
+  // not-configured), "reauthorization-required", or "unknown" (threw,
+  // non-OK, or unparseable).
+  const probeEndpoint = async (
+    path: string,
+  ): Promise<FileUploadStatusProbe> => {
     try {
       const res = await fetchWithAbortTimeout(
         `${base}${path}`,
@@ -514,33 +518,34 @@ async function hasConfiguredVideoStorage(
       // result, which callers treat as distinct from configured/missing.
       const body = (await res.json().catch(() => null)) as {
         configured?: boolean;
+        builderReauthorizationRequired?: boolean;
       } | null;
       if (!body) return "unknown";
+      if (body.builderReauthorizationRequired) {
+        return "reauthorization-required";
+      }
       return body.configured ? "configured" : "missing";
     } catch {
       return "unknown";
     }
   };
 
-  const probes = [
-    probeEndpoint("/_agent-native/file-upload/status"),
-    probeEndpoint("/_agent-native/builder/status"),
-  ];
-  // The probes run concurrently. "configured" wins as soon as either endpoint
-  // reports it, but "missing" is only declared after both have settled — a
-  // Builder-credits-only user has file-upload configured:false and builder
-  // configured:true and must not be routed to storage setup.
-  let probe: VideoStorageProbe;
-  if ((await Promise.race(probes)) === "configured") {
-    probe = "configured";
-  } else {
-    const results = await Promise.all(probes);
-    probe = results.includes("configured")
-      ? "configured"
-      : results.includes("missing")
-        ? "missing"
-        : "unknown";
+  const uploadProbe = probeEndpoint("/_agent-native/file-upload/status");
+  const builderProbe = probeEndpoint("/_agent-native/builder/status");
+  const uploadResult = await uploadProbe;
+  if (uploadResult === "reauthorization-required") {
+    return "missing";
   }
+
+  // The probes run concurrently. The upload endpoint is authoritative when it
+  // reports that Builder needs reauthorization; otherwise, "configured" wins
+  // if either endpoint reports it.
+  const results = [uploadResult, await builderProbe];
+  const probe = results.includes("configured")
+    ? "configured"
+    : results.includes("missing")
+      ? "missing"
+      : "unknown";
   // Last-known-good cache: seeds the next launch's Start button so it isn't
   // held behind this round-trip. Only "configured" is ever cached —
   // "missing"/"unknown" must always re-probe — and only when we know whose
