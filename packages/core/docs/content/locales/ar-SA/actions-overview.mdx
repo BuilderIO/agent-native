@@ -37,7 +37,7 @@ Actions هي المصدر الوحيد للحقيقة بالنسبة إلى أي
 
 تبني معظم التطبيقات طبقة API منفصلة بين الواجهة الأمامية وقاعدة البيانات، طبقة لا يمكن للمتصفح وحده استدعاؤها. يحتاج الوكيل الذي يريد القدرة نفسها إلى تكامل منفصل خاص به، يُكتب ويُصان من جديد. تتجاوز تطبيقات agent-native هذا الانقسام. تستدعي واجهة المستخدم والوكيل الـ action نفسه تمامًا، لذا لا يوجد سوى تطبيق واحد يُكتب، ومكان واحد فقط يمكن أن يختبئ فيه خطأ.
 
-<Diagram id="doc-block-actions-overview-2" title="الواجهة الأمامية التقليدية مقابل الوكيل الأصلي" summary="تستدعي الواجهة الأمامية التقليدية طبقة API الخاصة بها، التي لا يصل إليها إلا هي. في Agent Native، يستدعي app/ والوكيل نفس actions، لذا تصبح كل قدرة تُبنى هنا قابلة للاستدعاء من الوكيل مجانًا.">
+<Diagram id="doc-block-actions-overview-2" title="الواجهة الأمامية التقليدية مقابل الوكيل الأصلي" summary="تستدعي الواجهة الأمامية التقليدية طبقة API الخاصة بها، التي لا يصل إليها إلا هي. في Agent-Native، يستدعي app/ والوكيل نفس actions، لذا تصبح كل قدرة تُبنى هنا قابلة للاستدعاء من الوكيل مجانًا.">
 
 ```html
 <div class="diagram-cocmp">
@@ -54,7 +54,7 @@ Actions هي المصدر الوحيد للحقيقة بالنسبة إلى أي
   </div>
   <div class="cocmp-vs diagram-muted">مقابل</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (واجهة React الأمامية)</div>
       <div class="diagram-node">الوكيل</div>

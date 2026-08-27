@@ -1,20 +1,52 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { desc, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+
+const DESIGN_LIST_DEFAULT_PAGE_SIZE = 12;
+const DESIGN_LIST_MAX_PAGE_SIZE = 50;
 
 // Truncate preview HTML so the listing payload stays reasonable. The home
 // screen only needs enough HTML to render a recognizable thumbnail; full
 // content loads on demand when the user opens an editor.
 const PREVIEW_MAX_BYTES = 50_000;
 
+function escapeLike(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
+
 export default defineAction({
   description:
-    "List all design projects accessible to the current user. " +
-    "Returns title, id, project type, owner email, and timestamps.",
+    "List design projects accessible to the current user. Pass page and " +
+    "pageSize for pagination; omit them for the complete lightweight list. " +
+    "Returns optional HTML previews.",
   schema: z.object({
+    page: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("One-based page number"),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(DESIGN_LIST_MAX_PAGE_SIZE)
+      .optional()
+      .describe("Maximum designs returned in this page"),
+    createdBy: z
+      .enum(["all", "me"])
+      .optional()
+      .describe("Set to 'me' to list only designs created by the current user"),
+    search: z
+      .string()
+      .trim()
+      .max(200)
+      .optional()
+      .describe("Case-insensitive substring search against design titles"),
     compact: z
       .enum(["true", "false"])
       .optional()
@@ -31,11 +63,39 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async (args) => {
+    const isPaginated = args.page !== undefined || args.pageSize !== undefined;
+    const page = args.page ?? 1;
+    const pageSize = args.pageSize ?? DESIGN_LIST_DEFAULT_PAGE_SIZE;
+    const ownerEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
+    if (args.createdBy === "me" && !ownerEmail) {
+      return {
+        count: 0,
+        totalCount: 0,
+        hasMore: false,
+        page,
+        pageSize,
+        totalPages: 0,
+        designs: [],
+      };
+    }
+
     const db = getDb();
+    const search = args.search ? args.search.toLowerCase() : null;
+    const where = and(
+      accessFilter(schema.designs, schema.designShares),
+      args.createdBy === "me"
+        ? sql`lower(trim(${schema.designs.ownerEmail})) = ${ownerEmail}`
+        : undefined,
+      search
+        ? sql`lower(${schema.designs.title}) LIKE ${`%${escapeLike(search)}%`} ESCAPE '\\'`
+        : undefined,
+    );
+    const offset = isPaginated ? (page - 1) * pageSize : 0;
+
     // Project only the columns the list path uses. The `data` TEXT column holds
     // the full design JSON (tweaks, selections, etc.) which can be large and is
     // never read on the listing — detail/editor views load it via get-design.
-    const rows = await db
+    const designsQuery = db
       .select({
         id: schema.designs.id,
         title: schema.designs.title,
@@ -48,29 +108,43 @@ export default defineAction({
         updatedAt: schema.designs.updatedAt,
       })
       .from(schema.designs)
-      .where(accessFilter(schema.designs, schema.designShares))
-      .orderBy(desc(schema.designs.updatedAt));
+      .where(where)
+      .orderBy(desc(schema.designs.updatedAt), desc(schema.designs.id));
+    const rowsPromise = isPaginated
+      ? designsQuery.limit(pageSize).offset(offset)
+      : designsQuery;
+    const [countRows, rows] = await Promise.all([
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.designs)
+        .where(where),
+      rowsPromise,
+    ]);
+    const totalCount = Number(countRows[0]?.count ?? 0);
 
-    if (rows.length === 0) {
-      return { count: 0, designs: [] };
-    }
-
-    // Look up one preview per design when requested. We pick the shortest
-    // HTML file so the response stays small and the chosen file is more
-    // likely to be the entry point (`index.html`) rather than a heavy
-    // multi-page sub-screen. Falls back to the first HTML file we find.
+    // Look up one preview per design when requested. Prefer the entry point
+    // (`index.html`) and fall back to the first HTML file we find.
     const previews = new Map<string, string>();
-    if (args.includePreview === "true" && args.compact !== "true") {
+    if (
+      args.includePreview === "true" &&
+      args.compact !== "true" &&
+      rows.length > 0
+    ) {
       const ids = rows.map((r) => r.id);
       const fileRows = await db
         .select({
           designId: schema.designFiles.designId,
           filename: schema.designFiles.filename,
-          content: schema.designFiles.content,
+          content: sql<string>`substr(${schema.designFiles.content}, 1, ${PREVIEW_MAX_BYTES})`,
           fileType: schema.designFiles.fileType,
         })
         .from(schema.designFiles)
-        .where(inArray(schema.designFiles.designId, ids));
+        .where(
+          and(
+            inArray(schema.designFiles.designId, ids),
+            eq(schema.designFiles.fileType, "html"),
+          ),
+        );
 
       const byDesign = new Map<string, typeof fileRows>();
       for (const f of fileRows) {
@@ -117,6 +191,22 @@ export default defineAction({
       return base;
     });
 
-    return { count: items.length, designs: items };
+    const hasMore = isPaginated && offset + rows.length < totalCount;
+    const totalPages = isPaginated
+      ? Math.ceil(totalCount / pageSize)
+      : totalCount > 0
+        ? 1
+        : 0;
+    return {
+      count: totalCount,
+      totalCount,
+      hasMore,
+      page,
+      pageSize: isPaginated
+        ? pageSize
+        : totalCount || DESIGN_LIST_DEFAULT_PAGE_SIZE,
+      totalPages,
+      designs: items,
+    };
   },
 });

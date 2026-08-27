@@ -380,6 +380,62 @@ describe("AISDKEngine error tagging", () => {
     expect(clearProviderCredentialAuthFailure).not.toHaveBeenCalled();
   });
 
+  // Prod, 2026-08-26 (slides): "The saved provider key was rejected" kept
+  // returning to whoever prompted first. A 401 pins the rejected credential so
+  // the next lane serves everyone after it — but this cleanup ran after EVERY
+  // stream, error or not, so one unrelated failure (a 500, an overload, a
+  // context stop) unpinned it and the next person's first prompt paid to
+  // rediscover the same rejection. Clearing asserts the credential works, and
+  // only a turn that completed proves that.
+  it("keeps the auth-failure marker when the turn ends in an unrelated error", async () => {
+    const clearProviderCredentialAuthFailure = vi.fn(async () => {});
+    vi.doMock("../../server/credential-provider.js", () => ({
+      clearProviderCredentialAuthFailure,
+      readDeployCredentialEnv: vi.fn(),
+      recordProviderCredentialAuthFailure: vi.fn(async () => {}),
+    }));
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield {
+          type: "error",
+          error: Object.assign(new Error("Internal server error"), {
+            statusCode: 500,
+            isRetryable: true,
+          }),
+        };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+
+    expect(events.find((e) => e.type === "stop")?.reason).toBe("error");
+    expect(clearProviderCredentialAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it("still clears the marker when the turn completes normally", async () => {
+    const clearProviderCredentialAuthFailure = vi.fn(async () => {});
+    vi.doMock("../../server/credential-provider.js", () => ({
+      clearProviderCredentialAuthFailure,
+      readDeployCredentialEnv: vi.fn(),
+      recordProviderCredentialAuthFailure: vi.fn(async () => {}),
+    }));
+    mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    await drain(engine.stream(BASE_STREAM_OPTIONS));
+
+    expect(clearProviderCredentialAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "OPENAI_API_KEY" }),
+    );
+  });
+
   it("tags a retry-wrapped Cannot connect to API failure as a provider network error", async () => {
     const lastError = Object.assign(
       new Error(

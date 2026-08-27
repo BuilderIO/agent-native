@@ -12,7 +12,7 @@ export const DESKTOP_LOCAL_AGENT_OPTIONS = [
   {
     id: "default",
     label: "Default",
-    description: "Agent Native hosted chat",
+    description: "Agent-Native hosted chat",
     configured: true,
   },
   {

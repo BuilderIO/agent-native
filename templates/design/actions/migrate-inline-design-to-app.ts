@@ -41,7 +41,7 @@
  * The caller should offer `connect-builder-app` to surface the CTA first.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,

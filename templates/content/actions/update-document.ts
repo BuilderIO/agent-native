@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -19,6 +19,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -778,6 +779,7 @@ export default defineAction({
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
+        contentFidelity: inspectNfmFidelity(doc.content),
         source: serializeDocumentSource(doc),
         softDeletedDatabaseIds,
         ...(creativeContext

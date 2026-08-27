@@ -7,6 +7,7 @@ vi.mock("./credential-provider.js", () => ({
 }));
 
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
+import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
   canConnectWorkspaceProviderOAuth,
@@ -111,6 +112,7 @@ describe("workspace provider OAuth", () => {
       app: flow.appId,
       scope: flow.scope,
       flowId: flow.flowId,
+      provider: undefined,
     };
     const valid = {
       flow,
@@ -122,6 +124,12 @@ describe("workspace provider OAuth", () => {
     };
 
     expect(isWorkspaceProviderOAuthFlowValid(valid)).toBe(true);
+    expect(
+      isWorkspaceProviderOAuthFlowValid({
+        ...valid,
+        state: { ...state, provider: "google_drive" },
+      }),
+    ).toBe(false);
     expect(
       isWorkspaceProviderOAuthFlowValid({
         ...valid,
@@ -149,6 +157,23 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthFlowValid({ ...valid, now: 2_001 })).toBe(
       false,
     );
+  });
+
+  it("preserves the provider in signed callback state", () => {
+    const state = encodeOAuthState({
+      redirectUri: "https://app.example.com/_agent-native/google/callback",
+      app: "dispatch",
+      scope: "user",
+      flowId: "flow-1",
+      provider: "google_slides",
+    });
+
+    expect(decodeOAuthState(state, "")).toMatchObject({
+      app: "dispatch",
+      scope: "user",
+      flowId: "flow-1",
+      provider: "google_slides",
+    });
   });
 
   it("builds a PKCE-bound Figma authorization request with the catalog scopes", () => {
@@ -316,7 +341,7 @@ describe("workspace provider OAuth", () => {
     );
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
-    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
     expect(url.searchParams.get("scope")?.split(" ")).toEqual(
       expect.arrayContaining([
         "openid",
@@ -325,6 +350,41 @@ describe("workspace provider OAuth", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+  });
+
+  it("keeps the Google account chooser and preselects the signed-in identity", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri:
+          "https://beta.calendar.agent-native.com/_agent-native/connections/oauth/google_calendar/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+        loginHint: "work@example.com",
+      }),
+    );
+
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
+    expect(url.searchParams.get("login_hint")).toBe("work@example.com");
+  });
+
+  it("omits login_hint when no signed-in identity is available", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri:
+          "https://beta.calendar.agent-native.com/_agent-native/connections/oauth/google_calendar/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.searchParams.has("login_hint")).toBe(false);
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
   });
 
   it("exchanges Figma codes at the current token endpoint without exposing credentials", async () => {

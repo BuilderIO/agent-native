@@ -37,6 +37,7 @@ import {
   isAssistantUiStaleIndexError,
   installAssistantUiMessageRepositoryRecovery,
   latestNonRecoveryUserMessageText,
+  matchesUserStoppedRun,
   reconnectActivityFallbackContent,
   reconnectProgressTimedOut,
   resolveAssistantChatRunningState,
@@ -1509,6 +1510,9 @@ describe("missing agent engine setup", () => {
     expect(messageComponents).toContain("agent-selection-attached-pill");
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
+    expect(source).toContain("isProviderAuthenticationError(");
+    expect(source).toContain("showRunningInUI || !shouldShowRunError");
+    expect(source).toContain("onConnected={handleProviderSetupConnected}");
     expect(source).toMatch(
       /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,
     );
@@ -1698,6 +1702,35 @@ describe("resolveAssistantChatRunningState", () => {
         isAutoResuming: true,
       }),
     ).toEqual({ isRunning: false, showRunningInUI: false });
+  });
+});
+
+describe("matchesUserStoppedRun", () => {
+  it("keeps a stop effective across delayed terminal updates", () => {
+    const stopped = {
+      threadId: "thread-1",
+      runId: "run-1",
+      turnId: "turn-1",
+    };
+
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-1", "turn-1")).toBe(
+      true,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-2", "turn-1")).toBe(
+      true,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-1", "run-2", "turn-2")).toBe(
+      false,
+    );
+    expect(matchesUserStoppedRun(stopped, "thread-2", "run-1", "turn-1")).toBe(
+      false,
+    );
+    expect(
+      matchesUserStoppedRun({ threadId: "thread-1" }, "thread-1", "run-2"),
+    ).toBe(false);
+    expect(matchesUserStoppedRun(null, "thread-1", "run-1", "turn-1")).toBe(
+      false,
+    );
   });
 });
 

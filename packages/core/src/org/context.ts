@@ -869,3 +869,26 @@ export async function resolveOrgByDomain(
     return null;
   }
 }
+
+/**
+ * Whether the requested domain is the only organization in this deployment.
+ * Legacy workspace-wide A2A credentials may use this to preserve access
+ * without allowing one credential to select among multiple local tenants.
+ */
+export async function isSoleOrgDomain(domain: string): Promise<boolean> {
+  try {
+    const exec = getDbExec();
+    const { rows } = await exec.execute({
+      sql: `SELECT allowed_domain FROM organizations LIMIT 2`,
+      args: [],
+    });
+    if (rows.length !== 1) return false;
+    return (
+      String((rows[0] as any).allowed_domain || "").toLowerCase() ===
+      domain.trim().toLowerCase()
+    );
+  } catch {
+    // coercion-ok: an unreadable org registry denies legacy global-secret compatibility.
+    return false;
+  }
+}

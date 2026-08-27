@@ -32,7 +32,7 @@ const messages: AgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
-  "aboutAgentNative.title": "Agent Native 정보",
+  "aboutAgentNative.title": "Agent-Native 정보",
   "aboutAgentNative.version": "버전",
   "aboutAgentNative.environment": "환경",
   "aboutAgentNative.build": "빌드",
@@ -143,7 +143,7 @@ const messages: AgentChatTranslation = {
   "composer.plan": "계획",
   "composer.planDescription": "먼저 읽기 전용으로 조사하고 승인받기",
   "composer.planDesktopRequired":
-    "계획 모드를 사용하려면 Agent Native Desktop을 여세요.",
+    "계획 모드를 사용하려면 Agent-Native Desktop을 여세요.",
   "composer.previewAttachment": "{{name}} 미리보기",
   "composer.reasoning": "추론",
   "composer.reasoningEffort.auto": "자동",

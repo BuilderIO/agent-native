@@ -4,6 +4,11 @@ import { builderFileUploadProvider } from "./builder.js";
 
 const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const resolveBuilderApiAuthorizationMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../server/builder-api-auth.js", () => ({
+  resolveBuilderApiAuthorization: resolveBuilderApiAuthorizationMock,
+}));
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveBuilderCredentials: resolveBuilderCredentialsMock,
@@ -46,6 +51,7 @@ describe("builderFileUploadProvider", () => {
       publicKey: "public-key",
     });
     resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-secret");
+    resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer bpk-secret");
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -86,11 +92,13 @@ describe("builderFileUploadProvider", () => {
     });
   });
 
-  it("throws when no private key resolves", async () => {
-    resolveBuilderPrivateKeyMock.mockResolvedValue(null);
+  it("throws when no Builder credential resolves", async () => {
+    resolveBuilderApiAuthorizationMock.mockRejectedValue(
+      new Error("Builder.io is not connected."),
+    );
     await expect(
       builderFileUploadProvider.upload({ data: new Uint8Array([1]) }),
-    ).rejects.toThrow(/BUILDER_PRIVATE_KEY is not set/);
+    ).rejects.toThrow(/Builder\.io is not connected/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -111,6 +111,11 @@ const OMISSION_MARKER_BYTES = 512;
  * small. Replacing the whole conversation with a placeholder, which is what
  * this did, left nothing at all.
  *
+ * Run `toPostHogMessages` FIRST. In engine shape a tool result is a `user`
+ * message, so the rescue below picked the last tool result — the one thing it
+ * is documented not to keep — and the user's question was dropped from every
+ * oversized generation. Normalizing moves those to `role: "tool"`.
+ *
  * Anything else (a string, an object) still becomes a placeholder: there is no
  * message to keep. Either way `truncated` is true, so a cut payload can never
  * be read as a complete one.
@@ -134,12 +139,19 @@ export function boundAiContent(value: unknown): {
     // What was ASKED is the one thing worth rescuing from an oversized
     // transcript: the rest is context the thread itself still holds, and
     // keeping as much of it as fits just ships the ceiling on every event.
-    const lastUser = value.findLast(
-      (entry) =>
+    // `findLast` is ES2023; this package compiles with lib ES2022.
+    let lastUser: unknown;
+    for (let i = value.length - 1; i >= 0; i -= 1) {
+      const entry = value[i];
+      if (
         !!entry &&
         typeof entry === "object" &&
-        (entry as { role?: unknown }).role === "user",
-    );
+        (entry as { role?: unknown }).role === "user"
+      ) {
+        lastUser = entry;
+        break;
+      }
+    }
     const kept =
       lastUser !== undefined &&
       utf8Bytes(JSON.stringify(lastUser) ?? "null") <=
@@ -162,6 +174,142 @@ export function boundAiContent(value: unknown): {
     value: `[truncated: ${bytes} bytes exceeded the ${MAX_AI_CONTENT_BYTES}-byte trace content limit]`,
     truncated: true,
   };
+}
+
+interface PostHogToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments?: unknown };
+}
+
+interface PostHogMessage {
+  role: unknown;
+  content?: unknown;
+  tool_calls?: PostHogToolCall[];
+  tool_call_id?: string;
+  name?: string;
+}
+
+/** Engine parts are read structurally, not by importing the agent's type
+ *  graph into the tracking boundary. */
+function contentParts(value: unknown): Record<string, unknown>[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  return value.every(
+    (part) => !!part && typeof part === "object" && !Array.isArray(part),
+  )
+    ? (value as Record<string, unknown>[])
+    : null;
+}
+
+/**
+ * Attachment bodies are base64 and routinely megabytes. PostHog renders an
+ * `image` part only from a URL it can fetch, so inlining the payload would
+ * render nothing while spending the whole byte ceiling — and the ceiling is
+ * what collapses the rest of the conversation into a marker.
+ */
+function mediaPlaceholder(part: Record<string, unknown>): unknown {
+  const mediaType =
+    typeof part.mediaType === "string" ? part.mediaType : "unknown";
+  const data = typeof part.data === "string" ? part.data : "";
+  const bytes = Math.floor((data.length * 3) / 4);
+  const filename = typeof part.filename === "string" ? ` ${part.filename}` : "";
+  const label = part.type === "image" ? "image" : `file${filename}`;
+  return { type: "text", text: `[${label}: ${mediaType}, ~${bytes} bytes]` };
+}
+
+/**
+ * Rewrite an engine message list into the shape PostHog's LLM analytics reads.
+ *
+ * PostHog normalizes on OpenAI/Anthropic conventions. This framework's engine
+ * messages are a near-miss of the Vercel AI SDK's: `type: "tool-call"` /
+ * `"tool-result"` with hyphens, `toolCallId` in camelCase, and — the one that
+ * actually breaks — tool results carried inside a `user` message, because
+ * `EngineMessage` has no `tool` role. PostHog recognizes none of that and falls
+ * back to dumping the raw JSON, which is what a tool call rendering as an
+ * escaped blob with its output nowhere in sight looks like.
+ *
+ * Anything unrecognized is passed through untouched: a shape we cannot map is
+ * still better shipped as-is than dropped, and a future part type must not
+ * silently vanish from traces.
+ */
+export function toPostHogMessages(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+
+  const out: PostHogMessage[] = [];
+  for (const message of value) {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      out.push(message as PostHogMessage);
+      continue;
+    }
+    const { role, content } = message as PostHogMessage;
+    const parts = contentParts(content);
+    if (!parts) {
+      out.push(message as PostHogMessage);
+      continue;
+    }
+
+    const toolResults: PostHogMessage[] = [];
+    const toolCalls: PostHogToolCall[] = [];
+    const kept: unknown[] = [];
+    const text: string[] = [];
+    // Text collapses to a plain string, which is what PostHog renders; any
+    // other part forces the array form so nothing is silently flattened away.
+    let textOnly = true;
+
+    for (const part of parts) {
+      switch (part.type) {
+        case "tool-result":
+          toolResults.push({
+            role: "tool",
+            tool_call_id:
+              typeof part.toolCallId === "string" ? part.toolCallId : "",
+            ...(typeof part.toolName === "string"
+              ? { name: part.toolName }
+              : {}),
+            content: part.content,
+          });
+          break;
+        case "tool-call":
+          toolCalls.push({
+            id: typeof part.id === "string" ? part.id : "",
+            type: "function",
+            function: {
+              name: typeof part.name === "string" ? part.name : "",
+              ...(part.input !== undefined ? { arguments: part.input } : {}),
+            },
+          });
+          break;
+        case "text":
+          text.push(typeof part.text === "string" ? part.text : "");
+          kept.push({ type: "text", text: part.text });
+          break;
+        case "thinking":
+          textOnly = false;
+          kept.push({ type: "thinking", thinking: part.text ?? "" });
+          break;
+        case "image":
+        case "file":
+          textOnly = false;
+          kept.push(mediaPlaceholder(part));
+          break;
+        default:
+          textOnly = false;
+          kept.push(part);
+      }
+    }
+
+    // Results answer the assistant turn before them, so they lead — otherwise
+    // PostHog draws this turn's question above the answer to the last one.
+    out.push(...toolResults);
+    if (kept.length > 0 || toolCalls.length > 0) {
+      out.push({
+        role,
+        content: textOnly ? text.join("\n") : kept,
+        ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      });
+    }
+  }
+  return out;
 }
 
 export interface AiTraceEventInput {
@@ -197,6 +345,10 @@ export interface AiTraceEventInput {
  * copy repeated the first call's prompt and the last call's answer on a second
  * event. The trace owns what only it knows: the run's name, failure, metadata
  * and totals.
+ *
+ * The visible cost is that PostHog reads a trace's input and output from this
+ * event and from nowhere else: traces list with a null input, and a
+ * conversation is titled from the first generation's `$ai_input` instead.
  */
 export function emitAiTraceEvent(input: AiTraceEventInput): void {
   trackAiEvent(
@@ -324,7 +476,7 @@ const THUMB_RESPONSE_INDEX = { thumbs_up: 1, thumbs_down: 2 } as const;
  * Sent to PostHog ONLY, not through `track()`. The survey response carries the
  * user's free-text feedback verbatim, and configuring a PostHog survey id must
  * not silently start shipping that text to Mixpanel, Amplitude, webhooks, or
- * Agent Native Analytics. Those backends get the content-free `$ai_feedback`
+ * Agent-Native Analytics. Those backends get the content-free `$ai_feedback`
  * event instead.
  *
  * @see https://posthog.com/docs/ai-observability/user-feedback/manual-event-capture

@@ -857,10 +857,9 @@ export type DragState =
 export type PendingWheelGesture =
   | {
       mode: "zoom";
-      deltaY: number;
-      /** Trackpad pinch rather than a discrete mouse notch — the two use
-       *  different sensitivities, so accumulation must not mix them. */
-      pinch: boolean;
+      /** Already-curved multiplier, not a raw delta: the two devices' curves
+       *  differ, so only the factor is safe to accumulate across events. */
+      factor: number;
       cursor: Point;
       clientX: number;
       clientY: number;

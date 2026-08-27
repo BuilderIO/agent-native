@@ -13,11 +13,11 @@ import {
   emitAiTraceEvent,
   resolveAiError,
   toAiErrorDetail,
+  toPostHogMessages,
 } from "./posthog-ai.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
-import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -391,11 +391,14 @@ function emitLlmGenerationTrackingEvent(args: {
  * on every call — tens of kilobytes of descriptions — and a call is already
  * identified by its name in `tool_calls` and by its own span.
  */
+
 function buildGenerationContent(args: {
   config: ObservabilityConfig;
   messages: unknown;
   assistantText: string;
   toolSpans: TraceSpan[];
+  /** Tool span id → the id the MODEL used for that call. See below. */
+  toolCallIds: Map<string, string>;
 }): {
   aiInput?: unknown;
   aiOutputChoices?: unknown;
@@ -408,15 +411,23 @@ function buildGenerationContent(args: {
   // `system` role, but the prompt is app configuration rather than content and
   // is near-identical on every run — shipping it would repeat kilobytes on each
   // generation for no analytical gain.
+  //
+  // Normalized before bounding: the byte ceiling rescues the last `user`
+  // message, and in engine shape every tool result is one.
   const input = config.capturePrompts
-    ? boundAiContent(redactSensitiveFields(args.messages))
+    ? boundAiContent(toPostHogMessages(redactSensitiveFields(args.messages)))
     : undefined;
 
   const toolCalls = args.toolSpans
     .slice(0, MAX_TRACKED_GENERATION_TOOL_CALLS)
     .map((span) => ({
       type: "function" as const,
-      id: span.id,
+      // The id the MODEL issued, which is what the matching `tool` message in
+      // `$ai_input` carries as `tool_call_id`. Our span id is a different
+      // namespace: emitting it here left PostHog with a call and a result that
+      // never paired, so every tool call rendered with no output. The span id
+      // remains the fallback for engines that report no call id.
+      id: args.toolCallIds.get(span.id) ?? span.id,
       function: {
         name: span.name,
         // Already redacted at span construction, and only present when
@@ -485,19 +496,13 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
-  let stored: Partial<ObservabilityConfig> | null = null;
-  try {
-    const { getSetting } = await import("../settings/store.js");
-    stored = (await getSetting(
-      "observability-config",
-    )) as Partial<ObservabilityConfig> | null;
-  } catch {}
+  const { getAppConfig } = await import("../app-config/store.js");
+  const config = getAppConfig().observability;
   const { resolveInferredSentimentConfig } = await import("./sentiment.js");
-  return {
-    ...DEFAULT_OBSERVABILITY_CONFIG,
-    ...(stored ?? {}),
-    ...resolveInferredSentimentConfig(stored),
-  };
+  // Sentiment keeps its own resolver as the top layer: it derives a default
+  // from whether this is a first-party hosted deployment, which no declared
+  // default can express.
+  return { ...config, ...resolveInferredSentimentConfig(config) };
 }
 
 export async function instrumentAgentLoop(opts: {
@@ -692,6 +697,11 @@ export async function instrumentAgentLoop(opts: {
   /** Tool span id → how it failed. A class, not the tool's output, so it
    *  travels even when `captureToolResults` withholds the message. */
   const toolSpanErrorClass = new Map<string, string>();
+  /** Tool span id → the id the MODEL gave that call. The two namespaces are
+   *  separate, and only the model's appears in the transcript — so it is the
+   *  one that pairs a `tool_calls` entry with its `tool` message. Empty for
+   *  legacy emitters that send no call id. */
+  const toolSpanCallId = new Map<string, string>();
 
   // Track in-flight OTel tool spans so they're all ended even if the loop
   // throws before a matching `tool_done` arrives.
@@ -981,6 +991,8 @@ export async function instrumentAgentLoop(opts: {
           : null;
 
         const toolSpanId = pending?.spanId ?? spanId();
+        const modelCallId = pending?.callId ?? event.id;
+        if (modelCallId) toolSpanCallId.set(toolSpanId, modelCallId);
         // The model_stream bracket closes before the turn's tools start, so the
         // last recorded round-trip is the call that requested this one.
         if (isError) {
@@ -1351,6 +1363,7 @@ export async function instrumentAgentLoop(opts: {
             messages: generation.input,
             assistantText: generation.assistantText,
             toolSpans: generation.toolSpans,
+            toolCallIds: toolSpanCallId,
           });
 
           spans.push({
@@ -1567,6 +1580,15 @@ export async function instrumentAgentLoop(opts: {
                         "error text withheld: captureToolResults is off for this app",
                     }
                   : undefined;
+          // The same distinction on the output side, which had no marker at
+          // all: a span with no `$ai_output_state` reads in PostHog as a tool
+          // that returned nothing, and that is what "the tool output is
+          // missing" looks like to a reader who has not seen this config. The
+          // tool DID answer — this app does not export what it said.
+          const toolOutputState = config.captureToolResults
+            ? (toolErrorMessage ??
+              (span.metadata as { output?: unknown } | null)?.output)
+            : "[tool result withheld: captureToolResults is off for this app]";
 
           const requestingGeneration = toolSpanRoundTrip.get(span.id);
           emitAiSpanEvent({
@@ -1593,9 +1615,7 @@ export async function instrumentAgentLoop(opts: {
             // only present when `captureToolArgs` / `captureToolResults` are
             // on; absent stays absent.
             inputState: (span.metadata as { input?: unknown } | null)?.input,
-            outputState:
-              toolErrorMessage ??
-              (span.metadata as { output?: unknown } | null)?.output,
+            outputState: toolOutputState,
             extraProperties: {
               ...trackingIdentityProperties(),
               source: "agent_observability",

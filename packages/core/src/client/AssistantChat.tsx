@@ -187,6 +187,7 @@ import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
+import { isProviderAuthenticationError } from "./error-format.js";
 import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
@@ -205,6 +206,7 @@ import {
   ownsRunStream,
   releaseRunStream,
 } from "./run-stream-ownership.js";
+import { signOut } from "./sign-out.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -485,6 +487,19 @@ export function reconnectProgressTimedOut(args: {
 }): boolean {
   const threshold = args.thresholdMs ?? ACTIVE_RUN_STUCK_THRESHOLD_MS;
   return args.now - args.lastProgressAt >= threshold;
+}
+
+export function matchesUserStoppedRun(
+  stopped: { runId?: string; threadId?: string; turnId?: string } | null,
+  threadId?: string,
+  runId?: string,
+  turnId?: string,
+): boolean {
+  if (!stopped || stopped.threadId !== threadId) return false;
+  return Boolean(
+    (stopped.runId && runId && stopped.runId === runId) ||
+    (stopped.turnId && turnId && stopped.turnId === turnId),
+  );
 }
 
 function activeRunMatchesThread(
@@ -2831,9 +2846,14 @@ const AssistantChatInner = forwardRef<
   const [dismissedRunErrorKey, setDismissedRunErrorKey] = useState<
     string | null
   >(null);
+  const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
+    useState<string | null>(null);
+  // Keep an intentional stop until the next explicit submission. The server
+  // may replay the terminal snapshot well after the client cancellation.
   const userStoppedRunRef = useRef<{
-    at: number;
     runId?: string;
+    threadId?: string;
+    turnId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
@@ -2949,14 +2969,23 @@ const AssistantChatInner = forwardRef<
       ? storedActiveRun?.turnId
       : undefined) ?? (showRunningInUI ? reconnectTurnIdRef.current : null);
   const chatRunStartedAtRef = useRef<number | null>(null);
+  const chatRunTurnIdRef = useRef<string | null>(null);
   const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
     number | null
   >(null);
   useEffect(() => {
     if (showRunningInUI) {
-      if (chatRunStartedAtRef.current == null) {
+      const startedForDifferentTurn =
+        chatRunStartedAtRef.current != null &&
+        chatRunTurnIdRef.current != null &&
+        activeChatTurnId != null &&
+        activeChatTurnId !== chatRunTurnIdRef.current;
+      if (chatRunStartedAtRef.current == null || startedForDifferentTurn) {
         chatRunStartedAtRef.current = Date.now();
+        chatRunTurnIdRef.current = activeChatTurnId ?? null;
         setLastChatRunDurationMs(null);
+      } else if (chatRunTurnIdRef.current == null && activeChatTurnId != null) {
+        chatRunTurnIdRef.current = activeChatTurnId;
       }
       return;
     }
@@ -2965,8 +2994,9 @@ const AssistantChatInner = forwardRef<
         Math.max(0, Date.now() - chatRunStartedAtRef.current),
       );
       chatRunStartedAtRef.current = null;
+      chatRunTurnIdRef.current = null;
     }
-  }, [showRunningInUI]);
+  }, [activeChatTurnId, showRunningInUI]);
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
   // ongoing work instead of exposing "Reconnecting" mid-chat.
@@ -3394,14 +3424,11 @@ const AssistantChatInner = forwardRef<
     };
   }, [cacheCurrentThreadSnapshot]);
 
-  const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
-    const stopped = userStoppedRunRef.current;
-    return Boolean(
-      stopped &&
-      Date.now() - stopped.at < 10_000 &&
-      (!stopped.runId || !runId || stopped.runId === runId),
-    );
-  }, []);
+  const wasUserStoppedRun = useCallback(
+    (runId?: string, turnId?: string): boolean =>
+      matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
+    [threadId],
+  );
 
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
@@ -3414,7 +3441,7 @@ const AssistantChatInner = forwardRef<
         return false;
       }
       const runId = String(runInfo.runId);
-      if (wasRecentlyStoppedRun(runId)) return false;
+      if (wasUserStoppedRun(runId, runInfo.turnId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -3906,14 +3933,7 @@ const AssistantChatInner = forwardRef<
       void streamReconnect();
       return true;
     },
-    [
-      apiUrl,
-      refreshThreadFromServer,
-      t,
-      tabId,
-      threadId,
-      wasRecentlyStoppedRun,
-    ],
+    [apiUrl, refreshThreadFromServer, t, tabId, threadId, wasUserStoppedRun],
   );
 
   const reconnectActiveRunForThread =
@@ -4211,7 +4231,10 @@ const AssistantChatInner = forwardRef<
       forceStopped ||
       isReconnecting ||
       runErrorInfo ||
-      wasRecentlyStoppedRun()
+      wasUserStoppedRun(
+        activeChatRunId ?? undefined,
+        activeChatTurnId ?? undefined,
+      )
     ) {
       return;
     }
@@ -4233,7 +4256,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     runErrorInfo,
     threadId,
-    wasRecentlyStoppedRun,
+    wasUserStoppedRun,
   ]);
 
   // Generate a title when the first user message is sent
@@ -4534,9 +4557,7 @@ const AssistantChatInner = forwardRef<
       }
       const stopped = userStoppedRunRef.current;
       if (
-        stopped &&
-        Date.now() - stopped.at < 10_000 &&
-        (!stopped.runId || !detail.runId || stopped.runId === detail.runId)
+        matchesUserStoppedRun(stopped, threadId, detail.runId, detail.turnId)
       ) {
         return;
       }
@@ -4554,6 +4575,7 @@ const AssistantChatInner = forwardRef<
         ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
       });
       setDismissedRunErrorKey(null);
+      setDismissedProviderAuthErrorKey(null);
       // An errored continuation must not keep showing "Resuming" — there is
       // no further chunk coming to clear it.
       clearAutoResume();
@@ -4993,9 +5015,14 @@ const AssistantChatInner = forwardRef<
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
       const pendingTurn = threadId ? getPendingTurn(threadId) : null;
+      const turnIdToAbort =
+        pendingTurn?.turnId ??
+        reconnectTurnIdRef.current ??
+        (activeRun?.runId === runIdToAbort ? activeRun?.turnId : undefined);
       userStoppedRunRef.current = {
-        at: Date.now(),
+        ...(threadId ? { threadId } : {}),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+        ...(turnIdToAbort ? { turnId: turnIdToAbort } : {}),
       };
       trackStoppedRun(runIdToAbort);
       setRunErrorInfo(null);
@@ -5107,6 +5134,7 @@ const AssistantChatInner = forwardRef<
       continuationTurnId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
       }
@@ -5115,8 +5143,8 @@ const AssistantChatInner = forwardRef<
       setLoopLimitInfo(null);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
+      setDismissedProviderAuthErrorKey(null);
       setComposerError(null);
-      userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -5347,6 +5375,11 @@ const AssistantChatInner = forwardRef<
       // hidden reconnect recovery turns must leave the user's viewport alone.
       if (!hideUserMessage) resumeFollowingRef.current();
       reportAgentChatSubmitResult(submitMessageId, true);
+      // A queued immediate submit can abort the previous run after it is
+      // accepted. Preserve that newer stop marker while clearing the old one.
+      if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
+        userStoppedRunRef.current = null;
+      }
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
@@ -5648,7 +5681,6 @@ const AssistantChatInner = forwardRef<
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
-  const showMissingKeySetup = engineSetupRequired && !authError;
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -5683,13 +5715,36 @@ const AssistantChatInner = forwardRef<
     !!visibleRunError &&
     !showRunningInUI &&
     visibleRunErrorKey !== dismissedRunErrorKey &&
-    !(
-      userStoppedRunRef.current &&
-      Date.now() - userStoppedRunRef.current.at < 10_000 &&
-      (!userStoppedRunRef.current.runId ||
-        !visibleRunError.runId ||
-        userStoppedRunRef.current.runId === visibleRunError.runId)
+    !matchesUserStoppedRun(
+      userStoppedRunRef.current,
+      threadId,
+      visibleRunError.runId,
+      visibleRunError.turnId,
     );
+  const providerAuthErrorKey =
+    visibleRunError &&
+    isProviderAuthenticationError(
+      [visibleRunError.message, visibleRunError.details]
+        .filter(Boolean)
+        .join("\n"),
+      visibleRunError.errorCode,
+    )
+      ? visibleRunErrorKey
+      : null;
+  const showProviderAuthSetup =
+    providerAuthErrorKey !== null &&
+    providerAuthErrorKey !== dismissedProviderAuthErrorKey &&
+    !authError &&
+    (showRunningInUI || !shouldShowRunError);
+  const showMissingKeySetup =
+    (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupConnected = useCallback(() => {
+    handleBuilderConnected();
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [handleBuilderConnected, providerAuthErrorKey]);
   // The banner covers one run; every failed turn it does not cover keeps its own
   // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
@@ -5903,7 +5958,9 @@ const AssistantChatInner = forwardRef<
       <CheckpointContext.Provider value={checkpointCtx}>
         <MessageActionsContext.Provider value={messageActionsCtx}>
           <ApprovalContext.Provider value={approvalCtx}>
-            <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
+            <ChatRunDurationContext.Provider
+              value={showRunningInUI ? null : lastChatRunDurationMs}
+            >
               <ServerRunActiveContext.Provider value={serverRunActive}>
                 <ChatRunningRunIdContext.Provider value={activeChatRunId}>
                   <ChatRunningTurnIdContext.Provider value={activeChatTurnId}>
@@ -6032,23 +6089,8 @@ const AssistantChatInner = forwardRef<
                                       {authError.sessionExpired &&
                                         !authSessionAvailable && (
                                           <button
-                                            onClick={async () => {
-                                              try {
-                                                await fetch(
-                                                  agentNativePath(
-                                                    "/_agent-native/auth/logout",
-                                                  ),
-                                                  {
-                                                    method: "POST",
-                                                  },
-                                                );
-                                              } catch (error) {
-                                                console.error(
-                                                  "Failed to log out before reloading the chat",
-                                                  error,
-                                                );
-                                              }
-                                              window.location.reload();
+                                            onClick={() => {
+                                              void signOut();
                                             }}
                                             className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
                                           >
@@ -6155,7 +6197,7 @@ const AssistantChatInner = forwardRef<
                                       resetKey={messageListResetKey}
                                     >
                                       <UserStoppedRunContext.Provider
-                                        value={wasRecentlyStoppedRun}
+                                        value={wasUserStoppedRun}
                                       >
                                         <ThreadPrimitive.Messages
                                           // Deliberately NOT keyed on part structure. Doing that
@@ -6437,7 +6479,7 @@ const AssistantChatInner = forwardRef<
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
-                                onConnected={handleBuilderConnected}
+                                onConnected={handleProviderSetupConnected}
                               />
                             ) : null}
                             {/* Input area */}

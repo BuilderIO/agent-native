@@ -7,7 +7,7 @@
  * generation flow. Hidden from the agent — deck creation for the model goes
  * through `create-deck`.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -17,6 +17,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
+import {
+  ensureUniqueSlideIds,
+  repairDeckSlideReferences,
+} from "../shared/slide-ids.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -37,6 +41,22 @@ export default defineAction({
   agentTool: false,
   run: async (args) => {
     const deck = args.deck as DeckPayload;
+    if (Array.isArray(deck.slides)) {
+      const normalized = ensureUniqueSlideIds(
+        deck.slides as Array<{ id?: unknown }>,
+      );
+      deck.slides = normalized.slides;
+      if (normalized.changed) {
+        Object.assign(
+          deck,
+          repairDeckSlideReferences(
+            deck,
+            normalized.slides,
+            normalized.originalIds,
+          ),
+        );
+      }
+    }
     const id = deck.id;
     if (typeof id !== "string" || !id) {
       throw deckHttpError(400, "Deck must have an id");

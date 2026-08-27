@@ -1,43 +1,73 @@
 ---
-title: "채팅 템플릿"
-description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채팅 스레드, actions, 애플리케이션 상태, 라이브 동기화, 인증 및 자신만의 UI를 추가할 수 있는 공간."
+title: "채팅"
+description: "내구성 있는 채팅 스레드, 액션, 애플리케이션 상태, 실시간 동기화, 인증을 갖추고 나만의 UI를 추가할 여지가 있는, 가장 단순한 채팅 우선 에이전트 네이티브 앱."
 ---
 
-# 채팅 템플릿
+# 채팅
 
-채팅은 기본 에이전트 기반 앱의 시작점입니다. 중앙에 채팅이 있는 깔끔한 ChatGPT 스타일 셸, 왼쪽에 스레드 목록, 표준 앱 탐색, 인증, 라이브 동기화, actions 및 하나의 예제 작업이 제공됩니다. 도메인 템플릿을 적용하지 않고도 구축할 수 있는 실제 브라우저 앱을 원한다면 여기에서 시작하세요.
+채팅은 가장 평범한 에이전트 네이티브 시작점입니다. 중앙에 채팅이 있고 스레드 목록, 인증,
+예제 액션 하나를 갖춘 ChatGPT 스타일 셸이며, 도메인에 특화된 요소는 전혀 없습니다.
+특정 업무를 위한 완성된 제품이 아니라, 자신만의 에이전트와 화면을 그 위에 구축하고 싶은
+개발자를 위한 실제로 배포 가능한 앱입니다.
 
-브라우저 UI 없는 automation-first runtime을 원한다면 [Automation-First Apps](/docs/pure-agent-apps)로 시작하세요. 완성된 도메인 제품 형태를 원한다면 [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) 또는 다른 도메인 템플릿에서 시작하세요.
+완성된 도메인 제품 형태를 원한다면 [Calendar](/docs/template-calendar),
+[Mail](/docs/template-mail), [Content](/docs/template-content),
+[Forms](/docs/template-forms), [Analytics](/docs/template-analytics) 또는 다른
+도메인 템플릿에서 시작하세요. 아직 브라우저 UI가 전혀 필요하지 않다면
+[자동화 우선 앱](/docs/pure-agent-apps) 문서를 참고하세요.
 
-<WireframeBlock id="doc-block-ljnm1j">
+<Cards columns={1}>
+
+### [지금 사용해 보기 →](https://chat.agent-native.com)
+
+실제로 동작하는 채팅을 확인해 보세요: 별도 설정 없이 에이전트와 바로 대화를 시작할 수
+있습니다.
+
+</Cards>
+
+<WireframeBlock id="doc-block-chat1">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅하세요. actions, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가하세요.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 높음</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅해 보세요. 액션, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가할 수 있습니다.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지 보내기...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 높음</span><span class='wf-pill'>실행</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
 
-## 그 내용 {#whats-in-it}
+## 무엇이 제공되는가 {#what-ships}
 
-- **프레임워크 채팅 화면과 내구성 있는 채팅 스레드를 사용하는 `/`의 **전체 페이지 채팅\*\*
-- **앱 사이드바의 스레드 목록** 사용자가 채팅을 생성하고, 다시 열고, 이름을 바꾸고, 고정하고 보관할 수 있습니다.
-- **에이전트 채팅 플러그인** 사전 구성되어 에이전트 자격 증명이 설정되면 채팅이 내장된 앱-에이전트 루프와 통신합니다.
-- **인증** 더 나은 인증을 통해 — 로그인, 가입, 세션, 조직. 동일한 흐름이 로컬 및 프로덕션에서 실행됩니다. 개발 중에는 이메일 확인을 건너뜁니다.
-- **Actions 디렉토리**(예: `actions/hello.ts`)와 표준 `view-screen` 및 `navigate` actions가 포함되어 있습니다.
-- **애플리케이션 상태, 설정, 세션, 리소스, 채팅 스레드, 실행 기록 및 기타 런타임 상태에 대한 프레임워크의 핵심 테이블**
-- **라이브 동기화**(`useDbSync`)가 이미 연결되어 있으므로 에이전트가 SQL에 쓸 때 UI가 자동으로 새로 고쳐집니다.
-- **AGENTS.md** actions, 경로, skills 및 애플리케이션 상태를 추가하기 위한 채팅 우선 지침이 포함되어 있습니다.
+<Comparison>
 
-## 그 안에 _없는_ 것은 무엇입니까 {#not-in-it}
+### :green: 포함됨
 
-- 도메인 테이블이나 시드 데이터가 없습니다.
-- 대시보드, 목록, 차트, 양식 또는 공급자 통합이 없습니다.
-- 예제 스텁 외에 도메인별 actions는 없습니다.
+- 프레임워크 채팅 화면과 내구성 있는 채팅 스레드를 사용하는 `/`의 전체 페이지 채팅
+- 채팅을 생성, 다시 열기, 이름 변경, 고정, 보관할 수 있는 앱 사이드바의 스레드 목록
+- 채팅 플러그인에 맞게 미리 구성된 내장 앱-에이전트 루프
+- Better Auth를 통한 인증: 로그인, 가입, 세션, 조직
+- 예제 하나(`actions/hello.ts`)와 표준 `view-screen`, `navigate` 액션을 포함한
+  액션 디렉터리
+- 채팅 스레드, 애플리케이션 상태, 설정, 세션, 리소스, 실행 기록을 위한 프레임워크의
+  핵심 테이블, 그리고 열어보지 않아도 마운트되어 있는 Database 관리자 페이지와
+  Observability 대시보드
+- 에이전트가 SQL에 기록하면 UI가 새로 고쳐지도록 이미 연결된 실시간 동기화
+  (`useDbSync`)
+- 사용자가 나중에 채팅 안에서 직접 만드는 샌드박스 미니 앱을 위해 기본으로 마운트된
+  Extensions 라우트
+- 액션, 라우트, skills, 애플리케이션 상태를 추가하는 방법에 대한 채팅 우선 지침이
+  담긴 AGENTS.md
 
-그게 핵심입니다. Chat은 일반적인 척하는 도메인 제품이 아니라 귀하의 에이전트를 위한 얇고 유용한 기본 셸입니다.
+### :red: 포함되지 않음
 
-<Diagram id="doc-block-curf7p" title={"Chat 셸에 포함된 내용"} summary={"프레임워크의 표준 런타임(작업, 내구성 있는 스레드, 라이브 동기화 및 인증)에 대한 얇은 채팅 표면과 자체 UI를 추가할 수 있는 공간이 있습니다."}>
+- 도메인 테이블이나 시드 데이터
+- 대시보드, 목록, 차트, 폼, 프로바이더 통합
+- 예제 스텁을 넘어서는 도메인별 액션
+
+</Comparison>
+
+그것이 핵심입니다. 채팅은 일반적인 척하는 도메인 제품이 아니라, 여러분 자신의
+에이전트를 위한 얇고 유용한 기본 셸입니다.
+
+<Diagram id="doc-block-chat2" title="채팅 셸에 포함된 내용" summary={"액션, 내구성 있는 스레드, 실시간 동기화, 인증이라는 프레임워크의 표준 런타임 위에 얹힌 얇은 채팅 화면이며, 자체 UI를 추가할 여지가 있습니다."}>
 
 ```html
 <div class="diagram-chat">
@@ -55,7 +85,7 @@ description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">
-    <span class="diagram-pill accent">Actions</span
+    <span class="diagram-pill accent">액션</span
     ><small class="diagram-muted">hello.ts · view-screen · navigate</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -101,33 +131,47 @@ description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채
 
 ## 선택 시기 {#when-to-pick}
 
-- **사용자가 즉시 대화할 수 있는 기본 앱**을 원하고 actions 및 UI로 확장합니다.
-- **첫 번째 브라우저 표면으로 채팅이 필요한 헤드리스 앱**이 있습니다.
-- **Agent-Native의 actions, 상태, 인증 및 배포 형태를 유지하면서 자신의 에이전트 백엔드를 친숙한 채팅 UI**에 연결하려고 합니다.
-- **도메인 템플릿과 일치하지 않는 사용자 정의 내부 도구**의 프로토타입을 만들고 있습니다.
+- **사용자가 즉시 대화할 수 있는 기본 앱을 원하고**, 이후 액션과 UI로 확장하려는
+  경우.
+- **채팅을 먼저 만들고, 그다음 액션, 네이티브 결과, 앱 페이지로 이어지는 Agent-Native의
+  기본 온램프를 원하는** 경우.
+- **Agent-Native의 액션, 상태, 인증, 배포 형태를 유지하면서 자신만의 에이전트
+  백엔드를 익숙한 채팅 UI에 연결하고 싶은** 경우.
+- **도메인 템플릿과 맞지 않는 사용자 정의 내부 도구를 프로토타이핑하는** 경우.
 
-## 비계 {#scaffolding}
+## 시작하기 {#get-started}
 
 ```bash
-npx @agent-native/core@latest create my-chat-app --template chat
-cd my-chat-app
-pnpm install
-pnpm dev
+npx @agent-native/core@latest create my-chat-app --standalone --template chat
 ```
 
-또는 UI 없이 시작하고 나중에 채팅 화면을 추가하세요.
+설치, 첫 실행, LLM 연결에 대해서는
+[채팅: 개발자 가이드](/docs/template-chat-developers#quick-start) 문서를
+참고하세요. 브라우저 UI가 전혀 없는 자동화 우선 작업이라면 대신 `--headless`로
+스캐폴딩하세요.
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-여기서 Chat 템플릿의 `/` 경로 및 사이드바 스레드 목록을 앱에 복사하거나 Chat 앱을 스캐폴드하고 헤드리스 에이전트의 actions를 `actions/` 디렉터리로 이동합니다. 주요 불변성은 동일하게 유지됩니다. actions는 채팅의 공유 영역이고, UI, HTTP, MCP, A2A 및 CLI입니다.
+예약된 작업, 큐, CLI 루프, 또는 채팅과 앱 페이지가 아직 유용하지 않은 외부 에이전트
+워크플로에 사용하세요. 핵심 불변성은 동일하게 유지됩니다: 액션은 채팅, UI, HTTP,
+MCP, A2A, CLI가 공유하는 표면입니다. 이 경로를 자세히 다루는
+[자동화 우선 앱](/docs/pure-agent-apps) 문서를 참고하세요.
 
 ## 다음 단계
 
-- [**채팅에서 첫 번째 기능 추가하기**](/docs/template-chat-first-edits) — 주석이 달린 시작 채팅 경로와 실제 기능을 추가하는 전체 안내
-- [**Getting Started**](/docs) — 헤드리스, 채팅 및 도메인 템플릿 중에서 선택
-- [**Agent Surfaces**](/docs/agent-surfaces) — 헤드리스, 채팅, 임베디드 및 전체 앱 패턴
-- [**Actions**](/docs/actions-overview) — 액션 시스템 채팅과 UI 모두 호출
-- [**Native 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소 및 런타임 옵션
-- [**Automation-First Apps**](/docs/pure-agent-apps) — 브라우저 UI 없는 automations, queues, scripts, external agent workflows
+- [**채팅에서 첫 번째 기능 만들기**](/docs/template-chat-first-edits) — 주석이
+  달린 시작 채팅 라우트와 실제 기능을 추가하는 전체 안내
+- [**채팅: 개발자 가이드**](/docs/template-chat-developers) — 빠른 시작, 액션,
+  핵심 테이블, 인증, 기본으로 제공되는 관리자 페이지
+- [**시작하기**](/docs/getting-started) — 액션에서 인라인 결과, 앱 페이지까지
+  이어지는 채팅 우선 경로 구축하기
+- [**템플릿**](/docs/cloneable-saas) — Cloneable SaaS 모델과 대신 시작점으로 삼을
+  수 있는 모든 도메인 템플릿
+- [**에이전트 서피스**](/docs/agent-surfaces) — 채팅, 인라인 UI, 앱 페이지,
+  임베디드, 자동화, 외부 에이전트 패턴
+- [**액션**](/docs/actions-overview) — 채팅과 UI가 모두 호출하는 액션 시스템
+- [**기본 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소와 런타임 옵션
+- [**자동화 우선 앱**](/docs/pure-agent-apps) — 작업, 큐, 스크립트, 외부 에이전트를
+  위한 브라우저 없는 워크플로

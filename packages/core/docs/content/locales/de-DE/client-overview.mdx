@@ -9,7 +9,7 @@ description: "Die Verzeichnisse app/ und public/: hier bauen Sie die Darstellung
 
 Der eine architektonische Unterschied zu einem typischen Frontend: Diese Schicht hat kein eigenes Backend-for-Frontend. Sie liest und schreibt Daten über dieselben Actions, die auch der Agent aufruft, sodass alles, was hier verkabelt wird, automatisch etwas ist, das der Agent auch tun kann.
 
-<Diagram id="doc-block-client-overview-1" title="Traditionelles Frontend vs. Agent Native" summary="Ein traditionelles Frontend ruft seine eigene API-Schicht auf, die nur es selbst erreichen kann. In Agent Native rufen app/ und der Agent dieselben Actions auf, sodass jede hier gebaute Fähigkeit kostenlos agentenaufrufbar ist.">
+<Diagram id="doc-block-client-overview-1" title="Traditionelles Frontend vs. Agent-Native" summary="Ein traditionelles Frontend ruft seine eigene API-Schicht auf, die nur es selbst erreichen kann. In Agent-Native rufen app/ und der Agent dieselben Actions auf, sodass jede hier gebaute Fähigkeit kostenlos agentenaufrufbar ist.">
 
 ```html
 <div class="diagram-cocmp">
@@ -26,7 +26,7 @@ Der eine architektonische Unterschied zu einem typischen Frontend: Diese Schicht
   </div>
   <div class="cocmp-vs diagram-muted">vs</div>
   <div class="cocmp-col">
-    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-label diagram-muted">Agent-Native</div>
     <div class="cocmp-callers">
       <div class="diagram-node">app/ (React-Frontend)</div>
       <div class="diagram-node">Agent</div>

@@ -15,7 +15,7 @@
  * prompting the user to Connect Builder (see DESIGN-STUDIO-PLAN.md §6.1).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";

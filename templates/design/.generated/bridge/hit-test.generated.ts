@@ -145,15 +145,35 @@ export const hitTestBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
-    function isAbsoluteLayoutContainer(el) {
+    var BRIDGE_REPLACED_TAGS = {
+      img: true,
+      video: true,
+      picture: true,
+      audio: true,
+      canvas: true,
+      svg: true,
+      path: true,
+      input: true,
+      textarea: true,
+      select: true,
+      br: true,
+      hr: true,
+      iframe: true
+    };
+    var BRIDGE_ADOPTING_PRIMITIVES = {
+      frame: true,
+      rectangle: true,
+      rect: true
+    };
+    function isFreeformRelativeContainer(el) {
       if (!el || el === document.body || el === document.documentElement) {
         return false;
       }
-      var cs = window.getComputedStyle(el);
-      if (cs.position === "static") return false;
+      if (window.getComputedStyle(el).position === "static") return false;
       var children = el.children;
       if (children.length === 0) return false;
       for (var i = 0; i < children.length; i += 1) {
+        if (isOverlayElement(children[i])) continue;
         var childPosition = window.getComputedStyle(children[i]).position;
         if (childPosition !== "absolute" && childPosition !== "fixed") {
           return false;
@@ -162,12 +182,25 @@ export const hitTestBridgeScript: string = `"use strict";
       return true;
     }
     function isAbsolutePrimitiveContainer(el) {
-      if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+      if (!el || el.nodeType !== 1) return false;
+      if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
       var primitive = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
-      if (primitive !== "rectangle" && primitive !== "rect" && primitive !== "frame")
+      if (primitive) {
+        if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+      } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
         return false;
+      }
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
+    }
+    function hasAbsolutePositionedChild(el) {
+      var kids = el.children;
+      for (var i = 0; i < kids.length; i += 1) {
+        if (isOverlayElement(kids[i])) continue;
+        var kidPosition = window.getComputedStyle(kids[i]).position;
+        if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+      }
+      return false;
     }
     function absolutePrimitiveContainerTargetForPoint(clientX, clientY) {
       var hits = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
@@ -176,7 +209,7 @@ export const hitTestBridgeScript: string = `"use strict";
         var cursor = hits[i];
         var candidate = null;
         while (cursor && cursor !== document.body) {
-          if (isAbsolutePrimitiveContainer(cursor) || isAbsoluteLayoutContainer(cursor)) {
+          if (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor)) {
             candidate = cursor;
             break;
           }
@@ -407,7 +440,7 @@ export const hitTestBridgeScript: string = `"use strict";
             dropMode: "flow-insert"
           };
         }
-        if (isAbsolutePrimitiveContainer(cursor) || isAbsoluteLayoutContainer(cursor)) {
+        if (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor)) {
           return {
             anchor: cursor,
             placement: "inside",

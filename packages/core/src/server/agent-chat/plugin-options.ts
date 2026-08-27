@@ -10,6 +10,7 @@ import type {
 } from "../../agent/types.js";
 import type { FeatureFlagDefinition } from "../../feature-flags/registry.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
+import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
@@ -36,7 +37,14 @@ export interface AgentChatPluginOptions {
   systemPrompt?: string;
   /** Additional system prompt prepended in dev mode */
   devSystemPrompt?: string;
-  /** Model to use. Defaults to the resolved engine's default model. */
+  /**
+   * Model to use. Defaults to the resolved engine's default model.
+   *
+   * @deprecated Set `agent.model` in `defineAppConfig()` (env alias
+   * `AGENT_MODEL`) instead. This option stays the top layer of that field, so
+   * passing it still wins; it exists only for mounts that need a different
+   * model from the rest of the process, which no first-party app does.
+   */
   model?: string;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    * AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
@@ -51,6 +59,15 @@ export interface AgentChatPluginOptions {
    * Netlify build also emits the background function. Set this to `false` to
    * explicitly disable a stale deploy-wide `AGENT_CHAT_DURABLE_BACKGROUND`
    * flag for this app.
+   *
+   * @deprecated Passing `true` is redundant on Netlify, where
+   * `isAgentChatDurableBackgroundEnabled` already defaults on unless
+   * `AGENT_CHAT_DURABLE_BACKGROUND` is explicitly falsy. It still matters in
+   * two cases, so it is not inert: `false` is a hard veto over a stale
+   * deploy-wide flag, and `true` is the only way a non-Netlify hosted runtime
+   * with a workspace background-function path opts in. Prefer setting
+   * `AGENT_CHAT_DURABLE_BACKGROUND`, which the deploy-time emit gate in
+   * `deploy/build.ts` can also see — this option is invisible to it.
    */
   durableBackgroundRuns?: boolean;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
@@ -81,6 +98,12 @@ export interface AgentChatPluginOptions {
    * the per-request scope gate when a tool is called.
    */
   backgroundMcpTools?: "requested" | "all";
+  /**
+   * Resolve approval metadata for connected MCP tools as they enter the agent
+   * action registry. This can require approval for selected tools and disable
+   * persistent approval for actions that must be confirmed on every call.
+   */
+  resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];
   /**
    * Everything about this app's MCP mount — whether it is mounted, which tools
    * external callers see, and the branding sent during the `initialize`
@@ -427,9 +450,9 @@ export interface AgentChatPluginOptions {
    * Code-execution capability for the production agent.
    *
    * - `"off"` (default) — no code-execution tools in production.
-   * - `"sandboxed"` — registers the `run-code` tool (isolated Node.js sandbox
-   *   with a bridge to allowlisted registered tools). Safe for shared or
-   *   hosted deployments.
+   * - `"sandboxed"` — registers the `run-code` tool (hardened QuickJS
+   *   evaluator with a bridge to allowlisted registered tools). Safe for
+   *   shared or hosted deployments.
    * - `"trusted"` — registers both the full coding tool registry
    *   (bash / read / edit / write) and the `run-code` sandbox. Only use in
    *   single-tenant or operator-controlled deployments where full shell access

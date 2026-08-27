@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -2164,6 +2165,114 @@ describe("server/auth", () => {
       expect((result as Response).status).toBe(302);
       expect((result as Response).headers.get("location")).toBe(
         `/calendar/_agent-native/google/callback?code=abc&state=${state}`,
+      );
+    });
+
+    it("relays workspace Google provider callbacks to the provider route", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = `${Buffer.from(
+        JSON.stringify({ app: "dispatch", p: "google_slides" }),
+      ).toString("base64url")}.sig`;
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("location")).toBe(
+        `/dispatch/_agent-native/connections/oauth/google_slides/callback?code=abc&state=${state}`,
+      );
+    });
+
+    it("relays workspace Google MCP callbacks to the MCP route", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = `${Buffer.from(
+        JSON.stringify({ app: "3dot0-faq", p: "mcp" }),
+      ).toString("base64url")}.sig`;
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("location")).toBe(
+        `/3dot0-faq/_agent-native/mcp/servers/oauth/callback?code=abc&state=${state}`,
+      );
+    });
+
+    it("relays legacy UUID MCP callbacks from the encrypted flow cookie", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("SECRETS_ENCRYPTION_KEY", "test-mcp-cookie-key");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = crypto.randomUUID();
+      const encrypted = encryptSecretValue(
+        JSON.stringify({
+          state,
+          redirectUri:
+            "https://localhost/3dot0-faq/_agent-native/mcp/servers/oauth/callback",
+        }),
+      );
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+          headers: {
+            cookie: `an_mcp_oauth_flow=${encodeURIComponent(encrypted)}`,
+          },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("location")).toBe(
+        `/3dot0-faq/_agent-native/mcp/servers/oauth/callback?code=abc&state=${state}`,
       );
     });
 
@@ -5833,8 +5942,10 @@ describe("server/auth", () => {
         'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
       );
       expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
-      expect(html).toContain("__anStartPopupOAuth(ret, btn, err)");
-      expect(html).toContain("__anStartNativeDesktopOAuth(ret, btn, err)");
+      expect(html).toContain("__anStartPopupOAuth(ret, btn, err, flowId)");
+      expect(html).toContain(
+        "__anStartNativeDesktopOAuth(ret, btn, err, flowId)",
+      );
       expect(html).toContain(
         "__anPath('/_agent-native/auth/desktop-exchange')",
       );
@@ -5909,8 +6020,58 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
       );
+      expect(html).toContain(
+        "function __anWatchOAuthPopupClose(popup, flowId)",
+      );
+      expect(html).toContain("function __anHandleOAuthPopupClosed(flowId)");
+      expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
+      expect(html).toContain("var __anNativeOAuthFlowId = null;");
+      expect(html).toContain("var __anNativeOAuthRequestPending = false;");
+      expect(html).toContain("var __anNativeOAuthReturnObserved = false;");
+      expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
+      expect(html).toContain("function __anBeginNativeOAuth(flowId)");
+      expect(html).toContain("function __anCancelNativeOAuthAbandonment()");
+      expect(html).toContain(
+        "function __anScheduleNativeOAuthAbandonment(flowId)",
+      );
+      expect(html).toContain("__anFinalizeNativeOAuthAbandonment(flowId);");
+      expect(html).toContain("__anNativeOAuthRequestPending = true;");
+      expect(html).toContain("__anNativeOAuthRequestPending = false;");
+      expect(html).toContain("__anNativeOAuthReturnObserved = true;");
+      expect(html).toContain("__anBeginNativeOAuth(flowId);");
+      expect(html).toContain("__anMarkNativeOAuthPolling(flowId);");
+      expect(html).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);\n        __anScheduleNativeOAuthAbandonment(flowId);",
+      );
+      expect(html).toContain(
+        "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
+      );
+      expect(html).toContain(
+        "__anFinalizeOAuthPopupClose(flowId);\n        }, __anOAuthPopupCloseGraceMs);",
+      );
+      expect(html).toContain("__anHandleOAuthPopupClosed(flowId);");
+      expect(html).toContain("closed = popup.closed === true");
+      expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
+      expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
+      expect(html).toContain(
+        "if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
+      );
+      expect(html).toContain("__anStopOAuthExchangePolling();");
+      expect(html).toContain(
+        "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",
+      );
+      expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
+      expect(html).toContain(
+        "window.addEventListener('focus', function() {\n        __anRecoverGoogleSignInAfterReturn();\n      });",
+      );
+      expect(html).toContain(
+        "window.addEventListener('blur', function() {\n        __anCancelNativeOAuthAbandonment();\n      });",
+      );
+      expect(html).toContain(
+        "if (document.visibilityState === 'visible') {\n          __anRecoverGoogleSignInAfterReturn();\n        } else {\n          __anCancelNativeOAuthAbandonment();\n        }",
+      );
       const recoverStart = html.indexOf(
-        "function __anRecoverGoogleSignInAfterReturn()",
+        "function __anRecoverGoogleSignInAfterReturn(flowId)",
       );
       const recoverEnd = html.indexOf(
         "function __anBindGoogleRecover()",
@@ -6474,7 +6635,7 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Clips");
     });
 
-    it("uses a deep link for Agent Native desktop exchange completion", async () => {
+    it("uses a deep link for Agent-Native desktop exchange completion", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(
         oauthCallbackResponse(
@@ -6589,7 +6750,7 @@ describe("server/auth", () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       // Reproduces the Builder.io Fusion webview hitting the no-flowId
       // desktop login path with `desktop=true` in OAuth state but a generic
-      // Electron UA. Pre-fix this rendered the dead-end "Open Agent Native"
+      // Electron UA. Pre-fix this rendered the dead-end "Open Agent-Native"
       // deep-link page; now the server should fall through to a 302 redirect.
       const event = createMockEvent({
         headers: {

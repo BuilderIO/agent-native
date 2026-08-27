@@ -11,7 +11,8 @@
  * site — keeps the transactional look-and-feel consistent.
  */
 
-import { getAppName, getAppSlug, getAppDescription } from "./app-name.js";
+import { isFirstPartyApp } from "../app-config/app-identity.js";
+import { getAppConfig, type AppConfig } from "../app-config/index.js";
 import { renderEmail, emailStrong } from "./email-template.js";
 
 /** Shared reply-to for the framework's transactional emails. */
@@ -38,19 +39,58 @@ function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
 }
 
+function packageDisplayName(
+  packageName: string | undefined,
+): string | undefined {
+  if (!packageName || packageName.startsWith("@agent-native/"))
+    return undefined;
+  const leaf = packageName.split("/").pop()?.trim();
+  if (!leaf) return undefined;
+  return leaf
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function resolveBaseAppName(app: AppConfig["app"]): string {
+  return stripCrlf(
+    app.name || packageDisplayName(app.packageName) || "Agent-Native",
+  );
+}
+
 function resolveAppName(): string {
-  return stripCrlf(getAppName() || "Agent Native");
+  return resolveBaseAppName(getAppConfig().app);
+}
+
+interface EmailBrand {
+  name: string;
+  logoUrl?: string;
+  senderSlug?: string;
 }
 
 /**
  * Recipient-facing brand for auth emails. Only a recognized first-party
- * template is presented as "Agent-Native <App>"; a custom deployment keeps its
- * own name so its users aren't told they signed up for an Agent Native app.
+ * template is presented as "Agent-Native <App>"; a custom deployment keeps
+ * its own name and logo.
  */
-function resolveBrand(slug: string | undefined): string {
-  const appName = getAppName();
-  if (!appName) return "Agent Native";
-  return slug ? `Agent-Native ${stripCrlf(appName)}` : stripCrlf(appName);
+function resolveBrand(): EmailBrand {
+  const app = getAppConfig().app;
+  const firstParty = isFirstPartyApp(app);
+  const baseName = resolveBaseAppName(app);
+  return {
+    name:
+      firstParty && baseName !== "Agent-Native"
+        ? `Agent-Native ${baseName}`
+        : baseName,
+    logoUrl: firstParty ? undefined : app.logoUrl,
+    senderSlug: firstParty ? app.slug : undefined,
+  };
+}
+
+function resolveAppLogoUrl(): string | undefined {
+  const app = getAppConfig().app;
+  return isFirstPartyApp(app) ? undefined : app.logoUrl;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +119,7 @@ export function renderInviteEmail(
 
   const { html, text } = renderEmail({
     brandName: appName,
+    brandLogoUrl: resolveAppLogoUrl(),
     preheader: `${inviter} invited you to join ${orgName}${onApp}.`,
     heading: `You're invited to join ${orgName}`,
     paragraphs: [
@@ -117,28 +158,28 @@ export interface RenderVerifySignupEmailArgs {
  */
 const VERIFY_EMAIL_DESCRIPTIONS: Record<string, string> = {
   calendar:
-    "Agent-native Google Calendar replacement — manage events, sync, and public booking",
+    "Agent-Native Google Calendar replacement — manage events, sync, and public booking",
   content:
     "Open-source Obsidian/Notion replacement for MDX — edit local docs with agent assistance",
   slides:
-    "Agent-native Google Slides replacement — generate and edit React presentations",
+    "Agent-Native Google Slides replacement — generate and edit React presentations",
   analytics:
-    "Agent-native Amplitude/Mixpanel replacement — connect data sources, prompt for charts",
-  mail: "Agent-native Superhuman replacement — email client with keyboard shortcuts and AI triage",
+    "Agent-Native Amplitude/Mixpanel replacement — connect data sources, prompt for charts",
+  mail: "Agent-Native Superhuman replacement — email client with keyboard shortcuts and AI triage",
 };
 
 export function renderVerifySignupEmail(
   args: RenderVerifySignupEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const slug = getAppSlug();
-  const brand = resolveBrand(slug);
-  const description = slug
-    ? (VERIFY_EMAIL_DESCRIPTIONS[slug] ?? getAppDescription())
+  const brand = resolveBrand();
+  const description = brand.senderSlug
+    ? (VERIFY_EMAIL_DESCRIPTIONS[brand.senderSlug] ??
+      getAppConfig().app.description)
     : undefined;
 
   const paragraphs = [
-    `Thanks for signing up for ${emailStrong(brand)}. To finish creating your account, confirm that ${emailStrong(email)} is your email address.`,
+    `Thanks for signing up for ${emailStrong(brand.name)}. To finish creating your account, confirm that ${emailStrong(email)} is your email address.`,
   ];
   if (description) {
     paragraphs.push(`${stripCrlf(description).replace(/\.\s*$/, "")}.`);
@@ -146,20 +187,25 @@ export function renderVerifySignupEmail(
   paragraphs.push(`This link expires in 1 hour.`);
 
   const { html, text } = renderEmail({
-    brandName: brand,
-    preheader: `Confirm ${email} to finish setting up your ${brand} account.`,
-    heading: `Verify your email for ${brand}`,
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: `Confirm ${email} to finish setting up your ${brand.name} account.`,
+    heading: `Verify your email for ${brand.name}`,
     paragraphs,
     cta: { label: "Verify email", url: args.verifyUrl },
     footer: `If you didn't sign up, you can safely ignore this email.`,
   });
 
   return {
-    subject: `Verify your email for ${brand}`,
+    subject: `Verify your email for ${brand.name}`,
     html,
     text,
-    appSender: slug
-      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
       : undefined,
   };
 }
@@ -179,12 +225,12 @@ export function renderMagicLinkEmail(
   args: RenderMagicLinkEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const slug = getAppSlug();
-  const brand = resolveBrand(slug);
+  const brand = resolveBrand();
   const { html, text } = renderEmail({
-    brandName: brand,
-    preheader: `Sign in to ${brand} with your secure one-time link.`,
-    heading: `Sign in to ${brand}`,
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
+    preheader: `Sign in to ${brand.name} with your secure one-time link.`,
+    heading: `Sign in to ${brand.name}`,
     paragraphs: [
       `Use the button below to sign in as ${emailStrong(email)}. This link expires in 5 minutes and can only be used once.`,
       `If you didn't request this email, you can safely ignore it.`,
@@ -194,11 +240,15 @@ export function renderMagicLinkEmail(
   });
 
   return {
-    subject: `Your sign-in link for ${brand}`,
+    subject: `Your sign-in link for ${brand.name}`,
     html,
     text,
-    appSender: slug
-      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
       : undefined,
   };
 }
@@ -220,13 +270,13 @@ export function renderResetPasswordEmail(
   const email = stripCrlf(args.email);
   // Match the verification email branding so password resets are clearly tied
   // to the specific app. No value pitch here — it's a security email.
-  const slug = getAppSlug();
-  const brand = resolveBrand(slug);
+  const brand = resolveBrand();
 
   const { html, text } = renderEmail({
-    brandName: brand,
+    brandName: brand.name,
+    brandLogoUrl: brand.logoUrl,
     preheader: `Reset the password for ${email}. This link expires in 1 hour.`,
-    heading: `Reset your ${brand} password`,
+    heading: `Reset your ${brand.name} password`,
     paragraphs: [
       `Someone requested a password reset for ${emailStrong(email)}. Click the button below to choose a new password.`,
       `This link expires in 1 hour.`,
@@ -236,11 +286,15 @@ export function renderResetPasswordEmail(
   });
 
   return {
-    subject: `Reset your ${brand} password`,
+    subject: `Reset your ${brand.name} password`,
     html,
     text,
-    appSender: slug
-      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
+    appSender: brand.senderSlug
+      ? {
+          name: brand.name,
+          slug: brand.senderSlug,
+          replyTo: AGENT_NATIVE_REPLY_TO,
+        }
       : undefined,
   };
 }

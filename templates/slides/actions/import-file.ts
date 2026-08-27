@@ -1,6 +1,6 @@
 import path from "path";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {

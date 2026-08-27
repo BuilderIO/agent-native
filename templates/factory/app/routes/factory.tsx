@@ -7,6 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -247,6 +248,22 @@ export default function FactoryRoute() {
   const graphVersion = graph?.version ?? graphData?.factory.graphVersion ?? 1;
   const saveGraphMutation = useActionMutation("save-factory-graph");
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
+  const selectedFactory =
+    graphData?.factory ??
+    factoryList.find((factory) => factory.id === factoryId);
+
+  useEffect(() => {
+    if (!selectedFactory?.name) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      selectedFactory.name,
+      "Factory",
+    )} — Factory`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [selectedFactory?.name]);
 
   useEffect(() => {
     if (!graphData || dirty) return;
@@ -752,7 +769,12 @@ export default function FactoryRoute() {
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (
-          <FactorySettingsView key={factoryId} factoryId={factoryId} />
+          <FactorySettingsView
+            key={factoryId}
+            factoryId={factoryId}
+            factoryName={graphData?.factory.name ?? graph.name}
+            onDeleted={goToFactoryList}
+          />
         ) : activeTab === "automations" ? (
           <AutomationsView key={factoryId} factoryId={factoryId} t={t} />
         ) : activeTab === "audit" ? (

@@ -137,7 +137,7 @@ yours to apply.
 
 ## Agent-Native UI Rules
 
-- Agent-native apps use React and Vite. The default adapter uses Tailwind CSS,
+- Agent-Native apps use React and Vite. The default adapter uses Tailwind CSS,
   shadcn/ui, and `@tabler/icons-react`, but an app may register a different
   company design system in `app/design-system.ts`.
 - **Use the app's design-system seam for standard UI.** Inspect

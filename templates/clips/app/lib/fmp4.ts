@@ -108,6 +108,174 @@ export interface ParsedInitSegment {
   codecs: string;
   hasVideo: boolean;
   hasAudio: boolean;
+  /** Declared tracks, needed to turn a fragment's `tfdt` into seconds. */
+  tracks: Mp4Track[];
+}
+
+/** Boxes directly contained in `[start, end)`, with offsets relative to `bytes`. */
+function boxesIn(bytes: Uint8Array, start: number, end: number): TopLevelBox[] {
+  const clampedEnd = Math.min(end, bytes.byteLength);
+  if (start >= clampedEnd) return [];
+  return readTopLevelBoxes(bytes.subarray(start, clampedEnd)).map((box) => ({
+    ...box,
+    start: box.start + start,
+  }));
+}
+
+export interface Mp4Track {
+  trackId: number;
+  /** Ticks per second for this track's `tfdt` / `mdhd` timestamps. */
+  timescale: number;
+  /** `hdlr` handler type: "vide", "soun", or "" when absent. */
+  kind: string;
+}
+
+/**
+ * Read each track's id and timescale from a `moov` box (passed including its
+ * own header). A fragment's `tfdt` is in its own track's timescale — Clips
+ * recordings carry video at 600 and audio at 48000 — so converting a fragment
+ * timestamp to seconds without matching its track id is off by 80x.
+ */
+export function parseTracks(moovRegion: Uint8Array): Mp4Track[] {
+  const moovEnd = moovRegion.byteLength;
+  if (moovEnd < 8) return [];
+
+  const tracks: Mp4Track[] = [];
+  for (const trak of boxesIn(moovRegion, 8, moovEnd)) {
+    if (trak.type !== "trak") continue;
+    const trakEnd = trak.size ? trak.start + trak.size : moovEnd;
+    const trakChildren = boxesIn(
+      moovRegion,
+      trak.start + trak.headerSize,
+      trakEnd,
+    );
+    const tkhd = trakChildren.find((b) => b.type === "tkhd");
+    const mdia = trakChildren.find((b) => b.type === "mdia");
+    if (!tkhd || !mdia) continue;
+
+    // FullBox payloads start with a version byte; version 1 widens the two
+    // timestamps that precede the field we want from 4 to 8 bytes each.
+    const trackId = readFullBoxU32(moovRegion, tkhd, 8);
+    if (trackId === null) continue;
+
+    const mdiaEnd = mdia.size ? mdia.start + mdia.size : moovEnd;
+    const mdiaChildren = boxesIn(
+      moovRegion,
+      mdia.start + mdia.headerSize,
+      mdiaEnd,
+    );
+    const mdhd = mdiaChildren.find((b) => b.type === "mdhd");
+    if (!mdhd) continue;
+    const timescale = readFullBoxU32(moovRegion, mdhd, 8);
+    if (timescale === null || timescale <= 0) continue;
+
+    const hdlr = mdiaChildren.find((b) => b.type === "hdlr");
+    let kind = "";
+    if (hdlr) {
+      const handlerAt = hdlr.start + hdlr.headerSize + 8;
+      if (handlerAt + 4 <= moovRegion.byteLength) {
+        kind = readType(moovRegion, handlerAt);
+      }
+    }
+
+    tracks.push({ trackId, timescale, kind });
+  }
+  return tracks;
+}
+
+/**
+ * Read a uint32 from a FullBox payload at `afterTimestamps` bytes past the
+ * version/flags word, accounting for the version-1 widening of the two
+ * timestamp fields that precede it (`tkhd` track_ID, `mdhd` timescale).
+ */
+function readFullBoxU32(
+  bytes: Uint8Array,
+  box: TopLevelBox,
+  afterTimestamps: number,
+): number | null {
+  const payload = box.start + box.headerSize;
+  if (payload >= bytes.byteLength) return null;
+  const version = bytes[payload];
+  const widened = version === 1 ? afterTimestamps * 2 : afterTimestamps;
+  const at = payload + 4 + widened;
+  if (at + 4 > bytes.byteLength) return null;
+  return readU32(bytes, at);
+}
+
+export interface FragmentDecodeTime {
+  /** Track the timestamp belongs to; resolve its timescale via `parseTracks`. */
+  trackId: number;
+  baseMediaDecodeTime: number;
+}
+
+/**
+ * Read the first track fragment's decode time from the `moof` box at
+ * `moofStart`. This is what makes a byte offset locatable on the timeline: it
+ * answers "what presentation time does the fragment at this byte position
+ * start at", which a byte-fraction estimate can only guess at.
+ *
+ * Returns null when the `moof` is truncated or carries no `tfdt`.
+ */
+export function readFragmentDecodeTime(
+  bytes: Uint8Array,
+  moofStart: number,
+): FragmentDecodeTime | null {
+  if (moofStart < 0 || moofStart + 8 > bytes.byteLength) return null;
+  const size = readU32(bytes, moofStart);
+  if (size < 16) return null;
+  const moofEnd = Math.min(moofStart + size, bytes.byteLength);
+
+  for (const traf of boxesIn(bytes, moofStart + 8, moofEnd)) {
+    if (traf.type !== "traf") continue;
+    const trafEnd = traf.size ? traf.start + traf.size : moofEnd;
+    let trackId: number | null = null;
+    let baseMediaDecodeTime: number | null = null;
+
+    for (const child of boxesIn(bytes, traf.start + traf.headerSize, trafEnd)) {
+      const payload = child.start + child.headerSize;
+      if (child.type === "tfhd") {
+        if (payload + 8 <= bytes.byteLength) {
+          trackId = readU32(bytes, payload + 4);
+        }
+      } else if (child.type === "tfdt") {
+        if (payload >= bytes.byteLength) continue;
+        if (bytes[payload] === 1) {
+          if (payload + 12 > bytes.byteLength) continue;
+          // 64-bit: JS numbers hold this exactly for any real recording length.
+          baseMediaDecodeTime =
+            readU32(bytes, payload + 4) * 4294967296 +
+            readU32(bytes, payload + 8);
+        } else {
+          if (payload + 8 > bytes.byteLength) continue;
+          baseMediaDecodeTime = readU32(bytes, payload + 4);
+        }
+      }
+    }
+
+    if (trackId !== null && baseMediaDecodeTime !== null) {
+      return { trackId, baseMediaDecodeTime };
+    }
+  }
+  return null;
+}
+
+/**
+ * Presentation time in seconds of the fragment whose `moof` starts at
+ * `moofStart`, or null when it cannot be read (truncated box, or a track id
+ * absent from `tracks`). Never falls back to a different track's timescale — a
+ * wrong timescale is worse than no answer, because callers use this to decide
+ * where to start appending.
+ */
+export function fragmentPtsSeconds(
+  bytes: Uint8Array,
+  moofStart: number,
+  tracks: readonly Mp4Track[],
+): number | null {
+  const decodeTime = readFragmentDecodeTime(bytes, moofStart);
+  if (!decodeTime) return null;
+  const track = tracks.find((t) => t.trackId === decodeTime.trackId);
+  if (!track || track.timescale <= 0) return null;
+  return decodeTime.baseMediaDecodeTime / track.timescale;
 }
 
 /**
@@ -140,6 +308,7 @@ export function parseInitSegment(bytes: Uint8Array): ParsedInitSegment | null {
     codecs: codecParts.join(","),
     hasVideo,
     hasAudio,
+    tracks: parseTracks(moovRegion),
   };
 }
 

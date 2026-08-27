@@ -224,7 +224,7 @@ const messages = {
     useBuilder: "Utiliser le générateur",
     openDesktopToEditCode: "Ouvrir le bureau pour modifier le code",
     codeUnavailableDescription:
-      "Les modifications du code source et l'accès à CLI sont disponibles dans l'application de bureau Agent Native.",
+      "Les modifications du code source et l'accès à CLI sont disponibles dans l'application de bureau Agent-Native.",
     downloadDesktop: "Télécharger le bureau",
     chatMode: "Mode discussion",
     chat: "Chat",
@@ -337,7 +337,7 @@ const messages = {
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle:
       "Cette action crée ou modifie le code source, qui nécessite Desktop ou Builder à partir de cette surface.",
-    desktopTitle: "Utiliser le bureau Agent Native",
+    desktopTitle: "Utiliser le bureau Agent-Native",
     desktopDescription:
       "Ouvrez le projet dans l'application de bureau pour activer les modifications de source et l'accès à CLI.",
     builderAgentTitle: "Utiliser l'agent Builder.io",

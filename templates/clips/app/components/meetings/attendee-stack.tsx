@@ -5,7 +5,7 @@
  * gets a shadcn Tooltip showing name/email. Used on both list cards and
  * detail headers.
  */
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   Tooltip,
   TooltipContent,
@@ -58,14 +58,13 @@ export function AttendeeStack({
         {visible.map((p, i) => (
           <Tooltip key={`${p.email}-${i}`}>
             <TooltipTrigger asChild>
-              <Avatar
+              <ClipsAvatar
+                email={p.email}
+                alt={p.name || p.email}
+                fallback={attendeeInitials(p)}
+                fallbackClassName="font-medium"
                 className={`${sizeClass} ring-2 ring-background cursor-default`}
-              >
-                <AvatarImage alt={p.name || p.email} />
-                <AvatarFallback className="font-medium">
-                  {attendeeInitials(p)}
-                </AvatarFallback>
-              </Avatar>
+              />
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">
               <div className="font-medium">{p.name || p.email}</div>

@@ -152,11 +152,14 @@ Five deterministic scorers run after every agent run:
 Enable sampled LLM-based evaluation by setting `evalSampleRate`:
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -248,18 +251,22 @@ Use the real model identifiers your engine accepts in place of `<your-model-id>`
 
 ## Configuration {#config}
 
-All settings are stored in the `observability-config` key:
+Set from a server plugin with `defineAppConfig()`. Every field also has a deployment environment variable alias — see the declared configuration reference.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  captureLlmSpans: true,   // Emit one $ai_span per tool call to PostHog
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    captureLlmSpans: true, // Emit one $ai_span per tool call to PostHog
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -360,26 +367,13 @@ response, and a thumbs-down stays marked incomplete until its follow-up arrives.
 
 ## Export to external platforms {#export}
 
-Send traces to Langfuse, Datadog, Grafana, or any OTel-compatible backend:
+Send traces to Langfuse, Datadog, Grafana, or any OTel-compatible backend by registering an OpenTelemetry provider in your own app — see [OpenTelemetry spans](#otel) below. The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec, and your provider owns the exporter and its credentials.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-The framework emits `gen_ai.*` semantic convention spans compatible with the OpenTelemetry GenAI spec.
+Core deliberately ships no exporter and holds no export endpoint or token, so a backend credential lives in your provider wiring (and the vault), never in framework configuration.
 
 ## OpenTelemetry spans {#otel}
 
-Separate from the `exporters` config above (which ships the in-house traces to an OTLP endpoint), the agent loop can also emit **live OpenTelemetry spans** for every run, model call, and tool call — so a host that already runs an OTel collector sees agent activity alongside the rest of its distributed traces.
+The agent loop emits **live OpenTelemetry spans** for every run, model call, and tool call — so a host that already runs an OTel collector sees agent activity alongside the rest of its distributed traces.
 
 This layer is **optional and no-op by default**:
 

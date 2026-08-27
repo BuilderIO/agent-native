@@ -6,7 +6,7 @@ import path from "node:path";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentActionStopError } from "../action.js";
+import { AgentActionStopError, fail } from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
@@ -30,6 +30,8 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
   callConnectedAgentReference,
@@ -5679,6 +5681,137 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(events)).not.toContain("identical arguments");
   });
 
+  it("gives the model the code a fail() chose, not just the prose", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      fail("No such meeting", { errorCode: "not_found", statusCode: 404 });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "get-meeting",
+              input: { id: "m_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-meeting": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-meeting",
+        result:
+          "Error running get-meeting: No such meeting (errorCode: not_found)",
+      }),
+    );
+  });
+
+  it("omits fail()'s stand-in code, which tells the model nothing", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      fail("No such meeting");
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "get-meeting",
+              input: { id: "m_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-meeting": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-meeting",
+        result: "Error running get-meeting: No such meeting",
+      }),
+    );
+  });
+
   it("stops after repeated identical tool errors", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -9603,6 +9736,73 @@ describe("runAgentLoop", () => {
     expect(bulkWrite).not.toHaveBeenCalled();
   });
 
+  it("requires a fresh approval when persistent approval is disabled", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          allowPersistentApproval: false,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        tool: "send-email",
+        allowPersistentApproval: false,
+      }),
+    );
+  });
+
+  it("honors persistent approval by default", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
     // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();
@@ -10802,6 +11002,20 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: 0,
       }),
     ).toBe(true);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "Missing Authentication header",
+            errorCode: "http_401",
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("preserves the specific continuation reason for recoverable background errors", () => {
@@ -11274,6 +11488,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claimed",
@@ -11285,6 +11500,68 @@ describe("claimBackgroundWorkerRunEarly", () => {
       "worker_entered",
       "runsInBackgroundFunction=true continuationCount=0",
     );
+  });
+
+  it("heartbeats a slow worker while its unclaimed claim is in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-slow",
+        threadId: "thread-slow",
+        markerTurnId: "turn-slow",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops extending a stuck pre-claim worker after a hard deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-stuck",
+        threadId: "thread-stuck",
+        markerTurnId: "turn-stuck",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS);
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records background runtime marker diagnostics on worker entry", async () => {
@@ -11332,6 +11609,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
       { dispatchMode: "background" },
     );
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "insert",
       "claim",
@@ -11340,7 +11618,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     ]);
   });
 
-  it("records duplicate deliveries and does not heartbeat or execute the turn", async () => {
+  it("records duplicate deliveries and does not execute the turn", async () => {
     const d = deps(false);
 
     await expect(
@@ -11353,8 +11631,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       }),
     ).resolves.toEqual({ claimed: false, skipped: "already-claimed" });
 
-    expect(d.updateRunHeartbeat).not.toHaveBeenCalled();
+    expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-dupe");
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claim_lost",
@@ -11525,6 +11804,33 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(claim).not.toHaveBeenCalled();
   });
 
+  it("does not extend an alive setup marker past the pre-claim deadline", async () => {
+    let nowMs = BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS - 30;
+    const now = () => (nowMs += 10);
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("worker_entered"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now,
+    });
+
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(readClaim).toHaveBeenCalledTimes(3);
+  });
+
   it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
     // No diag stage = the generated wrapper never reached the route, so the
     // extension must not apply and it recovers inline at the base grace.
@@ -11576,6 +11882,30 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(readClaim).toHaveBeenCalledTimes(1);
   });
 
+  it("streams while a live worker finishes setup when requested", async () => {
+    const claim = vi.fn();
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("worker_entered"),
+      lastLivenessAt: 0,
+    });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      reaperGraceMs: 100_000,
+      readClaim,
+      claim,
+      streamWhenWorkerAlive: true,
+      now: makeClock(),
+    });
+
+    expect(outcome).toEqual({ action: "stream" });
+    expect(readClaim).toHaveBeenCalledTimes(1);
+    expect(claim).not.toHaveBeenCalled();
+  });
+
   it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {
     // The worker stays alive in setup (auth_passed) but never claims. The
     // extension is bounded by the reaper window measured from the row's OWN
@@ -11611,22 +11941,25 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
 describe("runAgentLoop tool-result images", () => {
   it("attaches _agentImages to the tool-result part, strips the field from the text, and persists only notes", async () => {
     const oversize = "A".repeat(2_000_001);
+    const imageData = "aW1hZ2U=";
+    const screenshotAction = vi.fn(async () => ({
+      ok: true,
+      page: "dashboard",
+      _agentImages: [
+        { url: "https://cdn.example.com/shot.png", label: "before" },
+        { data: imageData, mediaType: "image/jpeg", label: "data" },
+        { data: oversize, mediaType: "image/png", label: "too-big" },
+      ],
+    }));
     const actions: Record<string, ActionEntry> = {
       screenshot: {
         ...actionEntry({ description: "Take a screenshot", readOnly: true }),
-        run: async () => ({
-          ok: true,
-          page: "dashboard",
-          _agentImages: [
-            { url: "https://cdn.example.com/shot.png", label: "before" },
-            { data: oversize, mediaType: "image/png", label: "too-big" },
-          ],
-        }),
+        run: screenshotAction,
       },
     };
     const tools = actionsToEngineTools(actions);
     let streamCalls = 0;
-    let secondCallMessages: any[] = [];
+    let finalCallMessages: any[] = [];
 
     const engine: AgentEngine = {
       name: "test",
@@ -11657,7 +11990,22 @@ describe("runAgentLoop tool-result images", () => {
           yield { type: "stop", reason: "tool_use" };
           return;
         }
-        secondCallMessages = opts.messages as any[];
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "shot-2",
+                name: "screenshot",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        finalCallMessages = opts.messages as any[];
         yield {
           type: "assistant-content",
           parts: [{ type: "text" as const, text: "looks good" }],
@@ -11678,13 +12026,15 @@ describe("runAgentLoop tool-result images", () => {
       signal: new AbortController().signal,
     });
 
-    const toolResult = secondCallMessages
+    const toolResults = finalCallMessages
       .flatMap((m: any) => m.content ?? [])
-      .find((p: any) => p.type === "tool-result");
-    expect(toolResult).toBeDefined();
+      .filter((p: any) => p.type === "tool-result");
+    expect(toolResults).toHaveLength(2);
+    const toolResult = toolResults[0];
     // Valid image rides the part; the oversize one was dropped.
     expect(toolResult.images).toEqual([
       { url: "https://cdn.example.com/shot.png", label: "before" },
+      { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
     // The field is stripped from the JSON the model reads…
     expect(toolResult.content).not.toContain("_agentImages");
@@ -11694,6 +12044,14 @@ describe("runAgentLoop tool-result images", () => {
     expect(toolResult.content).toContain("exceeds");
     // …and the base64 payload never reaches the text.
     expect(toolResult.content).not.toContain("A".repeat(100));
+
+    // A duplicate read returns the cached vision payload as well as its text
+    // pointer, so context eviction cannot silently remove the visual input.
+    expect(screenshotAction).toHaveBeenCalledOnce();
+    expect(toolResults[1].content).toContain(
+      "Skipped duplicate read-only call",
+    );
+    expect(toolResults[1].images).toEqual(toolResult.images);
 
     // The persisted tool_done event carries only the string result (with the
     // notes), never an images array.

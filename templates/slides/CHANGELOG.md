@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-26
+
+### Fixed
+
+- Clicking a slide thumbnail now keeps arrow keys on slide navigation instead of scrolling the thumbnail pane.
+
+## 2026-08-24
+
+### Improved
+
+- Decks now show a first-slide preview and keep sharing controls in the overflow menu.
+
+## 2026-08-22
+
+### Improved
+
+- Google Drive and Slides can now connect with the shared Google OAuth app in one click
+
+### Fixed
+
+- An image attached to chat that was already uploaded elsewhere is no longer silently dropped — the agent now sees it and can add it to the deck.
+- Fixing several slides at once now tells you when a slide still doesn't fit instead of always reporting success.
+- Editing a slide with several batched changes now reports which specific change was skipped instead of only one overall success flag.
+
 ## 2026-08-18
 
 ### Improved
@@ -227,7 +251,7 @@ time from the command menu (Cmd+K → "What's new").
 - Design system setup keeps focus rings visible and uses a simpler dialog title.
 - Skip prompt is now available in the new deck prompt header
 - Slides now detect real text and box overflow across the deck and verify bounded repairs.
-- The Agent Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
+- The Agent-Native logo stays visible when the sidebar is collapsed and toggles the sidebar when clicked.
 
 ### Fixed
 

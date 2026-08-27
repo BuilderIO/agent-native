@@ -161,11 +161,14 @@ Cinco marcadores determinísticos executados após cada execução do agente:
 Ative a avaliação baseada em amostra de LLM configurando `evalSampleRate`:
 
 ```ts
-import { putSetting } from "@agent-native/core/settings";
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
 
-await putSetting("observability-config", {
-  enabled: true,
-  evalSampleRate: 0.05, // 5% of runs
+export default defineAppConfig({
+  observability: {
+    enabled: true,
+    evalSampleRate: 0.05, // 5%
+  },
 });
 ```
 
@@ -257,17 +260,21 @@ Use os identificadores de modelo reais que seu mecanismo aceita no lugar de `<yo
 
 ## Configuração {#config}
 
-Todas as configurações são armazenadas na chave `observability-config`:
+Definido a partir de um plugin de servidor com `defineAppConfig()`. Cada campo também tem um alias de variável de ambiente de implantação — consulte a referência de configuração declarada.
 
 ```ts
-{
-  enabled: true,           // Master switch
-  capturePrompts: false,   // Store prompt content in traces
-  captureToolArgs: false,  // Store action input arguments
-  captureToolResults: false, // Store action results
-  evalSampleRate: 0,       // 0-1, fraction of runs to LLM-judge
-  exporters: []            // OTLP export targets
-}
+// server/plugins/config.ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  observability: {
+    enabled: true, // Master switch
+    capturePrompts: false, // Store prompt content in traces
+    captureToolArgs: false, // Store action input arguments
+    captureToolResults: false, // Store action results
+    evalSampleRate: 0, // 0-1, fraction of runs to LLM-judge
+  },
+});
 ```
 
 <Callout id="doc-block-1xvsimn" tone="info">
@@ -302,26 +309,13 @@ Todos os endpoints suportam parâmetros de consulta `?since=N` (carimbo de data/
 
 ## Exportar para plataformas externas {#export}
 
-Envie rastreamentos para Langfuse, Datadog, Grafana ou qualquer back-end compatível com OTel:
+Envie rastreamentos para Langfuse, Datadog, Grafana ou qualquer backend compatível com OTel registrando um provedor OpenTelemetry no seu próprio aplicativo — consulte [Espaços OpenTelemetry](#otel) abaixo.
 
-```ts
-await putSetting("observability-config", {
-  enabled: true,
-  exporters: [
-    {
-      type: "otlp",
-      endpoint: "https://cloud.langfuse.com/api/public/otel",
-      headers: { Authorization: "Bearer sk-..." },
-    },
-  ],
-});
-```
-
-A estrutura emite extensões de convenção semântica `gen_ai.*` compatíveis com a especificação OpenTelemetry GenAI.
+O núcleo deliberadamente não inclui nenhum exportador e não guarda endpoint ou token de exportação, portanto a credencial do backend fica na configuração do seu provedor (e no cofre), nunca na configuração do framework.
 
 ## Extensões do OpenTelemetry {#otel}
 
-Separado da configuração `exporters` acima (que envia os rastreamentos internos para um endpoint OTLP), o loop do agente também pode emitir **espaços OpenTelemetry ao vivo** para cada execução, chamada de modelo e chamada de ferramenta. Assim, um host que já executa um coletor OTel vê a atividade do agente junto com o restante de seus rastreamentos distribuídos.
+O loop do agente emite **espaços OpenTelemetry ao vivo** para cada execução, chamada de modelo e chamada de ferramenta. Assim, um host que já executa um coletor OTel vê a atividade do agente junto com o restante de seus rastreamentos distribuídos.
 
 Essa camada é **opcional e autônoma por padrão**:
 

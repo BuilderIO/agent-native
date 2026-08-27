@@ -244,16 +244,46 @@
     );
   }
 
-  // keep in sync with editor-chrome.bridge.ts isAbsoluteLayoutContainer
-  function isAbsoluteLayoutContainer(el: Element | null): boolean {
+  var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
+    img: true,
+    video: true,
+    picture: true,
+    audio: true,
+    canvas: true,
+    svg: true,
+    path: true,
+    input: true,
+    textarea: true,
+    select: true,
+    br: true,
+    hr: true,
+    iframe: true,
+  };
+  var BRIDGE_ADOPTING_PRIMITIVES: Record<string, boolean> = {
+    frame: true,
+    rectangle: true,
+    rect: true,
+  };
+
+  // KEEP IN SYNC with editor-chrome.bridge.ts — pinned by bridge.guard.spec.ts.
+  // Layout decides, not the tag: a group has no data-an-primitive and a
+  // generated container is often a <section>.
+
+  // keep in sync with editor-chrome.bridge.ts isFreeformRelativeContainer
+  // Complements isAbsolutePrimitiveContainer above, which requires the
+  // container itself to be absolute/fixed. A generated screen wraps content in
+  // a `position:relative` full-bleed div, and calling that flow strips a
+  // dropped layer's left/top into the corner. Every child must be out of flow:
+  // one absolute badge in a flex row does not make the row freeform.
+  function isFreeformRelativeContainer(el: Element | null): boolean {
     if (!el || el === document.body || el === document.documentElement) {
       return false;
     }
-    var cs = window.getComputedStyle(el);
-    if (cs.position === "static") return false;
+    if (window.getComputedStyle(el).position === "static") return false;
     var children = el.children;
     if (children.length === 0) return false;
     for (var i = 0; i < children.length; i += 1) {
+      if (isOverlayElement(children[i])) continue;
       var childPosition = window.getComputedStyle(children[i]).position;
       if (childPosition !== "absolute" && childPosition !== "fixed") {
         return false;
@@ -263,20 +293,36 @@
   }
 
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
-    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    if (!el || el.nodeType !== 1) return false;
+    if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    if (
-      primitive !== "rectangle" &&
-      primitive !== "rect" &&
-      primitive !== "frame"
-    )
+    if (primitive) {
+      // A declared frame or rectangle is authored free-form even when empty;
+      // other drawn shapes stay leaves, matching what
+      // appendCanvasPrimitiveToHtml enforces on draw.
+      if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
       return false;
+    }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  function hasAbsolutePositionedChild(el: Element): boolean {
+    var kids = el.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+    }
+    return false;
   }
 
   function absolutePrimitiveContainerTargetForPoint(
@@ -298,7 +344,7 @@
       while (cursor && cursor !== document.body) {
         if (
           isAbsolutePrimitiveContainer(cursor) ||
-          isAbsoluteLayoutContainer(cursor)
+          isFreeformRelativeContainer(cursor)
         ) {
           candidate = cursor;
           break;
@@ -701,7 +747,7 @@
       }
       if (
         isAbsolutePrimitiveContainer(cursor) ||
-        isAbsoluteLayoutContainer(cursor)
+        isFreeformRelativeContainer(cursor)
       ) {
         return {
           anchor: cursor,

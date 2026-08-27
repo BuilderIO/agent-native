@@ -10,10 +10,12 @@ import {
 } from "../server/db/schema.js";
 import {
   DEFAULT_FACTORY_ID,
+  factoryStillPresent,
   orgFactoryItemFilter,
   orgFactoryRunFilter,
+  readTriageConfigRow,
+  requireExistingFactory,
 } from "../server/lib/factory-scope.js";
-import { readTriageConfigRow } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -28,7 +30,10 @@ import {
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
 import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
-import { createSlackReader } from "../server/triage/slack-client.js";
+import {
+  createSlackReader,
+  isAgentNativeSlackUserName,
+} from "../server/triage/slack-client.js";
 
 /** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
 const REPLY_INSTRUCTION =
@@ -421,10 +426,23 @@ export default defineAction({
       },
     );
     if (blocked) {
-      await db
-        .update(triageItems)
-        .set({ status: "needs_manual", updatedAt: new Date().toISOString() })
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+      await db.transaction(async (tx) => {
+        await tx
+          .update(triageItems)
+          .set({ status: "needs_manual", updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(triageItems.id, itemId),
+              eq(triageItems.orgId, orgId),
+              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+            ),
+          );
+        await requireExistingFactory(
+          tx as unknown as typeof db,
+          orgId,
+          factoryId,
+        );
+      });
       return {
         ok: true,
         started: false,
@@ -459,44 +477,57 @@ export default defineAction({
       };
     }
 
-    if (retryableSlackRun) {
-      await db
-        .update(triageRuns)
-        .set({
+    await db.transaction(async (tx) => {
+      if (retryableSlackRun) {
+        await tx
+          .update(triageRuns)
+          .set({
+            status: "submitted",
+            error: null,
+            completedAt: null,
+            heartbeatAt: now,
+            dispatchAttempts: (existing.dispatchAttempts ?? 0) + 1,
+          })
+          .where(
+            and(
+              eq(triageRuns.id, runId),
+              eq(triageRuns.orgId, orgId),
+              factoryStillPresent(tx as unknown as typeof db, orgId, factoryId),
+            ),
+          );
+      } else {
+        await tx.insert(triageRuns).values({
+          id: runId,
+          itemId,
+          source: item.source,
+          provider: isSlack ? "bot-tag" : "builder-http",
+          dedupeKey,
+          approvalEmail: null,
           status: "submitted",
-          error: null,
-          completedAt: null,
+          progressLogJson: JSON.stringify([
+            {
+              at: now,
+              state: "submitted",
+              reason: `Factory automation ${context?.automation?.triggerName ?? "unknown"} recorded a clear bug.`,
+            },
+          ]),
+          dispatchAttempts: 1,
+          needsContinuation: 0,
+          startedAt: now,
           heartbeatAt: now,
-          dispatchAttempts: (existing.dispatchAttempts ?? 0) + 1,
-        })
-        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
-    } else {
-      await db.insert(triageRuns).values({
-        id: runId,
-        itemId,
-        source: item.source,
-        provider: isSlack ? "bot-tag" : "builder-http",
-        dedupeKey,
-        approvalEmail: null,
-        status: "submitted",
-        progressLogJson: JSON.stringify([
-          {
-            at: now,
-            state: "submitted",
-            reason: `Factory automation ${context?.automation?.triggerName ?? "unknown"} recorded a clear bug.`,
-          },
-        ]),
-        dispatchAttempts: 1,
-        needsContinuation: 0,
-        startedAt: now,
-        heartbeatAt: now,
-        completedAt: null,
-        error: null,
-        ownerEmail: item.ownerEmail,
+          completedAt: null,
+          error: null,
+          ownerEmail: item.ownerEmail,
+          orgId,
+          factoryId: item.factoryId ?? DEFAULT_FACTORY_ID,
+        });
+      }
+      await requireExistingFactory(
+        tx as unknown as typeof db,
         orgId,
-        factoryId: item.factoryId ?? DEFAULT_FACTORY_ID,
-      });
-    }
+        factoryId,
+      );
+    });
 
     try {
       if (isSlack) {
@@ -603,7 +634,8 @@ export default defineAction({
           const hasAgentNativeDisposition = feedbackThread.messages.some(
             (message) =>
               (message.user === agentNative.userId ||
-                message.username?.trim().toLowerCase() === "agent-native") &&
+                (message.username != null &&
+                  isAgentNativeSlackUserName(message.username))) &&
               /^(Fixed|In progress|Clarification needed):/i.test(
                 message.text.trim(),
               ),

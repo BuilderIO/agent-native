@@ -71,6 +71,8 @@ import {
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
+  resolveSecretPair,
+  resolveSecretPairs,
   resolveSecretDetailed,
 } from "./credential-provider.js";
 
@@ -138,7 +140,10 @@ beforeEach(() => {
   delete process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
   delete process.env.RESEND_API_KEY;
   delete process.env.SENDGRID_API_KEY;
+  delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.NOTION_CLIENT_ID;
+  delete process.env.NOTION_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -453,9 +458,71 @@ describe("Builder credential auth failure markers", () => {
     });
 
     expect(failure).toBeNull();
-    expect(mockDeleteSetting).toHaveBeenCalledWith(
-      `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    // The row deliberately outlives its TTL: deleting it here reset the strike
+    // count, so a credential that is simply wrong was re-admitted on the same
+    // flat cadence forever, spending one real user's turn on a 401 each time.
+    expect(mockDeleteSetting).not.toHaveBeenCalled();
+  });
+
+  // Prod, 2026-08-26 (slides): two users got "The saved provider key was
+  // rejected" minutes apart, each on their first prompt, each followed by the
+  // run succeeding on its own once the marker armed and the next lane served
+  // the turn. 15 minutes later the same credential was re-admitted and the
+  // next person paid for the same rediscovery.
+  it("backs off re-admission for a credential that keeps failing", async () => {
+    const staleByBaseTtl = {
+      message: "Missing Authentication header",
+      status: 401,
+      code: "http_401",
+      at: Date.now() - BUILDER_AUTH_FAILURE_TTL_MS - 1,
+    };
+
+    mockGetSetting.mockResolvedValue({ ...staleByBaseTtl, strikes: 3 });
+    expect(
+      await getBuilderCredentialAuthFailure({
+        privateKey: "bpk-secret",
+        publicKey: "pub-secret",
+      }),
+    ).not.toBeNull();
+
+    // A first-strike marker still releases on the base TTL, so a genuinely
+    // transient 401 is not punished.
+    mockGetSetting.mockResolvedValue({ ...staleByBaseTtl, strikes: 1 });
+    expect(
+      await getBuilderCredentialAuthFailure({
+        privateKey: "bpk-secret",
+        publicKey: "pub-secret",
+      }),
+    ).toBeNull();
+  });
+
+  it("counts a repeat failure on the same credential as another strike", async () => {
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key.startsWith("provider-auth-failure:")
+        ? { strikes: 2, at: Date.now() }
+        : null,
     );
+
+    await recordProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+      status: 401,
+      code: "http_401",
+      message: "Missing Authentication header",
+    });
+    expect(mockPutSetting.mock.calls.at(-1)?.[1]).toMatchObject({ strikes: 3 });
+
+    // First failure for a credential we have never rejected before starts at 1,
+    // so a one-off transient 401 still releases on the base TTL.
+    mockGetSetting.mockResolvedValue(null);
+    await recordProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+      status: 401,
+      code: "http_401",
+      message: "Missing Authentication header",
+    });
+    expect(mockPutSetting.mock.calls.at(-1)?.[1]).toMatchObject({ strikes: 1 });
   });
 });
 
@@ -537,9 +604,9 @@ describe("provider credential auth failure markers", () => {
         value: "sk-example-invalid",
       }),
     ).resolves.toBeNull();
-    expect(mockDeleteSetting).toHaveBeenCalledWith(
-      `provider-auth-failure:${fingerprint}`,
-    );
+    // Retained on purpose — see the Builder-side twin: the row carries the
+    // strike count that makes re-admission back off.
+    expect(mockDeleteSetting).not.toHaveBeenCalled();
   });
 });
 
@@ -1377,6 +1444,28 @@ describe("resolveSecret (generic)", () => {
     ).toBe(true);
   });
 
+  it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NOTION_CLIENT_ID = "notion-deploy-client-id";
+    process.env.NOTION_CLIENT_SECRET = "notion-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("NOTION_CLIENT_ID")).toBe(
+      "notion-deploy-client-id",
+    );
+    expect(await resolveSecret("NOTION_CLIENT_SECRET")).toBe(
+      "notion-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_SECRET"),
+    ).toBe(true);
+  });
+
   it("blocks generic deploy env secrets for signed-in production shared-database users even when an LLM key is allowed", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_ENGINE = "builder";
@@ -1407,6 +1496,218 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
     expect(await resolveSecret("SOME_KEY")).toBe("v");
     delete process.env.SOME_KEY;
+  });
+});
+
+describe("resolveSecretPair", () => {
+  it("uses a complete pair from the highest-precedence scope", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockReadAppSecrets.mockImplementation(async ({ scope }: any) =>
+      scope === "user"
+        ? new Map([
+            ["GOOGLE_CLIENT_ID", { value: "user-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "user-secret" }],
+          ])
+        : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).resolves.toEqual(["user-client", "user-secret"]);
+  });
+
+  it("skips a stale personal pair for shared OAuth clients", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+        if (scope === "user") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "stale-user-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "stale-user-secret" }],
+          ]);
+        }
+        if (scope === "workspace" && scopeId !== "solo:user@b.com") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
+        allowUserScope: false,
+        preferWorkspaceScope: true,
+      }),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+    expect(
+      mockReadAppSecrets.mock.calls.map(([args]) => args.scope),
+    ).not.toContain("user");
+  });
+
+  it("prefers workspace credentials over a stale org pair", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope }: { scope: string }) => {
+        if (scope === "org") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "stale-org-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "stale-org-secret" }],
+          ]);
+        }
+        if (scope === "workspace") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
+        allowUserScope: false,
+        preferWorkspaceScope: true,
+      }),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+  });
+
+  it("prefers workspace credentials across managed OAuth aliases", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-1");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, keys }: { scope: string; keys: string[] }) => {
+        if (scope === "org" && keys[0] === "HUBSPOT_MCP_CLIENT_ID") {
+          return new Map([
+            ["HUBSPOT_MCP_CLIENT_ID", { value: "stale-org-client" }],
+            ["HUBSPOT_MCP_CLIENT_SECRET", { value: "stale-org-secret" }],
+          ]);
+        }
+        if (
+          scope === "workspace" &&
+          keys[0] === "HUBSPOT_INTEGRATION_CLIENT_ID"
+        ) {
+          return new Map([
+            ["HUBSPOT_INTEGRATION_CLIENT_ID", { value: "workspace-client" }],
+            [
+              "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+              { value: "workspace-secret" },
+            ],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPairs(
+        [
+          ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
+          [
+            "HUBSPOT_INTEGRATION_CLIENT_ID",
+            "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+          ],
+        ],
+        { allowUserScope: false, preferWorkspaceScope: true },
+      ),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+    expect(
+      mockReadAppSecrets.mock.calls.map(([args]) => [args.scope, args.keys[0]]),
+    ).toEqual([
+      ["workspace", "HUBSPOT_MCP_CLIENT_ID"],
+      ["workspace", "HUBSPOT_INTEGRATION_CLIENT_ID"],
+    ]);
+  });
+
+  it("prefers workspace credentials over a stale designated-vault org pair", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) => {
+        if (scopeId === "dispatch-vault" && scope === "org") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "stale-org-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "stale-org-secret" }],
+          ]);
+        }
+        if (scopeId === "dispatch-vault" && scope === "workspace") {
+          return new Map([
+            ["GOOGLE_CLIENT_ID", { value: "workspace-client" }],
+            ["GOOGLE_CLIENT_SECRET", { value: "workspace-secret" }],
+          ]);
+        }
+        return new Map();
+      },
+    );
+
+    await expect(
+      resolveSecretPairs([["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]], {
+        allowUserScope: false,
+        preferWorkspaceScope: true,
+      }),
+    ).resolves.toEqual(["workspace-client", "workspace-secret"]);
+    expect(
+      mockReadAppSecrets.mock.calls
+        .filter(([args]) => args.scopeId === "dispatch-vault")
+        .map(([args]) => args.scope),
+    ).toEqual(["workspace"]);
+  });
+
+  it("skips a stale solo workspace pair for shared OAuth clients", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    mockReadAppSecrets.mockImplementation(
+      async ({ scope, scopeId }: { scope: string; scopeId: string }) =>
+        scope === "workspace" && scopeId === "solo:user@b.com"
+          ? new Map([
+              ["GOOGLE_CLIENT_ID", { value: "stale-solo-client" }],
+              ["GOOGLE_CLIENT_SECRET", { value: "stale-solo-secret" }],
+            ])
+          : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"], {
+        allowUserScope: false,
+      }),
+    ).resolves.toBeNull();
+    expect(
+      mockReadAppSecrets.mock.calls.map(([args]) => args.scopeId),
+    ).not.toContain("solo:user@b.com");
+  });
+
+  it("falls back to a complete environment pair instead of mixing sources", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    process.env.GOOGLE_CLIENT_ID = "environment-client";
+    process.env.GOOGLE_CLIENT_SECRET = "environment-secret";
+    mockReadAppSecrets.mockImplementation(async ({ scope }: any) =>
+      scope === "user"
+        ? new Map([["GOOGLE_CLIENT_ID", { value: "scoped-client" }]])
+        : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).resolves.toEqual(["environment-client", "environment-secret"]);
+  });
+
+  it("rejects an incomplete mixed-source pair", async () => {
+    mockGetRequestUserEmail.mockReturnValue("user@b.com");
+    process.env.GOOGLE_CLIENT_SECRET = "environment-secret";
+    mockReadAppSecrets.mockImplementation(async ({ scope }: any) =>
+      scope === "user"
+        ? new Map([["GOOGLE_CLIENT_ID", { value: "scoped-client" }]])
+        : new Map(),
+    );
+
+    await expect(
+      resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
+    ).resolves.toBeNull();
   });
 });
 

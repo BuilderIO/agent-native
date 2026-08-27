@@ -25,7 +25,11 @@ import {
   upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant,
 } from "../workspace-connections/store.js";
-import { getSession, safeReturnPath } from "./auth.js";
+import {
+  getSession,
+  redirectWithStagedCookies,
+  safeReturnPath,
+} from "./auth.js";
 import { resolveSecret } from "./credential-provider.js";
 import {
   decodeOAuthState,
@@ -35,6 +39,7 @@ import {
   type OAuthStatePayload,
 } from "./google-oauth.js";
 import { runWithRequestContext } from "./request-context.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 export type GenericWorkspaceOAuthProvider =
   | "figma"
@@ -175,13 +180,35 @@ export async function handleWorkspaceProviderOAuthStart(
     setResponseStatus(event, 400);
     return { error: "Salesforce environment must be production or sandbox." };
   }
+  const useRootGoogleCallback =
+    isWorkspaceOAuthCallbackRelayEnabled() &&
+    isGoogleWorkspaceOAuthProvider(providerId);
   const redirectUri = resolveOAuthRedirectUri(
     event,
-    workspaceProviderOAuthPath(providerId, "callback"),
+    useRootGoogleCallback
+      ? "/_agent-native/google/callback"
+      : workspaceProviderOAuthPath(providerId, "callback"),
   );
   if (!redirectUri) {
     setResponseStatus(event, 400);
     return { error: "Invalid OAuth redirect URI." };
+  }
+  if (useRootGoogleCallback) {
+    let parsedRedirectUri: URL;
+    try {
+      parsedRedirectUri = new URL(redirectUri);
+    } catch {
+      setResponseStatus(event, 400);
+      return { error: "Invalid OAuth redirect URI." };
+    }
+    if (
+      parsedRedirectUri.pathname !== "/_agent-native/google/callback" ||
+      parsedRedirectUri.search ||
+      parsedRedirectUri.hash
+    ) {
+      setResponseStatus(event, 400);
+      return { error: "Google workspace OAuth must use the shared callback." };
+    }
   }
   return runWithRequestContext(
     { userEmail: session.email, orgId },
@@ -210,6 +237,7 @@ export async function handleWorkspaceProviderOAuthStart(
         orgId,
         app: appId,
         scope: orgContext.oauthScope,
+        ...(useRootGoogleCallback ? { provider: providerId } : {}),
         returnUrl,
         flowId,
       });
@@ -243,6 +271,7 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
+        loginHint: session.email,
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -252,7 +281,7 @@ export async function handleWorkspaceProviderOAuthStart(
             }
           : {}),
       });
-      return Response.redirect(authorizationUrl, 302);
+      return redirectWithStagedCookies(event, authorizationUrl);
     },
   );
 }
@@ -432,7 +461,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       const returnPath =
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
-      return Response.redirect(getAppUrl(event, returnPath), 302);
+      return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
     },
   );
 }
@@ -444,6 +473,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   state: string;
   challenge: string;
   authorizationUrl?: string;
+  loginHint?: string;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
@@ -468,7 +498,8 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   if (isGoogleWorkspaceOAuthProvider(input.provider.id)) {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("include_granted_scopes", "true");
-    url.searchParams.set("prompt", "consent");
+    url.searchParams.set("prompt", "consent select_account");
+    if (input.loginHint) url.searchParams.set("login_hint", input.loginHint);
   }
   if (input.provider.oauth.scopes.length) {
     url.searchParams.set("scope", input.provider.oauth.scopes.join(" "));
@@ -935,6 +966,8 @@ export function isWorkspaceProviderOAuthFlowValid(input: {
     input.state.redirectUri === input.flow.redirectUri &&
     input.state.owner === input.flow.owner &&
     input.state.scope === input.flow.scope &&
+    (input.state.provider === undefined ||
+      input.state.provider === input.provider) &&
     input.sessionEmail === input.flow.owner &&
     input.state.orgId === input.flow.orgId &&
     input.sessionOrgId === input.flow.orgId &&

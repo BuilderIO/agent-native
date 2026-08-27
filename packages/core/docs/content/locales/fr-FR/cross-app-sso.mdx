@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Liste autorisée de redirection.** Le hub (Dispatch) valide `redirect_uri` sur le point de terminaison d'autorisation avant d'émettre un jeton. La liste blanche est configurée dans `templates/dispatch/server/lib/identity-sso.ts` :
 
-- **Par défaut :** uniquement les paires exactes identifiant/origine des applications Agent Native enregistrées et localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
+- **Par défaut :** uniquement les paires exactes identifiant/origine des applications Agent-Native enregistrées et localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Extension :** définissez la variable d'environnement `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` sur le déploiement Dispatch avec une liste de suffixes d'hôte supplémentaires séparés par des virgules :
 
   ```bash

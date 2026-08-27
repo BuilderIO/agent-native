@@ -31,6 +31,8 @@ export const dashboards = table("dashboards", {
   /** Full dashboard config (SqlDashboardConfig or Explorer state) as JSON. */
   config: text("config").notNull(),
   createdAt: text("created_at").notNull().default(now()),
+  /** Original authenticated creator. Null when historical provenance is unknown. */
+  createdBy: text("created_by"),
   updatedAt: text("updated_at").notNull().default(now()),
   /** Archive timestamp. Null = active. Archived rows are hidden from
    *  default list responses but remain accessible by id and can be restored. */

@@ -10,7 +10,7 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -861,8 +861,6 @@ export default defineAction({
       // fast render landing before this line isn't discarded as stale.
       const fitSince = Date.now();
 
-      notifyClients(deckId);
-
       const updatedSlideIds = [
         ...new Set(
           operations.flatMap((operation) =>
@@ -872,6 +870,20 @@ export default defineAction({
           ),
         ),
       ];
+      const hasMixedStructuralOperation = operations.some(
+        (operation) =>
+          operation.op === "delete-slide" ||
+          operation.op === "reorder-slides" ||
+          operation.op === "patch-deck-fields",
+      );
+      if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
+        notifyClients(deckId, {
+          slideId: updatedSlideIds[0],
+          actor: isAgentCaller ? "agent" : "human",
+        });
+      } else {
+        notifyClients(deckId);
+      }
 
       // Only slides whose HTML actually changed can newly overflow — an
       // add-slide always sets content; a patch-slide only when this batch's

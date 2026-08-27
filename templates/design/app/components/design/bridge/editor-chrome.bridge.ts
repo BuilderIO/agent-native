@@ -5803,7 +5803,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function stopNativeInteraction(e: Event): void {
-    e.preventDefault();
+    // A fling's wheel events are not cancelable; cancelling one logs a browser
+    // Intervention per event and scrolls anyway.
+    if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
   }
@@ -8276,22 +8278,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  // keep in sync with hit-test.bridge.ts isAbsoluteLayoutContainer
-  // A container whose children are absolutely positioned is freeform, marker or
-  // not: generated screens wrap content in a plain relative div, and calling
-  // that flow strips the dropped layer's left/top into the corner.
-  function isAbsoluteLayoutContainer(el: Element | null): boolean {
+  var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
+    img: true,
+    video: true,
+    picture: true,
+    audio: true,
+    canvas: true,
+    svg: true,
+    path: true,
+    input: true,
+    textarea: true,
+    select: true,
+    br: true,
+    hr: true,
+    iframe: true,
+  };
+  var BRIDGE_ADOPTING_PRIMITIVES: Record<string, boolean> = {
+    frame: true,
+    rectangle: true,
+    rect: true,
+  };
+
+  // KEEP IN SYNC with hit-test.bridge.ts — pinned by bridge.guard.spec.ts.
+  // Layout decides, not the tag: a group has no data-an-primitive and a
+  // generated container is often a <section>.
+
+  // keep in sync with hit-test.bridge.ts isFreeformRelativeContainer
+  // Complements isAbsolutePrimitiveContainer below, which requires the
+  // container itself to be absolute/fixed. A generated screen wraps content in
+  // a `position:relative` full-bleed div, and calling that flow strips a
+  // dropped layer's left/top into the corner. Every child must be out of flow:
+  // one absolute badge in a flex row does not make the row freeform.
+  function isFreeformRelativeContainer(el: Element | null): boolean {
     if (!el || el === document.body || el === document.documentElement) {
       return false;
     }
-    var cs = window.getComputedStyle(el);
-    if (cs.position === "static") return false;
+    if (window.getComputedStyle(el).position === "static") return false;
     var children = el.children;
     if (children.length === 0) return false;
-    // Every child out of flow, not merely one: a flex row with a single
-    // absolutely positioned badge still lays its other children out in flow,
-    // and calling that freeform strips a dropped layer's flow position.
     for (var i = 0; i < children.length; i += 1) {
+      if (isOverlayElement(children[i])) continue;
       var childPosition = window.getComputedStyle(children[i]).position;
       if (childPosition !== "absolute" && childPosition !== "fixed") {
         return false;
@@ -8301,17 +8327,36 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
-    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    if (!el || el.nodeType !== 1) return false;
+    if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    // Frames adopt; a rectangle is a vector shape and never becomes a
-    // container (same contract appendCanvasPrimitiveToHtml enforces on draw).
-    if (primitive !== "frame") return false;
+    if (primitive) {
+      // A declared frame or rectangle is authored free-form even when empty;
+      // other drawn shapes stay leaves, matching what
+      // appendCanvasPrimitiveToHtml enforces on draw.
+      if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
+      return false;
+    }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
+  }
+
+  function hasAbsolutePositionedChild(el: Element): boolean {
+    var kids = el.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+    }
+    return false;
   }
 
   // A frame with any content of its own has a layout that adopting auto
@@ -8868,7 +8913,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             axis: parentFlowAxis(hit),
             dropMode:
               isAbsolutePrimitiveContainer(hit) ||
-              isAbsoluteLayoutContainer(hit)
+              isFreeformRelativeContainer(hit)
                 ? "absolute-container"
                 : "flow-insert",
           };
@@ -8918,7 +8963,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         axis: axis,
         dropMode:
           isAbsolutePrimitiveContainer(parent) ||
-          isAbsoluteLayoutContainer(parent)
+          isFreeformRelativeContainer(parent)
             ? "absolute-container"
             : "flow-insert",
       };
@@ -9167,7 +9212,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         cursor !== document.body &&
         (isAbsolutePrimitiveContainer(cursor) ||
-          isAbsoluteLayoutContainer(cursor))
+          isFreeformRelativeContainer(cursor))
       ) {
         // Same-parent drop is a pure reposition: a target here re-appends the
         // element as its parent's last child and changes its z-order.
@@ -14641,6 +14686,43 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
       if (activeMarqueeSelection) return;
       clearRuntimeSelection();
+      return;
+    }
+    // A host-side inspector commit never reaches this bridge, so nothing
+    // re-measures the element it changed. `fit-content` leaves the host holding
+    // the keyword plus a pre-commit rect, i.e. no current width at all.
+    if (e.data.type === "agent-native:measure-selection") {
+      // The host broadcasts to every frame, so a reply from the wrong screen
+      // or the wrong element is worse than no reply: it lands in the inspector
+      // as a confident number for something else. Stay silent unless this
+      // frame owns both the screen and the element.
+      var measureScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
+      var measureSelector: string =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var measureTarget: Element | null = null;
+      if (measureSelector) {
+        try {
+          measureTarget = document.querySelector(measureSelector);
+        } catch (_err) {
+          measureTarget = null;
+        }
+      } else {
+        measureTarget = selectedEl;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selection-measured",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          screenId: designCanvasScreenId,
+          payload: measureTarget ? getElementInfo(measureTarget) : null,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type === "agent-native:collect-selectable-rects") {

@@ -1160,7 +1160,7 @@ const messages = {
   sessions: {
     title: "工作階段",
     description:
-      "檢視 Agent Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
+      "檢視 Agent-Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
     filters: "篩選器",
     segmentFilters: "區段篩選器",
     sessionPlaylist: "工作階段播放清單",

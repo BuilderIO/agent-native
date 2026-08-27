@@ -85,7 +85,7 @@ Proposed replacement fingerprint:
 
 - shipping surfaces: Content's Toggle summary interaction and the shared editor
   toolkit's collaboration-reconciliation focus contract, both integrated through
-  the public Agent Native repository by merge;
+  the public Agent-Native repository by merge;
 - governing architecture: Content reports semantic editor-owned focus to the
   existing shared reconciliation hook; that hook remains the sole owner of
   stale-echo and external-snapshot arbitration;
@@ -561,8 +561,8 @@ architecture-fingerprint:
     - id: shared-editor-reconcile-semantic-focus
       repository: BuilderIO/agent-native
       product-surface: shared editor toolkit collaboration reconciliation
-      constituency: source-blind Agent Native app developers using editor-owned controls outside ProseMirror
-      durable-destination: public Agent Native editor toolkit
+      constituency: source-blind Agent-Native app developers using editor-owned controls outside ProseMirror
+      durable-destination: public Agent-Native editor toolkit
       integration-action: merge
   governing-architecture: Content reports semantic editor-owned focus to the existing shared reconciliation hook, which remains the sole owner of stale-echo and external-snapshot arbitration; no parallel state or save mechanism is added.
   acceptance-story:

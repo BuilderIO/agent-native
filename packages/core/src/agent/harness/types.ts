@@ -12,7 +12,7 @@ export interface AgentHarnessCapabilities {
   resumable: boolean;
   /** Runtime can pause for human approval before continuing. */
   approvals: boolean;
-  /** Runtime can execute host-defined tools supplied by Agent Native. */
+  /** Runtime can execute host-defined tools supplied by Agent-Native. */
   hostTools: boolean;
   /** Runtime emits file mutation or artifact events. */
   fileEvents: boolean;
@@ -34,7 +34,7 @@ export interface AgentHarnessAdapter {
 }
 
 export interface AgentHarnessCreateSessionOptions {
-  /** Agent Native session id. Adapters may map this to a native runtime id. */
+  /** Agent-Native session id. Adapters may map this to a native runtime id. */
   sessionId?: string;
   threadId?: string;
   runId?: string;
@@ -45,7 +45,7 @@ export interface AgentHarnessCreateSessionOptions {
   permissionMode?: AgentHarnessPermissionMode;
   sandbox?: unknown;
   /**
-   * Opaque value previously returned by detach()/stop(). Agent Native stores it
+   * Opaque value previously returned by detach()/stop(). Agent-Native stores it
    * but does not interpret it.
    */
   resumeState?: unknown;

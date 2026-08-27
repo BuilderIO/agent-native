@@ -7,7 +7,7 @@
  *   pnpm action add-comment --recordingId=<id> --content="Nice moment" --videoTimestampMs=12345
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";

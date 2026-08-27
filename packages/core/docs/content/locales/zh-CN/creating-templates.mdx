@@ -206,7 +206,13 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-架构更改必须是附加的。 `server/plugins/db.ts`中通过`runMigrations()`添加表和列；切勿使用破坏性的 SQL、`drizzle-kit push`、表重命名或列删除。
+架构更改必须是增量式的。对于新的应用自有表和列，请使用
+`drizzle-kit generate` 在 `server/db/migrations/<id_name>.sql` 中
+生成可审查的 SQL，并在 Node.js 部署的发布步骤中通过
+`runDrizzleMigrations()` 加载。Cloudflare Workers/Pages 和 D1 没有可部署的
+文件系统。在这些环境中，请将生成的 SQL 嵌入 worker bundle 并传给
+`runMigrations()`。手写的历史记录和特殊场景继续使用 `runMigrations()`。
+切勿使用破坏性的 SQL、`drizzle-kit push`、表重命名或列删除。
 
 对于应用程序读取和写入，请使用 Drizzle 的查询生成器和 `drizzle-orm` 的可移植运算符。当Drizzle可以表达查询时，不要使用原始SQL编写产品代码，并且不要在模板中从`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`导入。
 
@@ -503,7 +509,7 @@ export default defineNitroPlugin(() => {
 4. 记录所需的环境变量和入门步骤。
 5. 通过附加迁移包含示例或种子行，而不是跟踪的运行时数据文件。
 
-社区模板可直接从公开 GitHub 仓库安装。请将 Agent Native 应用放在仓库根目录：
+社区模板可直接从公开 GitHub 仓库安装。请将 Agent-Native 应用放在仓库根目录：
 
 ```bash
 npx @agent-native/core@latest create my-app --template community:owner/repo

@@ -186,6 +186,18 @@ const messages = {
     automationsTab: "ऑटोमेशन",
     agentsTab: "एजेंट",
     factorySettings: "सेटिंग्स",
+    dangerZone: "खतरे का क्षेत्र",
+    deleteFactory: "फ़ैक्टरी हटाएँ",
+    deleteFactoryDescription:
+      "इस फ़ैक्टरी, उसके मैप, कतार, नियम, गतिविधि, सेटिंग्स, पोलिंग और ऑटोमेशन को स्थायी रूप से हटाएँ। यह कार्रवाई वापस नहीं की जा सकती।",
+    deleteFactoryTitle: "{{name}} हटाएँ?",
+    deleteFactoryWarning:
+      "GitHub, Slack या Builder में पहले से चल रहा काम रद्द नहीं होगा।",
+    deleteFactoryConfirmation: "पुष्टि करने के लिए {{name}} लिखें",
+    deleteFactoryCancel: "रद्द करें",
+    deleteFactoryConfirm: "फ़ैक्टरी हटाएँ",
+    factoryDeleted: "फ़ैक्टरी हटा दी गई।",
+    factoryDeleteFailed: "फ़ैक्टरी हटाई नहीं जा सकी।",
     agenticAppsTitle: "एजेंटिक ऐप्स",
     agenticAppsEmpty: "इस वर्कस्पेस में अभी कोई एजेंटिक ऐप नहीं है।",
     createApp: "ऐप बनाएं",

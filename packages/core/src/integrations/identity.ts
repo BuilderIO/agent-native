@@ -79,7 +79,7 @@ async function resolveSlackInstallation(incoming: IncomingMessage) {
  *
  * Slack DMs become a user principal only after the adapter has verified the
  * sender email and the email is already a member of the managed installation's
- * Agent Native organization. Hydrated full workspace members whose email is
+ * Agent-Native organization. Hydrated full workspace members whose email is
  * missing, unverified, or not an organization member run as an anonymous
  * org-scoped service principal instead — the same visibility shared channels
  * get. Hydration failures, guests/external members, and workspaces without a
@@ -126,7 +126,7 @@ export async function resolveDefaultIntegrationExecutionContext(
   if (!installation?.orgId) {
     throw new IntegrationIdentityDeclinedError(
       "unlinked-workspace",
-      "Slack workspace is not connected to an Agent Native organization.",
+      "Slack workspace is not connected to an Agent-Native organization.",
       "This Slack workspace isn't connected to an organization yet.",
     );
   }
