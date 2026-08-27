@@ -1417,6 +1417,26 @@ function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
   return queue.some((op) => opTargetsSlide(op, slideId));
 }
 
+/**
+ * Slides that have a local write pending at this instant.
+ *
+ * Captured BEFORE an async deck read, because `hasPendingWriteForSlide` alone
+ * only reports a write while it is still outstanding: a read issued before a
+ * local save and resolved after it comes back holding the pre-save body with
+ * nothing left marked pending, and adopting that would visibly revert the edit
+ * the user just made. Holding back whatever was mid-write when the read
+ * started closes that window — the next read starts clean and delivers the
+ * server's copy.
+ */
+export function pendingWriteSlideIds(deck: Deck | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (!deck) return ids;
+  for (const slide of deck.slides) {
+    if (hasPendingWriteForSlide(deck.id, slide.id)) ids.add(slide.id);
+  }
+  return ids;
+}
+
 function hasPendingDeleteForSlide(deckId: string, slideId: string): boolean {
   const inFlightOps = inFlightOpSlides.get(deckId);
   if (
@@ -1452,7 +1472,12 @@ export function mergeServerSlideUpdate(
   local: Deck,
   server: Deck,
   deckId: string,
-  options?: { shouldMergeServerOnlySlide?: (slide: Slide) => boolean },
+  options?: {
+    shouldMergeServerOnlySlide?: (slide: Slide) => boolean;
+    /** Slides that were mid-write when `server` was requested — see
+     *  `pendingWriteSlideIds`. Required for a snapshot read asynchronously. */
+    pendingAtReadStart?: ReadonlySet<string>;
+  },
 ): Deck {
   const merged = mergeServerAddedSlides(local, server, {
     shouldMergeServerOnlySlide: (slide) =>
@@ -1466,8 +1491,15 @@ export function mergeServerSlideUpdate(
     if (!serverSlide || equalDeckValue(slide, serverSlide)) return slide;
     // A slide the user is typing in, or that has a queued/in-flight/retrying
     // local write, keeps its local body — adopting the server's copy there
-    // would revert an edit that has not landed yet.
-    if (hasPendingWriteForSlide(deckId, slide.id)) return slide;
+    // would revert an edit that has not landed yet. A slide that was mid-write
+    // when this snapshot was REQUESTED keeps it too: the response predates the
+    // write even though nothing is pending by the time it arrives.
+    if (
+      options?.pendingAtReadStart?.has(slide.id) ||
+      hasPendingWriteForSlide(deckId, slide.id)
+    ) {
+      return slide;
+    }
     adopted = true;
     return serverSlide;
   });
@@ -2012,6 +2044,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     ): Promise<Deck | null> => {
       const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
+      // Captured before the read: a save that lands while this request is in
+      // flight leaves nothing pending by the time the response arrives, and the
+      // response still holds the pre-save body.
+      const pendingAtReadStart = pendingWriteSlideIds(
+        decksRef.current.find((d) => d.id === currentOpenId),
+      );
       const fetchedServerDeck = await fetchDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
         return null;
@@ -2038,7 +2076,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const hasLocalEdits =
         pendingCreateIdsRef.current.has(currentOpenId) ||
         hasUncommittedDeckChanges(currentOpenId, dirtyDeckIdsRef.current) ||
-        (activeInlineEditSlides.get(currentOpenId)?.size ?? 0) > 0;
+        (activeInlineEditSlides.get(currentOpenId)?.size ?? 0) > 0 ||
+        // A write that landed mid-request leaves the deck looking clean; take
+        // the per-slide merge so this older snapshot cannot adopt over it.
+        pendingAtReadStart.size > 0;
 
       if (hasLocalEdits && clientDeck) {
         // Content-preserving: only ADD server slides missing locally.
@@ -2047,6 +2088,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           serverDeck,
           currentOpenId,
           {
+            pendingAtReadStart,
             shouldMergeServerOnlySlide: (slide) =>
               !deletedSlideTombstonesRef.current
                 .get(currentOpenId)

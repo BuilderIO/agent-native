@@ -24,6 +24,7 @@ import {
   markSlideEditingActive,
   mergeServerAddedSlides,
   mergeServerSlideUpdate,
+  pendingWriteSlideIds,
   useDecks,
   type Deck,
   type DeckReloadStatus,
@@ -3632,6 +3633,25 @@ describe("DeckContext deck creation persistence", () => {
       const local = deckOf([slide("a", "a"), slide("b", "b")]);
       const server = deckOf([slide("a", "a"), slide("b", "b")]);
       expect(mergeServerSlideUpdate(local, server, "dirty-deck")).toBe(local);
+    });
+
+    // Response-ordering race: the GET was issued while slide "a" was mid-save,
+    // so it carries the pre-save body even though the save has since landed and
+    // nothing is pending any more. Adopting it would revert the user's edit.
+    it("holds back a slide that was mid-write when the snapshot was requested", () => {
+      markSlideEditingActive("dirty-deck", "a");
+      const local = deckOf([slide("a", "SAVED a"), slide("b", "LOCAL b")]);
+      const pendingAtReadStart = pendingWriteSlideIds(local);
+      clearSlideEditingActive("dirty-deck", "a"); // the save landed
+
+      const stale = deckOf([slide("a", "PRE-SAVE a"), slide("b", "AGENT b")]);
+      const merged = mergeServerSlideUpdate(local, stale, "dirty-deck", {
+        pendingAtReadStart,
+      });
+      expect(merged.slides.map((s) => s.content)).toEqual([
+        "SAVED a",
+        "AGENT b",
+      ]);
     });
   });
 });
