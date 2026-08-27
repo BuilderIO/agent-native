@@ -215,33 +215,22 @@ jobs:
             RELEASE_VERSION="$RELEASE_VERSION_INPUT"
 
             TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
-            get_tag_sha() {
-              local ref_json object_type object_sha
-              ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1")
-              object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
-              object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
-              if [ "$object_type" = "tag" ]; then
-                gh api "repos/${GITHUB_REPOSITORY}/git/tags/$object_sha" --jq '.object.sha'
-              else
-                printf '%s\n' "$object_sha"
-              fi
-            }
             RELEASE_ERROR=$(mktemp)
-            if RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>"$RELEASE_ERROR"); then
-              IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
+            if RELEASE_JSON=$(gh release view "$TAG" -R "${{ github.repository }}" --json isDraft,targetCommitish 2>"$RELEASE_ERROR"); then
+              IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')
               if [ "$IS_DRAFT" != "true" ]; then
                 echo "::error::Production release $TAG is already published. Choose a new version instead of rebuilding it."
                 rm -f "$RELEASE_ERROR"
                 exit 1
               fi
-              EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
-              if [ "$EXISTING_TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
-                echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected $RELEASE_SOURCE_REF."
+              EXISTING_TARGET_SHA=$(printf '%s' "$RELEASE_JSON" | jq -r '.targetCommitish' | tr '[:upper:]' '[:lower:]')
+              if [ -z "$EXISTING_TARGET_SHA" ] || [ "$EXISTING_TARGET_SHA" != "$RELEASE_SOURCE_REF" ]; then
+                echo "::error::Existing draft release $TAG targets $EXISTING_TARGET_SHA, expected $RELEASE_SOURCE_REF."
                 rm -f "$RELEASE_ERROR"
                 exit 1
               fi
               echo "Existing production release $TAG is still a draft; resuming it."
-            elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
+            elif grep -Fxq 'release not found' "$RELEASE_ERROR"; then
               echo "No existing production release found for $TAG; creating it."
             else
               cat "$RELEASE_ERROR"
