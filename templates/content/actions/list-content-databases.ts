@@ -35,6 +35,7 @@ export class ContentDatabaseResolutionError extends Error {}
 export default defineAction({
   description:
     "Discover one bounded page of ordinary Content databases the user can access from their live title and user-authored description. Returns stable database, document, and space IDs with explicit pagination; follow nextOffset until hasMore is false. Use exact filters before reading a selected database's schema. Set includeSystemCollections to classify Files, Favorites, Workspaces, and other system chrome separately from ordinary databases.",
+  mcpTool: true,
   schema: z.object({
     spaceId: z
       .string()
