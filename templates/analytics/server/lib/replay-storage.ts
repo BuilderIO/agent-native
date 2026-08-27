@@ -1,6 +1,7 @@
 import { listFileUploadProviders } from "@agent-native/core/file-upload";
 import {
-  resolveHasBuilderPrivateKey,
+  CredentialStoreUnavailableError,
+  hasBuilderApiCredentialCustody,
   runWithRequestContext,
 } from "@agent-native/core/server";
 
@@ -63,8 +64,9 @@ export async function hasRequestReplayStorage(
     }
 
     try {
-      return await resolveHasBuilderPrivateKey();
-    } catch {
+      return await hasBuilderApiCredentialCustody();
+    } catch (err) {
+      if (err instanceof CredentialStoreUnavailableError) throw err;
       return false;
     }
   };
