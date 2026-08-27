@@ -351,6 +351,9 @@ export function HeroShaderBackground({
         pointerX = targetX = canvas.width * 0.5;
         pointerY = targetY = canvas.height * 0.5;
       }
+      // Under reduced motion there is no next frame to pick the new size up,
+      // so the buffer would stay blank until something else redraws.
+      if (reducedMotion) draw(20, false);
     }
 
     function handlePointerMove(event: PointerEvent | MouseEvent) {
@@ -372,7 +375,11 @@ export function HeroShaderBackground({
     }
 
     resize();
-    window.addEventListener("resize", resize);
+    // Observes the box, not the window: the hero's height comes from padding
+    // tokens and its own content, so it changes without the viewport changing
+    // and the buffer would otherwise keep the size it had on mount.
+    const sizeObserver = new ResizeObserver(resize);
+    sizeObserver.observe(container);
     window.addEventListener("pointermove", handlePointerMove, {
       passive: true,
     });
@@ -464,7 +471,7 @@ export function HeroShaderBackground({
       }
       observer.disconnect();
       visibilityObserver.disconnect();
-      window.removeEventListener("resize", resize);
+      sizeObserver.disconnect();
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("mousemove", handlePointerMove);
       document.removeEventListener("pointerleave", fadePointer);

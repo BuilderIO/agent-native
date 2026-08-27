@@ -11,7 +11,10 @@ export interface IframeHotkeyPayload {
 }
 
 export interface IframeFigmaClipboardPastePayload {
+  /** Empty when the canvas saw a Figma-looking paste it could not read. */
   content: string;
+  html?: string;
+  text?: string;
 }
 
 export interface IframeImagePasteFile {
