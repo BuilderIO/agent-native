@@ -2206,7 +2206,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+            "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -2219,7 +2219,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+          text: "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -2227,7 +2227,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+              "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
             details: "401 status code (no body)",
           },
         },
