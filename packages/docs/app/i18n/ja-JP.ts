@@ -432,7 +432,6 @@ const jaJP = {
     getStarted: "始める",
     freeAndOpenSource: "100%無料 • オープンソース",
     viewAllApps: "すべてのアプリを見る",
-    close: "閉じる",
   },
   homepage: {
     hero: {
@@ -562,7 +561,6 @@ const jaJP = {
     popoverTitle: "Builder.io でオンライン構築",
     popoverBody:
       "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
-    dialogTitle: "ブラウザで構築",
     emailLabel: "メール",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "待機リストに参加",

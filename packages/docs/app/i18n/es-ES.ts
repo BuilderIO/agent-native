@@ -433,7 +433,6 @@ const esES = {
     getStarted: "Comenzar",
     freeAndOpenSource: "100 % gratis • código abierto",
     viewAllApps: "Ver todas las aplicaciones",
-    close: "Cerrar",
   },
   homepage: {
     hero: {
@@ -565,7 +564,6 @@ const esES = {
     popoverTitle: "Crear en línea con Builder.io",
     popoverBody:
       "Builder.io puede crear y personalizar una app agent-native en la nube: acciones, autenticación, estado SQL y chat del agente incluidos. Únete a la lista de espera para acceso anticipado.",
-    dialogTitle: "Crear en el navegador",
     emailLabel: "Correo electrónico",
     emailPlaceholder: "tu@empresa.com",
     joinWaitlist: "Unirse a la lista de espera",

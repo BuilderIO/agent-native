@@ -54,7 +54,7 @@ describe("GettingStartedPathsBlock", () => {
     expect(screen.queryByRole("link", { name: /Build locally/ })).toBeNull();
   });
 
-  it("opens a waitlist dialog", () => {
+  it("opens the shared waitlist popover", () => {
     renderPaths();
 
     fireEvent.click(
@@ -63,22 +63,23 @@ describe("GettingStartedPathsBlock", () => {
       }),
     );
 
-    const dialog = screen.getByRole("dialog");
+    const popover = screen
+      .getByText("Join the waitlist")
+      .closest("[role=dialog]");
+    expect(popover).not.toBeNull();
+    expect(popover?.className).toContain("data-[state=open]:animate-in");
+    expect(popover?.className).toContain(
+      "data-[side=bottom]:slide-in-from-top-2",
+    );
+    expect(popover?.className).toContain("w-[min(100vw-32px,360px)]");
     expect(
-      within(dialog).getByRole("heading", { name: "Build in the browser" }),
-    ).toBeTruthy();
-    expect(
-      within(dialog).queryByText(
-        "Build agent-native apps with no local setup.",
+      within(popover as HTMLElement).getByText(
+        "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
       ),
-    ).toBeNull();
-    const email = within(dialog).getByLabelText("Email");
+    ).toBeTruthy();
+    const email = within(popover as HTMLElement).getByLabelText("Email");
     expect(email).toBeTruthy();
     expect(email.getAttribute("placeholder")).toBe("you@company.com");
-    expect(document.activeElement).toBe(email);
-    expect(within(dialog).getByRole("button", { name: "Close" })).toBeTruthy();
-    expect(dialog.className).toContain("!max-w-[440px]");
-    expect(dialog.className).toContain("w-[calc(100vw-32px)]");
     expect(trackEvent).toHaveBeenCalledWith("choose get started path", {
       option: "build_online",
       location: "getting_started",

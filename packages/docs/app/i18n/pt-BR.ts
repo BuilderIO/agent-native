@@ -431,7 +431,6 @@ const ptBR = {
     getStarted: "Começar",
     freeAndOpenSource: "100% grátis • código aberto",
     viewAllApps: "Ver todos os apps",
-    close: "Fechar",
   },
   homepage: {
     hero: {
@@ -561,7 +560,6 @@ const ptBR = {
     popoverTitle: "Criar online com a Builder.io",
     popoverBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
-    dialogTitle: "Criar no navegador",
     emailLabel: "Email",
     emailPlaceholder: "voce@empresa.com",
     joinWaitlist: "Entrar na lista de espera",

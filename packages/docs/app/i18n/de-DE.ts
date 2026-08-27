@@ -433,7 +433,6 @@ const deDE = {
     getStarted: "Loslegen",
     freeAndOpenSource: "100 % kostenlos • Open Source",
     viewAllApps: "Alle Apps anzeigen",
-    close: "Schließen",
   },
   homepage: {
     hero: {
@@ -564,7 +563,6 @@ const deDE = {
     popoverTitle: "Online mit Builder.io bauen",
     popoverBody:
       "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
-    dialogTitle: "Im Browser entwickeln",
     emailLabel: "E-Mail",
     emailPlaceholder: "du@firma.com",
     joinWaitlist: "Warteliste beitreten",

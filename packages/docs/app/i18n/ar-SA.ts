@@ -430,7 +430,6 @@ const arSA = {
     getStarted: "ابدأ",
     freeAndOpenSource: "مجاني 100% • مفتوح المصدر",
     viewAllApps: "عرض جميع التطبيقات",
-    close: "إغلاق",
   },
   homepage: {
     hero: {
@@ -558,7 +557,6 @@ const arSA = {
     popoverTitle: "ابنِ عبر الإنترنت باستخدام Builder.io",
     popoverBody:
       "يمكن لـ Builder.io إنشاء تطبيق agent-native وتخصيصه في السحابة — مع الإجراءات والمصادقة وحالة SQL ودردشة الوكيل. انضم إلى قائمة الانتظار للوصول المبكر.",
-    dialogTitle: "أنشئ في المتصفح",
     emailLabel: "البريد الإلكتروني",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "انضم إلى قائمة الانتظار",

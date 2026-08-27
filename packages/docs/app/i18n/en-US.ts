@@ -75,7 +75,6 @@ const enUS = {
     getStarted: "Get started",
     freeAndOpenSource: "100% free • open source",
     viewAllApps: "View all apps",
-    close: "Close",
   },
   search: {
     dialogLabel: "Search documentation",
@@ -560,7 +559,6 @@ const enUS = {
     popoverTitle: "Join the waitlist",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
-    dialogTitle: "Build in the browser",
     emailLabel: "Email",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "Join waitlist",

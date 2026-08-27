@@ -423,7 +423,6 @@ const messages = {
     getStarted: "開始使用",
     freeAndOpenSource: "100% 免費 • 開放原始碼",
     viewAllApps: "查看所有應用",
-    close: "關閉",
   },
   homepage: {
     hero: {
@@ -549,7 +548,6 @@ const messages = {
     popoverTitle: "使用 Builder.io 線上建置",
     popoverBody:
       "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
-    dialogTitle: "在瀏覽器中建置",
     emailLabel: "電子郵件",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "加入等候名單",

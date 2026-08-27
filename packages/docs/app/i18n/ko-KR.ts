@@ -432,7 +432,6 @@ const koKR = {
     getStarted: "시작하기",
     freeAndOpenSource: "100% 무료 • 오픈 소스",
     viewAllApps: "모든 앱 보기",
-    close: "닫기",
   },
   homepage: {
     hero: {
@@ -562,7 +561,6 @@ const koKR = {
     popoverTitle: "Builder.io로 온라인에서 빌드",
     popoverBody:
       "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
-    dialogTitle: "브라우저에서 빌드",
     emailLabel: "이메일",
     emailPlaceholder: "you@company.com",
     joinWaitlist: "대기자 명단 참여",

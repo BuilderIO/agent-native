@@ -7,7 +7,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
-import { BuildOnlineDialog } from "../BuilderWaitlistPopover";
+import { BuildOnlinePopover } from "../BuilderWaitlistPopover";
 import { sitePathForLocale } from "../docs-locale";
 import {
   gettingStartedPathsMdx,
@@ -46,7 +46,7 @@ export function GettingStartedPathsBlock({
                 </Link>
               </strong>{" "}
               {t("gettingStarted.guideNote.between")}{" "}
-              <BuildOnlineDialog
+              <BuildOnlinePopover
                 location="getting_started"
                 onOpen={() => choosePath("build_online")}
                 trigger={
