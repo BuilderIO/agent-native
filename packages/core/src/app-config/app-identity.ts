@@ -45,11 +45,13 @@ export function deriveAppIdentity(app: AppConfig["app"]): AppConfig["app"] {
 /**
  * A custom app can be generated from a first-party template, so the package
  * name alone is not enough. When scaffolding records its source template,
- * that server-side value must agree with the derived first-party identity.
+ * that server-side provenance must agree with the derived first-party identity.
  */
 export function isFirstPartyApp(app: AppConfig["app"]): boolean {
   const template = app.slug ? getTemplate(app.slug) : undefined;
   if (!template || app.packageName !== template.name) return false;
-  if (!app.template?.trim()) return true;
-  return getTemplate(app.template.trim().toLowerCase())?.name === template.name;
+  if (!app.sourceTemplate?.trim()) return true;
+  return (
+    getTemplate(app.sourceTemplate.trim().toLowerCase())?.name === template.name
+  );
 }

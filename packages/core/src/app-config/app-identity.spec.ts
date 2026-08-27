@@ -62,7 +62,7 @@ describe("deriveAppIdentity", () => {
         ...base,
         packageName: "slides",
         slug: "slides",
-        template: "chat",
+        sourceTemplate: "chat",
       }),
     ).toBe(false);
     expect(
@@ -70,7 +70,7 @@ describe("deriveAppIdentity", () => {
         ...base,
         packageName: "slides",
         slug: "slides",
-        template: "slides",
+        sourceTemplate: "slides",
       }),
     ).toBe(true);
   });

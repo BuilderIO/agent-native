@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
+import {
   renderMagicLinkEmail,
   renderVerifySignupEmail,
 } from "./email-templates";
 
 describe("renderVerifySignupEmail", () => {
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
   });
 
@@ -66,8 +71,8 @@ describe("renderVerifySignupEmail", () => {
   });
 
   it("keeps a same-named custom scaffold off first-party branding", () => {
+    defineAppConfig({ app: { sourceTemplate: "chat" } });
     vi.stubEnv("npm_package_name", "slides");
-    vi.stubEnv("VITE_AGENT_NATIVE_TEMPLATE", "chat");
 
     const rendered = renderVerifySignupEmail({
       email: "reader@example.com",

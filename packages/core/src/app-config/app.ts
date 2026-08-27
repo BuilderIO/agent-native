@@ -119,8 +119,11 @@ export const appConfig = z.object({
     .optional()
     .meta({
       env: ["VITE_AGENT_NATIVE_TEMPLATE"],
-      doc: "First-party template this app was generated from.",
+      doc: "Runtime app or template identity used by framework integrations.",
     }),
+  sourceTemplate: z.string().min(1).optional().meta({
+    doc: "Source template recorded by scaffolding for first-party identity checks.",
+  }),
 
   // ── package.json-derived branding ───────────────────────────────────────
   //
