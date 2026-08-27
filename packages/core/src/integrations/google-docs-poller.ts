@@ -94,6 +94,7 @@ let activeOptions: GoogleDocsPollerOptions | null = null;
 
 /** How long a watch channel lasts (Google max is ~24h, we use 23h to renew early) */
 const WATCH_CHANNEL_TTL_MS = 23 * 60 * 60 * 1000;
+const WATCH_RETRY_MS = 5 * 60 * 1000;
 let watchRenewalTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
@@ -209,59 +210,89 @@ export async function verifyGoogleDocsPushNotification(
 /**
  * Stop an existing watch channel.
  */
-async function stopWatch(): Promise<void> {
+async function stopWatch(): Promise<boolean> {
   const config = await getIntegrationConfig(PLATFORM, "watch-channel");
-  if (!config?.configData?.channelId) return;
+  if (!config?.configData?.channelId) return true;
 
   const accessToken = await getServiceAccountAccessToken();
-  if (!accessToken) return;
+  if (!accessToken) return false;
 
-  await stopGoogleDocsWatchChannel(
+  const stopped = await stopGoogleDocsWatchChannel(
     accessToken,
     config.configData.channelId,
     config.configData.resourceId,
   );
-  await saveIntegrationConfigIfUnchanged(PLATFORM, {}, "watch-channel", config);
+  if (!stopped) return false;
+
+  return saveIntegrationConfigIfUnchanged(
+    PLATFORM,
+    {},
+    "watch-channel",
+    config,
+  );
 }
 
-async function stopGoogleDocsWatchChannel(
+export async function stopGoogleDocsWatchChannel(
   accessToken: string,
   channelId: unknown,
   resourceId: unknown,
-): Promise<void> {
-  if (typeof channelId !== "string" || channelId.length === 0) return;
+): Promise<boolean> {
+  if (typeof channelId !== "string" || channelId.length === 0) return false;
 
   try {
-    await fetch("https://www.googleapis.com/drive/v3/channels/stop", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    const res = await fetch(
+      "https://www.googleapis.com/drive/v3/channels/stop",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: channelId,
+          ...(typeof resourceId === "string" && { resourceId }),
+        }),
       },
-      body: JSON.stringify({
-        id: channelId,
-        ...(typeof resourceId === "string" && { resourceId }),
-      }),
-    });
-  } catch {
-    // Best effort — channel may have expired already
+    );
+
+    if (!res.ok) {
+      console.warn(
+        `[google-docs] Failed to stop watch channel ${channelId} (HTTP ${res.status})`,
+      );
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn(
+      `[google-docs] Failed to stop watch channel ${channelId}`,
+      err,
+    );
+    return false;
   }
 }
 
 /**
  * Schedule automatic watch renewal before the channel expires.
  */
-function scheduleWatchRenewal(webhookUrl: string): void {
+function scheduleWatchRenewal(
+  webhookUrl: string,
+  delayMs = WATCH_CHANNEL_TTL_MS - 60 * 60 * 1000,
+): void {
   if (watchRenewalTimer) clearTimeout(watchRenewalTimer);
-
-  // Renew 1 hour before expiration
-  const renewIn = WATCH_CHANNEL_TTL_MS - 60 * 60 * 1000;
 
   watchRenewalTimer = setTimeout(async () => {
     console.log("[google-docs] Renewing watch channel...");
-    await stopWatch();
-    await registerWatch(webhookUrl);
-  }, renewIn);
+    if (await stopWatch()) {
+      await registerWatch(webhookUrl);
+      return;
+    }
+
+    console.warn(
+      `[google-docs] Could not stop the active watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
+    );
+    scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS);
+  }, delayMs);
 }
 
 // ─── Page Token Management ──────────────────────────────────────────────────
