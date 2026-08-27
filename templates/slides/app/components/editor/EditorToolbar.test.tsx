@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   shareButton: vi.fn(() => null),
+  registerEditorCommands: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -56,7 +57,7 @@ vi.mock("./ExportMenu", () => ({
 }));
 
 vi.mock("./editor-command-model", () => ({
-  registerEditorCommands: () => undefined,
+  registerEditorCommands: mocks.registerEditorCommands,
 }));
 
 vi.mock("next-themes", () => ({
@@ -119,6 +120,117 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  it("registers the editor actions in the Cmd+K palette", () => {
+    const onAddEmptySlide = vi.fn();
+    const onToggleTextBoxMode = vi.fn();
+    const onSelectShape = vi.fn();
+    const onToggleAnimations = vi.fn();
+    const onChangeSlideTransition = vi.fn();
+    const slide = {
+      id: "slide-1",
+      content: "",
+      notes: "",
+      layout: "blank" as const,
+      transition: "instant" as const,
+    };
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          currentSlide={slide}
+          onAddEmptySlide={onAddEmptySlide}
+          onToggleTextBoxMode={onToggleTextBoxMode}
+          onSelectShape={onSelectShape}
+          onToggleAnimations={onToggleAnimations}
+          onChangeSlideTransition={onChangeSlideTransition}
+        />
+      </TooltipProvider>,
+    );
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string; run: () => void }>)
+      | undefined;
+    const commands = source?.() ?? [];
+    const commandIds = commands.map((command) => command.id);
+
+    expect(commandIds).toEqual(
+      expect.arrayContaining([
+        "new-slide",
+        "add-text-box",
+        "shape-rectangle",
+        "shape-circle",
+        "element-animations",
+        "slide-transition-instant",
+        "slide-transition-fade",
+        "slide-transition-slide",
+        "slide-transition-zoom",
+        "download-html",
+        "export-pdf",
+        "export-pptx",
+        "import-file",
+        "saved-versions",
+      ]),
+    );
+
+    const run = (id: string) =>
+      commands.find((command) => command.id === id)?.run();
+    run("new-slide");
+    run("add-text-box");
+    run("shape-rectangle");
+    run("element-animations");
+    run("slide-transition-fade");
+
+    expect(onAddEmptySlide).toHaveBeenCalledOnce();
+    expect(onToggleTextBoxMode).toHaveBeenCalledOnce();
+    expect(onSelectShape).toHaveBeenCalledWith("rectangle");
+    expect(onToggleAnimations).toHaveBeenCalledOnce();
+    expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
+  });
+
+  it("does not register shape tools without an active slide", () => {
+    const onSelectShape = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <EditorToolbar
+          deck={deck}
+          deckId="deck-1"
+          deckTitle="Test deck"
+          onTitleChange={vi.fn()}
+          currentSlideIndex={0}
+          sidebarOpen={true}
+          onToggleSidebar={vi.fn()}
+          onGenerateImage={vi.fn()}
+          onOpenAssetLibrary={vi.fn()}
+          onShowHistory={vi.fn()}
+          historyButtonRef={createRef<HTMLButtonElement>()}
+          onSelectShape={onSelectShape}
+        />
+      </TooltipProvider>,
+    );
+
+    const source = mocks.registerEditorCommands.mock.calls.at(-1)?.[0] as
+      | (() => ReadonlyArray<{ id: string }>)
+      | undefined;
+    const commandIds = (source?.() ?? []).map((command) => command.id);
+
+    expect(commandIds).not.toEqual(
+      expect.arrayContaining(["shape-rectangle", "shape-circle"]),
+    );
+    expect(onSelectShape).not.toHaveBeenCalled();
+  });
+
   it("surfaces history from the top-right overflow menu", async () => {
     const onShowHistory = vi.fn();
     const historyButtonRef = createRef<HTMLButtonElement>();
