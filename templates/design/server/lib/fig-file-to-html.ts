@@ -2753,10 +2753,11 @@ function emitSvgBody(
       const maskBase = `bool-${guidKey(node.guid).replace(/[^a-z0-9]/gi, "")}`;
       const pad = bandWidth + 1;
       const box = `x="${num(-pad)}" y="${num(-pad)}" width="${num(w + pad * 2)}" height="${num(h + pad * 2)}"`;
-      // guard:allow-raw-color — in a mask white and black ARE the alpha
-      // channel ("keep"/"drop"), not themeable colours; a token would make the
-      // mask follow the viewer's theme and eat the shape it reveals.
+      // In a mask white and black ARE the alpha channel ("keep" / "drop"),
+      // not themeable colours: a token would make the mask follow the viewer's
+      // theme and eat the shape it reveals.
       const keep = (operand: { d: string; transform: string }) =>
+        // guard:allow-raw-color — mask alpha, see above
         `<path d="${operand.d}"${operand.transform} fill="#fff" />`;
       // Stroked as well as filled: operands often only TOUCH along an edge
       // rather than overlap, and a shared edge has no interior to mask with.
@@ -2764,6 +2765,7 @@ function emitSvgBody(
       // a speech bubble's tail meets its box exactly on the box's bottom edge,
       // and without this the outline drew straight across the tail's mouth.
       const drop = (operand: { d: string; transform: string }) =>
+        // guard:allow-raw-color — mask alpha, see above
         `<path d="${operand.d}"${operand.transform} fill="#000" stroke="#000" stroke-width="${num(bandWidth)}" />`;
       unionOperands.forEach((operand, index) => {
         const others = unionOperands.filter((_, other) => other !== index);
@@ -2771,7 +2773,8 @@ function emitSvgBody(
         const inside =
           align === "INSIDE"
             ? keep(operand)
-            : `<rect ${box} fill="#fff" />` +
+            : // guard:allow-raw-color — mask alpha, see above
+              `<rect ${box} fill="#fff" />` +
               (align === "OUTSIDE" ? drop(operand) : "");
         defs.push(
           `<mask id="${maskId}" maskUnits="userSpaceOnUse" ${box}>` +
