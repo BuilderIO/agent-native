@@ -2,10 +2,9 @@
  * Canonical parameter table copied from front/fft-ocean-1 DEFAULT_SETTINGS,
  * settings constants, uniform-packing, and bloom-pass.
  *
- * UPSTREAM_TUNING below is that table verbatim. Everything after it is ours:
- * named presets that override individual fields so a reframe is a readable
- * diff against the example rather than a rewrite of it. Switch presets with
- * ACTIVE_OCEAN_PRESET, or `?ocean=<name>` in dev.
+ * UPSTREAM_TUNING below is that table verbatim; HERO_OVERRIDES is ours. Keeping
+ * them separate makes a reframe a readable diff against the example rather
+ * than a rewrite of it.
  */
 export interface OceanTuning {
   readonly simulation: {
@@ -59,7 +58,7 @@ export interface OceanTuning {
   readonly bottomFadeStartPercent: number;
 }
 
-/** The vgpu example's table, unmodified. Presets diff against this. */
+/** The vgpu example's table, unmodified. HERO_OVERRIDES diffs against this. */
 const UPSTREAM_TUNING: OceanTuning = {
   simulation: {
     oceanSize: 200,
@@ -122,34 +121,27 @@ type Overrides = {
 };
 
 /**
- * A: dense horizon band. The wave energy compresses into a bright ribbon under
- * the CTA row and the near field stays sparse. Reads as a lit seascape.
+ * What the marketing hero changes about the example. Kept as an override set
+ * rather than a rewritten table so the delta against UPSTREAM_TUNING stays
+ * readable when the example is next pulled.
  */
-const PRESET_A: Overrides = {
+const HERO_OVERRIDES: Overrides = {
+  // 400 put the world patch edge inside the frustum, so the right of the hero
+  // had a hard vertical cutoff where the ocean simply stopped. At upstream's
+  // displacement the water was near-flat and compressed into a sheen at the
+  // horizon rather than reading as water at all.
   simulation: { worldSize: 700, displacementScale: 0.035 },
+  // fadeFar follows worldSize -- the field has to reach further before fading
+  // -- and pointSize compensates for the same 512x512 particles now spread
+  // over a three times larger area. fadePower is left low deliberately: it
+  // scales both colour and alpha in particles.wgsl, so raising it thins the
+  // whole field rather than just its far end.
   particles: { pointSize: 1.1, fadeFar: 520, fadePower: 1.8 },
   // Third reframe of this rig. Upstream's gallery values put the horizon in
   // the upper third, which on a wide, short marketing hero drove the wave band
   // straight through the headline. The positive pitch tilts the rig up so the
   // empty sky covers the copy and the wave energy sits under the CTA row.
-  camera: {
-    eye: [0, 14, 78],
-    target: [0, 0, -60],
-    pitchDegrees: 21,
-    fovDegrees: 95,
-  },
-};
-
-/**
- * B: dissolving field. Same framing as A, but the distance fade returns to
- * upstream's steeper curve over a shorter range, so the field thins out
- * instead of ending in a defined band -- and a container mask carries whatever
- * is left down into the section below rather than letting the canvas edge cut
- * it off.
- */
-const PRESET_B: Overrides = {
-  simulation: { worldSize: 700, displacementScale: 0.032 },
-  particles: { pointSize: 1.1, fadeNear: 40, fadeFar: 430, fadePower: 2.6 },
+  // Re-check against the headline at 1440, 1024, and 390 before changing these.
   camera: {
     eye: [0, 14, 78],
     target: [0, 0, -60],
@@ -159,100 +151,16 @@ const PRESET_B: Overrides = {
   bottomFadeStartPercent: 62,
 };
 
-/**
- * C: A's field, B's tail. Keeps A's wave height, particle size and fade range
- * -- the density that made it read as a lit seascape -- and takes only B's
- * steeper fade exponent and container mask, which are the two things that
- * stopped the field ending on a line at the section edge.
- */
-const PRESET_C: Overrides = {
-  simulation: { worldSize: 700, displacementScale: 0.035 },
-  particles: { pointSize: 1.1, fadeNear: 60, fadeFar: 520, fadePower: 2.6 },
-  camera: {
-    eye: [0, 14, 78],
-    target: [0, 0, -60],
-    pitchDegrees: 21,
-    fovDegrees: 95,
-  },
-  bottomFadeStartPercent: 62,
+export const OCEAN_TUNING: OceanTuning = {
+  simulation: { ...UPSTREAM_TUNING.simulation, ...HERO_OVERRIDES.simulation },
+  particles: { ...UPSTREAM_TUNING.particles, ...HERO_OVERRIDES.particles },
+  camera: { ...UPSTREAM_TUNING.camera, ...HERO_OVERRIDES.camera },
+  present: { ...UPSTREAM_TUNING.present, ...HERO_OVERRIDES.present },
+  bloom: { ...UPSTREAM_TUNING.bloom, ...HERO_OVERRIDES.bloom },
+  bottomFadeStartPercent:
+    HERO_OVERRIDES.bottomFadeStartPercent ??
+    UPSTREAM_TUNING.bottomFadeStartPercent,
 };
-
-/**
- * D: A, plus the mask. fadePower turned out to be the wrong knob to borrow --
- * particles.wgsl multiplies both colour and alpha by `fade`, so raising the
- * exponent thins the entire field rather than just its tail, which is why C
- * came out lighter than A. bottomFadeStartPercent is the only setting here
- * that touches the bottom edge alone, so D changes nothing else about A.
- */
-const PRESET_D: Overrides = {
-  ...PRESET_A,
-  bottomFadeStartPercent: 62,
-};
-
-const OCEAN_PRESETS = {
-  a: PRESET_A,
-  b: PRESET_B,
-  c: PRESET_C,
-  d: PRESET_D,
-} as const;
-
-export type OceanPresetName = keyof typeof OCEAN_PRESETS;
-
-/** The preset that ships. `?ocean=<name>` overrides it in dev only. */
-export const ACTIVE_OCEAN_PRESET: OceanPresetName = "d";
-
-function isPresetName(value: string | null): value is OceanPresetName {
-  return value !== null && value in OCEAN_PRESETS;
-}
-
-function selectedPreset(): OceanPresetName {
-  // Dev only, and guarded for SSR: this module is on the static graph through
-  // ocean-colors.ts, so it evaluates during prerender too.
-  if (!import.meta.env.DEV || typeof location === "undefined") {
-    return ACTIVE_OCEAN_PRESET;
-  }
-  const requested = new URLSearchParams(location.search).get("ocean");
-  return isPresetName(requested) ? requested : ACTIVE_OCEAN_PRESET;
-}
-
-function applyPreset(name: OceanPresetName): OceanTuning {
-  const overrides = OCEAN_PRESETS[name];
-  return {
-    simulation: { ...UPSTREAM_TUNING.simulation, ...overrides.simulation },
-    particles: { ...UPSTREAM_TUNING.particles, ...overrides.particles },
-    camera: { ...UPSTREAM_TUNING.camera, ...overrides.camera },
-    present: { ...UPSTREAM_TUNING.present, ...overrides.present },
-    bloom: { ...UPSTREAM_TUNING.bloom, ...overrides.bloom },
-    bottomFadeStartPercent:
-      overrides.bottomFadeStartPercent ??
-      UPSTREAM_TUNING.bottomFadeStartPercent,
-  };
-}
-
-export const OCEAN_PRESET_NAMES = Object.keys(
-  OCEAN_PRESETS,
-) as readonly OceanPresetName[];
-
-/**
- * `let`, not `const`, so the dev preset switcher can swap it: ES module
- * bindings are live, so renderer.ts's twenty read sites pick the new table up
- * without tuning having to be threaded through the whole graph builder. The
- * renderer reads it while building, so a swap only takes effect on the next
- * graph -- the switcher remounts the background to force one.
- *
- * DEV-ONLY MUTATION. Nothing in a production build calls setOceanPreset.
- */
-export let OCEAN_TUNING: OceanTuning = applyPreset(selectedPreset());
-
-/** No-ops outside dev. Remove with the dev preset switcher. */
-export function setOceanPreset(name: OceanPresetName): void {
-  if (!import.meta.env.DEV) return;
-  OCEAN_TUNING = applyPreset(name);
-}
-
-export function currentOceanPreset(): OceanPresetName {
-  return selectedPreset();
-}
 
 /** Matches front's `gaussianCoefficients`: sigma=radius/3, no normalization pass. */
 export function gaussianCoefficients(kernelRadius: number): readonly number[] {

@@ -17,8 +17,6 @@ import { Kbd } from "./ds/kbd";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { NavLink } from "./ds/nav-link";
-// DEV-ONLY import -- remove with the ocean preset switcher.
-import { OceanPresetSwitcher } from "./ocean/dev-preset-switcher";
 
 // Pulls in the docs search index, so it stays out of the initial header chunk.
 const SearchModal = lazy(() =>
@@ -188,9 +186,6 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* DEV-ONLY hero ocean A/B switcher. Delete with
-              ocean/dev-preset-switcher.tsx. */}
-          <OceanPresetSwitcher />
           {/* Language and theme moved to the footer; the header keeps only
               search, GitHub, and Ask AI. The mobile panel below still carries
               all of them, since it is the only nav on small screens. */}
