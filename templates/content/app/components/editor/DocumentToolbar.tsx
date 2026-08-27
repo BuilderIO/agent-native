@@ -34,6 +34,7 @@ import {
   IconLink,
   IconMessageCircle,
   IconRefresh,
+  IconPin,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -474,6 +475,8 @@ interface DocumentToolbarProps {
   canDelete?: boolean;
   deletePending?: boolean;
   onDelete?: () => Promise<void>;
+  isFavorite?: boolean;
+  onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
@@ -501,6 +504,8 @@ export function DocumentToolbar({
   canDelete = false,
   deletePending = false,
   onDelete,
+  isFavorite = false,
+  onToggleFavorite,
   utilityPanel,
   onUtilityPanelChange,
   showCommentsControl = true,
@@ -1004,6 +1009,19 @@ export function DocumentToolbar({
                   <IconLink className="me-2 h-4 w-4" />
                   {t("editor.toolbar.copyPageLink")}
                 </DropdownMenuItem>
+                {onToggleFavorite ? (
+                  <DropdownMenuItem
+                    onSelect={() => onToggleFavorite(!isFavorite)}
+                  >
+                    <IconPin
+                      className="me-2 h-4 w-4"
+                      strokeWidth={isFavorite ? 2.2 : 1.7}
+                    />
+                    {isFavorite
+                      ? t("editor.toolbar.unpin")
+                      : t("editor.toolbar.pin")}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   onSelect={() =>
                     onUtilityPanelChange(

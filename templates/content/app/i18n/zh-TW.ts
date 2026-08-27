@@ -576,6 +576,8 @@ const messages = {
       orgCanFindAndView: "您組織中的任何人都可以尋找和檢視",
       orgLinkCanView: "您組織中知道該連結的任何人都可以檢視",
       pageBreadcrumb: "頁面面包屑",
+      pin: "釘選",
+      unpin: "取消釘選",
       printDialogOpened: "列印對話框開啟",
       printDialogOpenedDescription: "選取另存為 PDF 以完成匯出。",
       pulledFromNotion: "從概念中拉出來。",
