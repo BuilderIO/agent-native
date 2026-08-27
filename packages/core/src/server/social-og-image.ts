@@ -299,17 +299,20 @@ function textBlock({
 export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
   const app = getAppConfig().app;
   const explicitAppName = cleanText(app.name);
-  if (explicitAppName) {
-    return (
-      resolveBuiltInAuthMarketingByName(explicitAppName)?.appName ??
-      explicitAppName
-    );
-  }
-
   const requestHost = event
     ? (getHeader(event, "x-forwarded-host") ?? getHeader(event, "host"))
     : undefined;
   const requestPath = event ? getRequestURL(event).pathname : undefined;
+  if (explicitAppName) {
+    if (isFirstPartyApp(app)) {
+      return (
+        resolveBuiltInAuthMarketingByName(explicitAppName)?.appName ??
+        explicitAppName
+      );
+    }
+    return explicitAppName;
+  }
+
   const builtInAppName = resolveBuiltInAuthMarketing({
     requestHost,
     requestPath,
@@ -340,16 +343,12 @@ function resolveAgentNativeOgImageBrand(
     ? (getHeader(event, "x-forwarded-host") ?? getHeader(event, "host"))
     : undefined;
   const requestPath = event ? getRequestURL(event).pathname : undefined;
-  const explicitMarketing = resolveBuiltInAuthMarketingByName(app.name);
-  const configuredMarketing = resolveBuiltInAuthMarketingByName(app.name);
-  const configuredFirstParty = Boolean(
-    explicitMarketing || configuredMarketing || isFirstPartyApp(app),
-  );
+  const configuredFirstParty = isFirstPartyApp(app);
+  const trustedFirstPartyHost = isAgentNativeHost(requestHost);
   const hasCustomIdentity = Boolean(
     !configuredFirstParty &&
-    (cleanText(app.name) ||
-      cleanText(app.name) ||
-      packageDisplayName(app.packageName)),
+    !trustedFirstPartyHost &&
+    (cleanText(app.name) || packageDisplayName(app.packageName)),
   );
   const requestMarketing = hasCustomIdentity
     ? undefined
@@ -358,9 +357,7 @@ function resolveAgentNativeOgImageBrand(
         requestPath,
       });
   const isFirstParty = Boolean(
-    configuredFirstParty ||
-    requestMarketing ||
-    (!hasCustomIdentity && isAgentNativeHost(requestHost)),
+    configuredFirstParty || requestMarketing || trustedFirstPartyHost,
   );
   const mode = isFirstParty ? "agent-native" : "custom";
 
@@ -368,9 +365,7 @@ function resolveAgentNativeOgImageBrand(
     return {
       appName:
         requestMarketing?.appName ||
-        explicitMarketing?.appName ||
-        configuredMarketing?.appName ||
-        (isAgentNativeHost(requestHost)
+        (trustedFirstPartyHost
           ? "Agent-Native"
           : resolveAgentNativeOgImageAppName(event)),
       mode,
@@ -378,9 +373,7 @@ function resolveAgentNativeOgImageBrand(
   }
 
   const customAppName =
-    cleanText(app.name) ||
-    cleanText(app.name) ||
-    packageDisplayName(app.packageName);
+    cleanText(app.name) || packageDisplayName(app.packageName);
   return {
     appName: customAppName || resolveAgentNativeOgImageAppName(event),
     logoUrl: sanitizeLogoUrl(app.logoUrl),
@@ -533,13 +526,7 @@ export function renderAgentNativeOgImageSvg(
 ): string {
   const configuredBrand = resolveAgentNativeOgImageBrand();
   const appName = cleanText(input.appName) || configuredBrand.appName;
-  const mode =
-    input.brand ??
-    (input.appName
-      ? resolveBuiltInAuthMarketingByName(input.appName)
-        ? "agent-native"
-        : "custom"
-      : configuredBrand.mode);
+  const mode = input.brand ?? configuredBrand.mode;
   const logoUrl =
     mode === "custom"
       ? sanitizeLogoUrl(
@@ -627,7 +614,9 @@ export async function renderAgentNativeOgImagePng(
   const resvgPackage = overridePackage || "@resvg/resvg-js";
   const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
   const configuredLogoUrl =
-    input.logoUrl ?? resolveAgentNativeOgImageBrand().logoUrl;
+    input.logoUrl !== undefined
+      ? input.logoUrl
+      : resolveAgentNativeOgImageBrand().logoUrl;
   const logoUrl = await loadLogoDataUrl(configuredLogoUrl);
   // Feed resvg the embedded Liberation Sans font explicitly. System fonts can't
   // be relied on: Linux serverless runtimes (Netlify/Lambda) ship neither Arial
@@ -694,14 +683,8 @@ export function createAgentNativeOgImageHandler(
     const input = {
       ...options,
       appName,
-      brand:
-        options.brand ??
-        (options.appName
-          ? resolveBuiltInAuthMarketingByName(options.appName)
-            ? "agent-native"
-            : "custom"
-          : brand.mode),
-      logoUrl: options.logoUrl ?? brand.logoUrl,
+      brand: options.brand ?? brand.mode,
+      logoUrl: options.logoUrl !== undefined ? options.logoUrl : brand.logoUrl,
       title: cleanText(options.title) || queryStringValue(query.title, 140),
       accentText:
         cleanText(options.accentText) || queryStringValue(query.accentText, 80),

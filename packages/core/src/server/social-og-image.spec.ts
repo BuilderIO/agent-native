@@ -43,6 +43,7 @@ describe("social OG image", () => {
   it("renders the title with the bundled font and a Bold-resolving weight", () => {
     const svg = renderAgentNativeOgImageSvg({
       appName: "Agent-Native Analytics",
+      brand: "agent-native",
       title: "Agent-Native Analytics",
       accentText: "100% free and open source",
     });
@@ -101,6 +102,7 @@ describe("social OG image", () => {
 
   it("expands built-in app names before rendering the default title", () => {
     vi.stubEnv("APP_NAME", "Design");
+    vi.stubEnv("npm_package_name", "design");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
     const designSvg = renderAgentNativeOgImageSvg();
     expect(designSvg).toContain("Agent-Native Design");
@@ -108,8 +110,25 @@ describe("social OG image", () => {
     expect(designSvg).toContain('<path d="M24.5537');
 
     vi.stubEnv("APP_NAME", "slides");
+    vi.stubEnv("npm_package_name", "slides");
+    resetAppConfigForTests();
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Slides");
     expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Slides");
+  });
+
+  it("does not infer first-party branding from a custom display name", () => {
+    vi.stubEnv("APP_NAME", "Analytics");
+    vi.stubEnv("npm_package_name", "customer-analytics");
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain("Analytics");
+    expect(svg).not.toContain("Agent-Native");
+    expect(svg).not.toContain("100% free and open source");
+    expect(svg).not.toContain('<path d="M24.5537');
+    expect(renderAgentNativeOgImageSvg({ appName: "Analytics" })).not.toContain(
+      "100% free and open source",
+    );
   });
 
   it("preserves explicit custom app names in the default title", () => {
