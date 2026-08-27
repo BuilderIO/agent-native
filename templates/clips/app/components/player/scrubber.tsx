@@ -1,4 +1,4 @@
-import { IconMessage2 } from "@tabler/icons-react";
+import { IconMessageFilled } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -121,6 +121,14 @@ export function Scrubber(props: ScrubberProps) {
     return map;
   }, [recentReactions]);
 
+  const markerTimes = useMemo(
+    () =>
+      Array.from(
+        new Set([...commentsByMs.keys(), ...reactionsByMs.keys()]),
+      ).sort((a, b) => a - b),
+    [commentsByMs, reactionsByMs],
+  );
+
   return (
     <div
       className="relative h-10 flex items-center touch-none cursor-pointer"
@@ -192,67 +200,77 @@ export function Scrubber(props: ScrubberProps) {
           />
         ))}
 
-        {/* Comment dots */}
-        {Array.from(commentsByMs.entries()).map(([ms, list]) => (
-          <button
-            key={ms}
-            type="button"
-            onMouseEnter={() =>
-              setTooltip({
-                kind: "comment",
-                content: list[0].content.slice(0, 100),
-                ms,
-              })
-            }
-            onMouseLeave={() => setTooltip(null)}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSeek(ms);
-            }}
-            className="absolute -top-14 flex h-8 w-8 -translate-x-1/2 items-center justify-center text-background dark:text-foreground drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:focus-visible:ring-foreground/80"
-            style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
-            aria-label={`${list.length} comment${list.length > 1 ? "s" : ""}`}
-          >
-            <IconMessage2 className="h-7 w-7 stroke-[1.5]" />
-            {list.length > 1 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/75 px-0.5 text-[8px] font-bold leading-none text-background shadow-sm dark:bg-background/75 dark:text-foreground">
-                {list.length}
-              </span>
-            )}
-          </button>
-        ))}
+        {/* Timeline markers */}
+        {markerTimes.map((ms) => {
+          const commentList = commentsByMs.get(ms);
+          const reactionList = reactionsByMs.get(ms);
 
-        {/* Reaction markers */}
-        {Array.from(reactionsByMs.entries()).map(([ms, list]) => (
-          <button
-            key={`reaction-${ms}`}
-            type="button"
-            data-player-reaction-marker
-            onPointerDown={(event) => event.stopPropagation()}
-            onMouseEnter={() =>
-              setTooltip({
-                kind: "reaction",
-                content: `${list.map((reaction) => reaction.emoji).join(" ")} · ${list.length} reaction${list.length === 1 ? "" : "s"}`,
-                ms,
-              })
-            }
-            onMouseLeave={() => setTooltip(null)}
-            onClick={(event) => {
-              event.stopPropagation();
-              onSeek(ms);
-            }}
-            className="absolute -top-7 flex h-7 min-w-7 -translate-x-1/2 items-center justify-center px-0.5 text-2xl leading-none text-background drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:text-foreground dark:focus-visible:ring-foreground/80"
-            style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
-            aria-label={`${list.length} reaction${list.length === 1 ? "" : "s"} at ${msToClock(ms)}`}
-          >
-            {list[0].emoji}
-            {list.length > 1 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/75 px-0.5 text-[8px] font-bold leading-none text-background shadow-sm dark:bg-background/75 dark:text-foreground">
-                {list.length}
-              </span>
-            ) : null}
-          </button>
-        ))}
+          return (
+            <div
+              key={`marker-${ms}`}
+              data-player-marker-group
+              className="absolute -top-7 flex h-7 -translate-x-1/2 items-center gap-0.5"
+              style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
+            >
+              {commentList ? (
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onMouseEnter={() =>
+                    setTooltip({
+                      kind: "comment",
+                      content: commentList[0].content.slice(0, 100),
+                      ms,
+                    })
+                  }
+                  onMouseLeave={() => setTooltip(null)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSeek(ms);
+                  }}
+                  className="relative flex h-7 w-7 shrink-0 items-center justify-center text-background drop-shadow-md transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:text-foreground dark:focus-visible:ring-foreground/80"
+                  aria-label={`${commentList.length} comment${commentList.length > 1 ? "s" : ""}`}
+                >
+                  <IconMessageFilled className="h-6 w-6" />
+                  {commentList.length > 1 && (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/75 px-0.5 text-[8px] font-bold leading-none text-background shadow-sm dark:bg-background/75 dark:text-foreground">
+                      {commentList.length}
+                    </span>
+                  )}
+                </button>
+              ) : null}
+
+              {reactionList ? (
+                <button
+                  type="button"
+                  data-player-reaction-marker
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onMouseEnter={() =>
+                    setTooltip({
+                      kind: "reaction",
+                      content: `${reactionList.map((reaction) => reaction.emoji).join(" ")} · ${reactionList.length} reaction${reactionList.length === 1 ? "" : "s"}`,
+                      ms,
+                    })
+                  }
+                  onMouseLeave={() => setTooltip(null)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSeek(ms);
+                  }}
+                  className="relative flex h-7 min-w-7 shrink-0 items-center justify-center px-0.5 text-2xl leading-none text-background drop-shadow-sm transition-transform hover:scale-110 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/80 dark:text-foreground dark:focus-visible:ring-foreground/80"
+                  aria-label={`${reactionList.length} reaction${reactionList.length === 1 ? "" : "s"} at ${msToClock(ms)}`}
+                >
+                  {reactionList[0].emoji}
+                  {reactionList.length > 1 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-foreground/75 px-0.5 text-[8px] font-bold leading-none text-background shadow-sm dark:bg-background/75 dark:text-foreground">
+                      {reactionList.length}
+                    </span>
+                  ) : null}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
 
         {/* Thumb */}
         <div

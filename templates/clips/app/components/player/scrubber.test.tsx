@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tabler/icons-react", () => ({
-  IconMessage2: () => <span data-icon-comment />,
+  IconMessageFilled: () => <span data-icon-comment />,
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -86,10 +86,16 @@ describe("Scrubber reaction markers", () => {
       "[data-player-reaction-marker]",
     );
 
-    expect(comment?.className).toContain("-top-14");
+    const markerGroup = container.querySelector<HTMLDivElement>(
+      "[data-player-marker-group]",
+    );
+
+    expect(markerGroup?.className).toContain("-top-7");
+    expect(markerGroup?.className).toContain("gap-0.5");
+    expect(markerGroup?.children).toHaveLength(2);
+    expect(comment?.className).toContain("drop-shadow-md");
     expect(comment?.className).not.toContain("rounded-full");
     expect(comment?.querySelector("[data-icon-comment]")).not.toBeNull();
-    expect(reaction?.className).toContain("-top-7");
     expect(reaction?.className).not.toContain("rounded-full");
 
     act(() => {
