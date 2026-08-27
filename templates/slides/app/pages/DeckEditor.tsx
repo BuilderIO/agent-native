@@ -320,6 +320,10 @@ export default function DeckEditor() {
     },
     [],
   );
+  const toggleAnimations = useCallback(
+    () => setAnimationsOpen((open) => !open),
+    [],
+  );
 
   const toggleDrawMode = useCallback(() => {
     const next = !drawMode;
@@ -1572,6 +1576,8 @@ export default function DeckEditor() {
         }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
+        animationsOpen={animationsOpen}
+        onToggleAnimations={toggleAnimations}
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         drawMode={drawMode}
@@ -1580,6 +1586,8 @@ export default function DeckEditor() {
         onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
+        shapeType={shapeType}
+        onSelectShape={selectShape}
         onChangeSlideTransition={
           canEdit && currentSlide
             ? (transition) => updateSlide(id, currentSlide.id, { transition })
