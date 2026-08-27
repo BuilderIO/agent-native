@@ -154,8 +154,9 @@ describe("styled bullet editing", () => {
   it.each(["ul", "ol"] as const)(
     "preserves native %s list structure after exiting an empty item",
     (tag) => {
+      const startAttribute = tag === "ol" ? ' start="4"' : "";
       document.body.innerHTML =
-        `<div class="slide-content"><${tag}><li>First</li>` +
+        `<div class="slide-content"><${tag}${startAttribute}><li>First</li>` +
         `<li>${ZERO_WIDTH_SPACE}</li><li>Third</li></${tag}></div>`;
       const root = document.querySelector(".slide-content") as HTMLElement;
       const list = root.firstElementChild as HTMLElement;
@@ -173,6 +174,9 @@ describe("styled bullet editing", () => {
       ]);
       expect(children[0].children[0].textContent).toBe("First");
       expect(children[2].children[0].textContent).toBe("Third");
+      if (tag === "ol") {
+        expect(children[2].getAttribute("start")).toBe("6");
+      }
     },
   );
 

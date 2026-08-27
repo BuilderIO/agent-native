@@ -352,12 +352,19 @@ function hasBulletRow(nodes: Node[]): boolean {
   );
 }
 
-function listWithNodes(list: HTMLElement, nodes: Node[]): HTMLElement {
+function listWithNodes(
+  list: HTMLElement,
+  nodes: Node[],
+  orderedStart?: number,
+): HTMLElement {
   const clone = list.cloneNode(false) as HTMLElement;
   clone.removeAttribute("data-builder-id");
   clone.removeAttribute("data-fusion-element-id");
   clone.removeAttribute("contenteditable");
   clone.removeAttribute("data-editing-block");
+  if (orderedStart !== undefined) {
+    clone.setAttribute("start", String(orderedStart));
+  }
   clone.replaceChildren(...nodes);
   return clone;
 }
@@ -457,11 +464,17 @@ export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
   const afterNodes = childNodes.slice(rowIndex + 1);
   const beforeHasRows = hasBulletRow(beforeNodes);
   const afterHasRows = hasBulletRow(afterNodes);
+  const rowsBeforeExit = listRows(list).indexOf(row) + 1;
+  const parsedStart = Number.parseInt(list.getAttribute("start") ?? "", 10);
+  const trailingStart =
+    list.tagName === "OL"
+      ? (Number.isFinite(parsedStart) ? parsedStart : 1) + rowsBeforeExit
+      : undefined;
 
   if (beforeHasRows) {
     list.replaceChildren(...beforeNodes);
     if (afterHasRows) {
-      list.after(line, listWithNodes(list, afterNodes));
+      list.after(line, listWithNodes(list, afterNodes, trailingStart));
     } else {
       const following = list.ownerDocument.createDocumentFragment();
       following.append(line, ...afterNodes);
@@ -469,6 +482,9 @@ export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
     }
   } else if (afterHasRows) {
     list.replaceChildren(...afterNodes);
+    if (trailingStart !== undefined) {
+      list.setAttribute("start", String(trailingStart));
+    }
     const preceding = list.ownerDocument.createDocumentFragment();
     preceding.append(...beforeNodes, line);
     list.before(preceding);
