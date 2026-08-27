@@ -575,6 +575,7 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
 } from "./builder-api-auth.js";

@@ -1601,14 +1601,17 @@ export default function DeckEditor() {
         }}
         onExportPdf={async () => {
           try {
-            const slideIds = deck.slides.map((s) => s.id);
-            if (slideIds.length === 0) {
+            // Whole slides, not just ids: the exporter embeds this source in
+            // the PDF so re-importing it restores editable slides rather than
+            // a picture of them.
+            const exportSlides = deck.slides;
+            if (exportSlides.length === 0) {
               toast.error(t("deckEditor.exportFailed"), {
                 description: t("deckEditor.deckHasNoSlides"),
               });
               return;
             }
-            await exportDeckAsPdf(deck.title, slideIds, deck.aspectRatio);
+            await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
           } catch (err) {
             console.error("[pdf-export] failed:", err);
             toast.error(t("deckEditor.exportFailed"), {
