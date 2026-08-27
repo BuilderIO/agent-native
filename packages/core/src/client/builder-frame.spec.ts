@@ -80,13 +80,17 @@ describe("isInBuilderFrame", () => {
 
   it("captures the Builder signal before the first SPA navigation", async () => {
     vi.resetModules();
-    window.history.replaceState({}, "", "/?builder.preview=interact");
+    try {
+      window.history.replaceState({}, "", "/?builder.preview=interact");
 
-    const { isInBuilderFrame: detectBuilderFrame } =
-      await import("./builder-frame.js");
-    window.history.pushState({}, "", "/apps/mail");
+      const { isInBuilderFrame: detectBuilderFrame } =
+        await import("./builder-frame.js");
+      window.history.pushState({}, "", "/apps/mail");
 
-    expect(detectBuilderFrame()).toBe(true);
+      expect(detectBuilderFrame()).toBe(true);
+    } finally {
+      vi.resetModules();
+    }
   });
 });
 
