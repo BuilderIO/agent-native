@@ -372,11 +372,7 @@ function setCaretAtContainerBoundary(container: Node, atEnd: boolean): void {
 }
 
 function isMeaningfulNode(node: Node): boolean {
-  return (
-    node.nodeType === Node.ELEMENT_NODE ||
-    (node.nodeType === Node.TEXT_NODE &&
-      node.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "")
-  );
+  return hasMeaningfulContent([node]);
 }
 
 function hasBulletRow(nodes: Node[]): boolean {

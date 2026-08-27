@@ -341,6 +341,24 @@ describe("styled bullet editing", () => {
     expect(list.children.length).toBe(1);
   });
 
+  it("collapses a one-item list when only a stray break remains", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span></div>` +
+      "<br></div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(".bullets") as HTMLElement;
+    const textNode = list.children[0].children[1].firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    const result = removeEmptyBulletAtCaret(list);
+
+    expect(result?.handled).toBe(true);
+    expect(result?.editingElement).not.toBeNull();
+    expect(root.querySelector(".bullets")).toBeNull();
+    expect(root.firstElementChild?.textContent).toBe(ZERO_WIDTH_SPACE);
+  });
+
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
     // Regression test: Range.extractContents() on a collapsed range (caret at
     // the very end of the text, the common case) still clones the boundary
