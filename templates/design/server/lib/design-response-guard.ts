@@ -4,7 +4,11 @@ import type {
 } from "@agent-native/core/server";
 
 const DESIGN_MUTATION_ACTIONS = new Set([
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-source-edit",
   "apply-tweaks",
+  "apply-visual-edit",
   "create-design",
   "create-design-from-template",
   "create-component",
@@ -25,9 +29,9 @@ const DESIGN_MUTATION_ACTIONS = new Set([
 ]);
 
 const DESIGN_MUTATION_VERBS =
-  /\b(?:add|build|change|create|design|duplicate|edit|generate|import|insert|make|modify|place|refine|update)\b/i;
+  /\b(?:add|apply|build|change|create|delete|design|duplicate|edit|generate|import|insert|make|modify|move|place|refine|remove|replace|resize|update)\b/i;
 const DESIGN_MUTATION_OBJECTS =
-  /\b(?:asset|button|canvas|component|design|file|hero|image|layout|mockup|page|prototype|screen|this|variant|version|wireframe)\b/i;
+  /\b(?:asset|button|canvas|card|component|design|file|hero|image|it|layout|mockup|page|prototype|screen|this|variant|version|wireframe)\b/i;
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -71,6 +75,14 @@ function nonEmptyArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasNoFileErrors(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.length === 0);
+}
+
 function hasSuccessfulMutation(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): boolean {
@@ -88,7 +100,11 @@ function hasSuccessfulMutation(
     if (name === "create-design") return false;
 
     if (name === "generate-design") {
-      return parsed.renderable === true && nonEmptyArray(parsed.savedFiles);
+      return (
+        parsed.renderable === true &&
+        nonEmptyArray(parsed.savedFiles) &&
+        hasNoFileErrors(parsed.fileErrors)
+      );
     }
 
     if (name === "present-design-variants") {
@@ -102,6 +118,12 @@ function hasSuccessfulMutation(
     }
 
     if (name === "edit-design") return parsed.changed === true;
+
+    if (name === "apply-tweaks") {
+      return (
+        typeof parsed.designId === "string" && isRecord(parsed.appliedTweaks)
+      );
+    }
 
     if (name === "create-file") {
       return (

@@ -49,6 +49,11 @@ describe("Design final response guard", () => {
         "[Reprompt selection] make the card darker",
       ),
     ).toBe(false);
+    expect(looksLikeDesignMutationRequest("delete this screen")).toBe(true);
+    expect(looksLikeDesignMutationRequest("remove this button")).toBe(true);
+    expect(looksLikeDesignMutationRequest("move this card")).toBe(true);
+    expect(looksLikeDesignMutationRequest("replace the hero image")).toBe(true);
+    expect(looksLikeDesignMutationRequest("make it darker")).toBe(true);
   });
 
   it("retries prose-only completion for a design mutation", () => {
@@ -89,6 +94,31 @@ describe("Design final response guard", () => {
       ],
       [toolResult("edit-design", { fileId: "file-1", changed: true })],
       [toolResult("insert-asset", { fileId: "file-1", inserted: true })],
+      [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
+      [
+        toolResult("apply-component-prop-edit", {
+          designId: "design-1",
+          persisted: true,
+        }),
+      ],
+      [
+        toolResult("apply-source-edit", {
+          designId: "design-1",
+          changed: true,
+        }),
+      ],
+      [
+        toolResult("apply-visual-edit", {
+          designId: "design-1",
+          persisted: true,
+        }),
+      ],
+      [
+        toolResult("apply-tweaks", {
+          designId: "design-1",
+          appliedTweaks: { "theme-accent": "#0EA5E9" },
+        }),
+      ],
       [
         toolResult("import-figma-frame", {
           designId: "design-1",
@@ -108,6 +138,23 @@ describe("Design final response guard", () => {
         ),
       ).toBeNull();
     }
+  });
+
+  it("does not accept a partial generation", () => {
+    const result = designFinalResponseGuard(
+      guardContext("create another version of this", {
+        toolResults: [
+          toolResult("generate-design", {
+            designId: "design-1",
+            renderable: true,
+            savedFiles: [{ id: "file-1", filename: "index.html" }],
+            fileErrors: [{ filename: "styles.css", error: "conflict" }],
+          }),
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
   });
 
   it("does not accept a failed mutation result", () => {
