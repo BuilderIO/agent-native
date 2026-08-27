@@ -2155,6 +2155,12 @@ const FIGMA_TEXT_BREAK = /\r\n|[\n\r\u2028\u2029]/g;
  * Figma draws a break it did not lay out as a space (a heading storing
  * "Customise it\rto your needs" renders "Customise it to / your needs", wrapped
  * at the width), and draws a trailing one as nothing at all.
+ *
+ * Trailing spaces go for the same reason: Figma neither draws them nor lets
+ * them widen a hugging box, while `pre-wrap` does both. Of the 943 hugging
+ * text nodes in the corpus the only ones that came out wider than Figma's own
+ * box are the 3 whose text ends in a space — one of them by 9px, which then
+ * pushed its whole row across.
  */
 export function figmaDrawnText(
   text: string,
@@ -2162,11 +2168,13 @@ export function figmaDrawnText(
 ): string {
   const breaks = [...text.matchAll(FIGMA_TEXT_BREAK)];
   if (laidOutLines === undefined) {
-    // No line count to check against. A trailing break is the one case still
-    // settleable without it: Figma never draws one, `pre-wrap` always does.
-    return text.replace(/(?:\r\n|[\n\r\u2028\u2029])[ \t]*$/, "");
+    // No line count to check against, so fall back to what held in every
+    // measured file: Figma draws neither a trailing break nor trailing space.
+    return text.replace(/\s+$/, "");
   }
-  if (breaks.length + 1 <= laidOutLines) return text;
+  // Every break is one Figma laid out — a trailing one included, which is a
+  // real empty last line. Only the spaces go.
+  if (breaks.length + 1 <= laidOutLines) return text.replace(/[ \t]+$/, "");
   // Figma laid out fewer lines than there are breaks, so the later ones are
   // not paragraph breaks. Substitute per character rather than collapsing, so
   // every index still lines up with `characterStyleOverrides`.

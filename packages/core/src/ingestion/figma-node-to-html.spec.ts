@@ -702,6 +702,25 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toMatch(/a[\r\n]b c/);
   });
 
+  it("drops a trailing space, which Figma neither draws nor hugs to", () => {
+    // Of 943 hugging text nodes measured, the only ones wider than Figma's own
+    // box were the 3 ending in a space — "Our Working Process " hugged 9px wide
+    // and pushed its whole row across.
+    const { html } = mapFigmaNodeToHtml(
+      label("Our Working Process ", ["NONE"]),
+      {},
+    );
+    expect(html).toContain(">Our Working Process<");
+  });
+
+  it("keeps a trailing break Figma counted as its own empty line", () => {
+    const { html } = mapFigmaNodeToHtml(
+      label("Heading\r", ["NONE", "NONE"]),
+      {},
+    );
+    expect(html).toMatch(/Heading[\r\n]/);
+  });
+
   it("still drops a trailing break when Figma reports no line count", () => {
     // Absent `lineTypes` leaves no authority to check against, but a trailing
     // break is settleable regardless: Figma never draws one, pre-wrap always does.
