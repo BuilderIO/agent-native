@@ -323,6 +323,9 @@ describe("public form SSR", () => {
       expect(html).toContain(
         "window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);",
       );
+      expect(html).toContain(
+        'if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded")',
+      );
     }
     if (mode === "refresh") {
       expect(html).toContain(

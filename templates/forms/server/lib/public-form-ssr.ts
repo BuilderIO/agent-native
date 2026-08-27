@@ -704,7 +704,7 @@ function renderFormPage(
       if (COMPLETION_MODE === "message_then_refresh") {
         window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);
       }
-      if (COMPLETION_MODE === "message" && html.classList.contains("embedded") && window.parent !== window) {
+      if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded") && window.parent !== window) {
         try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
       }
     })
