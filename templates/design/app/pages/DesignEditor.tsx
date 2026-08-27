@@ -195,6 +195,7 @@ import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/crea
 import type {
   IframeContextMenuPayload,
   IframeHotkeyPayload,
+  IframeFigmaClipboardPastePayload,
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
@@ -385,6 +386,7 @@ import { readDesignClipboardPayloadFromSystem } from "@/lib/design-clipboard";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
+  isAttemptedFigmaPaste,
 } from "@/lib/design-import";
 import {
   acknowledgeDesignSaveOutboxEntry,
@@ -10576,10 +10578,27 @@ function DesignEditor() {
   );
 
   const handleCanvasFigmaClipboardPaste = useCallback(
-    ({ content }: { content: string }) => {
-      void importFigmaClipboardIntoDesign(content);
+    ({ content, html, text }: IframeFigmaClipboardPastePayload) => {
+      if (content) {
+        void importFigmaClipboardIntoDesign(content);
+        return;
+      }
+      // Same judgement the parent-document listener makes in runEditorPaste,
+      // on strings the bridge relayed because the event never left the iframe.
+      const relayed = {
+        getData: (type: string) =>
+          type === "text/html"
+            ? (html ?? "")
+            : type === "text/plain"
+              ? (text ?? "")
+              : "",
+      };
+      if (!isAttemptedFigmaPaste(relayed)) return;
+      toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
+        description: t("designEditor.import.figmaPasteUnreadable"),
+      });
     },
-    [importFigmaClipboardIntoDesign],
+    [importFigmaClipboardIntoDesign, t],
   );
 
   // Reads a File as a data URL, wrapped as a Promise so multi-file paste can

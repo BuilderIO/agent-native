@@ -14,6 +14,7 @@ import * as path from "node:path";
 import {
   cssBlendMode,
   figmaDrawnText,
+  hasPrivateUseCharacters,
   gradientAngleDegreesFromHandles,
   gradientGeometryFromTransform,
   remapLinearStopPosition,
@@ -1229,6 +1230,21 @@ function parametricShapePath(node: FigNode): string | null {
     return null;
   }
   return `M${points.join(" L")} Z`;
+}
+
+/**
+ * Drop icon-font glyphs. A Private Use Area codepoint means nothing outside
+ * the font that assigned it, and a `.fig` import has no rendered PNG to fall
+ * back on the way the REST walker does — so a browser draws .notdef boxes
+ * across a sidebar Figma draws icons in. Stripping runs AFTER
+ * `textStyleRuns`: `characterStyleIDs` indexes the stored characters, so
+ * removing any before the split would shift every colour run.
+ */
+function withoutPrivateUse(text: string): string {
+  if (!hasPrivateUseCharacters(text)) return text;
+  return [...text]
+    .filter((character) => !hasPrivateUseCharacters(character))
+    .join("");
 }
 
 /** Record one fidelity note against a node the renderer could not reproduce exactly. */
@@ -3930,7 +3946,15 @@ function emitNode(
   }
 
   if (node.type === "TEXT") {
-    const chars = textCharacters(node);
+    const stored = textCharacters(node);
+    const chars = withoutPrivateUse(stored);
+    if (chars !== stored) {
+      recordApproximation(
+        node,
+        ctx,
+        "icon-font glyphs dropped: their Private Use Area codepoints have no meaning outside the font that assigned them, and no substitute font can draw them",
+      );
+    }
     if (chars.length === 0) {
       emitOpenWithChildren(tag, attrs, indent, lines, paintOverlays);
       lines.push(`${indent}</${tag}>`);
@@ -3947,10 +3971,11 @@ function emitNode(
       // Per-character color runs → one <span> per run; base-color runs inherit
       // the element's `color`, overridden runs carry their own.
       const html = runs
-        .map((r) =>
-          r.color
-            ? `<span style="color: ${r.color}">${toHtml(r.text)}</span>`
-            : toHtml(r.text),
+        .map((r) => withoutPrivateUse(r.text))
+        .map((text, index) =>
+          runs[index].color
+            ? `<span style="color: ${runs[index].color}">${toHtml(text)}</span>`
+            : toHtml(text),
         )
         .join("");
       lines.push(`${indent}  ${html}`);

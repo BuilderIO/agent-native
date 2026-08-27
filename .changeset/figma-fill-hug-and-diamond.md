@@ -129,3 +129,11 @@ Figma SVG export used it to stop dropping a page's 11.5MB hero shot, which had
 been leaving a hole in the exported file — over a budget is a reason to send
 fewer pixels, not to send nothing.
 
+Icon-font glyphs no longer import as `.notdef` boxes. A Private Use Area
+codepoint means nothing outside the font that assigned it, and fonts reach an
+imported screen by family name from Google Fonts, which serves none of these
+icon fonts — so Chromium drew a hollow box beside all 16 nav items of a real
+admin dashboard, where Figma draws an icon. Such a text node now takes the
+rendered-PNG fallback the walker already uses for anything it cannot express
+(0.97% -> 0.83% on that design). The `.fig` walker has no render to fall back
+on, so it drops the glyph and records the reason against the node instead.

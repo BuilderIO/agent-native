@@ -1923,6 +1923,25 @@ function buildVectorSvg(
 // Node type classification
 // ---------------------------------------------------------------------------
 
+/**
+ * True when the text uses a Private Use Area codepoint — the range icon fonts
+ * assign their glyphs from, which no substitute font can render.
+ */
+export function hasPrivateUseCharacters(text: string | undefined): boolean {
+  if (!text) return false;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      (codePoint >= 0xe000 && codePoint <= 0xf8ff) ||
+      (codePoint >= 0xf0000 && codePoint <= 0xffffd) ||
+      (codePoint >= 0x100000 && codePoint <= 0x10fffd)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function needsImageFallback(
   node: FigmaNode,
   options: MapFigmaNodeOptions,
@@ -1952,6 +1971,13 @@ function needsImageFallback(
   // need real path geometry — without it, both stay rendered PNGs.
   if (node.type === "LINE") return true;
   if (node.type === "ELLIPSE" && !isFullCircleArc(node)) return true;
+  // A Private Use Area codepoint means nothing outside the font that assigned
+  // it, and fonts reach an imported screen by family name from Google Fonts,
+  // which serves none of these icon fonts. No fallback can draw the glyph, so
+  // Chromium draws .notdef boxes across a sidebar Figma draws icons in.
+  if (node.type === "TEXT" && hasPrivateUseCharacters(node.characters)) {
+    return true;
+  }
   const visibleStrokes = (node.strokes ?? []).filter(
     (stroke) => stroke.visible !== false,
   );

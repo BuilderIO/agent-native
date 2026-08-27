@@ -8,7 +8,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { mapFigmaNodeToHtml, type FigmaNode } from "./figma-node-to-html.js";
+import {
+  collectFallbackNodeIds,
+  mapFigmaNodeToHtml,
+  type FigmaNode,
+} from "./figma-node-to-html.js";
 
 function box(x: number, y: number, width: number, height: number) {
   return { x, y, width, height };
@@ -1185,5 +1189,29 @@ describe("a hugging text box takes Figma's rounded width as a minimum", () => {
     const { html } = mapFigmaNodeToHtml(node, {});
     expect(html).toContain("min-width: 120px");
     expect(html).not.toMatch(/min-width: 70px/);
+  });
+});
+
+describe("icon-font glyphs", () => {
+  // DashStack's sidebar labels each carry a LineAwesome glyph at U+F2C6. No
+  // Google font serves that codepoint, so Chromium drew a .notdef box beside
+  // every nav item where Figma draws an icon.
+  function iconLabel(characters: string): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Icon",
+      type: "TEXT",
+      absoluteBoundingBox: box(0, 0, 22, 25),
+      characters,
+      style: { fontFamily: "LineAwesome", fontSize: 20 },
+    } as FigmaNode;
+  }
+
+  it("renders a Private Use Area glyph from Figma instead of a .notdef box", () => {
+    expect(collectFallbackNodeIds(iconLabel("\uf2c6"), {})).toEqual(["1:1"]);
+  });
+
+  it("leaves ordinary text alone", () => {
+    expect(collectFallbackNodeIds(iconLabel("Dashboard"), {})).toEqual([]);
   });
 });

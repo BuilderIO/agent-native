@@ -9444,6 +9444,20 @@ export const editorChromeBridgeScript: string = `"use strict";
               );
             }
           });
+          return;
+        }
+        var pastedHtml = e.clipboardData ? e.clipboardData.getData("text/html") || "" : "";
+        var pastedText = e.clipboardData ? e.clipboardData.getData("text/plain") || "" : "";
+        if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+          window.parent.postMessage(
+            {
+              type: "figma-clipboard-paste",
+              content: "",
+              html: pastedHtml,
+              text: pastedText
+            },
+            "*"
+          );
         }
       },
       true

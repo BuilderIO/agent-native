@@ -92,6 +92,7 @@ export {
   collectFontUsage,
   collectImageFillRefs,
   figmaDrawnText,
+  hasPrivateUseCharacters,
   gradientAngleDegrees,
   mapFigmaNodeToHtml,
   textDecorationCss,
