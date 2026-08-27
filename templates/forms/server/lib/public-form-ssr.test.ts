@@ -333,6 +333,7 @@ describe("public form SSR", () => {
 
   it("allows root-relative redirects without allowing protocol-relative URLs", () => {
     expect(safeRedirectUrl("/thanks")).toBe("/thanks");
+    expect(safeRedirectUrl("/\\\\evil.example.test/thanks")).toBe("");
     expect(safeRedirectUrl("//external.example.test/thanks")).toBe("");
   });
 });

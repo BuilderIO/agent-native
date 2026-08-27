@@ -103,7 +103,6 @@ export default defineAction({
     const defaultSettings: FormSettings = {
       submitText: "Submit",
       successMessage: "Thank you! Your response has been recorded.",
-      completionMode: "message",
       showProgressBar: false,
       emailOnNewResponses: false,
     };
