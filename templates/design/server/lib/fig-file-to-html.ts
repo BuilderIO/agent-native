@@ -2233,14 +2233,17 @@ function buildCss(
     // count differing from Figma's; text hugging both axes cannot wrap, so it
     // has nothing to guard — and giving it one lets a stale stored size push
     // its siblings, which is exactly what dropped Positivus' headings 30px.
-    if (
-      !hugsWidth &&
-      hugsHeight &&
-      h !== null &&
-      !suppressHeight &&
-      !css.height
-    ) {
-      css.minHeight = `${h}px`;
+    // Text hugging BOTH axes cannot wrap, so its line count is fixed by the
+    // break characters and its height is Figma's `round(lines * lineHeight)`
+    // exactly — taken outright, not as a minimum, because the browser's own
+    // line box rounds the other way and every such label came out 1px tall
+    // over. On the auto-layout fixture that 1px moved all 29 nodes.
+    //
+    // Wrapping text keeps a MINIMUM: there our line count genuinely can differ
+    // from Figma's, and a stale stored size must degrade rather than dictate.
+    if (hugsHeight && h !== null && !suppressHeight && !css.height) {
+      if (hugsWidth) css.height = `${h}px`;
+      else css.minHeight = `${h}px`;
     }
   }
 
