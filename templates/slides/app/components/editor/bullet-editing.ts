@@ -326,6 +326,40 @@ function setCaretAtRowBoundary(row: HTMLElement, atEnd: boolean): void {
   sel?.addRange(range);
 }
 
+function setCaretAtContainerBoundary(container: Node, atEnd: boolean): void {
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  range.collapse(!atEnd);
+  const sel = window.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+function isMeaningfulNode(node: Node): boolean {
+  return (
+    node.nodeType === Node.ELEMENT_NODE ||
+    (node.nodeType === Node.TEXT_NODE &&
+      node.textContent?.replaceAll(ZERO_WIDTH_SPACE, "").trim() !== "")
+  );
+}
+
+function hasBulletRow(nodes: Node[]): boolean {
+  return nodes.some(
+    (node) =>
+      node.nodeType === Node.ELEMENT_NODE && isBulletRow(node as HTMLElement),
+  );
+}
+
+function listWithNodes(list: HTMLElement, nodes: Node[]): HTMLElement {
+  const clone = list.cloneNode(false) as HTMLElement;
+  clone.removeAttribute("data-builder-id");
+  clone.removeAttribute("data-fusion-element-id");
+  clone.removeAttribute("contenteditable");
+  clone.removeAttribute("data-editing-block");
+  clone.replaceChildren(...nodes);
+  return clone;
+}
+
 function createRootLine(
   list: HTMLElement,
   row: HTMLElement,
@@ -384,6 +418,15 @@ export function removeEmptyBulletAtCaret(
   const rowIndex = rows.indexOf(row);
   if (rowIndex < 0) return null;
   if (rows.length === 1) {
+    const remainingNodes = Array.from(list.childNodes).filter(
+      (node) => node !== row,
+    );
+    if (remainingNodes.some(isMeaningfulNode)) {
+      const placeAtEnd = !!row.previousElementSibling;
+      row.remove();
+      setCaretAtContainerBoundary(list, placeAtEnd);
+      return { handled: true, editingElement: null };
+    }
     const line = createRootLine(list, row);
     if (!line) return null;
     list.replaceWith(line);
@@ -405,9 +448,38 @@ export function exitEmptyBulletAtCaret(list: HTMLElement): HTMLElement | null {
   const line = createRootLine(list, row);
   if (!line) return null;
 
-  row.remove();
-  if (listRows(list).length > 0) list.after(line);
-  else list.replaceWith(line);
+  const childNodes = Array.from(list.childNodes);
+  const rowIndex = childNodes.indexOf(row);
+  if (rowIndex < 0) return null;
+  const beforeNodes = childNodes.slice(0, rowIndex);
+  const afterNodes = childNodes.slice(rowIndex + 1);
+  const beforeHasRows = hasBulletRow(beforeNodes);
+  const afterHasRows = hasBulletRow(afterNodes);
+
+  if (beforeHasRows) {
+    list.replaceChildren(...beforeNodes);
+    if (afterHasRows) {
+      list.after(line, listWithNodes(list, afterNodes));
+    } else {
+      const following = list.ownerDocument.createDocumentFragment();
+      following.append(line, ...afterNodes);
+      list.after(following);
+    }
+  } else if (afterHasRows) {
+    list.replaceChildren(...afterNodes);
+    const preceding = list.ownerDocument.createDocumentFragment();
+    preceding.append(...beforeNodes, line);
+    list.before(preceding);
+  } else if (
+    beforeNodes.some(isMeaningfulNode) ||
+    afterNodes.some(isMeaningfulNode)
+  ) {
+    const replacement = list.ownerDocument.createDocumentFragment();
+    replacement.append(...beforeNodes, line, ...afterNodes);
+    list.replaceWith(replacement);
+  } else {
+    list.replaceWith(line);
+  }
   setCaretAtRowBoundary(line, false);
   return line;
 }

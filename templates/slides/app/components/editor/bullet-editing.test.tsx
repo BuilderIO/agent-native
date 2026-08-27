@@ -130,6 +130,65 @@ describe("styled bullet editing", () => {
     );
   });
 
+  it("keeps later bullets after an exited middle bullet", () => {
+    const { root, list } = setup();
+    const firstText = list.children[0].children[1] as HTMLElement;
+    const textNode = firstText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const line = exitEmptyBulletAtCaret(list);
+    const content = root.querySelector(
+      "[data-fmd-autofit-content]",
+    ) as HTMLElement;
+    const trailingList = line?.nextElementSibling as HTMLElement;
+
+    expect(line).not.toBeNull();
+    expect(Array.from(content.children)).toEqual([list, line, trailingList]);
+    expect(list.children[0].textContent).toContain("First point");
+    expect(isBulletList(trailingList)).toBe(true);
+    expect(trailingList.children[0].textContent).toContain("Second point");
+    expect(trailingList.children[1].textContent).toContain("Third point");
+  });
+
+  it("preserves a tolerated child when Enter exits its only bullet", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span></div>` +
+      '<div class="kept">Keep me</div>' +
+      "</div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(".bullets") as HTMLElement;
+    const textNode = list.children[0].children[1].firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    const line = exitEmptyBulletAtCaret(list);
+
+    expect(line).not.toBeNull();
+    expect(root.querySelector(".bullets")).toBeNull();
+    expect(root.querySelector(".kept")?.textContent).toBe("Keep me");
+    expect(line?.nextElementSibling?.className).toBe("kept");
+  });
+
+  it("preserves a tolerated child when Backspace removes its only bullet", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets">' +
+      `<div><span>\u25CF</span><span>${ZERO_WIDTH_SPACE}</span></div>` +
+      '<div class="kept">Keep me</div>' +
+      "</div></div>";
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const list = root.querySelector(".bullets") as HTMLElement;
+    const textNode = list.children[0].children[1].firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(removeEmptyBulletAtCaret(list)).toEqual({
+      handled: true,
+      editingElement: null,
+    });
+    expect(root.querySelector(".kept")?.textContent).toBe("Keep me");
+    expect(list.children.length).toBe(1);
+  });
+
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
     // Regression test: Range.extractContents() on a collapsed range (caret at
     // the very end of the text, the common case) still clones the boundary
