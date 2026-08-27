@@ -223,7 +223,12 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  useCommandMenuShortcut(
+    useCallback(() => setCmdkOpen(true), []),
+    {
+      allowContentEditable: true,
+    },
+  );
   const location = useLocation();
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{
