@@ -433,6 +433,103 @@ const koKR = {
     freeAndOpenSource: "100% 무료 • 오픈 소스",
     viewAllApps: "모든 앱 보기",
   },
+  homepage: {
+    hero: {
+      title: "에이전틱 애플리케이션 프레임워크",
+      bodyLine1:
+        "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
+      bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
+      learnMore: "자세히 알아보기",
+    },
+    install: {
+      copyCommand: "설치 명령 복사",
+    },
+    actions: {
+      title: "하나의 Action이 모든 표면을 구동합니다",
+      bodyLine1: "Action은 Agent-Native 앱의 기본 구성 요소입니다.",
+      bodyLine2:
+        "기능을 한 번만 정의하고 UI, 에이전트 채팅, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
+      diagramAlt:
+        "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
+    },
+    builtIn: {
+      title: "모든 Agent-Native 앱에 기본으로 내장",
+      body: "사용자와 AI 에이전트가 함께 일하는 데 필요한 모든 것이 하나의 애플리케이션에 이미 연결되어 있습니다.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "사용자에게 탐색, 편집, 검토에 익숙한 화면을 제공합니다.",
+        },
+        agentChat: {
+          title: "내장된 에이전트 채팅",
+          body: "앱을 벗어나지 않고 작업을 위임하고, 질문하고, 결과를 검토할 수 있습니다.",
+        },
+        sharedState: {
+          title: "공유 애플리케이션 상태",
+          body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
+        },
+        sharedSql: {
+          title: "공유 SQL 데이터",
+          body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
+        },
+        skillsMemory: {
+          title: "스킬과 메모리",
+          body: "에이전트에게 재사용 가능한 전문성과 지속적인 컨텍스트를 제공합니다.",
+        },
+        automations: {
+          title: "자동화",
+          body: "일정이나 애플리케이션 이벤트에 따라 에이전트 작업을 자동으로 실행합니다.",
+        },
+        agentTeams: {
+          title: "에이전트 팀",
+          body: "앱 내부 또는 여러 앱에 걸쳐 전문 에이전트에게 작업을 위임합니다.",
+        },
+        auth: {
+          title: "인증과 조직",
+          body: "로그인, 사용자 계정, 조직 멤버십이 기본으로 포함되어 있습니다.",
+        },
+        sharing: {
+          title: "공유와 권한",
+          body: "모든 리소스를 누가 보고, 댓글을 달고, 편집하고, 관리할 수 있는지 제어합니다.",
+        },
+      },
+    },
+    stack: {
+      title: "기존 스택과 함께 작동",
+      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 애플리케이션은 계속 여러분의 것입니다.",
+      exploreApps: "Agent-Native로 만든 앱 살펴보기",
+    },
+    showcase: {
+      title: "Agent-Native로 무엇을 만들 수 있나요?",
+      body: "채팅, 집중된 내부 도구, 또는 완전한 고객 대면 제품으로 시작하세요. 모든 앱은 사용자에게 UI를, 에이전트에게 같은 일을 할 수 있는 도구를 제공합니다.",
+      browseApps: "앱 살펴보기",
+      scrollLeft: "앱 왼쪽으로 스크롤",
+      scrollRight: "앱 오른쪽으로 스크롤",
+    },
+    bottomCta: {
+      title: "첫 Agent-Native 앱을 만들어 보세요",
+      body: "사용자와 AI 에이전트를 위한 하나의 애플리케이션을 만드세요. 원하는 LLM을 사용하고 어디에나 배포하세요.",
+    },
+    getStartedModal: {
+      title: "시작하기",
+      close: "닫기",
+      buildLocally: "로컬에서 앱 만들기",
+      tryAnApp: "앱 사용해 보기",
+      buildInCloud: "클라우드에서 만들기",
+    },
+    footer: {
+      tagline: "에이전틱 애플리케이션 프레임워크.",
+      framework: "프레임워크",
+      ecosystem: "에코시스템",
+      community: "커뮤니티",
+      legal: "법적 고지",
+      docs: "문서",
+      actions: "액션",
+      apps: "앱",
+      privacyPolicy: "개인정보 처리방침",
+      saasTerms: "SaaS 약관",
+    },
+  },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
     eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",

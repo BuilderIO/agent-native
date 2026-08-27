@@ -3,6 +3,57 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-26
+
+### Fixed
+
+- Design no longer asks users to confirm guided questions they have already answered.
+
+## 2026-08-24
+
+### Fixed
+
+- Adding auto layout to a stack of full-width rows now picks vertical flow instead of laying them out side by side.
+- Dragging an element inside a frame no longer fades it to a duller color or highlights the frame as a drop target, and it no longer moves the element to the front of its frame's stacking order. The element keeps its exact appearance and layering while it moves.
+- Dropping an element into a frame that already has content now leaves that frame's layout alone instead of turning it into a horizontal row.
+
+## 2026-08-22
+
+### Fixed
+
+- Generating or updating several screens in one request no longer loses an already-saved screen's layout and styling when another screen in the same request hits a save conflict — the saved screen keeps its placement, and the conflicting screen is reported so you can retry just that one.
+- The rename design and search text fields on the Designs home page now have accessible names, so screen readers announce them instead of leaving them unlabeled.
+
+## 2026-08-21
+
+### Added
+
+- Press I anywhere on the canvas to sample a color with the eyedropper and apply it to the selection.
+- Scale now applies to a multi-selection: drag a corner of the group box and every selected object scales together.
+
+### Improved
+
+- Dragging a screen or an element now lights up every edge and centre it lines up with, snaps spacing to gaps that already exist, and shows its pixel size and constraint lines.
+- Scale resizes the text inside an object along with its box and stroke, matching Figma.
+
+### Fixed
+
+- Completed Builder design-system imports now update the local Design system with indexed tokens instead of leaving placeholder values.
+- Draw mode now needs Shift+Y, so a single stray keystroke can no longer switch the editor into annotate mode.
+- Moving or scaling several objects at once keeps them all selected, so you can keep adjusting instead of falling back to one object.
+- Inspector number fields keep focus after Enter, so the next keystroke edits the field instead of triggering a canvas shortcut.
+- Pen: holding Alt on a new anchor now keeps the incoming handle where it was and stays broken after you release Alt.
+- Finishing a pen path on the canvas board creates one vector instead of two, and leaves the Pen tool armed for the next path.
+- Selecting another object keeps the Scale tool armed instead of dropping you back to Move.
+- The shape tool now stays on the shape you picked — drawing an ellipse no longer resets the toolbar button to Rectangle.
+- Pen paths, lines, arrows, polygons and stars drawn inside a frame now land where you drew them instead of jumping by the frame's position.
+
+## 2026-08-20
+
+### Improved
+
+- Deleting or editing an element patches the canvas in place instead of rebuilding the frame, so scroll position, focus and running component state survive the edit.
+
 ## 2026-08-18
 
 ### Improved

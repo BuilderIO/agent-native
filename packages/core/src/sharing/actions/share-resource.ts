@@ -445,31 +445,40 @@ export default defineAction({
             );
           }
         }
-        const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const resourceLabel = reg.displayName.toLowerCase();
+        const article = /^[aeiou]/i.test(resourceLabel) ? "an" : "a";
+        const subject = `${senderDisplayName} shared with you: "${resourceTitle}"`;
         const messageParagraph = args.message?.trim()
           ? emailQuote(args.message)
           : null;
+        const roleVerb =
+          args.role === "viewer"
+            ? "view"
+            : args.role === "commenter"
+              ? "comment on"
+              : args.role === "admin"
+                ? "edit and manage access to"
+                : "edit";
         const defaultParagraphs = [
-          `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+          `${emailStrong(senderDisplayName)} (${emailStrong(actor)}) has invited you to ${roleVerb} the following ${resourceLabel}:`,
           ...(messageParagraph ? [messageParagraph] : []),
-          `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
         ];
         const { html, text } = renderEmail({
           brandName,
           brandLogoUrl,
           preheader: subject,
-          heading: `${senderDisplayName} shared "${resourceTitle}" with you`,
+          heading: `${senderDisplayName} shared ${article} ${resourceLabel}`,
           paragraphs: extras?.paragraphs
             ? messageParagraph
               ? [messageParagraph, ...extras.paragraphs]
               : extras.paragraphs
             : defaultParagraphs,
+          resourceBlock: { name: resourceTitle },
           heroHtml,
-          cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
+          cta: { label: "Open", url: notificationUrl },
           secondaryCta: extras?.secondaryCta,
           linkBlock: extras?.linkBlock,
           closingParagraphs: extras?.closingParagraphs,
-          footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
         await sendEmail({
           to: principalId,

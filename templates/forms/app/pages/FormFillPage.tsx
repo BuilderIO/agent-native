@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { isConditionalFieldVisible } from "@shared/conditional";
 import type { FormField, FormSettings } from "@shared/types";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
@@ -39,6 +40,15 @@ export function FormFillPage() {
   const slug = params["*"] || "";
   const { data: form, isLoading, error } = usePublicForm(slug);
   const submitForm = useSubmitForm();
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(form?.title, "Form")} — Forms`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [form?.title]);
 
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [captchaToken, setCaptchaToken] = useState<string | undefined>();

@@ -9,6 +9,7 @@ import {
   useReviewComments,
 } from "@agent-native/core/client/review";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -64,6 +65,19 @@ export default function Present() {
     isFetching,
     refetch,
   } = useActionQuery<DesignData>("get-design", { id: id! });
+
+  useEffect(() => {
+    if (!design) return;
+    const nextTitle = `${normalizeDocumentTitle(
+      design.title,
+      "Untitled design",
+    )} — Design`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [design?.title]);
 
   const files: DesignFile[] = design?.files ?? [];
   const activeFile = files[currentPage] ?? files[0];

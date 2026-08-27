@@ -8,12 +8,34 @@
  * a caller that knows about private keys alone cannot upload for them at all.
  */
 
+import { isTransientDatabaseError } from "../db/client.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
 } from "./builder-oauth.js";
-import { resolveBuilderPrivateKey } from "./credential-provider.js";
+import {
+  CredentialStoreUnavailableError,
+  resolveBuilderPrivateKey,
+} from "./credential-provider.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+
+async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (err) {
+    if (isTransientDatabaseError(err)) {
+      throw new CredentialStoreUnavailableError(err);
+    }
+    throw err;
+  }
+}
+
+async function readOAuthCustody(
+  ownerEmail: string,
+  orgId?: string | null,
+): Promise<boolean> {
+  return readCredentialStore(() => hasBuilderOAuthSession(ownerEmail, orgId));
+}
 
 /**
  * Resolve the `Authorization` header for a Builder asset API call.
@@ -35,8 +57,10 @@ export async function resolveBuilderApiAuthorization(
   // legacy private-key path already resolves this way.
   const orgId = getRequestOrgId();
 
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
-    const session = await getBuilderOAuthSession(ownerEmail, orgId);
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
+    const session = await readCredentialStore(() =>
+      getBuilderOAuthSession(ownerEmail, orgId),
+    );
     if (!session) {
       throw new Error(
         "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
@@ -67,10 +91,7 @@ export async function resolveBuilderApiAuthorization(
  */
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  if (
-    ownerEmail &&
-    (await hasBuilderOAuthSession(ownerEmail, getRequestOrgId()))
-  ) {
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, getRequestOrgId()))) {
     return true;
   }
   return !!(await resolveBuilderPrivateKey());

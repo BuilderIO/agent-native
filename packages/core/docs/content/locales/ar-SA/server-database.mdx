@@ -254,6 +254,21 @@ export const getDb = createGetDb(schema);
   الإصدار.
 </Callout>
 
+### إنشاء ترحيلات التطبيق الجديدة باستخدام Drizzle Kit {#drizzle-migrations}
+
+بالنسبة إلى تغييرات مخطط التطبيق الجديدة، استخدم `pnpm db:generate` لإنشاء SQL
+قابل للمراجعة. ينشئ ذلك `server/db/migrations/<id_name>.sql`، ويحمّل
+`runDrizzleMigrations` هذه الملفات إلى مشغّل Agent-Native المشترك في بيئات Node.js
+وبيئات serverless المستندة إلى Node. تبقى خطوة الإصدار هي المسؤولة عن تغييرات
+الإنتاج. احتفظ بـ `runMigrations()` للحالات الخاصة باللهجات أو D1، وعمليات ملء
+البيانات، وخطوات JavaScript المؤجلة.
+
+لا يتوفر محمّل نظام الملفات في Cloudflare Workers/Pages أو بيئات edge الأخرى
+التي لا توفر نظام ملفات، بما في ذلك D1. استخدم `runMigrations()` هناك مع إدخالات
+SQL مضمّنة في حزمة العامل. يحتوي مجلد إخراج Drizzle الواحد على خط أساس واحد
+خاص باللهجة للبيانات الوصفية، لذا أنشئ الترحيلات باستخدام لهجة النشر الأساسية
+ولا تبدّل مجلدًا واحدًا بين SQLite وPostgreSQL.
+
 <Callout tone="risk">
   لا تقم أبدًا بتشغيل `drizzle-kit push` مقابل قاعدة بيانات إنتاج. تُعرّف مخططات
   القالب جداول التطبيق الخاصة فقط؛ ولا تتضمن جداول إطار العمل المركزية (`user`،
@@ -262,7 +277,7 @@ export const getDb = createGetDb(schema);
   يتسبب في فقدان فوري للبيانات.
 </Callout>
 
-يُهيئ `drizzle.config.ts` الموجود في جذر كل تطبيق أداة drizzle-kit لفحص المخطط أثناء التطوير المحلي:
+يُهيئ `drizzle.config.ts` الموجود في جذر كل تطبيق أداة drizzle-kit لفحص المخطط أثناء التطوير المحلي. إذا خدم مجلد ترحيل واحد عدة واجهات خلفية، فمرّر لهجة النشر الأساسية صراحةً، مثل `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";

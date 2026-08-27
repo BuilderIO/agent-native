@@ -87,6 +87,7 @@ Provider registry
 publicMcp + publicAgent.expose required
 pull · push
 RBAC
+React UI
 Remote MCP OAuth
 Remotion Studio
 Request context

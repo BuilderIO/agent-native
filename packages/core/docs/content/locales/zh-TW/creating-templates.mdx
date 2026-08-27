@@ -206,7 +206,13 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-架構更改必須是附加的。 `server/plugins/db.ts`中透過`runMigrations()`新增表和列；切勿使用破壞性的 SQL、`drizzle-kit push`、表重新命名或列刪除。
+架構更改必須是附加的。對於新的應用程式自有資料表與欄位，請使用
+`drizzle-kit generate` 在 `server/db/migrations/<id_name>.sql` 中
+產生可供審查的 SQL，並在 Node.js 部署的發佈步驟透過
+`runDrizzleMigrations()` 載入。Cloudflare Workers/Pages 與 D1 沒有可部署的
+檔案系統。在這些環境中，請將產生的 SQL 嵌入 worker bundle 並傳給
+`runMigrations()`。手寫的歷史記錄與特殊情況繼續使用 `runMigrations()`。
+切勿使用破壞性的 SQL、`drizzle-kit push`、表重新命名或列刪除。
 
 對於應用程式讀取和寫入，請使用 Drizzle 的查詢生成器和 `drizzle-orm` 的可移植運算符。當 Drizzle 可以表達查詢時，不要使用原始 SQL 編寫產品程式碼，並且不要在範本中從`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`匯入。
 

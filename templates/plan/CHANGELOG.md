@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-22
+
+### Fixed
+
+- The Extensions link now opens the Extensions tab in Settings instead of silently landing on General.
+
 ## 2026-08-19
 
 ### Improved

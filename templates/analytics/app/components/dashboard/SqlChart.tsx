@@ -628,6 +628,23 @@ function numericTooltipValue(value: unknown): number {
   return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
 }
 
+function sumTooltipPayloadValues(
+  items: Array<{ value?: unknown }>,
+): number | null {
+  let total = 0;
+  let hasNumericValue = false;
+
+  for (const item of items) {
+    const numeric =
+      typeof item.value === "number" ? item.value : Number(item.value);
+    if (!Number.isFinite(numeric)) continue;
+    hasNumericValue = true;
+    total += numeric;
+  }
+
+  return hasNumericValue ? total : null;
+}
+
 function tooltipItemName(item: {
   dataKey?: string | number;
   name?: string | number;
@@ -1072,6 +1089,7 @@ export function ChartTooltip({
   labelFormatter,
   seriesNameFormatter,
   valueFormatter,
+  stacked,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -1085,6 +1103,7 @@ export function ChartTooltip({
   labelFormatter?: (value: string) => string;
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number, name?: string | number) => string;
+  stacked?: boolean;
 }) {
   const items = useMemo(
     () =>
@@ -1099,6 +1118,13 @@ export function ChartTooltip({
     isVisible,
     coordinate,
   );
+  const stackedTotal = stacked ? sumTooltipPayloadValues(items) : null;
+  const totalValue =
+    stackedTotal != null && valueFormatter
+      ? valueFormatter(stackedTotal, items[0]?.name)
+      : stackedTotal != null
+        ? String(stackedTotal)
+        : null;
 
   const labelText =
     label == null
@@ -1116,6 +1142,9 @@ export function ChartTooltip({
       className="fixed min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
       style={{ zIndex: CHART_TOOLTIP_Z_INDEX }}
     >
+      {totalValue && (
+        <div className="mb-1.5 font-semibold text-foreground">{totalValue}</div>
+      )}
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}
@@ -2223,6 +2252,7 @@ function BarRenderer({
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
+                  stacked={stacked}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2333,6 +2363,7 @@ function TimeSeriesRenderer({
                     labelFormatter={xLabelFormatter}
                     seriesNameFormatter={seriesNameFormatter}
                     valueFormatter={valueFormatter}
+                    stacked={stacked}
                   />
                 }
                 itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2440,6 +2471,7 @@ function TimeSeriesRenderer({
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
+                  stacked={stacked}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}

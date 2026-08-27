@@ -9,6 +9,7 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   DndContext,
   closestCenter,
@@ -111,7 +112,6 @@ import {
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
 import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
-import { shortcutLabel } from "@/lib/utils";
 
 type EditorSidePanel = "comments" | null;
 
@@ -339,6 +339,17 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+
+  useEffect(() => {
+    if (!deck) return;
+    const nextTitle = `${normalizeDocumentTitle(deck.title, "Untitled deck")} — Slides`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [deck?.title]);
+
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
@@ -694,11 +705,7 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      const oldIndex = deck.slides.findIndex((s) => s.id === active.id);
-      const newIndex = deck.slides.findIndex((s) => s.id === over.id);
-      if (oldIndex !== -1 && newIndex !== -1) {
-        reorderSlides(id, oldIndex, newIndex);
-      }
+      reorderSlides(id, String(active.id), String(over.id));
     },
     [deck, id, reorderSlides],
   );
@@ -910,7 +917,7 @@ export default function DeckEditor() {
       })();
       deleteSlide(deckId, slideId);
       toast(`${slideTitle} deleted`, {
-        description: `Press ${shortcutLabel("cmd+z")} or click Undo to restore.`,
+        className: "!bg-background !text-foreground !border-border",
         duration: 6000,
         action: {
           label: "Undo",
