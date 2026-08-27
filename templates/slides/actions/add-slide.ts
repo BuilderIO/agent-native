@@ -92,7 +92,8 @@ function deckCreativeContext(value: unknown): DeckCreativeContext | null {
 
 export default defineAction({
   description:
-    "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
+    "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
+    "Build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
