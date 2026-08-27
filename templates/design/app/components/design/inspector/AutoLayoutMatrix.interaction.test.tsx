@@ -106,14 +106,25 @@ describe("AutoLayoutMatrix Flow interactions", () => {
 
     expect(container.querySelector('[data-flow-value="grid"]')).not.toBeNull();
     expect(
-      container.querySelector('input[aria-label="Columns"]'),
-    ).not.toBeNull();
-    expect(container.querySelector('input[aria-label="Rows"]')).not.toBeNull();
+      container.querySelector("[data-grid-track-readout]")?.textContent,
+    ).toBe("3 × 2");
+    expect(container.querySelector('button[aria-label="2 × 1"]')).not.toBeNull();
     expect(
       container.querySelector('input[aria-label="Column gap"]'),
     ).not.toBeNull();
     expect(
       container.querySelector('input[aria-label="Row gap"]'),
+    ).not.toBeNull();
+
+    const settings = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grid settings"]',
+    );
+    await act(async () => settings?.click());
+    expect(
+      document.body.querySelector('input[aria-label="Columns"]'),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector('input[aria-label="Rows"]'),
     ).not.toBeNull();
 
     const grid = container.querySelector<HTMLButtonElement>(

@@ -407,6 +407,15 @@ interface EditPanelProps {
    */
   /** Convert this container to freeform, pinning children where they render. */
   onDisableAutoLayout?: (nodeId: string) => void;
+  /**
+   * Apply a flex/grid flow to this container, reflowing its children into it.
+   * Returns false when the node has no inline source to patch, so the caller
+   * falls back to writing the container styles alone.
+   */
+  onApplyLayoutFlow?: (
+    nodeId: string,
+    containerStyles: Record<string, string>,
+  ) => boolean;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
@@ -1632,6 +1641,7 @@ export const EditPanel = memo(function EditPanel({
   onCreateScreenFromPreset,
   onAlignSelection,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
   onInteractionStateChange,
   availableInteractionStates,
   onEditCode,
@@ -2156,6 +2166,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onDisableAutoLayout={onDisableAutoLayout}
+                    onApplyLayoutFlow={onApplyLayoutFlow}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />

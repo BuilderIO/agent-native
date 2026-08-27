@@ -486,6 +486,7 @@ import { runAddScreen } from "./design-editor/commands/add-screen";
 import { runAlignSelection } from "./design-editor/commands/align-selection";
 import { runApplyDesignEditorCommand } from "./design-editor/commands/apply-design-editor-command";
 import { runApplyFileContentUpdate } from "./design-editor/commands/apply-file-content-update";
+import { runApplyLayoutFlow } from "./design-editor/commands/apply-layout-flow";
 import { runApplyLocalContentUpdate } from "./design-editor/commands/apply-local-content-update";
 import { runApplyPendingVisualStylesWithAgent } from "./design-editor/commands/apply-pending-visual-styles-with-agent";
 import { runApplyToSource } from "./design-editor/commands/apply-to-source";
@@ -11342,6 +11343,23 @@ function DesignEditor() {
     [applyLocalContentUpdate],
   );
 
+  // The inspector's Flow control owns the same conversion Shift+A does, so it
+  // reflows the children too — writing display:grid/flex alone leaves them
+  // absolutely positioned and the new layout never renders.
+  const handleApplyLayoutFlow = useCallback(
+    (nodeId: string, containerStyles: Record<string, string>) =>
+      runApplyLayoutFlow(
+        {
+          applyLocalContentUpdate,
+          canEditDesign,
+          getFreshActiveContent,
+        },
+        nodeId,
+        containerStyles,
+      ),
+    [applyLocalContentUpdate, canEditDesign, getFreshActiveContent],
+  );
+
   // Figma parity: turning auto layout off must leave a freeform container.
   // display:block alone re-stacks the children and they stop being draggable.
   const handleDisableAutoLayout = useCallback(
@@ -19118,6 +19136,7 @@ function DesignEditor() {
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
+    onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
     onEditCode: handleShaderEditCode,
   };

@@ -2613,6 +2613,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
   document.body.appendChild(snapGuideLayer);
 
+  // Cell boundaries of a selected grid container, empty cells included: the
+  // gap handles alone leave a two-child grid looking like a flex row.
+  var gridCellOverlay = document.createElement("div");
+  gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
+  gridCellOverlay.style.cssText =
+    "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
+  document.body.appendChild(gridCellOverlay);
+
+  // Name labels above the outermost frames, the in-screen twin of the overview
+  // canvas's screen labels. Above the shield's z-index so a label click can
+  // select its frame.
+  var frameLabelLayer = document.createElement("div");
+  frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
+  frameLabelLayer.style.cssText =
+    "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
+  document.body.appendChild(frameLabelLayer);
+
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
   // Tag as an edit overlay so the content-replacement path preserves it (only
@@ -2807,6 +2824,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selectionOverlay.style.display = "none";
     hideSizeBadge();
     hideSpacingOverlay();
+    hideGridCellOverlay();
+    refreshFrameNameLabels();
     hideParentAutoLayoutOverlay();
     clearComponentTag();
   }
@@ -3869,13 +3888,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
     // A forced whole-document replace is used for structural edits (duplicate,
-    // delete, cut/paste, undo/redo). Never fall back to the current selection
-    // in that mode: doing so activates the single-subtree fast path below,
-    // which can faithfully replace the selected node while silently omitting
-    // newly inserted or removed siblings elsewhere in the document.
-    var activeSelector = forceFullDocument
-      ? ""
-      : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+    // delete, cut/paste, undo/redo). The single-subtree fast path below must
+    // never run in that mode — it can faithfully replace the selected node
+    // while silently omitting inserted or removed siblings elsewhere — but the
+    // selectors still re-anchor the selection AFTER the morph, or an edit that
+    // keeps the same node selected (a layout flow change) leaves the canvas
+    // looking deselected while the inspector still shows it.
+    var activeSelector =
+      preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
     if (Array.isArray(selectorCandidates)) {
       selectorCandidates.forEach(function (selector) {
@@ -5261,6 +5281,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // (see applySelectionHandleHitGeometry).
       applySelectionHandleHitGeometry(el);
       updateSpacingOverlay(el);
+      updateGridCellOverlay(el);
+      // A label paints in the accent colour while its frame is selected, so it
+      // has to repaint on every selection change, not only on a geometry tick.
+      refreshFrameNameLabels();
       // `rect` is undefined on the rotated-local-box path; updateComponentTag
       // falls back to its own read in that case.
       updateComponentTag(el, rect);
@@ -5269,6 +5293,229 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     } else {
       applyElementOverlayChrome(overlay, el);
     }
+  }
+
+  var gridCellOverlayRenderKey = "";
+
+  function hideGridCellOverlay(): void {
+    gridCellOverlay.style.display = "none";
+    if (gridCellOverlayRenderKey) {
+      gridCellOverlay.innerHTML = "";
+      gridCellOverlayRenderKey = "";
+    }
+  }
+
+  // Computed grid templates resolve to used px track sizes; a 0px track still
+  // occupies a line, so only a genuinely non-numeric token (a line name) drops.
+  function gridTrackSizes(template: string): number[] {
+    var sizes: number[] = [];
+    if (!template || template === "none") return sizes;
+    template.split(/\s+/).forEach(function (token) {
+      var size = readFinitePx(token);
+      if (size !== null) sizes.push(size);
+    });
+    return sizes;
+  }
+
+  function updateGridCellOverlay(el: Element | null): void {
+    if (!el || !document.documentElement.contains(el)) {
+      hideGridCellOverlay();
+      return;
+    }
+    if (selectionChromeHidden || activeTextEditEl) {
+      hideGridCellOverlay();
+      return;
+    }
+    var cs = window.getComputedStyle(el);
+    if (cs.display !== "grid" && cs.display !== "inline-grid") {
+      hideGridCellOverlay();
+      return;
+    }
+    if (Math.abs(currentRotation(el)) > 0.01) {
+      hideGridCellOverlay();
+      return;
+    }
+    var columns = gridTrackSizes(cs.gridTemplateColumns);
+    var rows = gridTrackSizes(cs.gridTemplateRows);
+    if (columns.length === 0 || rows.length === 0) {
+      hideGridCellOverlay();
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    var originX =
+      rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
+    var originY = rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+    var columnGap = readPx(cs.columnGap);
+    var rowGap = readPx(cs.rowGap);
+    var line = Math.max(1, chromeLineScale());
+    var nextKey = [
+      originX,
+      originY,
+      columnGap,
+      rowGap,
+      line,
+      columns.join(","),
+      rows.join(","),
+    ].join("|");
+    if (
+      gridCellOverlay.style.display === "block" &&
+      gridCellOverlayRenderKey === nextKey
+    ) {
+      return;
+    }
+    gridCellOverlayRenderKey = nextKey;
+    gridCellOverlay.innerHTML = "";
+    gridCellOverlay.style.display = "block";
+    var color = chromeColorForElement(el);
+    var cellY = originY;
+    for (var row = 0; row < rows.length; row += 1) {
+      var cellX = originX;
+      for (var column = 0; column < columns.length; column += 1) {
+        var cell = document.createElement("div");
+        cell.setAttribute("data-agent-native-grid-cell", column + ":" + row);
+        cell.style.cssText =
+          "position:absolute;box-sizing:border-box;pointer-events:none;left:" +
+          cellX +
+          "px;top:" +
+          cellY +
+          "px;width:" +
+          columns[column] +
+          "px;height:" +
+          rows[row] +
+          "px;border:" +
+          line +
+          "px solid color-mix(in srgb," +
+          color +
+          " 42%,transparent);";
+        gridCellOverlay.appendChild(cell);
+        cellX += columns[column] + columnGap;
+      }
+      cellY += rows[row] + rowGap;
+    }
+  }
+
+  // ── Frame name labels ───────────────────────────────────────────────────
+  // This chrome paints over the design's own page, never over editor surfaces.
+  // guard:allow-raw-color — a mid grey is legible on white screens and dark boards.
+  var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
+  var frameLabelRenderKey = "";
+
+  function outermostFrameElements(): Element[] {
+    var frames = Array.prototype.slice.call(
+      document.querySelectorAll('[data-an-primitive="frame"]'),
+    ) as Element[];
+    return frames.filter(function (frame) {
+      if (isOverlayElement(frame)) return false;
+      var parent = frame.parentElement;
+      return !parent || !parent.closest('[data-an-primitive="frame"]');
+    });
+  }
+
+  function frameLabelText(frame: Element): string {
+    var name =
+      frame.getAttribute("data-agent-native-layer-name") ||
+      frame.getAttribute("aria-label") ||
+      "";
+    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+  }
+
+  function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
+    if (isLayerInteractionBlocked(frame)) return;
+    blurActiveTextEditor();
+    var previousSelectedEl = selectedEl;
+    selectedEl = frame;
+    positionOverlay(selectionOverlay, selectedEl);
+    preservePreviousSelectedElementForShiftClick(
+      previousSelectedEl,
+      selectedEl,
+      e,
+    );
+    postElementSelect(selectedEl, e);
+  }
+
+  function refreshFrameNameLabels(): void {
+    var frames = outermostFrameElements();
+    var line = chromeLineScale();
+    var fontSize = 11 * line;
+    var labelHeight = 16 * line;
+    var placements: {
+      frame: Element;
+      text: string;
+      left: number;
+      top: number;
+      maxWidth: number;
+      selected: boolean;
+    }[] = [];
+    frames.forEach(function (frame) {
+      var rect = frame.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      // A frame flush against the document top would have its label clipped by
+      // the iframe edge, so it rides just inside the frame instead.
+      var top = rect.top - labelHeight - 2 * line;
+      if (top < 0) top = rect.top + 2 * line;
+      placements.push({
+        frame: frame,
+        text: frameLabelText(frame),
+        left: rect.left,
+        top: top,
+        maxWidth: Math.max(48 * line, rect.width),
+        selected: frame === selectedEl,
+      });
+    });
+    var nextKey =
+      placements
+        .map(function (placement) {
+          return [
+            placement.text,
+            Math.round(placement.left),
+            Math.round(placement.top),
+            Math.round(placement.maxWidth),
+            placement.selected ? "1" : "0",
+          ].join(",");
+        })
+        .join("|") +
+      "@" +
+      line;
+    if (frameLabelRenderKey === nextKey) return;
+    frameLabelRenderKey = nextKey;
+    frameLabelLayer.innerHTML = "";
+    placements.forEach(function (placement) {
+      var label = document.createElement("button");
+      label.type = "button";
+      label.setAttribute("data-agent-native-frame-label", "");
+      label.textContent = placement.text;
+      label.title = placement.text;
+      label.style.cssText =
+        "position:absolute;margin:0;padding:0;border:0;background:transparent;" +
+        "max-width:" +
+        placement.maxWidth +
+        "px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" +
+        "pointer-events:auto;cursor:default;text-align:left;" +
+        "font:500 " +
+        fontSize +
+        "px/" +
+        labelHeight +
+        "px ui-sans-serif,system-ui,-apple-system,sans-serif;" +
+        "left:" +
+        placement.left +
+        "px;top:" +
+        placement.top +
+        "px;height:" +
+        labelHeight +
+        "px;color:" +
+        (placement.selected
+          ? "var(--design-editor-accent-color)"
+          : FRAME_LABEL_IDLE_COLOR);
+      label.addEventListener("mousedown", function (event) {
+        event.stopPropagation();
+      });
+      label.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectFrameFromLabel(placement.frame, event as MouseEvent);
+      });
+      frameLabelLayer.appendChild(label);
+    });
   }
 
   function refreshOverlays(): void {
@@ -5311,6 +5558,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (passiveSelectionEls.length > 0) hideSizeBadge();
     positionMultiSelectionBounds();
     positionGradientOverlay();
+    refreshFrameNameLabels();
     syncOverlayObservers();
   }
 
@@ -14334,6 +14582,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       );
       applyEditorChromeScale();
       if (selectedEl || hoveredEl) refreshOverlays();
+      else refreshFrameNameLabels();
       return;
     }
     if (e.data.type === "scale-tool-mode") {
@@ -15120,8 +15369,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeNodeHtmlPreview = null;
       replaceRuntimeDocument(
         e.data.content,
-        e.data.forceFullDocument ? "" : e.data.selectedSelector,
-        e.data.forceFullDocument ? [] : e.data.selectorCandidates,
+        e.data.selectedSelector,
+        e.data.selectorCandidates,
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
       );
@@ -15402,6 +15651,40 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ],
     });
   }
+  // Frame labels are always-on chrome, so unlike the selection overlays they
+  // cannot ride selection-scoped observers: a frame added, renamed, moved, or
+  // arriving with a replaced document must relabel with nothing selected.
+  var frameLabelRefreshScheduled = false;
+  function scheduleFrameNameLabels(): void {
+    if (frameLabelRefreshScheduled) return;
+    frameLabelRefreshScheduled = true;
+    window.requestAnimationFrame(function () {
+      frameLabelRefreshScheduled = false;
+      refreshFrameNameLabels();
+    });
+  }
+  if (typeof MutationObserver !== "undefined" && document.body) {
+    new MutationObserver(function (mutations) {
+      // Skip our own label writes, or every refresh schedules the next one.
+      var touchedContent = mutations.some(function (mutation) {
+        var target = mutation.target;
+        return !(target instanceof Element) || !isOverlayElement(target);
+      });
+      if (touchedContent) scheduleFrameNameLabels();
+    }).observe(document.body, {
+      attributes: true,
+      attributeFilter: [
+        "data-agent-native-layer-name",
+        "data-an-primitive",
+        "class",
+        "style",
+      ],
+      childList: true,
+      subtree: true,
+    });
+  }
+  refreshFrameNameLabels();
+
   captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
 

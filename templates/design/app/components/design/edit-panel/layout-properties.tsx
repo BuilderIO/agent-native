@@ -213,11 +213,16 @@ function FlexContainerControls({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: (
+    nodeId: string,
+    containerStyles: Record<string, string>,
+  ) => boolean;
 }) {
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
@@ -383,6 +388,11 @@ function FlexContainerControls({
             ...styles,
             ...element.inlineStyles,
           });
+          // Children drawn on canvas are absolutely positioned, so the
+          // container styles alone would render no layout at all.
+          if (onApplyLayoutFlow && nodeId && onApplyLayoutFlow(nodeId, patch)) {
+            return;
+          }
           if (onStylesChange) {
             onStylesChange(patch);
             return;
@@ -649,6 +659,7 @@ export function LayoutContextProperties({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -656,6 +667,10 @@ export function LayoutContextProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: (
+    nodeId: string,
+    containerStyles: Record<string, string>,
+  ) => boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -891,6 +906,7 @@ export function LayoutContextProperties({
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
         onDisableAutoLayout={onDisableAutoLayout}
+        onApplyLayoutFlow={onApplyLayoutFlow}
       />
       {childControls}
     </PanelSection>

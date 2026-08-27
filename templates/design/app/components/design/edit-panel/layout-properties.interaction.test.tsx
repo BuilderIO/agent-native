@@ -81,6 +81,60 @@ describe("LayoutContextProperties interactions", () => {
     container.remove();
   });
 
+  it("reflows children through the layout-flow command before writing styles", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStylesChange = vi.fn();
+    const onApplyLayoutFlow = vi.fn().mockReturnValue(true);
+    const element = {
+      tagName: "div",
+      classes: [],
+      computedStyles: {
+        display: "block",
+        width: "480px",
+        height: "300px",
+      },
+      inlineStyles: {},
+      boundingRect: { x: 0, y: 0, width: 480, height: 300 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      isGridContainer: false,
+      childElementCount: 4,
+      sourceId: "frame-1",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+          onApplyLayoutFlow={onApplyLayoutFlow}
+        />,
+      );
+    });
+
+    const gridButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Grid"]',
+    );
+    await act(async () => gridButton?.click());
+    expect(onApplyLayoutFlow).toHaveBeenCalledWith("frame-1", {
+      display: "grid",
+      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+      gridTemplateRows: "repeat(1, max-content)",
+      gridAutoFlow: "row",
+    });
+    expect(onStylesChange).not.toHaveBeenCalled();
+
+    onApplyLayoutFlow.mockReturnValue(false);
+    await act(async () => gridButton?.click());
+    expect(onStylesChange).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("links asymmetric padding without mutating or averaging authored values", async () => {
     const container = document.createElement("div");
     document.body.append(container);

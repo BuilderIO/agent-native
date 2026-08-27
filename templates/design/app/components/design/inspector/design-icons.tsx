@@ -47,6 +47,27 @@ export function IconGap({ className }: IconProps) {
   );
 }
 
+// Row gap: IconGap turned a quarter turn — two stacked items, space measured
+// between them.
+export function IconGapVertical({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-4", className)}
+      aria-hidden="true"
+    >
+      <rect x="5" y="2.5" width="14" height="6" rx="1" />
+      <rect x="5" y="15.5" width="14" height="6" rx="1" />
+      <path d="M7.5 12H16.5" />
+    </svg>
+  );
+}
+
 // Padding: frame with the two insets for that axis marked.
 export function IconPaddingHorizontal({ className }: IconProps) {
   return (
