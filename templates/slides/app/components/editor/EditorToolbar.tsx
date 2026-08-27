@@ -12,6 +12,7 @@ import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
+  IconCircle,
   IconPlayerPlay,
   IconLayoutSidebar,
   IconPhoto,
@@ -30,6 +31,10 @@ import {
   IconCode,
   IconCopy,
   IconFileTypePdf,
+  IconPlus,
+  IconSquare,
+  IconTextSize,
+  IconTransitionRight,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -62,7 +67,10 @@ import {
   registerEditorCommands,
   type EditorCommand,
 } from "./editor-command-model";
-import { EditorActionCluster } from "./EditorActionCluster";
+import {
+  EditorActionCluster,
+  type SlideShapeType,
+} from "./EditorActionCluster";
 import { ExportMenu, type ExportMenuHandle } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
@@ -99,6 +107,10 @@ interface EditorToolbarProps {
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
   currentUserEmail?: string;
+  /** Whether the selected-element transitions panel is open */
+  animationsOpen?: boolean;
+  /** Toggle the selected-element transitions panel */
+  onToggleAnimations?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -115,6 +127,10 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
+  /** Active shape tool */
+  shapeType?: SlideShapeType | null;
+  /** Arm a shape tool for the next canvas click */
+  onSelectShape?: (shape: SlideShapeType) => void;
   /** Update the current slide's entrance transition from the overflow menu. */
   onChangeSlideTransition?: (transition: SlideTransition) => void;
   /** Duplicate the current deck */
@@ -167,6 +183,8 @@ export default function EditorToolbar({
   onToggleComments,
   unresolvedCommentCount = 0,
   currentUserEmail,
+  animationsOpen,
+  onToggleAnimations,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -175,6 +193,8 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  shapeType,
+  onSelectShape,
   onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
@@ -337,6 +357,51 @@ export default function EditorToolbar({
   const editorCommands = useMemo<EditorCommand[]>(() => {
     const commands: EditorCommand[] = [];
     if (canEdit) {
+      if (onAddEmptySlide) {
+        commands.push({
+          id: "new-slide",
+          group: "slideTools",
+          label: t("editorSidebar.newSlide"),
+          keywords: ["slide", "add", "insert", "new"],
+          icon: IconPlus,
+          run: () => {
+            if (!addSlideGenerating) onAddEmptySlide();
+          },
+        });
+      }
+      if (onToggleTextBoxMode) {
+        commands.push({
+          id: "add-text-box",
+          group: "slideTools",
+          label: t("editorToolbar.addTextBox"),
+          keywords: ["text", "box", "insert"],
+          icon: IconTextSize,
+          active: textBoxMode,
+          run: onToggleTextBoxMode,
+        });
+      }
+      if (currentSlide && onSelectShape) {
+        commands.push(
+          {
+            id: "shape-rectangle",
+            group: "slideTools",
+            label: t("editorToolbar.shapeRectangle"),
+            keywords: ["shape", "rectangle", "square", "insert"],
+            icon: IconSquare,
+            active: shapeType === "rectangle",
+            run: () => onSelectShape("rectangle"),
+          },
+          {
+            id: "shape-circle",
+            group: "slideTools",
+            label: t("editorToolbar.shapeCircle"),
+            keywords: ["shape", "circle", "ellipse", "insert"],
+            icon: IconCircle,
+            active: shapeType === "circle",
+            run: () => onSelectShape("circle"),
+          },
+        );
+      }
       commands.push(
         {
           id: "generate-image",
@@ -355,6 +420,17 @@ export default function EditorToolbar({
           run: onOpenAssetLibrary,
         },
       );
+      if (currentSlide && onToggleAnimations) {
+        commands.push({
+          id: "element-animations",
+          group: "slideTools",
+          label: t("editorToolbar.elementAnimations"),
+          keywords: ["animation", "motion", "transition"],
+          icon: IconTransitionRight,
+          active: animationsOpen,
+          run: onToggleAnimations,
+        });
+      }
       if (onToggleTweaks) {
         commands.push({
           id: "slide-tweaks",
@@ -388,6 +464,20 @@ export default function EditorToolbar({
         active: pinMode,
         run: onTogglePinMode,
       });
+    }
+
+    if (canEdit && currentSlide && onChangeSlideTransition) {
+      commands.push(
+        ...SLIDE_TRANSITIONS.map((transition) => ({
+          id: `slide-transition-${transition.value}`,
+          group: "slideTools" as const,
+          label: t(transition.labelKey),
+          keywords: ["slide", "transition", transition.value],
+          icon: IconTransitionRight,
+          active: activeSlideTransition === transition.value,
+          run: () => onChangeSlideTransition(transition.value),
+        })),
+      );
     }
     if (onToggleComments) {
       commands.push({
@@ -479,6 +569,9 @@ export default function EditorToolbar({
     );
     return commands;
   }, [
+    activeSlideTransition,
+    addSlideGenerating,
+    animationsOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -486,19 +579,26 @@ export default function EditorToolbar({
     drawMode,
     importing,
     isDark,
+    onAddEmptySlide,
     onDuplicateDeck,
     onExportGoogleSlides,
     onExportPdf,
     onGenerateImage,
     onOpenAssetLibrary,
     onShowHistory,
+    onSelectShape,
+    onChangeSlideTransition,
+    onToggleAnimations,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
+    onToggleTextBoxMode,
     onToggleTweaks,
     pinMode,
     setTheme,
+    shapeType,
     t,
+    textBoxMode,
     tweaksOpen,
   ]);
   const editorCommandsRef = useRef<readonly EditorCommand[]>(editorCommands);
@@ -631,7 +731,8 @@ export default function EditorToolbar({
             align="end"
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
-            {((canEdit && (onToggleTweaks || onToggleDrawMode)) ||
+            {((canEdit &&
+              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -639,6 +740,19 @@ export default function EditorToolbar({
                   {t("editorToolbar.slideTools")}
                 </DropdownMenuLabel>
                 <DropdownMenuGroup>
+                  {canEdit && currentSlide && onToggleAnimations && (
+                    <DropdownMenuItem
+                      onSelect={onToggleAnimations}
+                      className={
+                        animationsOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconTransitionRight className="size-4" />
+                      {t("editorToolbar.elementAnimations")}
+                    </DropdownMenuItem>
+                  )}
                   {canEdit && onToggleTweaks && (
                     <DropdownMenuItem
                       onSelect={onToggleTweaks}
