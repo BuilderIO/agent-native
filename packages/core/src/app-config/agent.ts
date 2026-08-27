@@ -48,6 +48,15 @@ export const agentConfig = z.object({
       env: ["AGENT_ENGINE_PREFER_BYO_KEY"],
       doc: "Skip the Builder-managed engine and select a directly configured provider key first.",
     }),
+  sourceSweepToolCallThreshold: z
+    .number()
+    .int()
+    .positive()
+    .default(24)
+    .meta({
+      env: ["AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD"],
+      doc: "Read-only source/search tool calls one turn may make before the agent is told to converge and answer from what it gathered.",
+    }),
   // These three stay `.optional()` rather than carrying a default: the value
   // that applies when they are unset depends on whether the run is hosted and
   // whether it is a background function, so it belongs to the resolver.
