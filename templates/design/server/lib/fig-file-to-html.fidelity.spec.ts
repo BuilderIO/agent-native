@@ -1171,6 +1171,91 @@ describe("auto line height", () => {
   });
 });
 
+describe("BOOLEAN_OPERATION UNION", () => {
+  // A clipboard paste carries only the operands, never the flattened outline
+  // Figma computes. A UNION does not need it: filling the operands together IS
+  // the union region, and stroking each with the others masked away IS its
+  // outline. Positivus' testimonial bubbles were rendering as their rounded
+  // rect operand alone — square-cornered, tail-less, and wearing that
+  // operand's WHITE stroke instead of the union's green one.
+  const unionDoc = (operation: string) => {
+    const doc = makeDocument([{}]);
+    (doc.nodeChanges as unknown[]).push(
+      childNode(10, 40, {
+        type: "BOOLEAN_OPERATION",
+        name: "Bubble",
+        booleanOperation: operation,
+        size: { x: 100, y: 80 },
+        strokeWeight: 2,
+        strokeAlign: "INSIDE",
+        fillPaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 0, b: 0, a: 1 } },
+        ],
+        strokePaints: [
+          { type: "SOLID", visible: true, color: { r: 0, g: 1, b: 0, a: 1 } },
+        ],
+      }),
+    );
+    (doc.nodeChanges as Array<Record<string, unknown>>).push(
+      {
+        guid: { sessionID: 1, localID: 41 },
+        parentIndex: { guid: { sessionID: 1, localID: 40 }, position: "a" },
+        type: "VECTOR",
+        name: "Box",
+        size: { x: 100, y: 60 },
+        transform: { m00: 1, m01: 0, m02: 0, m10: 0, m11: 1, m12: 0 },
+        cornerRadius: 12,
+        rectangleTopLeftCornerRadius: 12,
+        rectangleTopRightCornerRadius: 12,
+        rectangleBottomRightCornerRadius: 12,
+        rectangleBottomLeftCornerRadius: 12,
+        // The operand's OWN stroke, which the union must not use.
+        strokePaints: [
+          { type: "SOLID", visible: true, color: { r: 1, g: 1, b: 1, a: 1 } },
+        ],
+      },
+      {
+        guid: { sessionID: 1, localID: 42 },
+        parentIndex: { guid: { sessionID: 1, localID: 40 }, position: "b" },
+        type: "REGULAR_POLYGON",
+        name: "Tail",
+        count: 3,
+        size: { x: 20, y: 20 },
+        transform: { m00: 1, m01: 0, m02: 20, m10: 0, m11: 1, m12: 60 },
+      },
+    );
+    return doc;
+  };
+
+  it("draws both operands with the BOOLEAN's paints, not their own", () => {
+    const html = renderFrame(unionDoc("UNION"));
+    expect(html).toContain('fill="rgb(0, 0, 0)"');
+    expect(html).toContain('stroke="rgb(0, 255, 0)"');
+    // The rounded rect operand's own white stroke is not the union's.
+    expect(html).not.toContain('stroke="rgb(255, 255, 255)"');
+  });
+
+  it("keeps the rectangle operand's corner radius, which the network drops", () => {
+    const html = renderFrame(unionDoc("UNION"));
+    expect(html).toContain("A12 12 0 0 1");
+  });
+
+  it("masks each operand's stroke with the others so no seam is drawn", () => {
+    const html = renderFrame(unionDoc("UNION"));
+    expect(html).toContain("<mask");
+    expect(html).toMatch(/<g mask="url\(#bool-[^"]+\)"><path /);
+  });
+
+  it("still reports, rather than guesses, a SUBTRACT it cannot compute", () => {
+    const result = renderHtmlTemplates(unionDoc("SUBTRACT"));
+    expect(
+      result.approximatedNodes.some((entry) =>
+        entry.notes.some((note) => note.includes("BOOLEAN_OPERATION")),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("masks", () => {
   const maskDoc = (maskOverrides: Record<string, unknown>) => {
     const doc = makeDocument([{}]);

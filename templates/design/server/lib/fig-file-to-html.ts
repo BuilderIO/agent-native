@@ -138,6 +138,8 @@ export interface FigNode {
   opacity?: number;
   blendMode?: string;
   cornerRadius?: number;
+  /** UNION / SUBTRACT / INTERSECT / EXCLUDE on a BOOLEAN_OPERATION. */
+  booleanOperation?: string;
   rectangleTopLeftCornerRadius?: number;
   rectangleTopRightCornerRadius?: number;
   rectangleBottomLeftCornerRadius?: number;
@@ -1045,6 +1047,50 @@ function isFullTurnArc(arc: FigNode["arcData"]): boolean {
  * the node's box, so the radii are the half-extents and the first point is at
  * twelve o'clock.
  */
+/**
+ * A rectangle's outline, corners included.
+ *
+ * Figma's vector network stores a rectangle-derived VECTOR as its four corner
+ * points and drops the rounding, which is carried on the node instead — so a
+ * decoded network draws a speech bubble with square corners where Figma draws
+ * radius 45. Size plus the four radii describe the shape exactly.
+ */
+function roundedRectanglePath(node: FigNode): string | null {
+  const w = node.size?.x;
+  const h = node.size?.y;
+  if (!w || !h) return null;
+  const corner = (value: number | undefined) =>
+    Math.max(0, value ?? node.cornerRadius ?? 0);
+  let tl = corner(node.rectangleTopLeftCornerRadius);
+  let tr = corner(node.rectangleTopRightCornerRadius);
+  let br = corner(node.rectangleBottomRightCornerRadius);
+  let bl = corner(node.rectangleBottomLeftCornerRadius);
+  // Figma scales every radius down together when neighbours would overlap.
+  const fit = Math.min(
+    1,
+    w / (tl + tr),
+    w / (bl + br),
+    h / (tl + bl),
+    h / (tr + br),
+  );
+  if (Number.isFinite(fit) && fit < 1) {
+    tl *= fit;
+    tr *= fit;
+    br *= fit;
+    bl *= fit;
+  }
+  const arc = (r: number, x: number, y: number) =>
+    r > 0
+      ? `A${num(r)} ${num(r)} 0 0 1 ${num(x)} ${num(y)}`
+      : `L${num(x)} ${num(y)}`;
+  return (
+    `M${num(tl)} 0 L${num(w - tr)} 0 ${arc(tr, w, tr)} ` +
+    `L${num(w)} ${num(h - br)} ${arc(br, w - br, h)} ` +
+    `L${num(bl)} ${num(h)} ${arc(bl, 0, h - bl)} ` +
+    `L0 ${num(tl)} ${arc(tl, tl, 0)} Z`
+  );
+}
+
 function parametricShapePath(node: FigNode): string | null {
   const w = node.size?.x;
   const h = node.size?.y;
@@ -2521,8 +2567,13 @@ const VECTOR_LIKE_TYPES = new Set([
   "VECTOR_PATH",
 ]);
 
-function isVectorLike(node: FigNode): boolean {
+function isVectorLike(node: FigNode, ctx?: Ctx): boolean {
   if (!node.type || !VECTOR_LIKE_TYPES.has(node.type)) return false;
+  // A UNION whose operands all decode draws as one shape, and its operands
+  // must NOT also render on their own — Figma never paints them, and their own
+  // paints are not the boolean's (a testimonial bubble's rounded rect carries
+  // a white stroke where the union it belongs to carries the green one).
+  if (ctx && booleanUnionOperands(node, ctx)) return true;
   // Flattened geometry (saved .fig / REST) OR an editable vector network
   // (clipboard paste) — either lets us draw the real shape as <svg>.
   const hasFlatGeometry =
@@ -2555,6 +2606,85 @@ function isVectorLike(node: FigNode): boolean {
  * so it slots into auto-layout / absolute positioning identically; the
  * vector geometry lives inside as `<path>` children.
  */
+/**
+ * The operands of a UNION boolean, each as a path in the boolean's own space.
+ *
+ * A clipboard paste carries only the operands, never the flattened outline
+ * Figma computes — but a UNION does not need the outline. Filling the operands
+ * together IS the union region, and stroking each one with the others' filled
+ * interiors masked away IS the union's outline, because the boundary of a
+ * union is exactly each part's boundary outside every other part.
+ *
+ * Returns null for anything else: SUBTRACT, INTERSECT and EXCLUDE genuinely
+ * need computed geometry, and a wrong shape is worse than a reported hole.
+ */
+function booleanUnionOperands(
+  node: FigNode,
+  ctx: Ctx,
+): Array<{ d: string; transform: string }> | null {
+  if (node.type !== "BOOLEAN_OPERATION" || node.booleanOperation !== "UNION") {
+    return null;
+  }
+  if ((node.fillGeometry?.length ?? 0) > 0) return null;
+  const operands: Array<{ d: string; transform: string }> = [];
+  for (const child of getChildren(node, ctx)) {
+    if (child.visible === false) return null;
+    const outline = nodeOutlinePath(child, ctx);
+    if (!outline) return null;
+    const t = child.transform;
+    const parts: string[] = [];
+    if (t) {
+      parts.push(
+        `matrix(${num(t.m00)} ${num(t.m10)} ${num(t.m01)} ${num(t.m11)} ${num(t.m02)} ${num(t.m12)})`,
+      );
+    }
+    if (
+      Math.abs(outline.scaleX - 1) > 1e-6 ||
+      Math.abs(outline.scaleY - 1) > 1e-6
+    ) {
+      parts.push(`scale(${num(outline.scaleX)} ${num(outline.scaleY)})`);
+    }
+    operands.push({
+      d: outline.d,
+      transform: parts.length ? ` transform="${parts.join(" ")}"` : "",
+    });
+  }
+  return operands.length ? operands : null;
+}
+
+/** A node's own outline in its own box, however this file can get at one. */
+function nodeOutlinePath(
+  node: FigNode,
+  ctx: Ctx,
+): { d: string; scaleX: number; scaleY: number } | null {
+  // A node Figma still describes as a rectangle takes its parameterization
+  // first: the decoded network carries its corners as points and loses the
+  // rounding, which lives on the node.
+  if (node.rectangleTopLeftCornerRadius !== undefined) {
+    const rect = roundedRectanglePath(node);
+    if (rect) return { d: rect, scaleX: 1, scaleY: 1 };
+  }
+  for (const g of node.fillGeometry ?? []) {
+    if (typeof g.commandsBlob !== "number") continue;
+    const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
+    if (d) return { d, scaleX: 1, scaleY: 1 };
+  }
+  const networkBlob = node.vectorData?.vectorNetworkBlob;
+  if (typeof networkBlob === "number") {
+    const d = decodeVectorNetwork(ctx.blobs[networkBlob]).d;
+    if (d) {
+      const ns = node.vectorData?.normalizedSize;
+      return {
+        d,
+        scaleX: ns?.x ? (node.size?.x || ns.x) / ns.x : 1,
+        scaleY: ns?.y ? (node.size?.y || ns.y) / ns.y : 1,
+      };
+    }
+  }
+  const parametric = parametricShapePath(node);
+  return parametric ? { d: parametric, scaleX: 1, scaleY: 1 } : null;
+}
+
 function emitSvgBody(
   node: FigNode,
   ctx: Ctx,
@@ -2586,6 +2716,77 @@ function emitSvgBody(
   const strokeWeight = node.strokeWeight ?? 0;
 
   let emittedFlat = false;
+
+  const unionOperands = booleanUnionOperands(node, ctx);
+  if (unionOperands) {
+    const fillAttrs = fillPaint
+      ? `fill="${fillPaint.color}"` +
+        (fillPaint.opacity !== undefined
+          ? ` fill-opacity="${fillPaint.opacity}"`
+          : "")
+      : `fill="none"`;
+    for (const operand of unionOperands) {
+      lines.push(
+        `${indent}  <path d="${operand.d}"${operand.transform} ${fillAttrs} />`,
+      );
+    }
+    if (strokePaint && strokeWeight > 0) {
+      // The union's outline is each operand's boundary MINUS every other
+      // operand's interior — the seams where the parts meet are inside the
+      // union, and drop out. SVG strokes are always centred, so the mask
+      // carries the alignment band too: keep the operand's own interior for
+      // INSIDE, everything outside the union for OUTSIDE, both for CENTER.
+      const align = node.strokeAlign ?? "CENTER";
+      const bandWidth = strokeWeight * (align === "CENTER" ? 1 : 2);
+      const maskBase = `bool-${guidKey(node.guid).replace(/[^a-z0-9]/gi, "")}`;
+      const pad = bandWidth + 1;
+      const box = `x="${num(-pad)}" y="${num(-pad)}" width="${num(w + pad * 2)}" height="${num(h + pad * 2)}"`;
+      // guard:allow-raw-color — in a mask white and black ARE the alpha
+      // channel ("keep"/"drop"), not themeable colours; a token would make the
+      // mask follow the viewer's theme and eat the shape it reveals.
+      const keep = (operand: { d: string; transform: string }) =>
+        `<path d="${operand.d}"${operand.transform} fill="#fff" />`;
+      // Stroked as well as filled: operands often only TOUCH along an edge
+      // rather than overlap, and a shared edge has no interior to mask with.
+      // Dropping a band around the other operand's boundary removes the seam —
+      // a speech bubble's tail meets its box exactly on the box's bottom edge,
+      // and without this the outline drew straight across the tail's mouth.
+      const drop = (operand: { d: string; transform: string }) =>
+        `<path d="${operand.d}"${operand.transform} fill="#000" stroke="#000" stroke-width="${num(bandWidth)}" />`;
+      unionOperands.forEach((operand, index) => {
+        const others = unionOperands.filter((_, other) => other !== index);
+        const maskId = `${maskBase}-${index}`;
+        const inside =
+          align === "INSIDE"
+            ? keep(operand)
+            : `<rect ${box} fill="#fff" />` +
+              (align === "OUTSIDE" ? drop(operand) : "");
+        defs.push(
+          `<mask id="${maskId}" maskUnits="userSpaceOnUse" ${box}>` +
+            inside +
+            others.map(drop).join("") +
+            `</mask>`,
+        );
+        const attrs = [
+          `d="${operand.d}"`,
+          `fill="none"`,
+          `stroke="${strokePaint.color}"`,
+          `stroke-width="${num(bandWidth)}"`,
+        ];
+        if (strokePaint.opacity !== undefined) {
+          attrs.push(`stroke-opacity="${strokePaint.opacity}"`);
+        }
+        // The mask must sit on a wrapper, not the path: a `userSpaceOnUse`
+        // mask resolves in the coordinate system in effect where it is
+        // referenced, so putting it on the transformed path would apply the
+        // operand's own transform to the mask content a second time.
+        lines.push(
+          `${indent}  <g mask="url(#${maskId})"><path ${attrs.join(" ")}${operand.transform} /></g>`,
+        );
+      });
+    }
+    emittedFlat = true;
+  }
 
   // Fill paths
   for (const g of node.fillGeometry ?? []) {
@@ -3061,8 +3262,8 @@ function emitNode(
   // single-shape icon components). For the latter we paint the master's
   // geometry inside the instance element so the icon actually shows up
   // instead of an empty div.
-  const selfVector = isVectorLike(node);
-  const symbolVector = !!inlinedSymbol && isVectorLike(inlinedSymbol);
+  const selfVector = isVectorLike(node, ctx);
+  const symbolVector = !!inlinedSymbol && isVectorLike(inlinedSymbol, ctx);
   const vectorLike = selfVector || symbolVector;
   const vectorSourceNode = selfVector
     ? node
