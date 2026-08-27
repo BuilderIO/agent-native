@@ -52,6 +52,7 @@ function rowToDashboard(row: any): DashboardRecord {
     orgId: row.orgId ?? null,
     visibility: row.visibility,
     createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy ?? null,
     archivedAt: row.archivedAt ?? null,

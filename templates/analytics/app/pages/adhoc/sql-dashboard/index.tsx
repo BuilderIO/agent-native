@@ -407,8 +407,8 @@ type FetchedDashboard = {
   hiddenAt: string | null;
   hiddenBy: string | null;
   visibility: "private" | "org" | "public";
-  ownerEmail: string | null;
   createdAt: string | null;
+  createdBy: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
 } & ResourceAccess;
@@ -494,8 +494,8 @@ async function fetchDashboard(
         data.visibility === "org" || data.visibility === "public"
           ? data.visibility
           : "private",
-      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
       createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+      createdBy: typeof data.createdBy === "string" ? data.createdBy : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
       updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
@@ -584,7 +584,9 @@ function SqlDashboardPageContent({
   const [dashboardVisibility, setDashboardVisibility] = useState<
     "private" | "org" | "public" | null
   >(null);
-  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedBy, setDashboardCreatedBy] = useState<string | null>(
+    null,
+  );
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );
@@ -875,7 +877,7 @@ function SqlDashboardPageContent({
     setArchivedAt(null);
     setHiddenAt(null);
     setDashboardVisibility(null);
-    setDashboardOwner(null);
+    setDashboardCreatedBy(null);
     setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
@@ -922,7 +924,7 @@ function SqlDashboardPageContent({
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardVisibility(fetchedVisibility);
-    setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedBy(fetched?.createdBy ?? null);
     setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setDashboardUpdatedBy(fetched?.updatedBy ?? null);
@@ -1682,14 +1684,11 @@ function SqlDashboardPageContent({
   const handleUnhide = useCallback(async () => {
     if (!dashboardId) return;
     try {
-      const result = (await hideDashboardAction({
+      await hideDashboardAction({
         id: dashboardId,
         hidden: false,
-      })) as { ownerEmail?: string | null } | undefined;
+      });
       setHiddenAt(null);
-      if (typeof result?.ownerEmail === "string") {
-        setDashboardOwner(result.ownerEmail);
-      }
       queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
@@ -1952,7 +1951,7 @@ function SqlDashboardPageContent({
             <DropdownMenuLabel className="font-normal">
               <DashboardMetadata
                 createdAt={dashboardCreatedAt}
-                createdBy={dashboardOwner}
+                createdBy={dashboardCreatedBy}
                 updatedAt={dashboardUpdatedAt}
                 updatedBy={dashboardUpdatedBy}
               />
