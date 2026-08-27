@@ -126,6 +126,7 @@ describe("PlaybackCommentOverlay", () => {
           currentMs={12_500}
           durationMs={60_000}
           getTimelinePositionMs={() => 15_000}
+          getTimelineLane={() => 1}
         />,
       );
     });
@@ -134,6 +135,10 @@ describe("PlaybackCommentOverlay", () => {
       container.querySelector<HTMLElement>("[data-player-comment-preview]")
         ?.parentElement?.style.left,
     ).toBe("25%");
+    expect(
+      container.querySelector<HTMLElement>("[data-player-comment-preview]")
+        ?.parentElement?.style.bottom,
+    ).toBe("1.75rem");
 
     act(() => root.unmount());
     container.remove();

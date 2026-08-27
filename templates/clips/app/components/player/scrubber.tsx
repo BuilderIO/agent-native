@@ -33,9 +33,9 @@ export function Scrubber(props: ScrubberProps) {
   const [hoverX, setHoverX] = useState<number>(0);
   const [dragging, setDragging] = useState(false);
   const [tooltip, setTooltip] = useState<
-    | { kind: "comment"; comment: CommentPreviewData; ms: number }
-    | { kind: "chapter"; title: string; ms: number }
-    | { kind: "reaction"; content: string; ms: number }
+    | { kind: "comment"; comment: CommentPreviewData; ms: number; lane: number }
+    | { kind: "chapter"; title: string; ms: number; lane: number }
+    | { kind: "reaction"; content: string; ms: number; lane: number }
     | null
   >(null);
 
@@ -141,6 +141,11 @@ export function Scrubber(props: ScrubberProps) {
     [commentsByMs, reactionsByMs],
   );
 
+  const markerLanes = useMemo(
+    () => new Map(markerTimes.map((ms, index) => [ms, index % 2])),
+    [markerTimes],
+  );
+
   return (
     <div
       className="relative h-10 flex items-center touch-none cursor-pointer"
@@ -173,7 +178,10 @@ export function Scrubber(props: ScrubberProps) {
         <div
           data-player-comment-hover
           className="pointer-events-none absolute bottom-[calc(100%+1rem)] z-50 -translate-x-1/2"
-          style={{ left: (tooltip.ms / Math.max(1, durationMs)) * 100 + "%" }}
+          style={{
+            left: (tooltip.ms / Math.max(1, durationMs)) * 100 + "%",
+            bottom: `calc(100% + ${1 + tooltip.lane * 1.75}rem)`,
+          }}
         >
           {tooltip.kind === "comment" ? (
             <CommentPreview
@@ -205,7 +213,12 @@ export function Scrubber(props: ScrubberProps) {
             key={i}
             type="button"
             onMouseEnter={() =>
-              setTooltip({ kind: "chapter", title: ch.title, ms: ch.startMs })
+              setTooltip({
+                kind: "chapter",
+                title: ch.title,
+                ms: ch.startMs,
+                lane: 0,
+              })
             }
             onMouseLeave={() => setTooltip(null)}
             onClick={(e) => {
@@ -224,12 +237,16 @@ export function Scrubber(props: ScrubberProps) {
         {markerTimes.map((ms) => {
           const commentList = commentsByMs.get(ms);
           const reactionList = reactionsByMs.get(ms);
+          const markerLane = markerLanes.get(ms) ?? 0;
 
           return (
             <div
               key={`marker-${ms}`}
               data-player-marker-group
-              className="absolute -top-7 flex h-7 -translate-x-1/2 items-center gap-0.5"
+              className={cn(
+                "absolute flex h-7 -translate-x-1/2 items-center gap-0.5",
+                markerLane ? "-top-14" : "-top-7",
+              )}
               style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             >
               {commentList ? (
@@ -241,6 +258,7 @@ export function Scrubber(props: ScrubberProps) {
                       kind: "comment",
                       comment: commentList[0],
                       ms,
+                      lane: markerLane,
                     })
                   }
                   onMouseLeave={() => setTooltip(null)}
@@ -270,6 +288,7 @@ export function Scrubber(props: ScrubberProps) {
                       kind: "reaction",
                       content: `${reactionList.map((reaction) => reaction.emoji).join(" ")} · ${reactionList.length} reaction${reactionList.length === 1 ? "" : "s"}`,
                       ms,
+                      lane: markerLane,
                     })
                   }
                   onMouseLeave={() => setTooltip(null)}

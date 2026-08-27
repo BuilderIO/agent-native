@@ -65,6 +65,7 @@ export function PlaybackCommentOverlay({
   playbackRate = 1,
   durationMs,
   getTimelinePositionMs,
+  getTimelineLane,
   onClick,
 }: {
   comments: PlaybackComment[] | undefined;
@@ -74,6 +75,7 @@ export function PlaybackCommentOverlay({
   getTimelinePositionMs?: (
     comment: PlaybackComment,
   ) => number | null | undefined;
+  getTimelineLane?: (comment: PlaybackComment) => number | null | undefined;
   onClick?: () => void;
 }) {
   const activeComments = getActivePlaybackComments(
@@ -92,6 +94,8 @@ export function PlaybackCommentOverlay({
   const markerMs = Number.isFinite(positionMs)
     ? timelineMarkerMs(positionMs)
     : positionMs;
+  const timelineLane = getTimelineLane?.(comment);
+  const markerLane = timelineLane === 1 ? 1 : 0;
   const positionPercent =
     Number.isFinite(safeDurationMs) &&
     safeDurationMs > 0 &&
@@ -108,7 +112,10 @@ export function PlaybackCommentOverlay({
     >
       <div
         className="absolute bottom-0 -translate-x-1/2"
-        style={{ left: positionPercent + "%" }}
+        style={{
+          left: positionPercent + "%",
+          bottom: markerLane ? "1.75rem" : "0",
+        }}
       >
         <CommentPreview
           comment={comment}

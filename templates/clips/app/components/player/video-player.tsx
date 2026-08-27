@@ -62,6 +62,7 @@ import type {
   ReactionHandlerResult,
   ReactionSummary,
 } from "./reactions-tray";
+import { timelineMarkerMs } from "./scrubber-position";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -2023,6 +2024,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 ? null
                 : originalToEdited(comment.videoTimestampMs, edits)
             }
+            getTimelineLane={(comment) => {
+              const editedMs = isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits);
+              if (editedMs === null) return null;
+              const markerTimes = Array.from(
+                new Set([
+                  ...scrubberTimeline.comments.map((item) =>
+                    timelineMarkerMs(item.videoTimestampMs),
+                  ),
+                  ...scrubberTimeline.reactions.map((item) =>
+                    timelineMarkerMs(item.videoTimestampMs),
+                  ),
+                ]),
+              ).sort((a, b) => a - b);
+              return markerTimes.indexOf(timelineMarkerMs(editedMs)) % 2;
+            }}
             onClick={onCommentClick}
           />
         ) : null}

@@ -172,4 +172,37 @@ describe("Scrubber reaction markers", () => {
         ?.getAttribute("src"),
     ).toBe("https://lh3.googleusercontent.com/avatar.jpg");
   });
+
+  it("stagger adjacent marker groups into separate hit-target lanes", () => {
+    act(() => {
+      root.render(
+        <Scrubber
+          currentMs={2_000}
+          durationMs={10_000}
+          onSeek={vi.fn()}
+          comments={[
+            {
+              id: "comment-1",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "First",
+              videoTimestampMs: 1_000,
+            },
+            {
+              id: "comment-2",
+              authorEmail: "brent@example.com",
+              authorName: "Brent",
+              content: "Next",
+              videoTimestampMs: 1_500,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const groups = container.querySelectorAll("[data-player-marker-group]");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.className).toContain("-top-7");
+    expect(groups[1]?.className).toContain("-top-14");
+  });
 });
