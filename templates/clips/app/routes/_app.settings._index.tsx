@@ -152,11 +152,13 @@ export default function SettingsIndexRoute() {
 
   const builder = useMemo(
     () => ({
-      connected: Boolean(
-        builderConnect.configured ||
-        builderStatus.status?.configured ||
-        storageStatus.data?.builderConfigured,
-      ),
+      connected:
+        !storageStatus.data?.builderReauthorizationRequired &&
+        Boolean(
+          builderConnect.configured ||
+          builderStatus.status?.configured ||
+          storageStatus.data?.builderConfigured,
+        ),
       loading:
         storageStatus.isLoading ||
         builderStatus.loading ||
