@@ -9,7 +9,7 @@ import {
   parsePptx,
   type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
-import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
+import { getAvailableGoogleDocsAccessToken } from "../server/lib/google-docs-access.js";
 import {
   importPptxBufferToDeck,
   type ImportedImageFallback,
@@ -345,9 +345,10 @@ export default defineAction({
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
 
-    const connection = await getGoogleDocsAccessToken(owner, {
-      requireDriveExportScope: true,
-    });
+    const connection = await getAvailableGoogleDocsAccessToken(
+      owner,
+      presentationUrl ? { requireDriveExportScope: true } : undefined,
+    );
     if (!connection) {
       throw new Error(
         "Google Drive is not connected. Use the Connect Google button in Slides, then try again.",

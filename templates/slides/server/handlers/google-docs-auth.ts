@@ -2,7 +2,6 @@ import {
   decodeOAuthState,
   encodeOAuthState,
   getAppUrl,
-  getCredentialContext,
   getSession,
   isElectron,
   oauthCallbackResponse,
@@ -10,7 +9,6 @@ import {
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
-import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import {
   defineEventHandler,
   getQuery,
@@ -18,6 +16,10 @@ import {
   type H3Event,
 } from "h3";
 
+import {
+  getAvailableGoogleDocsAccessToken,
+  resolveManagedGoogleDriveAccount,
+} from "../lib/google-docs-access.js";
 import { formatGoogleOAuthError } from "../lib/google-docs-error.js";
 import {
   disconnectGoogleDocs,
@@ -29,44 +31,8 @@ import {
   isGoogleDocsOAuthConfigured,
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
-import { getSlidesProviderApiRuntime } from "../lib/provider-api.js";
 import { withSlidesRequestContext } from "./request-auth-context.js";
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "slides";
-
-async function resolveManagedGoogleDriveAccount() {
-  if (!getCredentialContext()) return null;
-  const connection = await resolveWorkspaceConnectionForApp({
-    appId: "slides",
-    provider: "google_drive",
-    requireConnected: true,
-  });
-  if (!connection.available) return null;
-  const credential =
-    await getSlidesProviderApiRuntime().resolveOAuthAccessToken({
-      provider: "google_drive",
-    });
-  if (!credential.accountId) return null;
-  return {
-    email: credential.accountId,
-    accessToken: credential.accessToken,
-    scope: "https://www.googleapis.com/auth/drive.readonly",
-    shared: true,
-  };
-}
-
-async function getAvailableGoogleDocsAccessToken(
-  event: H3Event,
-  owner: string,
-) {
-  return withSlidesRequestContext(event, async () => {
-    const local = await getGoogleDocsAccessToken(owner);
-    if (local) return local;
-    const managed = await resolveManagedGoogleDriveAccount();
-    return managed
-      ? { accessToken: managed.accessToken, accountEmail: managed.email }
-      : null;
-  });
-}
 
 async function requireSessionEmail(event: H3Event): Promise<string | null> {
   const session = await getSession(event);
@@ -199,7 +165,9 @@ export const getGoogleDocsStatus = defineEventHandler(
 
     try {
       const accounts = await listGoogleDocsAccounts(owner);
-      if (accounts.length === 0) {
+      if (
+        !accounts.some((account) => hasGoogleDriveExportScope(account.scope))
+      ) {
         const managed = await withSlidesRequestContext(event, () =>
           resolveManagedGoogleDriveAccount(),
         );
@@ -257,7 +225,9 @@ export const getGoogleDocsPickerToken = defineEventHandler(
     }
 
     try {
-      const token = await getAvailableGoogleDocsAccessToken(event, owner);
+      const token = await withSlidesRequestContext(event, () =>
+        getAvailableGoogleDocsAccessToken(owner),
+      );
       if (!token) {
         setResponseStatus(event, 401);
         return {

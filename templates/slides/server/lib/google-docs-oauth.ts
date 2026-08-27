@@ -326,7 +326,7 @@ export async function disconnectGoogleDocs(owner: string): Promise<void> {
 
 export async function getGoogleDocsAccessToken(
   owner: string,
-  options: { requireDriveExportScope?: boolean } = {},
+  options: GoogleDocsAccessTokenOptions = {},
 ): Promise<{
   accessToken: string;
   accountEmail: string;
@@ -353,6 +353,10 @@ export async function getGoogleDocsAccessToken(
     stored as unknown as GoogleDocsTokens,
   );
   return { accessToken, accountEmail: account.accountId };
+}
+
+export interface GoogleDocsAccessTokenOptions {
+  requireDriveExportScope?: boolean;
 }
 
 async function listGoogleProviderAccounts(owner: string): Promise<
