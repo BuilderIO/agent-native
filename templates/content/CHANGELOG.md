@@ -3,6 +3,25 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-24
+
+### Fixed
+
+- Database columns keep their chosen order across reloads, visibility changes, and newly added fields
+
+## 2026-08-22
+
+### Fixed
+
+- Code and code-tabs blocks inserted from the slash menu no longer get stuck on "Loading…"
+- The sidebar page tree no longer flashes empty for a moment after creating a new page
+
+## 2026-08-18
+
+### Added
+
+- Database exports can be configured and downloaded as CSV
+
 ## 2026-08-14
 
 ### Fixed
