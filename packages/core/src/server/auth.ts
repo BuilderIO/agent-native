@@ -140,7 +140,10 @@ import {
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
 } from "./attribution.js";
-import { getAuthLoginMode } from "./auth-login-mode.js";
+import {
+  getAuthLoginMode,
+  isEmailReadyForMagicLink,
+} from "./auth-login-mode.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -169,6 +172,7 @@ import {
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
+import { getEmailReadiness } from "./email.js";
 import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
@@ -272,6 +276,8 @@ function headersWithSignupAttribution(
 
 export interface AuthSession {
   email: string;
+  /** Better Auth's email-ownership state, when the provider exposes it. */
+  emailVerified?: boolean;
   userId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
@@ -1095,6 +1101,8 @@ const AUTH_LOGIN_FALLBACK =
   "We couldn't sign you in right now. Please try again.";
 const AUTH_MAGIC_LINK_FALLBACK =
   "We couldn't send a sign-in link right now. Please try again.";
+const AUTH_MAGIC_LINK_UNAVAILABLE =
+  "Magic-link sign-in requires a configured email provider.";
 const AUTH_SIGNUP_FALLBACK =
   "We couldn't create your account right now. Please try again.";
 const AUTH_VERIFICATION_LINK_FALLBACK =
@@ -3688,11 +3696,20 @@ async function maybeAutoCreateDevSession(
  * Map a Better Auth session to our AuthSession type.
  */
 function mapBetterAuthSession(baSession: {
-  user: { id: string; email: string; name?: string; image?: string | null };
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+    image?: string | null;
+    emailVerified?: boolean;
+  };
   session: { token: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
+    ...(typeof baSession.user.emailVerified === "boolean"
+      ? { emailVerified: baSession.user.emailVerified }
+      : {}),
     userId: baSession.user.id,
     name: baSession.user.name,
     ...(baSession.user.image ? { image: baSession.user.image } : {}),
@@ -4953,6 +4970,18 @@ async function mountBetterAuthRoutes(
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isMagicLinkVerification =
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
+      if (
+        (isMagicLinkRequest || isMagicLinkVerification) &&
+        !isEmailReadyForMagicLink(await getEmailReadiness())
+      ) {
+        return new Response(
+          JSON.stringify({ error: AUTH_MAGIC_LINK_UNAVAILABLE }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
       const isEmailSignup =
         reqPath.includes("/sign-up/email") && getMethod(event) === "POST";
       const isSignOut =
@@ -5368,6 +5397,11 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
+      if (!isEmailReadyForMagicLink(await getEmailReadiness())) {
+        setResponseStatus(event, 503);
+        return { error: AUTH_MAGIC_LINK_UNAVAILABLE };
+      }
+
       if (getMethod(event) === "GET") {
         const query = getQuery(event);
         if (typeof query.token === "string") {

@@ -2,6 +2,12 @@ import { getEmailReadiness, type EmailReadiness } from "./email.js";
 
 export type AuthLoginMode = "magic-link" | "password";
 
+export function isEmailReadyForMagicLink(
+  emailReadiness: EmailReadiness,
+): boolean {
+  return emailReadiness.status === "ready";
+}
+
 /** Magic link is the frictionless default only when outbound email is ready. */
 export function resolveAuthLoginMode(emailReady: boolean): AuthLoginMode {
   const optOut = process.env.AUTH_MAGIC_LINK?.trim().toLowerCase();
@@ -14,7 +20,7 @@ export function resolveAuthLoginMode(emailReady: boolean): AuthLoginMode {
 export function resolveAuthLoginModeFromReadiness(
   emailReadiness: EmailReadiness,
 ): AuthLoginMode {
-  return resolveAuthLoginMode(emailReadiness.status === "ready");
+  return resolveAuthLoginMode(isEmailReadyForMagicLink(emailReadiness));
 }
 
 /** Resolve the browser mode from the same scoped email transport used to send. */

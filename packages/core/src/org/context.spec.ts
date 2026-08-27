@@ -413,6 +413,23 @@ describe("getOrgContext", () => {
     );
   });
 
+  it("does not auto-join a domain org for an unverified session", async () => {
+    process.env.AUTO_CREATE_DEFAULT_ORG = "0";
+    mockGetSession.mockResolvedValue({
+      email: "unverified@builder.io",
+      emailVerified: false,
+    });
+    queueSelect([]);
+
+    await expect(getOrgContext(EVENT)).resolves.toEqual({
+      email: "unverified@builder.io",
+      orgId: null,
+      orgName: null,
+      role: null,
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
   it("activates a newly joined domain org over an existing personal org", async () => {
     mockGetSession.mockResolvedValue({ email: "teammate@builder.io" });
     mockGetUserSetting.mockResolvedValueOnce({ orgId: "personal_org" });

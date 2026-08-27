@@ -38,6 +38,20 @@ const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
 
+const READY_EMAIL_READINESS = { status: "ready", provider: "resend" } as const;
+const MISSING_EMAIL_READINESS = {
+  status: "not-configured",
+  provider: "dev",
+} as const;
+const MISCONFIGURED_EMAIL_READINESS = {
+  status: "misconfigured",
+  provider: "sendgrid",
+} as const;
+const UNAVAILABLE_EMAIL_READINESS = {
+  status: "unavailable",
+  provider: "unknown",
+} as const;
+
 function clearAuthPublicPathRegistry(): void {
   const globalState = globalThis as unknown as {
     [key: symbol]: unknown;
@@ -60,6 +74,7 @@ describe("server/auth", () => {
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../org/context.js");
     vi.doUnmock("./embed-session.js");
+    vi.doUnmock("./email.js");
     vi.doUnmock("./sentry.js");
     vi.resetModules();
   });
@@ -92,11 +107,11 @@ describe("server/auth", () => {
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(true);
-      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(READY_EMAIL_READINESS)).toEqual({
         requireEmailVerification: true,
         disableSignUp: false,
       });
-      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(MISSING_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: false,
       });
@@ -108,11 +123,11 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(READY_EMAIL_READINESS)).toEqual({
         requireEmailVerification: true,
         disableSignUp: false,
       });
-      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(MISSING_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: false,
       });
@@ -153,7 +168,7 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(READY_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: false,
       });
@@ -165,7 +180,7 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(MISSING_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: false,
       });
@@ -178,7 +193,7 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(READY_EMAIL_READINESS)).toEqual({
         requireEmailVerification: true,
         disableSignUp: false,
       });
@@ -190,7 +205,7 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(MISSING_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: true,
       });
@@ -204,7 +219,7 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(READY_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: false,
       });
@@ -215,13 +230,43 @@ describe("server/auth", () => {
       const { resolveEmailPasswordAuthPolicy } =
         await import("./better-auth-instance.js");
 
-      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(READY_EMAIL_READINESS)).toEqual({
         requireEmailVerification: true,
         disableSignUp: false,
       });
-      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+      expect(resolveEmailPasswordAuthPolicy(MISSING_EMAIL_READINESS)).toEqual({
         requireEmailVerification: false,
         disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("fails closed for misconfigured or unavailable email transport", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      for (const emailReadiness of [
+        MISCONFIGURED_EMAIL_READINESS,
+        UNAVAILABLE_EMAIL_READINESS,
+      ]) {
+        expect(resolveEmailPasswordAuthPolicy(emailReadiness)).toEqual({
+          requireEmailVerification: false,
+          disableSignUp: true,
+        });
+      }
+    }, 15_000);
+
+    it("keeps the signup lock when an explicit opt-out meets an unreadable transport", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "0");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(
+        resolveEmailPasswordAuthPolicy(MISCONFIGURED_EMAIL_READINESS),
+      ).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
       });
     }, 15_000);
   });
@@ -246,6 +291,66 @@ describe("server/auth", () => {
   });
 
   describe("magic-link login", () => {
+    it("rejects magic-link endpoints when email delivery is unavailable", async () => {
+      const signInMagicLink = vi.fn();
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      vi.doMock("./email.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("./email.js")>()),
+        getEmailReadiness: vi.fn(async () => MISSING_EMAIL_READINESS),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const legacyHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      const legacyEvent = createJsonPostEvent(
+        "/_agent-native/auth/magic-link",
+        { email: "owner@example.com" },
+      );
+      await expect(legacyHandler(legacyEvent)).resolves.toEqual({
+        error: "Magic-link sign-in requires a configured email provider.",
+      });
+      expect(legacyEvent.res.status).toBe(503);
+
+      const betterAuthHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      const response = await betterAuthHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-in/magic-link", {
+          email: "owner@example.com",
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        error: "Magic-link sign-in requires a configured email provider.",
+      });
+      expect(signInMagicLink).not.toHaveBeenCalled();
+    });
+
     it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
