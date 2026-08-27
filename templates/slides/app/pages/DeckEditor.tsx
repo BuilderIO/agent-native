@@ -1528,7 +1528,7 @@ export default function DeckEditor() {
         return;
       }
       presentNavigationRef.current = true;
-      navigate(presentationUrl);
+      void navigate(presentationUrl);
     } catch (error) {
       if (presentAttemptRef.current !== attemptId) {
         if (target && !target.closed) target.close();
