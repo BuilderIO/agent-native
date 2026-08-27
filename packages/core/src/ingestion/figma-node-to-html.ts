@@ -740,6 +740,21 @@ interface PaintLayer {
  * outer div carries the clipping (`border-radius: inherit`), because a
  * transform on the painted div would scale the corner radii with it.
  */
+/**
+ * A dashed stroke as an inline SVG rect laid over the node's box.
+ *
+ * Figma states a dash pattern as explicit lengths, and CSS `border-style:
+ * dashed` cannot: the browser picks dash and gap itself. Rasterizing the node
+ * was the previous answer, and it is expensive out of proportion to the
+ * feature — the PNG replaces the node AND its whole subtree, so a dashed
+ * container flattens every child frame, icon and text run inside it into
+ * pixels that can no longer be edited or re-themed. One real design hit this
+ * on six containers and lost 48 descendants to it.
+ *
+ * `stroke-dasharray` states the same lengths Figma does, so the border is
+ * exact and the subtree stays real DOM. Returns undefined when the shape is
+ * not a plain rounded rect, where a single `<rect>` would misdraw it.
+ */
 function angularGradientOverlay(
   image: string,
   box: { width: number; height: number },
@@ -1909,6 +1924,14 @@ function rendersVectorGeometry(
   const box = node.absoluteBoundingBox;
   // A zero-extent box gives an unusable `viewBox` (nothing renders); those
   // nodes keep the PNG fallback, which is sized from absoluteRenderBounds.
+  //
+  // `buildVectorSvg` below CAN draw a collapsed axis — it gives that axis the
+  // stroke's width and recentres the geometry — and letting it try turns five
+  // rules in one real design from PNGs into editable vectors. Measured, it
+  // costs more than it gives: interior-checkout 1.297% -> 1.341% and
+  // interior-product-comparison 2.369% -> 2.423%, because Figma's own render
+  // of a hairline is more exact than the reconstruction. Do not relax this
+  // without a reconstruction that matches those two cases.
   if (!box || box.width <= 0 || box.height <= 0) return false;
   if (geometryPaths(node).length === 0) return false;
   return [...(node.fills ?? []), ...(node.strokes ?? [])]
@@ -2167,11 +2190,11 @@ function needsImageFallback(
   );
   if (
     visibleStrokes.length > 1 ||
-    visibleStrokes.some((stroke) => stroke.type !== "SOLID") ||
-    (node.strokeDashes?.length ?? 0) > 0
+    visibleStrokes.some((stroke) => stroke.type !== "SOLID")
   ) {
     return true;
   }
+  if ((node.strokeDashes?.length ?? 0) > 0) return true;
   const visibleFills = (node.fills ?? []).filter(
     (fill) => fill.visible !== false,
   );

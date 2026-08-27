@@ -1078,6 +1078,76 @@ three angular gradients in the corpus have a due-east ray, where the two
 definitions coincide — which is exactly why it survived. The stale comment that
 justified the old reasoning is deleted, because leaving it regrows the bug.
 
+## What a real designer's "errors" actually were
+
+A designer reported a frame importing with three complaints in one notice: 2
+image fills omitted, 11 image fallbacks, 19 approximated layers. Measured
+against that exact frame (Marketing Playground `927-1130`), they were three
+different things, and only one was a defect in the sense the notice implied.
+
+**The 2 omitted fills were a total outage, not two bad assets.** See the
+`meta.images` section: every image fill in every import was failing, and the
+message blamed deleted or oversized images — a cause the code never checked.
+
+**The 11 fallbacks were one cause: dashed strokes.** Six containers carried a
+`strokeDashes` pattern, and `needsImageFallback` rasterizes any node with one.
+A raster fallback replaces the node AND its subtree, so those six flattened
+**48 descendants** — child frames, icons, text runs — into pixels that can no
+longer be edited or re-themed. That is where "not fully editable" came from.
+
+**Most of the 19 "approximated" layers are not visual loss at all.** Grouping
+the notes on that frame: 14 say variable bindings were preserved as metadata,
+8 say "position, size, fills, strokes and effects mapped 1:1", 6 say a
+transform survived, 6 say a vector was reconstructed as real SVG paths rather
+than a PNG, 4 say component provenance was kept. Those are successes and
+metadata, reported to a designer under a heading that reads "HTML/CSS cannot
+represent every Figma property exactly". Only about nine were genuine
+approximations: inset-shadow strokes, per-side stroke bands, a rotation
+pivoted about the AABB centre, mixed character-style runs.
+
+## Two fixes for that frame, measured and REVERTED
+
+Both made the frame better and the corpus worse. Recorded with numbers so the
+next attempt starts from the measurement rather than the idea.
+
+**Dashed strokes as an inline SVG rect.** `stroke-dasharray` states exactly the
+lengths Figma does, and `border-style: dashed` cannot, so an overlay rect looks
+like the obvious answer — it takes that frame from 11 fallbacks to 5 and keeps
+those 48 descendants as real DOM. It also took `ds-untitled-ui-table-variants`
+from 3.689% to 3.156%, because that whole design is one dashed COMPONENT_SET
+that had been importing as a single PNG.
+
+It still reverts: `shapes`, the fixture built to exercise stroke alignment,
+went 0.543% -> 0.905%. Attribution, run three ways:
+
+| state                                 | shapes |
+| ------------------------------------- | ------ |
+| dashed rasterized (shipped behaviour) | 0.543% |
+| not rasterized, no border drawn       | 0.781% |
+| not rasterized, SVG overlay drawn     | 0.905% |
+
+The overlay scores WORSE than drawing no border at all, so its geometry is
+wrong rather than merely imprecise. Restricting it to rect-like types did not
+move the number, which rules out the obvious explanation (it was drawing a
+dashed rectangle around the fixture's dashed ELLIPSEs) and points at dash phase
+around a rounded rect. Worth redoing with a phase-correct implementation
+verified against `shapes` first; the editability prize is large.
+
+**Letting a collapsed-axis vector reach `buildVectorSvg`.** That builder
+already handles a zero-thickness path — it gives the collapsed axis the
+stroke's width and recentres the geometry — but `rendersVectorGeometry`
+rejected those nodes before it ever saw them, so five straight rules in that
+frame came back as PNGs. Relaxing the guard takes the frame to 0 fallbacks and
+leaves `shapes` and `ds-untitled-ui-table-variants` unchanged.
+
+It reverts too: `community-interior-checkout` 1.297% -> 1.341% and
+`community-interior-product-comparison` 2.369% -> 2.423%. Requiring a visible
+stroke before allowing it did not help, so the cost is the reconstruction
+itself — Figma's own render of a hairline is more exact than rebuilding it from
+`strokeWeight`. Corpus mean moved +0.004pp, which is small but deterministic:
+the import harness replays from cache, so unlike the export hop there is no
+network noise to hide behind.
+
 ## The export number depends on the network
 
 `rt-community-interior-single-product` measured 5.106% on one run and 2.691% on
