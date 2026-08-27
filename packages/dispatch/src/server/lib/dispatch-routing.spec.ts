@@ -34,6 +34,7 @@ describe("dispatchIntegrationRoutingHint", () => {
     "Create a one-pager for the launch",
     "Draft a one pager about our new product",
     "Put together a one-page brief for sales",
+    "Create one-pagers for sales and marketing",
   ])("routes one-pagers to Content or inline output: %s", (text) => {
     const hint = dispatchIntegrationRoutingHint(text);
 

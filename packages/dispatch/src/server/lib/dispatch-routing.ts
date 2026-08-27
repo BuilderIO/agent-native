@@ -4,7 +4,7 @@ const STRUCTURED_INTAKE_PATTERNS = [
   /\b(?:database|table|board|form|queue)\b.{0,64}\b(?:asks?|requests?|tickets?|intake|priority|deadline|urgency)\b/i,
 ];
 
-const ONE_PAGER_PATTERN = /\bone[-\s]?page(?:r)?\b/i;
+const ONE_PAGER_PATTERN = /\bone[-\s]?page(?:r)?s?\b/i;
 
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:design|redesign|create|make|generate|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
