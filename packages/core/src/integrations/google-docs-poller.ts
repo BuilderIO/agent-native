@@ -37,6 +37,7 @@ import {
   getIntegrationConfig,
   integrationConfigWriteEpoch,
   saveIntegrationConfig,
+  saveIntegrationConfigIfUnchanged,
 } from "./config-store.js";
 import {
   createGoogleDocsChannelAuth,
@@ -116,15 +117,12 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
   const expiration = Date.now() + WATCH_CHANNEL_TTL_MS;
   const { token: channelToken, tokenHash: channelTokenHash } =
     createGoogleDocsChannelAuth();
+  let registeredChannel: { id: string; resourceId: string } | null = null;
 
   try {
-    // Google may send the initial sync notification before the watch response
-    // reaches us, so persist the expected channel before making the request.
-    await saveIntegrationConfig(
-      PLATFORM,
-      { channelId, channelTokenHash, expiration, webhookUrl },
-      "watch-channel",
-    );
+    // Keep the active channel until Google accepts the replacement. A failed
+    // registration must not take down a still-valid channel.
+    const currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
 
     const res = await fetch(
       "https://www.googleapis.com/drive/v3/changes/watch",
@@ -148,9 +146,6 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
     if (!res.ok) {
       const err = await res.text();
       console.error("[google-docs] Failed to register watch:", err);
-      await saveIntegrationConfig(PLATFORM, {}, "watch-channel").catch(
-        () => {},
-      );
       return false;
     }
 
@@ -159,9 +154,11 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
       resourceId: string;
       expiration: string;
     };
+    registeredChannel = { id: data.id, resourceId: data.resourceId };
 
-    // Save channel info for renewal and stopping
-    await saveIntegrationConfig(
+    // Promote only if no other registration changed the active channel while
+    // this request was in flight. Stop this orphaned channel if it lost.
+    const promoted = await saveIntegrationConfigIfUnchanged(
       PLATFORM,
       {
         channelId: data.id,
@@ -171,7 +168,15 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
         webhookUrl,
       },
       "watch-channel",
+      currentConfig,
     );
+    if (!promoted) {
+      await stopGoogleDocsWatchChannel(accessToken, data.id, data.resourceId);
+      console.warn(
+        `[google-docs] Watch registration lost a concurrent update (channel: ${data.id})`,
+      );
+      return false;
+    }
 
     console.log(
       `[google-docs] Watch registered (channel: ${data.id}, expires: ${new Date(parseInt(data.expiration)).toISOString()})`,
@@ -182,7 +187,13 @@ export async function registerWatch(webhookUrl: string): Promise<boolean> {
 
     return true;
   } catch (err) {
-    await saveIntegrationConfig(PLATFORM, {}, "watch-channel").catch(() => {});
+    if (registeredChannel) {
+      await stopGoogleDocsWatchChannel(
+        accessToken,
+        registeredChannel.id,
+        registeredChannel.resourceId,
+      );
+    }
     console.error("[google-docs] Watch registration error:", err);
     return false;
   }
@@ -205,6 +216,21 @@ async function stopWatch(): Promise<void> {
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return;
 
+  await stopGoogleDocsWatchChannel(
+    accessToken,
+    config.configData.channelId,
+    config.configData.resourceId,
+  );
+  await saveIntegrationConfigIfUnchanged(PLATFORM, {}, "watch-channel", config);
+}
+
+async function stopGoogleDocsWatchChannel(
+  accessToken: string,
+  channelId: unknown,
+  resourceId: unknown,
+): Promise<void> {
+  if (typeof channelId !== "string" || channelId.length === 0) return;
+
   try {
     await fetch("https://www.googleapis.com/drive/v3/channels/stop", {
       method: "POST",
@@ -213,15 +239,13 @@ async function stopWatch(): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        id: config.configData.channelId,
-        resourceId: config.configData.resourceId,
+        id: channelId,
+        ...(typeof resourceId === "string" && { resourceId }),
       }),
     });
   } catch {
     // Best effort — channel may have expired already
   }
-
-  await saveIntegrationConfig(PLATFORM, {}, "watch-channel");
 }
 
 /**

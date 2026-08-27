@@ -42,5 +42,21 @@ describe("Google Docs Drive channel authentication", () => {
         resourceId: "resource-2",
       }),
     ).toBe(false);
+    expect(
+      verifyGoogleDocsChannel(expected, {
+        channelId: "channel-1",
+        channelToken: auth.token,
+      }),
+    ).toBe(false);
+    expect(
+      verifyGoogleDocsChannel(
+        { channelId: "channel-1", channelTokenHash: auth.tokenHash },
+        {
+          channelId: "channel-1",
+          channelToken: auth.token,
+          resourceId: "resource-1",
+        },
+      ),
+    ).toBe(false);
   });
 });

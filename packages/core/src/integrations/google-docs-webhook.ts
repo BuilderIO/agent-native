@@ -27,13 +27,19 @@ export function verifyGoogleDocsChannel(
 ): boolean {
   const expectedChannelId = expected?.channelId;
   const expectedTokenHash = expected?.channelTokenHash;
+  const expectedResourceId = expected?.resourceId;
 
   if (
     typeof expectedChannelId !== "string" ||
+    expectedChannelId.length === 0 ||
     typeof expectedTokenHash !== "string" ||
     !/^[0-9a-f]{64}$/i.test(expectedTokenHash) ||
     received.channelId !== expectedChannelId ||
-    !received.channelToken
+    !received.channelToken ||
+    typeof expectedResourceId !== "string" ||
+    expectedResourceId.length === 0 ||
+    typeof received.resourceId !== "string" ||
+    received.resourceId.length === 0
   ) {
     return false;
   }
@@ -50,9 +56,5 @@ export function verifyGoogleDocsChannel(
     return false;
   }
 
-  const expectedResourceId = expected?.resourceId;
-  return (
-    typeof expectedResourceId !== "string" ||
-    received.resourceId === expectedResourceId
-  );
+  return received.resourceId === expectedResourceId;
 }
