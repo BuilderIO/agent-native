@@ -50,7 +50,7 @@ describe("docs popover controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Build online" }));
 
     const content = screen
-      .getByText("Join the waitlist")
+      .getByText("Build in the browser")
       .closest("[role=dialog]");
     expect(content).not.toBeNull();
     expectAnimatedPopover(content as HTMLElement);
@@ -67,7 +67,7 @@ describe("docs popover controls", () => {
     expectAnimatedPopover(content as HTMLElement);
 
     fireEvent.click(editOnline);
-    expect(screen.getByText("Join the waitlist")).toBeTruthy();
+    expect(screen.getByText("Build in the browser")).toBeTruthy();
   });
 
   it("passes stored first-touch attribution to demo links", () => {
