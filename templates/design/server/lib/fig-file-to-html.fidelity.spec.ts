@@ -1255,13 +1255,28 @@ describe("auto-layout children in the .fig walker", () => {
     expect(html.match(/flex-shrink: 0/g)?.length).toBe(2);
   });
 
-  it("leaves a growing child elastic", () => {
+  it("leaves a growing child elastic when the parent's main axis is fixed", () => {
+    const doc = stack(0);
+    const nodes = doc.nodeChanges as Array<Record<string, unknown>>;
+    nodes[nodes.length - 2]!.stackChildPrimaryGrow = 1;
+    // Only a parent with a FIXED main axis has room to distribute.
+    nodes[nodes.length - 3]!.stackPrimarySizing = "FIXED";
+    const html = renderFrame(doc);
+    expect(html).toContain("flex: 1 0 0");
+    expect(html.match(/flex-shrink: 0/g)?.length).toBe(1);
+  });
+
+  // An omitted `stackPrimarySizing` is HUG, and a growing child has nothing to
+  // grow into then — Figma keeps the child's own size. `flex: 1 0 0` inside an
+  // auto-sized flex container resolves to ZERO instead, which deletes the child
+  // outright and pulls its siblings along by that much.
+  it("keeps a growing child's own size when the parent hugs that axis", () => {
     const doc = stack(0);
     const nodes = doc.nodeChanges as Array<Record<string, unknown>>;
     nodes[nodes.length - 2]!.stackChildPrimaryGrow = 1;
     const html = renderFrame(doc);
-    expect(html).toContain("flex: 1 0 0");
-    expect(html.match(/flex-shrink: 0/g)?.length).toBe(1);
+    expect(html).toContain("width: 1240px");
+    expect(html).not.toContain("flex: 1 0 0");
   });
 
   // CSS rejects a negative gap outright, dropping the declaration.

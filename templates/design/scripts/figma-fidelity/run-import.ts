@@ -481,6 +481,16 @@ async function runCase(
     },
   );
   writeFileSync(join(dir, "import.png"), rendered.png);
+  // How this case was framed, so the round-trip harness can reproduce exactly
+  // the same region and scale instead of re-deriving them and drifting.
+  writeFileSync(
+    join(dir, "render.json"),
+    JSON.stringify(
+      { box, ink, contentOffset, renderScale, nodeId, fileKey },
+      null,
+      2,
+    ),
+  );
 
   const reference = await figmaJson<ImagesResponse>(
     `/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=${renderScale}`,

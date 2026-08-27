@@ -242,6 +242,8 @@ export interface FigmaNode {
   counterAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "BASELINE";
   layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
   layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
+  /** Older spelling of main-axis sizing; still present in real community files. */
+  primaryAxisSizingMode?: "FIXED" | "AUTO";
   layoutWrap?: "NO_WRAP" | "WRAP";
   itemSpacing?: number;
   counterAxisSpacing?: number;
@@ -1260,6 +1262,14 @@ function buildChildSizingStyles(
   parentLayoutMode: "NONE" | "HORIZONTAL" | "VERTICAL",
   parentItemSpacing = 0,
   isFirstChild = true,
+  /**
+   * Whether the parent HUGS its own main axis. A main-axis FILL child has
+   * nothing to grow into then, and Figma falls back to the child's own size —
+   * but `flex-grow:1; flex-basis:0%` in an auto-height column collapses the
+   * child to ZERO. A 343x240 photo vanished that way, and because the column
+   * hugs, everything below it moved up by 240px.
+   */
+  parentHugsMainAxis = false,
 ): Record<string, string | undefined> {
   if (parentLayoutMode === "NONE") return {};
   const parentIsHorizontal = parentLayoutMode === "HORIZONTAL";
@@ -1280,23 +1290,35 @@ function buildChildSizingStyles(
   }
   if (node.layoutSizingHorizontal === "FILL") {
     if (parentIsHorizontal) {
-      styles["flex-grow"] = "1";
-      styles["flex-basis"] = "0%";
+      if (parentHugsMainAxis) {
+        // Nothing to grow into; keep the size Figma resolved.
+        styles.width = px(node.absoluteBoundingBox?.width ?? 0);
+        styles["flex-shrink"] = "0";
+      } else {
+        styles["flex-grow"] = "1";
+        styles["flex-basis"] = "0%";
+        styles.width = "auto";
+      }
     } else {
       styles["align-self"] = "stretch";
+      styles.width = "auto";
     }
-    styles.width = "auto";
   } else if (node.layoutSizingHorizontal === "HUG") {
     styles.width = "auto";
   }
   if (node.layoutSizingVertical === "FILL") {
     if (parentIsHorizontal) {
       styles["align-self"] = "stretch";
+      styles.height = "auto";
+    } else if (parentHugsMainAxis) {
+      // Nothing to grow into; keep the size Figma resolved.
+      styles.height = px(node.absoluteBoundingBox?.height ?? 0);
+      styles["flex-shrink"] = "0";
     } else {
       styles["flex-grow"] = "1";
       styles["flex-basis"] = "0%";
+      styles.height = "auto";
     }
-    styles.height = "auto";
   } else if (node.layoutSizingVertical === "HUG") {
     styles.height = "auto";
   }
@@ -1954,6 +1976,21 @@ function frameRelativeRenderBox(
   };
 }
 
+/**
+ * Does this auto-layout frame size itself to its content along its own main
+ * axis? Figma reports it as `layoutSizingHorizontal`/`layoutSizingVertical`
+ * on current files and as `primaryAxisSizingMode: "AUTO"` on older ones, and
+ * both spellings appear in real community files.
+ */
+function hugsMainAxis(node: FigmaNode): boolean {
+  const mainSizing =
+    node.layoutMode === "HORIZONTAL"
+      ? node.layoutSizingHorizontal
+      : node.layoutSizingVertical;
+  if (mainSizing) return mainSizing === "HUG";
+  return node.primaryAxisSizingMode === "AUTO";
+}
+
 function buildNode(
   node: FigmaNode,
   parentBox: FigmaBoundingBox | null,
@@ -1964,6 +2001,8 @@ function buildNode(
   /** The parent's `itemSpacing`; only a negative value reaches the child, as an overlap. */
   parentItemSpacing = 0,
   isFirstChild = true,
+  /** Whether the parent hugs its main axis — see `buildChildSizingStyles`. */
+  parentHugsMainAxis = false,
 ): string {
   const parentHasAutoLayout = parentLayoutMode !== "NONE";
   if (node.visible === false || node.opacity === 0) return "";
@@ -2110,6 +2149,7 @@ function buildNode(
     parentLayoutMode,
     parentItemSpacing,
     isFirstChild,
+    parentHugsMainAxis,
   );
   const hasAutoLayout = Boolean(autoLayoutStyles.display);
   // A node is positioned relative to its parent's free canvas (absolute,
@@ -2250,6 +2290,7 @@ function buildNode(
             false,
             hasAutoLayout ? (node.itemSpacing ?? 0) : 0,
             index === 0,
+            hasAutoLayout && hugsMainAxis(node),
           ),
         )
         .filter(Boolean)

@@ -147,3 +147,53 @@ describe("magnified image fills", () => {
     expect(html).not.toContain("image-rendering");
   });
 });
+
+describe("a main-axis FILL child whose parent hugs that axis", () => {
+  // Figma resolves this degenerate pair by keeping the child's own size: there
+  // is nothing to fill when the parent sizes itself to its content. CSS does
+  // not — `flex-grow: 1; flex-basis: 0%` in an auto-height column collapses the
+  // child to zero. A 343x240 photo on the Untitled UI mobile landing page
+  // disappeared that way, and everything below it slid up by 240px.
+  function hugColumnWithFillChild(): FigmaNode {
+    return {
+      id: "1:1",
+      name: "Container",
+      type: "FRAME",
+      absoluteBoundingBox: box(0, 0, 375, 240),
+      layoutMode: "VERTICAL",
+      layoutSizingVertical: "HUG",
+      children: [
+        {
+          id: "1:2",
+          name: "Image",
+          type: "FRAME",
+          absoluteBoundingBox: box(16, 0, 343, 240),
+          layoutSizingVertical: "FILL",
+        },
+      ],
+    } as FigmaNode;
+  }
+
+  it("keeps the resolved height instead of collapsing to zero", () => {
+    const { html } = mapFigmaNodeToHtml(hugColumnWithFillChild(), {});
+    expect(html).toContain("height: 240px");
+    expect(html).not.toContain("flex-basis: 0%");
+  });
+
+  it("still grows when the parent's main axis is fixed", () => {
+    const node = hugColumnWithFillChild();
+    node.layoutSizingVertical = "FIXED";
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("flex-grow: 1");
+    expect(html).toContain("flex-basis: 0%");
+  });
+
+  it("reads the older primaryAxisSizingMode spelling", () => {
+    const node = hugColumnWithFillChild();
+    delete node.layoutSizingVertical;
+    node.primaryAxisSizingMode = "AUTO";
+    const { html } = mapFigmaNodeToHtml(node, {});
+    expect(html).toContain("height: 240px");
+    expect(html).not.toContain("flex-basis: 0%");
+  });
+});

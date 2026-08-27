@@ -1909,7 +1909,21 @@ function buildCss(
   // that ignore auto-layout — they're positioned absolutely, not as flex items.
   if (parentFlex && node.stackPositioning !== "ABSOLUTE") {
     if ((node.stackChildPrimaryGrow ?? 0) > 0) {
-      css.flex = "1 0 0";
+      // A growing child whose parent HUGS the same axis has nothing to grow
+      // into, and Figma falls back to the child's own size. `flex: 1 0 0` in an
+      // auto-sized flex container collapses it to zero instead, which silently
+      // deletes the child and pulls every later sibling up by its size.
+      const parentPrimaryHug =
+        (parent?.stackPrimarySizing ?? "RESIZE_TO_FIT") !== "FIXED";
+      const ownMain =
+        parent?.stackMode === "HORIZONTAL" ? node.size?.x : node.size?.y;
+      if (parentPrimaryHug && typeof ownMain === "number" && ownMain > 0) {
+        css.flex = "0 0 auto";
+        if (parent?.stackMode === "HORIZONTAL") css.width = `${ownMain}px`;
+        else css.height = `${ownMain}px`;
+      } else {
+        css.flex = "1 0 0";
+      }
     } else {
       // Figma never shrinks an auto-layout child that is not growing: it keeps
       // its own size and the parent overflows. CSS flex items shrink by
