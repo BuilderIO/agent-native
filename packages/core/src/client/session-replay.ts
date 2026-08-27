@@ -2396,11 +2396,11 @@ function installUrlMonitor(state: SessionReplayState): void {
   const options = state.options;
   const check = () => {
     if (!isUrlRecordable(window.location.href, options)) {
-      stopSessionReplay("url-blocked");
+      void stopSessionReplay("url-blocked");
     }
   };
-  const originalPushState = window.history.pushState;
-  const originalReplaceState = window.history.replaceState;
+  const originalPushState = window.history.pushState.bind(window.history);
+  const originalReplaceState = window.history.replaceState.bind(window.history);
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
     queueMicrotask(check);
@@ -2606,10 +2606,10 @@ function serializeConsoleArg(value: unknown): string {
     ) {
       return String(value);
     }
-    return (
-      JSON.stringify(toCaptureSerializable(value, 0, new WeakSet())) ??
-      String(value)
+    const serialized = JSON.stringify(
+      toCaptureSerializable(value, 0, new WeakSet()),
     );
+    return typeof serialized === "string" ? serialized : "[unserializable]";
   } catch {
     try {
       return Object.prototype.toString.call(value);
@@ -3158,8 +3158,12 @@ function installNetworkCapture(
   }
 
   if (typeof XMLHttpRequest !== "undefined" && XMLHttpRequest.prototype) {
-    const originalOpen = XMLHttpRequest.prototype.open;
-    const originalSend = XMLHttpRequest.prototype.send;
+    const originalOpen = XMLHttpRequest.prototype.open.bind(
+      XMLHttpRequest.prototype,
+    );
+    const originalSend = XMLHttpRequest.prototype.send.bind(
+      XMLHttpRequest.prototype,
+    );
     const xhrInfo = new WeakMap<
       XMLHttpRequest,
       { method: string; url: string }

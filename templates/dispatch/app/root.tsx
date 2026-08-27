@@ -141,7 +141,7 @@ function useThreadDeepLink() {
     handled.current = true;
 
     params.delete("thread");
-    navigate(
+    void navigate(
       {
         pathname: "/chat",
         search: params.toString() ? `?${params.toString()}` : "",

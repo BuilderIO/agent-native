@@ -210,7 +210,7 @@ function statusToTone(
 
 /** URL-safe slug: lowercase, `[a-z0-9-]`, collapsed/trimmed dashes. */
 export function normalizeSlug(raw: unknown): string {
-  return String(raw ?? "")
+  return (typeof raw === "string" ? raw : (JSON.stringify(raw) ?? ""))
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
@@ -229,7 +229,9 @@ function normalizeAlignment(value: unknown): StatusPageAlignment {
 
 function normalizeDisplayName(value: unknown): string | null {
   if (value == null) return null;
-  const trimmed = String(value).trim();
+  const trimmed = (
+    typeof value === "string" ? value : (JSON.stringify(value) ?? "")
+  ).trim();
   if (!trimmed) return null;
   return trimmed.slice(0, MAX_DISPLAY_NAME_LENGTH);
 }
@@ -247,7 +249,11 @@ export function parseStatusPageMonitors(raw: unknown): StatusPageMonitorRef[] {
   for (const entry of arr) {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as Record<string, unknown>;
-    const monitorId = String(record.monitorId ?? "").trim();
+    const monitorId = (
+      typeof record.monitorId === "string"
+        ? record.monitorId
+        : (JSON.stringify(record.monitorId) ?? "")
+    ).trim();
     if (!monitorId || seen.has(monitorId)) continue;
     seen.add(monitorId);
     refs.push({

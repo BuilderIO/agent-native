@@ -45,7 +45,10 @@ export async function getContentOrganizationMembership(
       .limit(1);
     return row
       ? {
-          role: String(row.role ?? "member").toLowerCase(),
+          role: (typeof row.role === "string"
+            ? row.role
+            : (JSON.stringify(row.role) ?? "member")
+          ).toLowerCase(),
           name: row.name,
           createdBy: row.createdBy,
         }
@@ -70,7 +73,10 @@ export async function getContentOrganizationMembership(
     return null;
   }
   return {
-    role: String(row.role ?? "member").toLowerCase(),
+    role: (typeof row.role === "string"
+      ? row.role
+      : (JSON.stringify(row.role) ?? "member")
+    ).toLowerCase(),
     name: row.name,
     createdBy: row.createdBy,
   };
@@ -97,7 +103,10 @@ export async function listContentOrganizationMemberships(userEmail: string) {
   return result.rows
     .map((row: any) => ({
       orgId: typeof row.orgId === "string" ? row.orgId : row.org_id,
-      role: String(row.role ?? "member").toLowerCase(),
+      role: (typeof row.role === "string"
+        ? row.role
+        : (JSON.stringify(row.role) ?? "member")
+      ).toLowerCase(),
       name: row.name,
       createdBy: row.createdBy ?? row.created_by,
     }))

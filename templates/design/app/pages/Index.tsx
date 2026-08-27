@@ -483,7 +483,7 @@ export default function Index() {
         })
         .catch((error) => {
           clearPendingGeneration(id);
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
           throw error;
@@ -594,7 +594,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
-          navigate(`/design/${result.id}`);
+          void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
           setNewDesignHandoffPending(false);
@@ -697,13 +697,14 @@ export default function Index() {
 
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
-      navigate(`/design/${id}`);
+      void navigate(`/design/${id}`);
     },
     [
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
+      fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,
       newDesignMode,
@@ -738,7 +739,7 @@ export default function Index() {
       // marker to keep the editor polling across its route remount. Wait for the
       // row to persist so the first get-design read cannot briefly return 404.
       await ready;
-      navigate(`/design/${id}`);
+      void navigate(`/design/${id}`);
       return false;
     } catch (error) {
       skipToEditorPendingRef.current = false;
@@ -794,12 +795,12 @@ export default function Index() {
         });
       },
       onError: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
     });
-  }, [deleteId, listDesignsParams, queryClient, deleteMutation]);
+  }, [deleteId, listDesignsParams, page, queryClient, deleteMutation]);
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(selectedDesignIds);
@@ -840,21 +841,21 @@ export default function Index() {
     void Promise.allSettled(
       ids.map((id) => deleteMutation.mutateAsync({ id } as any)),
     ).then(() => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-designs"],
       });
     });
-  }, [listDesignsParams, selectedDesignIds, queryClient, deleteMutation]);
+  }, [listDesignsParams, page, selectedDesignIds, queryClient, deleteMutation]);
 
   const handleDuplicate = useCallback(
     (id: string) => {
       duplicateMutation.mutate({ id } as any, {
         onSuccess: (data: any) => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
           if (data?.id) {
-            navigate(`/design/${data.id}`);
+            void navigate(`/design/${data.id}`);
           }
         },
       });
@@ -897,7 +898,7 @@ export default function Index() {
         });
       },
       onError: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
@@ -1306,7 +1307,7 @@ export default function Index() {
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
         creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
         onCreationModeChange={

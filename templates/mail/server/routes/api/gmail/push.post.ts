@@ -49,7 +49,7 @@ async function verifyPubSubToken(authHeader: string): Promise<JWTPayload> {
     throw new Error("GMAIL_PUSH_SIGNER_EMAIL not configured");
   }
   if (payload.email !== expectedSigner) {
-    throw new Error(`unexpected signer: ${payload.email}`);
+    throw new Error(`unexpected signer: ${String(payload.email)}`);
   }
 
   return payload;

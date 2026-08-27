@@ -1013,13 +1013,13 @@ ${["post", "put", "delete"]
   for (let i = 0; i < edgeDefaultStems.length; i++) {
     const stem = edgeDefaultStems[i];
     providedPluginStems.add(stem);
-    const varName = `defaultPlugin_${i}`;
+    const varName = `defaultPlugin_${String(i)}`;
 
     const workspaceExportName = workspaceCore?.plugins?.[stem as never];
     if (workspaceCore && workspaceExportName) {
       // Workspace-core layer wins over the framework default.
       pluginImports.push(
-        `import { ${workspaceExportName} as ${varName} } from ${JSON.stringify(
+        `import { ${String(workspaceExportName)} as ${varName} } from ${JSON.stringify(
           `${workspaceCore.packageName}/server`,
         )};`,
       );

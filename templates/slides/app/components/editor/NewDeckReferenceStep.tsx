@@ -179,7 +179,7 @@ export function NewDeckReferenceStep({
       return;
     }
 
-    onSelect({
+    void onSelect({
       designSystemId: selectedDesignSystemId,
       referenceDeckId: selectedReferenceDeckId,
       referenceSource: trimmedSource,

@@ -60,7 +60,7 @@ const markdownListeners = new Set<() => void>();
 
 export function loadMarkdown(): void {
   if (markdownModule !== null) return; // already loaded
-  Promise.all([
+  void Promise.all([
     import("react-markdown"),
     import("remark-gfm"),
     // react-dom/server powers the synchronous markdown→HTML string used for

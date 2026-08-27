@@ -58,10 +58,7 @@ export function RetryableCodeWorkbenchLoader({
   workbenchProps: CodeWorkbenchProps;
 }) {
   const [attempt, setAttempt] = useState(0);
-  const LazyCodeWorkbench = useMemo(
-    () => lazy(loadWorkbench),
-    [attempt, loadWorkbench],
-  );
+  const LazyCodeWorkbench = useMemo(() => lazy(loadWorkbench), [loadWorkbench]);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
 
   return (

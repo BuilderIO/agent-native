@@ -108,10 +108,12 @@ export function resolveEnabledAutomationsFromSavedConfig(config: {
 }
 
 export function isFactoryIdConflict(error: unknown): boolean {
+  const messageValue = (error as { message?: unknown } | null)?.message ?? "";
   const message = String(
-    (error as { message?: unknown } | null)?.message ?? "",
+    messageValue as string | number | boolean,
   ).toLowerCase();
-  const code = String((error as { code?: unknown } | null)?.code ?? "");
+  const codeValue = (error as { code?: unknown } | null)?.code ?? "";
+  const code = String(codeValue as string | number | boolean);
   return (
     code === "23505" ||
     code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
@@ -123,10 +125,12 @@ export function isFactoryIdConflict(error: unknown): boolean {
 }
 
 export function isFactorySlackChannelConflict(error: unknown): boolean {
+  const messageValue = (error as { message?: unknown } | null)?.message ?? "";
   const message = String(
-    (error as { message?: unknown } | null)?.message ?? "",
+    messageValue as string | number | boolean,
   ).toLowerCase();
-  const code = String((error as { code?: unknown } | null)?.code ?? "");
+  const codeValue = (error as { code?: unknown } | null)?.code ?? "";
+  const code = String(codeValue as string | number | boolean);
   const unique =
     code === "23505" ||
     code === "SQLITE_CONSTRAINT_UNIQUE" ||

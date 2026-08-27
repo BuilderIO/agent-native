@@ -1250,7 +1250,7 @@ function parametricShapePath(node: FigNode): string | null {
  */
 function withoutPrivateUse(text: string): string {
   if (!hasPrivateUseCharacters(text)) return text;
-  return [...text]
+  return Array.from(text)
     .filter((character) => !hasPrivateUseCharacters(character))
     .join("");
 }

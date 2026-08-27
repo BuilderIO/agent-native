@@ -162,18 +162,18 @@ export default function DesignSystems() {
 
   const openDesignSystemDetails = useCallback(
     (id: string) => {
-      navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
 
   const closeDesignSystemDetails = useCallback(() => {
-    navigate("/design-systems", { replace: true });
+    void navigate("/design-systems", { replace: true });
   }, [navigate]);
 
   const openSetupFromDesignSystem = useCallback(
     (id: string) => {
-      navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
@@ -252,7 +252,7 @@ export default function DesignSystems() {
 
       setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
         },
@@ -280,7 +280,7 @@ export default function DesignSystems() {
 
     deleteMutation.mutate({ id } as any, {
       onError: (error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.deleteError"), {
@@ -364,7 +364,7 @@ export default function DesignSystems() {
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
       .catch((error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.bulkDeleteError"), {

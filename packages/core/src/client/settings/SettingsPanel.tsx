@@ -1449,7 +1449,7 @@ function LLMSectionInner({
                             if (e.target.value.trim()) setClearBaseUrl(false);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSave();
+                            if (e.key === "Enter") void handleSave();
                           }}
                           placeholder={
                             baseUrlConfigured
@@ -1521,7 +1521,7 @@ function LLMSectionInner({
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleSave();
+                        if (e.key === "Enter") void handleSave();
                       }}
                       placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
                       className={cn(textInputClass(isPage), "flex-1")}
@@ -2294,7 +2294,7 @@ function EmailSectionInner({
       vars.push({ key: "RESEND_API_KEY", value: resendKey.trim() });
     if (fromAddr.trim())
       vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
-    if (vars.length) save(vars);
+    if (vars.length) void save(vars);
   };
 
   const saveSendgrid = () => {
@@ -2303,7 +2303,7 @@ function EmailSectionInner({
       vars.push({ key: "SENDGRID_API_KEY", value: sendgridKey.trim() });
     if (fromAddr.trim())
       vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
-    if (vars.length) save(vars);
+    if (vars.length) void save(vars);
   };
 
   return (

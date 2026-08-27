@@ -669,7 +669,7 @@ export function safeReturnPath(raw: string | null | undefined): string {
 // invalid as a Better Auth relative callback. Promote those paths to the
 // canonical app origin so the callback remains same-origin and valid there.
 const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
-  /^\/(?!\/|\\|%2f|%5c)[\w\-.\+/@]*(?:\?[\w\-.\+/=&%@]*)?$/i;
+  /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/i;
 
 function betterAuthCallbackURL(
   raw: string | null | undefined,

@@ -790,7 +790,7 @@ function toolResultContent(result: unknown, toolName?: string): string {
   try {
     return JSON.stringify(result);
   } catch {
-    return String(result ?? "");
+    return stringifyValue(result ?? "");
   }
 }
 
@@ -1002,7 +1002,7 @@ function estimateHistoryMessageCost(message: {
     cost += Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
-        // Price the string the request actually carries. `String(result)` is
+        // Price the string the request actually carries. `stringifyValue(result)` is
         // 15 chars ("[object Object]") for every object result, which is most
         // of them.
         toolResultContent(tool.result, tool.toolName).length,
@@ -1364,7 +1364,7 @@ function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value ?? "");
+    return stringifyValue(value ?? "");
   }
 }
 
@@ -2655,7 +2655,7 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
                 if (options?.requireCurrentTurn && activeTurnId !== turnId) {
@@ -2731,7 +2731,7 @@ export function createAgentChatAdapter(
                 }
                 const active = await activeRes.json();
                 if (!active?.active || !active.runId) return false;
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const dispatchMode =
                   typeof active.dispatchMode === "string"
                     ? active.dispatchMode
@@ -3191,7 +3191,7 @@ export function createAgentChatAdapter(
               }
               const recheckRunId =
                 recheck?.active === true && recheck.runId
-                  ? String(recheck.runId)
+                  ? stringifyValue(recheck.runId)
                   : null;
               if (recheckRunId && recheckRunId !== staleRunId) {
                 return "successor";
@@ -3306,7 +3306,9 @@ export function createAgentChatAdapter(
               typeof active?.turnId === "string" ? active.turnId : "";
             const activeStatus =
               typeof active?.status === "string" ? active.status : "";
-            const reportedRunId = active?.runId ? String(active.runId) : null;
+            const reportedRunId = active?.runId
+              ? stringifyValue(active.runId)
+              : null;
             // Some deployed readers report a terminal snapshot with
             // `active: false` while the row is being released. It is still
             // authoritative when it names this turn or a run we already
@@ -3915,7 +3917,7 @@ export function createAgentChatAdapter(
                 const body = await res.text();
                 const parsed = JSON.parse(body) as { error?: unknown };
                 if (parsed.error) {
-                  throw new Error(String(parsed.error));
+                  throw new Error(stringifyValue(parsed.error));
                 }
               } catch (e) {
                 if (
@@ -3933,7 +3935,7 @@ export function createAgentChatAdapter(
                 try {
                   const body = await res.json();
                   if (body?.activeRunId) {
-                    activeRunId = String(body.activeRunId);
+                    activeRunId = stringifyValue(body.activeRunId);
                   }
                 } catch {
                   // Fall through to the generic response handling below.
@@ -4657,4 +4659,14 @@ export function createAgentChatAdapter(
       }
     },
   };
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

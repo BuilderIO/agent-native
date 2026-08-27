@@ -750,7 +750,7 @@ export default function ShareRoute() {
       canOpenDashboard: viewerCanOpenDashboard,
       search: searchParams.toString(),
     });
-    if (target) navigate(target, { replace: true });
+    if (target) void navigate(target, { replace: true });
   }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
 
   // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
@@ -835,7 +835,7 @@ export default function ShareRoute() {
         sessionStorage.removeItem(STORAGE_KEY_PREFIX + shareId);
       } catch {}
     }
-  }, [needsPassword, password, shareId]);
+  }, [needsPassword, password, shareId, t]);
 
   function onSubmitPassword(pw: string) {
     setPwError(null);

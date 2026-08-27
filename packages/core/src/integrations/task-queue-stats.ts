@@ -69,10 +69,21 @@ const ZERO_STATS: TaskQueueStats = {
 };
 
 function isMissingTableError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? "");
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : (JSON.stringify(err ?? "") ?? "");
   return /no such table|does not exist|relation .* does not exist|undefined_table/i.test(
     msg,
   );
+}
+
+function stringValue(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value == null) return fallback;
+  return JSON.stringify(value) ?? fallback;
 }
 
 /**
@@ -167,9 +178,9 @@ export async function getTaskQueueStats(
     const recentFailures: RecentFailure[] = (
       failures.rows as Array<Record<string, unknown>>
     ).map((row) => ({
-      id: String(row.id ?? ""),
-      platform: String(row.platform ?? ""),
-      error: String(row.error_message ?? ""),
+      id: stringValue(row.id),
+      platform: stringValue(row.platform),
+      error: stringValue(row.error_message),
       attempts: Number(row.attempts ?? 0),
     }));
 
@@ -184,15 +195,15 @@ export async function getTaskQueueStats(
     });
     const recentTasks = (recent.rows as Array<Record<string, unknown>>).map(
       (row) => ({
-        id: String(row.id ?? ""),
-        platform: String(row.platform ?? ""),
-        status: String(row.status ?? ""),
+        id: stringValue(row.id),
+        platform: stringValue(row.platform),
+        status: stringValue(row.status),
         attempts: Number(row.attempts ?? 0),
         dispatch_attempts: Number(row.dispatch_attempts ?? 0),
         last_dispatch_outcome:
           row.last_dispatch_outcome == null
             ? null
-            : String(row.last_dispatch_outcome),
+            : stringValue(row.last_dispatch_outcome),
         age_seconds: Math.max(
           0,
           Math.floor((now - Number(row.created_at ?? now)) / 1000),
@@ -297,9 +308,9 @@ async function readA2AContinuationStats(
     const oldestCreatedAt = Number(live.rows[0]?.oldest_created_at ?? now);
     const recentOrphans = (orphaned.rows as Array<Record<string, unknown>>).map(
       (row) => ({
-        continuation_id: String(row.id ?? ""),
-        integration_task_id: String(row.integration_task_id ?? ""),
-        status: String(row.status ?? ""),
+        continuation_id: stringValue(row.id),
+        integration_task_id: stringValue(row.integration_task_id),
+        status: stringValue(row.status),
         attempts: Number(row.attempts ?? 0),
         age_seconds: Math.max(
           0,
@@ -331,7 +342,7 @@ async function readA2AContinuationStats(
 }
 
 function classifyA2AOrphanReason(value: unknown): string {
-  const message = String(value ?? "");
+  const message = stringValue(value);
   if (!message) return "missing_terminal_delivery";
   if (/timeout|timed out|abort/i.test(message)) return "timeout";
   if (/token|secret|auth|credential/i.test(message)) return "authentication";

@@ -35,7 +35,7 @@ describe("library recording cards", () => {
     const source = readSource("./recording-card.tsx");
 
     expect(source).toContain("IconFolderPlus");
-    expect(source).toContain('t(\"navigation.newFolder\")');
+    expect(source).toContain('t("navigation.newFolder")');
     expect(source).toContain("setTimeout(() => onCreateFolder?.(), 0)");
   });
 

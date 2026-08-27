@@ -99,7 +99,7 @@ async function relayWithRetryOwnershipHeartbeat<T>(
     result = await relay();
   } finally {
     clearInterval(timer);
-    await pending;
+    void pending;
   }
   return { result: result!, ownershipFailure };
 }

@@ -3269,7 +3269,7 @@ const AssistantChatInner = forwardRef<
   // instead of racing a second, separately-constructed AbortController.
   // Callers with no signal of their own keep the internal fallback timeout.
   const refreshThreadFromServer = useCallback(
-    async (signal?: AbortSignal): Promise<any | null> => {
+    async (signal?: AbortSignal): Promise<any> => {
       if (loadHistoryRepository) {
         try {
           const repo = await loadHistoryRepository();
@@ -4042,7 +4042,7 @@ const AssistantChatInner = forwardRef<
 
     if (loadHistoryRepository) {
       let cancelled = false;
-      (async () => {
+      void (async () => {
         try {
           const repo = await loadHistoryRepository();
           if (cancelled) return;
@@ -4071,7 +4071,7 @@ const AssistantChatInner = forwardRef<
       setIsRestoring(false);
     } else if (threadId) {
       let cancelled = false;
-      (async () => {
+      void (async () => {
         let canReconnect = false;
         try {
           const res = await fetch(
@@ -4122,10 +4122,7 @@ const AssistantChatInner = forwardRef<
               if (shouldCacheServerSnapshot) {
                 const { title, preview } = extractThreadMeta(repo);
                 writeCachedThreadSnapshot(apiUrl, threadId, {
-                  threadData:
-                    typeof data.threadData === "string"
-                      ? data.threadData
-                      : JSON.stringify(data.threadData),
+                  threadData: String(data.threadData),
                   title: data.title || title,
                   preview,
                   messageCount: Array.isArray(repo.messages)
@@ -4376,7 +4373,7 @@ const AssistantChatInner = forwardRef<
     if (serialized === lastPersistedQueueRef.current) return;
     const queueVersion = queueMutationVersionRef.current;
     const timer = setTimeout(() => {
-      (async () => {
+      void (async () => {
         try {
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued${threadScopeQuery}`,
@@ -5449,7 +5446,7 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery((current) =>
         current?.id === recovery.id ? null : current,
       );
-      addToQueue(
+      void addToQueue(
         recovery.message,
         undefined,
         undefined,
@@ -5478,7 +5475,7 @@ const AssistantChatInner = forwardRef<
         images?: string[],
         options?: AssistantChatSendOptions,
       ) {
-        addToQueue(
+        void addToQueue(
           text,
           images,
           undefined,
@@ -5520,7 +5517,7 @@ const AssistantChatInner = forwardRef<
         recoveryAction: AgentRecoveryAction,
         images?: string[],
       ) {
-        addToQueue(
+        void addToQueue(
           text,
           images,
           undefined,
@@ -5531,7 +5528,7 @@ const AssistantChatInner = forwardRef<
         );
       },
       queueMessage(text: string, images?: string[]) {
-        addToQueue(text, images);
+        void addToQueue(text, images);
       },
       isRunning() {
         return isRunning;
@@ -5672,7 +5669,7 @@ const AssistantChatInner = forwardRef<
   );
   const retryAfterRunError = useCallback(() => {
     setRunErrorInfo(null);
-    addToQueue(
+    void addToQueue(
       lastUserText
         ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
         : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
@@ -6234,7 +6231,7 @@ const AssistantChatInner = forwardRef<
                                           onContinue={() => {
                                             setShowContinue(false);
                                             setLoopLimitInfo(null);
-                                            addToQueue(
+                                            void addToQueue(
                                               "Continue from where you left off.",
                                               undefined,
                                               undefined,
@@ -6253,7 +6250,7 @@ const AssistantChatInner = forwardRef<
                                           info={visibleRunError}
                                           onContinue={() => {
                                             setRunErrorInfo(null);
-                                            addToQueue(
+                                            void addToQueue(
                                               RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                                               undefined,
                                               undefined,

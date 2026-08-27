@@ -166,10 +166,11 @@ describe("delete-events", () => {
 
     expect(result.deleted).toBe(2);
     expect(result.failed).toBe(0);
-    expect(deleteEventMock.mock.calls.map((call) => call[0]).sort()).toEqual([
-      "saturday-pt",
-      "sunday-pt",
-    ]);
+    expect(
+      deleteEventMock.mock.calls
+        .map((call) => call[0])
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["saturday-pt", "sunday-pt"]);
   });
 
   it("resolves all-day starts from their own date, not a timezone projection", async () => {

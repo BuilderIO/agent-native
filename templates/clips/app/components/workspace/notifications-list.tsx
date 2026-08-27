@@ -48,7 +48,12 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
 
 export function NotificationsList({ items, onReply }: NotificationsListProps) {
   const t = useT();
-  const { formatDate, formatRelativeTime } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = (date: Date) => formatters.formatDate(date);
+  const formatRelativeTime = (
+    value: number,
+    unit: Parameters<typeof formatters.formatRelativeTime>[1],
+  ) => formatters.formatRelativeTime(value, unit);
   if (!items.length) {
     return (
       <div className="text-center py-16 text-sm text-muted-foreground">

@@ -32,7 +32,7 @@ export interface AgentNativeEmbeddedCommandCallbackInfo {
 export type AgentNativeEmbeddedCommandCallback = (
   payload: unknown,
   info: AgentNativeEmbeddedCommandCallbackInfo,
-) => unknown | Promise<unknown>;
+) => Promise<unknown>;
 
 export interface AgentNativeEmbeddedBrowserSessionOptions {
   endpoint?: string;

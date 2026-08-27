@@ -46,7 +46,7 @@ interface AnimatedRect {
 }
 
 export const OverlayCanvas: Component<OverlayCanvasProps> = (props) => {
-  let canvasRef: HTMLCanvasElement | undefined;
+  let canvasRef: HTMLCanvasElement | undefined = undefined;
   let animFrameId: number | null = null;
   let currentRect: AnimatedRect = { x: 0, y: 0, width: 0, height: 0 };
   let targetRect: AnimatedRect | null = null;

@@ -123,7 +123,7 @@ export interface ComposerRuntimeAdapters {
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
       options: { timeoutMs: number },
-    ) => Promise<"missing" | "configured" | string>;
+    ) => Promise<"missing" | "configured" | (string & {})>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
     reasoning?: {
@@ -188,7 +188,15 @@ const fallbackTranslate: ComposerTranslate = (key, options) => {
 
   return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
     const value = options?.[name];
-    return value == null ? match : String(value);
+    return value == null
+      ? match
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value);
   });
 };
 const fallbackModels = {

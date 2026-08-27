@@ -1110,7 +1110,9 @@ function distinctCount(rows: AnalyticsAlertEventRow[], field: string): number {
   for (const row of rows) {
     const value = fieldValue(row, field);
     if (value === undefined || value === null || value === "") continue;
-    values.add(String(value));
+    values.add(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
   }
   return values.size;
 }
@@ -1173,7 +1175,10 @@ function valueEquals(actual: unknown, expected: unknown): boolean {
   if (actual === expected) return true;
   if (actual === undefined || actual === null) return false;
   if (expected === undefined || expected === null) return false;
-  return String(actual) === String(expected);
+  return (
+    (typeof actual === "string" ? actual : (JSON.stringify(actual) ?? "")) ===
+    (typeof expected === "string" ? expected : (JSON.stringify(expected) ?? ""))
+  );
 }
 
 function valueContains(actual: unknown, expected: unknown): boolean {
@@ -1181,7 +1186,11 @@ function valueContains(actual: unknown, expected: unknown): boolean {
   if (Array.isArray(actual)) {
     return actual.some((item) => valueEquals(item, expected));
   }
-  return String(actual).includes(String(expected ?? ""));
+  return (
+    typeof actual === "string" ? actual : (JSON.stringify(actual) ?? "")
+  ).includes(
+    typeof expected === "string" ? expected : (JSON.stringify(expected) ?? ""),
+  );
 }
 
 function valueIn(actual: unknown, expected: unknown): boolean {

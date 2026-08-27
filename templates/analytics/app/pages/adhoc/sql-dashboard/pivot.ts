@@ -88,8 +88,13 @@ export function pivotRows(
 
   for (const row of rows) {
     const xRaw = row[xKey];
-    const x = xRaw instanceof Date ? xRaw.toISOString() : String(xRaw ?? "");
-    const series = String(row[seriesKey] ?? "");
+    const x =
+      xRaw instanceof Date
+        ? xRaw.toISOString()
+        : typeof xRaw === "string"
+          ? xRaw
+          : "";
+    const series = typeof row[seriesKey] === "string" ? row[seriesKey] : "";
     if (!series) continue;
 
     if (!seenSeries.has(series)) {
@@ -110,7 +115,12 @@ export function pivotRows(
   const emitted = new Set<string>();
   for (const row of rows) {
     const xRaw = row[xKey];
-    const x = xRaw instanceof Date ? xRaw.toISOString() : String(xRaw ?? "");
+    const x =
+      xRaw instanceof Date
+        ? xRaw.toISOString()
+        : typeof xRaw === "string"
+          ? xRaw
+          : "";
     if (emitted.has(x)) continue;
     emitted.add(x);
     const bucket = byX.get(x);

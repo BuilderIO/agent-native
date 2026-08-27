@@ -495,7 +495,7 @@ async function extensionResponse(
 async function localExtensionSqlOnlyResponse(
   event: H3Event,
   extensionId: string,
-): Promise<unknown | null> {
+): Promise<unknown> {
   const localExtension = await getLocalExtension(extensionId);
   if (!localExtension) return null;
   setResponseStatus(event, 400);
@@ -581,8 +581,7 @@ async function handleExtensionDataUpsert(
     return { error: "data is required" };
   }
   const itemId = String(body.id || randomUUID());
-  const data =
-    typeof body.data === "string" ? body.data : JSON.stringify(body.data);
+  const data = String(body.data);
   if (Buffer.byteLength(data, "utf8") > MAX_EXTENSION_DATA_BYTES) {
     setResponseStatus(event, 413);
     return {
@@ -767,7 +766,7 @@ async function handleProxy(
 
     if (rawBody) {
       const bodyResult = await resolveKeyReferencesWithRequestScopes(
-        typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody),
+        String(rawBody),
         userEmail,
       );
       resolvedBody = bodyResult.resolved;
@@ -921,9 +920,9 @@ async function captureCliOutput(
   await previousCapture;
 
   const logs: string[] = [];
-  const origLog = console.log;
-  const origError = console.error;
-  const origStdoutWrite = process.stdout.write;
+  const origLog = console.log.bind(console);
+  const origError = console.error.bind(console);
+  const origStdoutWrite = process.stdout.write.bind(process.stdout);
   console.log = (...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   };

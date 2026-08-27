@@ -351,7 +351,9 @@ export default defineAction({
       };
     }
 
-    throw new Error(`Unsupported format: ${detectedFormat}`);
+    throw new Error(
+      `Unsupported format: ${typeof detectedFormat === "string" ? detectedFormat : (JSON.stringify(detectedFormat) ?? "unknown")}`,
+    );
   },
 });
 

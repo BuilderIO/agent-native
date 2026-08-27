@@ -844,7 +844,8 @@ export function LoopLimitContinueCard({
   onContinue: () => void;
 }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );

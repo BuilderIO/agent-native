@@ -617,8 +617,8 @@ export function DocumentToolbar({
         });
       } catch (err) {
         setPendingHideFromSearch(previous);
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         toast.error(t("editor.toolbar.failedToUpdateSharing"), {
@@ -628,8 +628,8 @@ export function DocumentToolbar({
         throw err;
       } finally {
         setPendingHideFromSearch(null);
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       }
@@ -710,7 +710,7 @@ export function DocumentToolbar({
       toast.success(t("editor.toolbar.shareableCopyReady"), {
         description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
-      navigate(`/page/${result.id}?share=1`);
+      void navigate(`/page/${result.id}?share=1`);
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCreateShareableCopy"), {
         description:
@@ -725,9 +725,12 @@ export function DocumentToolbar({
       const params = new URLSearchParams(location.search);
       params.delete("share");
       const nextSearch = params.toString();
-      navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`, {
-        replace: true,
-      });
+      void navigate(
+        `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
+        {
+          replace: true,
+        },
+      );
     },
     [location.pathname, location.search, navigate, openShareOnLoad],
   );
@@ -890,7 +893,7 @@ export function DocumentToolbar({
               onOpenBreadcrumbItem(id);
               return;
             }
-            navigate(`/page/${id}`, { flushSync: true });
+            void navigate(`/page/${id}`, { flushSync: true });
           }}
         />
 

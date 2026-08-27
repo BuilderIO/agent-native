@@ -1452,7 +1452,7 @@ function emptyFidelityReport(): NativeCreativeArtifactFidelityReport {
 function lexicalIndexText(html: string, plainText: string): string {
   const tokens = new Set<string>();
   for (const match of html.matchAll(
-    /#[0-9a-f]{6}\b|font-family:[^;\"]+|class="([^"]+)"/gi,
+    /#[0-9a-f]{6}\b|font-family:[^;"]+|class="([^"]+)"/gi,
   )) {
     const value = (match[1] ?? match[0]).trim();
     for (const token of value.split(/\s+/))
@@ -1595,7 +1595,7 @@ function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 

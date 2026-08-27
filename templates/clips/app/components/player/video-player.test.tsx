@@ -473,7 +473,7 @@ describe("VideoPlayer playback", () => {
       .mockReturnValue(new Promise<void>(() => {}));
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(playSpy).toHaveBeenCalledTimes(1);
@@ -528,7 +528,7 @@ describe("VideoPlayer playback", () => {
     video.currentTime = 10;
 
     act(() => {
-      handleRef.current?.play();
+      void handleRef.current?.play();
     });
 
     expect(video.currentTime).toBe(0);

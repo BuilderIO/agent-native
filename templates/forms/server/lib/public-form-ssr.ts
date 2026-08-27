@@ -113,7 +113,11 @@ function toSafeString(value: unknown): string {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(value);
+  return typeof value === "string"
+    ? value
+    : value == null
+      ? ""
+      : JSON.stringify(value);
 }
 
 function escapeHtml(value: unknown): string {

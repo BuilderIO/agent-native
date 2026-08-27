@@ -1412,7 +1412,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width]);
+  }, [dims.width, dims.height]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -2003,7 +2003,6 @@ export default function SlideEditor({
     selectElementForStyling,
     slide.id,
     clearSelectedElement,
-    syncSelectionToAppState,
     onInlineEditEnd,
   ]);
 
@@ -2237,7 +2236,6 @@ export default function SlideEditor({
     exitInlineEdit,
     editingEl,
     captureInlineEditDraft,
-    selectAllEditableText,
     slide.id,
     getSlideContent,
   ]);
@@ -2374,6 +2372,7 @@ export default function SlideEditor({
     settledAutofitKey,
     selectionOverlayMeasurementKey,
     slide.content,
+    slide.id,
   ]);
 
   // Deselect when clicking outside
@@ -4004,7 +4003,6 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       selectElementForStyling,
-      snapSlideObjectMove,
       updateAlignmentGuides,
     ],
   );
@@ -4511,8 +4509,6 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       readOnly,
       refreshMultiSelectionRects,
-      snapSlideObjectMove,
-      unionSlideObjectGeometries,
       updateAlignmentGuides,
     ],
   );
@@ -4638,7 +4634,6 @@ export default function SlideEditor({
     applyObjectGeometry,
     commitMultiObjectChange,
     editingEl,
-    findPersistedImageObject,
     freezeElementForFreeformSelection,
     getObjectGeometry,
     getSlideContent,

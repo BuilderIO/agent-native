@@ -82,8 +82,8 @@ export default function NotificationsRoute() {
       toast.success(t("notificationsRoute.replySent"));
       setReplyText("");
       setReplyFor(null);
-      qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
-      qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("notificationsRoute.sendFailed"),
@@ -164,7 +164,7 @@ export default function NotificationsRoute() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    handleSendReply();
+                    void handleSendReply();
                   }
                 }}
                 autoFocus

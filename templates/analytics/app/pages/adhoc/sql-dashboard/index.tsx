@@ -377,7 +377,11 @@ const PanelCell = memo(function PanelCell({
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
-        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        dashboardId={
+          typeof dashboardExtensionContext.dashboardId === "string"
+            ? dashboardExtensionContext.dashboardId
+            : ""
+        }
         filters={vars}
         extensionContext={
           panel.chartType === "extension"
@@ -841,7 +845,7 @@ function SqlDashboardPageContent({
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
@@ -1104,13 +1108,13 @@ function SqlDashboardPageContent({
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-sidebar", dashboardScope],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-palette", dashboardScope],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
           });
         })
@@ -1156,13 +1160,13 @@ function SqlDashboardPageContent({
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
     },
@@ -1629,19 +1633,19 @@ function SqlDashboardPageContent({
     if (!dashboardId) return;
     if (!canManage) return;
     await deleteDashboardAction({ id: dashboardId });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["sql-dashboards-sidebar", dashboardScope],
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["sql-dashboards-palette", dashboardScope],
     });
     queryClient.removeQueries({
       queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
     });
-    navigate("/");
+    void navigate("/");
   }, [
     dashboardId,
     dashboardScope,
@@ -1668,17 +1672,17 @@ function SqlDashboardPageContent({
     if (archivedAt) return;
     try {
       await archiveDashboardAction({ id: dashboardId, archived: true });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
       toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-      navigate("/");
+      void navigate("/");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Couldn't archive dashboard",
@@ -1703,16 +1707,16 @@ function SqlDashboardPageContent({
         hidden: false,
       });
       setHiddenAt(null);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", dashboardScope],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
       toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);

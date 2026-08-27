@@ -166,7 +166,7 @@ function CliPopoverContent({ template }: { template: Template }) {
   const t = useT();
 
   function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
+    void navigator.clipboard.writeText(template.cliCommand);
     setCopied(true);
     trackEvent("copy cli command", {
       template: template.slug,

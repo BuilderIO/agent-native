@@ -288,7 +288,7 @@ export default function ExplorerDashboardPage() {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as ExplorerDashboardData;
@@ -413,10 +413,10 @@ export default function ExplorerDashboardPage() {
         id: dashboardId,
         archived: true,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
       toast.success(
@@ -424,7 +424,7 @@ export default function ExplorerDashboardPage() {
           name: dashboard?.name ?? t("explorerDashboard.dashboardFallback"),
         }),
       );
-      navigate("/dashboards/explorer");
+      void navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -447,13 +447,13 @@ export default function ExplorerDashboardPage() {
       await hideDashboardAction({ id: dashboardId, hidden: false });
       setHiddenAt(null);
       setHiddenBy(null);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "explorer-dashboard", dashboardId],
       });
       toast.success(
@@ -486,11 +486,11 @@ export default function ExplorerDashboardPage() {
         { queryKey: ["data", "explorer-dashboard", dashboardId] },
         (prev) => (prev ? { ...prev, data: updated } : prev),
       );
-      saveDashboard(dashboardId, updated).then(() => {
-        queryClient.invalidateQueries({
+      void saveDashboard(dashboardId, updated).then(() => {
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-sidebar"],
         });
       });
@@ -801,14 +801,14 @@ export default function ExplorerDashboardPage() {
                         await callAction("delete-explorer-dashboard", {
                           id: dashboardId,
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-sidebar"],
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/dashboards/explorer");
+                        void navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error

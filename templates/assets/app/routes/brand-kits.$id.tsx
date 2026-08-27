@@ -409,7 +409,7 @@ export function BrandKitDetailRoute({
 
   useEffect(() => {
     if (urlTab === "settings") {
-      navigate(`/brand-kits/${libraryId}/settings`, { replace: true });
+      void navigate(`/brand-kits/${libraryId}/settings`, { replace: true });
       return;
     }
     if (!urlTab) return;
@@ -954,7 +954,7 @@ export function BrandKitDetailRoute({
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
       toast.success(t("library.brandKitArchived"));
-      navigate("/library");
+      void navigate("/library");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -971,7 +971,7 @@ export function BrandKitDetailRoute({
         id: library.id,
       })) as any;
       toast.success(t("library.privateBrandKitCopyCreated"));
-      navigate(`/library/${copy.id}`);
+      void navigate(`/library/${copy.id}`);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -1646,7 +1646,7 @@ function RunCard({
         />
         <RunFact
           label={t("brandKitDetail.refs")}
-          value={`${selectedReferenceIds.length} ${String(referenceSelection.mode ?? "selected")}`}
+          value={`${selectedReferenceIds.length} ${typeof referenceSelection.mode === "string" ? referenceSelection.mode : "selected"}`}
         />
         <RunFact
           label={t("brandKitDetail.grounding")}
@@ -2114,7 +2114,7 @@ function AssetSwimlaneBoard({
 }) {
   const t = useT();
   const [bulkContextOpen, setBulkContextOpen] = useState(false);
-  const [previewAsset, setPreviewAsset] = useState<any | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<any>(null);
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");

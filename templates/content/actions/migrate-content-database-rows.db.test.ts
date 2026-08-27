@@ -787,10 +787,11 @@ describe("migrate-content-database-rows", () => {
       ),
     ]);
 
-    expect(results.map((result: any) => result.replayed).sort()).toEqual([
-      false,
-      true,
-    ]);
+    expect(
+      results
+        .map((result: any) => result.replayed)
+        .sort((a, b) => Number(a) - Number(b)),
+    ).toEqual([false, true]);
     expect(
       await getDb()
         .select()

@@ -190,7 +190,7 @@ export async function mountAgentNativeEmbedded(
   // factory call here: with default Better Auth, its DB bootstrap can be the
   // thing that is unavailable while public liveness routes still need to
   // mount below.
-  createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
+  void createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
     nitroApp,
   );
 

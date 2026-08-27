@@ -5,6 +5,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : testString(value);
 
 const orgQueryState = vi.hoisted(() => ({
   data: undefined as unknown,
@@ -113,7 +127,7 @@ function setupFetch(options?: {
     // is exactly what `callAction`'s timeout does. This lets a test prove the
     // timeout drains `inFlightSaves` instead of wedging it.
     if (href.includes("/_agent-native/actions/save-deck")) {
-      const deckId = String(actionCallBody(init).deckId ?? "");
+      const deckId = testString(actionCallBody(init).deckId ?? "");
       const attempts = (putAttempts.get(deckId) ?? 0) + 1;
       putAttempts.set(deckId, attempts);
       if (
@@ -212,7 +226,7 @@ function setupFetch(options?: {
     }
 
     if (href.includes("/_agent-native/actions/patch-deck")) {
-      const deckId = String(actionCallBody(init).deckId ?? "");
+      const deckId = testString(actionCallBody(init).deckId ?? "");
       const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
       patchAttempts.set(deckId, attempts);
       if (
@@ -278,7 +292,7 @@ function setupFetch(options?: {
 
 function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
-    String(url).includes("/_agent-native/actions/get-deck"),
+    requestString(url).includes("/_agent-native/actions/get-deck"),
   );
 }
 
@@ -286,7 +300,10 @@ function actionCallBody(
   init: RequestInit | undefined,
 ): Record<string, unknown> {
   try {
-    return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    return JSON.parse(testString(init?.body ?? "{}")) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return {};
   }
@@ -298,7 +315,7 @@ function deletedDeck(
 ): boolean {
   return fetchMock.mock.calls.some(
     ([url, init]) =>
-      String(url).includes("/_agent-native/actions/delete-deck") &&
+      requestString(url).includes("/_agent-native/actions/delete-deck") &&
       init?.method === "DELETE" &&
       actionCallBody(init).id === deckId,
   );
@@ -356,7 +373,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.loading).toBe(true);
     expect(
       fetchMock.mock.calls.some(([url]) =>
-        String(url).includes("/_agent-native/actions/list-decks"),
+        requestString(url).includes("/_agent-native/actions/list-decks"),
       ),
     ).toBe(false);
 
@@ -417,7 +434,7 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/_agent-native/actions/patch-deck"),
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
     ).toHaveLength(1);
 
@@ -429,7 +446,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/_agent-native/actions/patch-deck"),
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
     expect(patchCalls).toHaveLength(2);
     expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
@@ -499,7 +516,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       fetchMock.mock.calls.some(
         ([url, init]) =>
-          String(url).includes("/_agent-native/actions/patch-deck") &&
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
           init?.keepalive === true,
       ),
     ).toBe(true);
@@ -787,7 +804,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
       return actionCallBody(init).deckId === "inline-draft-deck";
@@ -854,7 +871,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
       return actionCallBody(init).deckId === "inline-revert-deck";
@@ -919,7 +936,7 @@ describe("DeckContext deck creation persistence", () => {
     });
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/_agent-native/actions/patch-deck"),
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
     ).toHaveLength(1);
 
@@ -981,7 +998,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const fullSaveCalls = fetchMock.mock.calls.filter(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         actionCallBody(init).deckId === "inline-render-deck"
       );
     });
@@ -1071,16 +1088,16 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
+      const body = JSON.parse(testString(init?.body ?? "{}")) as {
         deckId?: string;
       };
       return body.deckId === deckId;
     });
     expect(patchCall).toBeTruthy();
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(testString(patchCall?.[1]?.body))).toMatchObject({
       deckId,
       operations: [
         {
@@ -1389,7 +1406,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const putCall = fetchMock.mock.calls.find(
       ([url, init]) =>
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         init?.method === "PUT" &&
         actionCallBody(init).deckId === deckId,
     );
@@ -1400,16 +1417,16 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe("<div>Generated</div>");
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
+      const body = JSON.parse(testString(init?.body ?? "{}")) as {
         deckId?: string;
       };
       return body.deckId === deckId;
     });
     expect(patchCall).toBeTruthy();
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(testString(patchCall?.[1]?.body))).toMatchObject({
       deckId,
       operations: [
         {
@@ -1480,7 +1497,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(getPatchAttempts("gesture-deck")).toBeGreaterThanOrEqual(2);
 
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/_agent-native/actions/patch-deck"),
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
     const orderedRetry = patchCalls.find(([, init]) => {
       const operations = actionCallBody(init).operations;
@@ -1808,7 +1825,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const saveCall = fetchMock.mock.calls.find(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         init?.method === "PUT" &&
         actionCallBody(init).deckId === "shared-deck"
       );
@@ -1817,7 +1834,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/patch-deck") &&
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
         actionCallBody(init).deckId === "shared-deck"
       );
     });
@@ -1893,7 +1910,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/patch-deck") &&
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
         actionCallBody(init).deckId === "shared-deck"
       );
     });
@@ -2540,7 +2557,7 @@ describe("DeckContext deck creation persistence", () => {
     });
     const saveCalls = fetchMock.mock.calls.filter(
       ([url, init]) =>
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         actionCallBody(init).deckId === initial.id,
     );
     expect(saveCalls).toHaveLength(2);
@@ -2940,7 +2957,7 @@ describe("DeckContext deck creation persistence", () => {
     });
     const saveCalls = fetchMock.mock.calls.filter(
       ([url, init]) =>
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         actionCallBody(init).deckId === initial.id,
     );
     expect(saveCalls).toHaveLength(1);

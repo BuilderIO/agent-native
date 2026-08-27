@@ -561,7 +561,7 @@ export default function Index() {
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
     setShowNewDeckPrompt(true);
-    navigate(".", { replace: true, state: null });
+    void navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
 
   const handleCreateDeckBlank = () => {
@@ -579,7 +579,7 @@ export default function Index() {
       setIsStartingNewDeck(false);
       return;
     }
-    navigate(`/deck/${deck.id}`);
+    void navigate(`/deck/${deck.id}`);
   };
 
   const handleCreateDeckWithPrompt = async (
@@ -638,7 +638,7 @@ export default function Index() {
     // Leave the grid as soon as the optimistic deck exists. Persistence and
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
-    navigate(`/deck/${deck.id}?generating=1`, {
+    void navigate(`/deck/${deck.id}?generating=1`, {
       replace: true,
       flushSync: true,
     });
@@ -654,7 +654,7 @@ export default function Index() {
         typeof window !== "undefined" &&
         deckIdFromPathname(window.location.pathname) === deckId
       ) {
-        navigate("/", {
+        void navigate("/", {
           replace: true,
           state: {
             retryPrompt: prompt,
@@ -773,7 +773,7 @@ export default function Index() {
           "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
           "After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, or another opaque alphanumeric token as the title. Call `patch-deck` with `deckId: \"" +
             deckId +
-            '\"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder, and do not reuse the uploaded filename or a generic label like "Untitled scene" when the content can describe the deck better.',
+            '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder, and do not reuse the uploaded filename or a generic label like "Untitled scene" when the content can describe the deck better.',
           "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
           "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
           "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
@@ -861,7 +861,7 @@ export default function Index() {
           );
         }
         await reloadDecks();
-        navigate(`/deck/${imported.id}`, { flushSync: true });
+        void navigate(`/deck/${imported.id}`, { flushSync: true });
         return true;
       }
 
@@ -888,7 +888,7 @@ export default function Index() {
           throw new Error("The PowerPoint presentation did not create a deck.");
         }
         await reloadDecks();
-        navigate(`/deck/${imported.id}`, { flushSync: true });
+        void navigate(`/deck/${imported.id}`, { flushSync: true });
         return true;
       }
 
@@ -932,7 +932,7 @@ export default function Index() {
           throw new Error("The PDF could not be imported into the new deck.");
         }
         await reloadDecks();
-        navigate(`/deck/${deck.id}`, { flushSync: true });
+        void navigate(`/deck/${deck.id}`, { flushSync: true });
         return true;
       } catch (error) {
         deleteDeck(deck.id);
@@ -940,7 +940,6 @@ export default function Index() {
       }
     },
     [
-      callAction,
       createDeck,
       deleteDeck,
       ensureDeckPersisted,
@@ -1106,15 +1105,7 @@ export default function Index() {
         setReferenceImporting(false);
       }
     },
-    [
-      callAction,
-      createDeck,
-      deleteDeck,
-      ensureDeckPersisted,
-      pendingDeck,
-      reloadDecks,
-      t,
-    ],
+    [createDeck, deleteDeck, ensureDeckPersisted, pendingDeck, reloadDecks, t],
   );
 
   const handleReferenceSourceImport = useCallback(
@@ -1166,7 +1157,7 @@ export default function Index() {
         setReferenceImporting(false);
       }
     },
-    [callAction, reloadDecks, t],
+    [reloadDecks, t],
   );
 
   const handleReferenceSkip = useCallback(() => {
@@ -1297,7 +1288,7 @@ export default function Index() {
         // there, send them back to the deck list instead of stranding them
         // on a "Deck unavailable" screen for a deck that no longer exists.
         if (deckIdFromPathname(window.location.pathname) === newId) {
-          navigate("/");
+          void navigate("/");
         }
         toast.error(t("home.duplicateFailed"));
       });
@@ -1307,7 +1298,7 @@ export default function Index() {
         toast.error(t("home.duplicateFailed"));
         return;
       }
-      navigate(`/deck/${copy.id}`);
+      void navigate(`/deck/${copy.id}`);
     },
     [duplicateDeck, navigate, t],
   );

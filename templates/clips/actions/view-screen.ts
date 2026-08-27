@@ -216,7 +216,7 @@ async function fetchLibrary({
   // subquery must be built off *that*. Building it off `db` hands an unresolved
   // chain to notInArray(), which reads `.getSQL()` synchronously on a cold-start
   // proxy. The subquery filters NULLs so NOT IN doesn't collapse to empty.
-  const resolvedDb = await db;
+  const resolvedDb = db;
   const meetingRecordingIds = resolvedDb
     .select({ id: schema.meetings.recordingId })
     .from(schema.meetings)

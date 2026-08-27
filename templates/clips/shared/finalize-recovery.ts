@@ -71,7 +71,9 @@ export function isStoredButUnservableFinalizeError(value: unknown): boolean {
       : value instanceof Error
         ? value.message
         : value && typeof value === "object" && "message" in value
-          ? String((value as { message?: unknown }).message ?? "")
+          ? typeof (value as { message?: unknown }).message === "string"
+            ? (value as { message: string }).message
+            : ""
           : "";
   return /\bstored-but-unservable\b/i.test(message);
 }

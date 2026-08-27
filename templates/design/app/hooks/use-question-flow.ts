@@ -181,7 +181,6 @@ export function useQuestionFlow(
     },
     [
       continuationTabId,
-      designId,
       flow,
       getGenerationBrief,
       getModelSelection,

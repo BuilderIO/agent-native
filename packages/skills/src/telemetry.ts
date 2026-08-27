@@ -88,7 +88,9 @@ function redactExceptionText(value: string): string {
 
 function boundedExceptionText(value: unknown, max: number): string {
   const text =
-    typeof value === "string" ? value : String(value ?? "Unknown error");
+    typeof value === "string"
+      ? value
+      : (JSON.stringify(value) ?? "Unknown error");
   const safe = redactExceptionText(text);
   return safe.length > max ? safe.slice(0, max) : safe;
 }

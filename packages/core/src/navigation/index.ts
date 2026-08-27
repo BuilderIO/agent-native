@@ -26,7 +26,7 @@ export type StandardSettingsTabId =
   (typeof STANDARD_SETTINGS_TABS)[keyof typeof STANDARD_SETTINGS_TABS];
 
 export interface BuildStandardAppRouteOptions {
-  settingsTab?: StandardSettingsTabId | string | null;
+  settingsTab?: string | null;
   teamInSettings?: boolean;
 }
 
@@ -109,7 +109,7 @@ function resolveOpenPathRoute(
 }
 
 export function buildSettingsRoute(
-  tab?: StandardSettingsTabId | string | null,
+  tab?: string | null,
   basePath = STANDARD_APP_ROUTES.settings,
 ): string {
   const path = normalizeLeadingPath(basePath);

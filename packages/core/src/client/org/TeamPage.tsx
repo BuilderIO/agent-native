@@ -1812,7 +1812,7 @@ function BulkInviteForm({
   }
 
   function handleFile(file: File) {
-    file.text().then((text) => {
+    void file.text().then((text) => {
       const emails = parseCsvEmails(text);
       if (emails.length) {
         appendEmails(emails, "member");
@@ -2457,7 +2457,7 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
   );
 
   function writeClipboard(value: string) {
-    navigator.clipboard.writeText(value).then(() => {
+    void navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
