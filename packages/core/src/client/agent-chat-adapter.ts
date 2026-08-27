@@ -4406,15 +4406,18 @@ export function createAgentChatAdapter(
                 content.pop();
               }
               if (continueAfterMissingFinalResponse()) {
+                cancelDelayedJsonProbe();
                 continue;
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
+              cancelDelayedJsonProbe();
               clearOwnedActiveRun();
               return;
             }
 
             // Run completed normally — clear active run state
+            cancelDelayedJsonProbe();
             clearOwnedActiveRun();
             return;
           } catch (err: unknown) {
