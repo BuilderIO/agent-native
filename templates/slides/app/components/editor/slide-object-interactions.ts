@@ -64,7 +64,7 @@ export type SlidesSelectionMode =
   | "resizing"
   | "canvas";
 
-export type SlidesSelectionTool = "select" | "draw" | "pin" | "text";
+export type SlidesSelectionTool = "select" | "draw" | "pin" | "text" | "shape";
 
 export interface SlidesSelectionState<TItem> {
   deckId?: string;
@@ -117,6 +117,7 @@ export function createSlidesSelectionState<TItem>({
   drawMode,
   pinMode,
   textBoxMode,
+  shapeMode = false,
   activeTool,
 }: {
   deckId?: string;
@@ -127,6 +128,7 @@ export function createSlidesSelectionState<TItem>({
   drawMode: boolean;
   pinMode: boolean;
   textBoxMode: boolean;
+  shapeMode?: boolean;
   activeTool?: SlidesSelectionTool;
 }): SlidesSelectionState<TItem> {
   return {
@@ -137,7 +139,15 @@ export function createSlidesSelectionState<TItem>({
     mode,
     activeTool:
       activeTool ??
-      (drawMode ? "draw" : pinMode ? "pin" : textBoxMode ? "text" : "select"),
+      (drawMode
+        ? "draw"
+        : pinMode
+          ? "pin"
+          : textBoxMode
+            ? "text"
+            : shapeMode
+              ? "shape"
+              : "select"),
     items,
   };
 }

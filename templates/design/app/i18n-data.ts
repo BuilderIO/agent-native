@@ -1125,6 +1125,8 @@ const enUS = {
         "Tweaks aren't saved yet. Keep this tab open and try again.",
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
+      saveConflict:
+        "This screen changed elsewhere. Your last edit was not saved.",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
@@ -1968,6 +1970,7 @@ const designLocaleOverrides = {
         svgExportError: "无法导出 SVG",
         undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
         redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
+        saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
       },
     },
     designSystemSetup: {
@@ -2394,6 +2397,8 @@ const designLocaleOverrides = {
         svgExportError: "No se pudo exportar SVG",
         undoSkippedConcurrentEdit: "Se omitió deshacer: otra persona movió eso",
         redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
+        saveConflict:
+          "Esta pantalla cambió en otro lugar. Tu última edición no se guardó.",
       },
     },
     designSystemSetup: {
@@ -2845,6 +2850,8 @@ const designLocaleOverrides = {
           "Annulation ignorée : quelqu'un d'autre a déplacé cet élément",
         redoSkippedConcurrentEdit:
           "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
+        saveConflict:
+          "Cet écran a été modifié ailleurs. Votre dernière modification n'a pas été enregistrée.",
       },
     },
     designSystemSetup: {
@@ -3297,6 +3304,8 @@ const designLocaleOverrides = {
           "Rückgängig übersprungen – jemand anderes hat das verschoben",
         redoSkippedConcurrentEdit:
           "Wiederholen übersprungen – jemand anderes hat das verschoben",
+        saveConflict:
+          "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
       },
     },
     designSystemSetup: {
@@ -3748,6 +3757,8 @@ const designLocaleOverrides = {
           "元に戻す操作をスキップしました — 他のユーザーがそれを移動しました",
         redoSkippedConcurrentEdit:
           "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
+        saveConflict:
+          "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
       },
     },
     designSystemSetup: {
@@ -4194,6 +4205,8 @@ const designLocaleOverrides = {
           "실행 취소를 건너뛰었습니다 — 다른 사용자가 이동했습니다",
         redoSkippedConcurrentEdit:
           "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
+        saveConflict:
+          "이 화면이 다른 곳에서 변경되었습니다. 마지막 편집이 저장되지 않았습니다.",
       },
     },
     designSystemSetup: {
@@ -4633,6 +4646,8 @@ const designLocaleOverrides = {
         undoSkippedConcurrentEdit:
           "Desfazer ignorado — outra pessoa moveu isso",
         redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
+        saveConflict:
+          "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
       },
     },
     designSystemSetup: {
@@ -5079,6 +5094,7 @@ const designLocaleOverrides = {
           "पूर्ववत करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
         redoSkippedConcurrentEdit:
           "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
+        saveConflict: "यह स्क्रीन कहीं और बदल गई। आपका पिछला संपादन सहेजा नहीं गया।",
       },
     },
     designSystemSetup: {
@@ -5513,6 +5529,7 @@ const designLocaleOverrides = {
         svgExportError: "تعذر تصدير SVG",
         undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
         redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
+        saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
       },
     },
     designSystemSetup: {

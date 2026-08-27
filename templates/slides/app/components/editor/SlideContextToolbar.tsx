@@ -34,6 +34,7 @@ import {
   IconSpacingVertical,
   IconStackBack,
   IconStackFront,
+  IconTransitionRight,
   IconUnderline,
   IconZoomIn,
   IconZoomOut,
@@ -144,6 +145,9 @@ export function SlideContextToolbar({
   designSystem,
   className,
   leading,
+  animationsOpen = false,
+  hasSelectedElement = Boolean(snapshot),
+  onOpenAnimations,
   onChange,
   onBackgroundChange,
   onArrange,
@@ -159,6 +163,12 @@ export function SlideContextToolbar({
   className?: string;
   /** Selection-independent actions pinned to the head of the row. */
   leading?: ReactNode;
+  /** Whether the canvas currently has an element selected. */
+  hasSelectedElement?: boolean;
+  /** Whether the selected-element transitions panel is open. */
+  animationsOpen?: boolean;
+  /** Open transitions for the current canvas selection. */
+  onOpenAnimations?: () => void;
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: "front" | "back") => void;
@@ -231,6 +241,30 @@ export function SlideContextToolbar({
       {leading && (
         <>
           {leading}
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
+      {hasSelectedElement && onOpenAnimations && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  MENU_BUTTON_CLASS,
+                  animationsOpen && TOGGLE_ACTIVE_CLASS,
+                )}
+                aria-label={t("editorToolbar.transition")}
+                aria-pressed={animationsOpen}
+                onClick={onOpenAnimations}
+              >
+                <IconTransitionRight className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorToolbar.transition")}</TooltipContent>
+          </Tooltip>
           <div className={TOOLBAR_DIVIDER} />
         </>
       )}
