@@ -45,6 +45,22 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('params.set("tab", tab)');
   });
 
+  it("builds pin mutations from the resolved visible pins", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("const current = pinnedLabels;");
+    expect(source).toContain("[pinnedLabels, updateSettings],");
+  });
+
+  it("keeps pinned tab dragging aligned with the displayed pin order", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("const canDrag = !!tab.pinnedId;");
+    expect(source).toContain(
+      "const current = pinnedLabels;\n    if (!current.includes(dragPinnedId)) return;",
+    );
+  });
+
   it("keeps exclusive tab badges local and mirrors primary tabs on mobile", () => {
     const source = appLayoutSource();
 
