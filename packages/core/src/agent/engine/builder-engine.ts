@@ -49,6 +49,7 @@ import {
 } from "./credential-errors.js";
 import {
   classifyTerminalErrorCode,
+  canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
@@ -656,8 +657,10 @@ async function* emitHttpError(
       errBody.message = normalizeGatewayErrorText(rawText, status);
     }
   }
-  const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
+  const code =
+    canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
+    `http_${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
     gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 
@@ -990,7 +993,10 @@ async function* parseJsonlStream(
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
-            const gatewayErrCode = event.errorCode ?? event.code;
+            const gatewayErrCode = canonicalizeBuilderGatewayErrorCode(
+              event.errorCode ?? event.code,
+              String(errMsg),
+            );
             // The gateway already authenticated this request before streaming,
             // so a bare "Unauthorized" here means the account cannot use this
             // model — not that the connection is broken. Only a message that
