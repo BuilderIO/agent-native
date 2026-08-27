@@ -24,7 +24,6 @@ import { formatGoogleOAuthError } from "../lib/google-docs-error.js";
 import {
   disconnectGoogleDocs,
   exchangeGoogleDocsCode,
-  getGoogleDocsAccessToken,
   getGoogleDocsAuthUrl,
   getGooglePickerConfig,
   hasGoogleDriveExportScope,
