@@ -46,7 +46,14 @@ function useEagerFileUploadsMock<T>(
     uploadsRef.current.clear();
     setUploading(false);
   }, []);
-  return { uploadFiles, uploading, reset };
+  return {
+    commitFiles: () => {},
+    discardFiles: () => {},
+    syncFiles: () => {},
+    uploadFiles,
+    uploading,
+    reset,
+  };
 }
 
 vi.mock("@agent-native/core/client/composer", () => ({

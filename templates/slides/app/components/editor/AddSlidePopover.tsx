@@ -1,5 +1,8 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { PromptComposer } from "@agent-native/core/client/composer";
+import {
+  PromptComposer,
+  useEagerFileUploads,
+} from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
 import {
@@ -15,6 +18,7 @@ import { toast } from "sonner";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import {
   isInsidePortaledLayer,
+  uploadPromptFiles,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
@@ -100,6 +104,26 @@ export function AddSlidePopover({
   // Estimate before the panel has painted so the first frame doesn't hang
   // off the bottom of the viewport; corrected once the real height is known.
   const [panelHeight, setPanelHeight] = useState(320);
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
+  const {
+    commitFiles,
+    syncFiles,
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+  } = useEagerFileUploads(uploadPromptFiles, {
+    onDiscard: deleteUploadedFile,
+  });
 
   useLayoutEffect(() => {
     if (!open || !panelRef.current) return;
@@ -150,19 +174,7 @@ export function AddSlidePopover({
       let uploaded: UploadedFile[] = [];
       if (files.length > 0) {
         try {
-          const formData = new FormData();
-          files.forEach((f) => formData.append("files", f));
-          const res = await fetch(`${appBasePath()}/api/uploads`, {
-            method: "POST",
-            body: formData,
-          });
-          if (!res.ok) {
-            // coercion-ok: the request already failed; an unparseable error
-            // body just falls back to the generic upload-failed message.
-            const data = await res.json().catch(() => null);
-            throw new Error(data?.error || t("editorSidebar.uploadFailed"));
-          }
-          uploaded = (await res.json()) as UploadedFile[];
+          uploaded = await uploadFiles(files);
         } catch (error) {
           toast.error(t("editorSidebar.uploadFailed"), {
             description:
@@ -213,6 +225,7 @@ export function AddSlidePopover({
           ].join("\n");
 
       agentSubmit(addSlideAgentMessage(trimmedText), context);
+      commitFiles(files);
       onOpenChange(false);
     },
     [
@@ -222,18 +235,35 @@ export function AddSlidePopover({
       deckId,
       deckTitle,
       googleDocContext,
+      commitFiles,
       onOpenChange,
       slideCount,
       targetSlideId,
+      uploadFiles,
     ],
+  );
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      syncFiles(files);
+      void uploadFiles(files).catch((error) => {
+        toast.error(t("editorSidebar.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("editorSidebar.uploadAttachedFileFailed"),
+        });
+      });
+    },
+    [syncFiles, t, uploadFiles],
   );
 
   useEffect(() => {
     if (!open) {
       setPromptText("");
       setGoogleDocContext("");
+      resetEagerUploads();
     }
-  }, [open]);
+  }, [open, resetEagerUploads]);
 
   if (!open || !anchorRef.current) return null;
 
@@ -316,7 +346,9 @@ export function AddSlidePopover({
         documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}
         draftScope={`slides:add-slide:${deckId}`}
+        disabled={uploading}
         onSubmit={handleSubmit}
+        onAttachmentsChange={handleAttachmentsChange}
         onTextChange={setPromptText}
       />
       <div className="-mx-1 mt-2">

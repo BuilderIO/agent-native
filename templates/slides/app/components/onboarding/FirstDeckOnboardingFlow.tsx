@@ -1,3 +1,4 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
   useEagerFileUploads,
@@ -82,7 +83,21 @@ export function FirstDeckOnboardingFlow({
   const initialDesignSystemId =
     lastUsedDesignSystemId ?? workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
-  const { uploadFiles, uploading } = useEagerFileUploads(uploadPromptFiles);
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
+  const { commitFiles, syncFiles, uploadFiles, uploading } =
+    useEagerFileUploads(uploadPromptFiles, {
+      onDiscard: deleteUploadedFile,
+    });
 
   useEffect(() => {
     const result = readRecentReferences();
@@ -122,6 +137,7 @@ export function FirstDeckOnboardingFlow({
         setPrompt(text.trim());
         setPromptFiles(uploaded);
         setStep("references");
+        commitFiles(files);
       } catch (error) {
         toast.error(t("raw.uploadFailed"), {
           description:
@@ -131,11 +147,12 @@ export function FirstDeckOnboardingFlow({
         });
       }
     },
-    [t, uploadFiles],
+    [commitFiles, t, uploadFiles],
   );
 
   const handlePromptAttachmentsChange = useCallback(
     (files: File[]) => {
+      syncFiles(files);
       void uploadFiles(files).catch((error) => {
         toast.error(t("raw.uploadFailed"), {
           description:
@@ -145,7 +162,7 @@ export function FirstDeckOnboardingFlow({
         });
       });
     },
-    [t, uploadFiles],
+    [syncFiles, t, uploadFiles],
   );
 
   const startGeneration = useCallback(

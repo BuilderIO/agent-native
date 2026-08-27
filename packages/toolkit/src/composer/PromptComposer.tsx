@@ -561,7 +561,9 @@ function PromptComposerInner({
   const attachmentFiles = useMemo(
     () =>
       attachments.flatMap((attachment) =>
-        attachment.file ? [attachment.file] : [],
+        attachment.file && !isPastedTextAttachmentName(attachment.name)
+          ? [attachment.file]
+          : [],
       ),
     [attachments],
   );

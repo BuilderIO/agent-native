@@ -329,14 +329,31 @@ export default function PromptPopover({
     };
   }, [open, onOpenChange, anchorRef]);
 
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
+
   const {
+    commitFiles,
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
-  } = useEagerFileUploads(uploadPromptFiles);
+    syncFiles,
+  } = useEagerFileUploads(uploadPromptFiles, {
+    onDiscard: deleteUploadedFile,
+  });
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
+      syncFiles(files);
       if (files.length === 0) return;
       const enrichedText = [promptText.trim(), googleDocContext]
         .filter(Boolean)
@@ -351,7 +368,7 @@ export default function PromptPopover({
         });
       });
     },
-    [googleDocContext, onBeforeUpload, promptText, t, uploadFiles],
+    [googleDocContext, onBeforeUpload, promptText, syncFiles, t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -366,6 +383,7 @@ export default function PromptPopover({
       try {
         const uploaded = await uploadFiles(files);
         await onSubmit(enrichedText, uploaded);
+        commitFiles(files);
         setSubmitting(false);
       } catch (error) {
         setSubmitting(false);
@@ -378,7 +396,7 @@ export default function PromptPopover({
         throw error;
       }
     },
-    [googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
+    [commitFiles, googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
   );
 
   const runImport = useCallback(

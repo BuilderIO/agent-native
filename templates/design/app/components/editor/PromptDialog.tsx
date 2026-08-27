@@ -571,11 +571,27 @@ export default function PromptPopover({
     },
     [t],
   );
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
   const {
+    commitFiles,
+    discardFiles,
+    syncFiles,
     uploadFiles,
     uploading,
     reset: resetEagerUploads,
-  } = useEagerFileUploads(uploadFilesToServer);
+  } = useEagerFileUploads(uploadFilesToServer, {
+    onDiscard: deleteUploadedFile,
+  });
 
   useEffect(() => {
     if (!open) resetEagerUploads();
@@ -583,6 +599,7 @@ export default function PromptPopover({
 
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
+      syncFiles([...files, ...selectedUploadFiles]);
       void uploadFiles(files).catch((error) => {
         toast.error(
           error instanceof Error
@@ -591,12 +608,13 @@ export default function PromptPopover({
         );
       });
     },
-    [t, uploadFiles],
+    [selectedUploadFiles, syncFiles, t, uploadFiles],
   );
 
   const handleUploadFiles = useCallback(
     (files: File[]) => {
       setSelectedUploadFiles((current) => [...current, ...files]);
+      syncFiles([...files, ...selectedUploadFiles]);
       void uploadFiles(files).catch((error) => {
         toast.error(
           error instanceof Error
@@ -605,7 +623,7 @@ export default function PromptPopover({
         );
       });
     },
-    [t, uploadFiles],
+    [selectedUploadFiles, syncFiles, t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -615,9 +633,10 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
+      const allFiles = [...files, ...selectedUploadFiles];
       let uploaded: UploadedFile[];
       try {
-        uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
+        uploaded = await uploadFiles(allFiles);
       } catch (error) {
         restorePromptText(text);
         toast.error(
@@ -629,6 +648,7 @@ export default function PromptPopover({
       }
       try {
         await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
       } catch (error) {
@@ -641,6 +661,7 @@ export default function PromptPopover({
       }
     },
     [
+      commitFiles,
       onSubmit,
       pickedAssets,
       restorePromptText,
@@ -699,11 +720,17 @@ export default function PromptPopover({
     );
   }, []);
 
-  const removeSelectedUploadFile = useCallback((index: number) => {
-    setSelectedUploadFiles((current) =>
-      current.filter((_, currentIndex) => currentIndex !== index),
-    );
-  }, []);
+  const removeSelectedUploadFile = useCallback(
+    (index: number) => {
+      const file = selectedUploadFiles[index];
+      if (!file) return;
+      setSelectedUploadFiles((current) =>
+        current.filter((_, currentIndex) => currentIndex !== index),
+      );
+      discardFiles([file]);
+    },
+    [discardFiles, selectedUploadFiles],
+  );
 
   const handlePopoverOpenChange = useCallback(
     (nextOpen: boolean) => {
