@@ -4,8 +4,7 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const appStateGetMock = vi.hoisted(() => vi.fn());
 const appStatePutMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
-const getUserProfileMock = vi.hoisted(() => vi.fn());
-const updateUserProfileMock = vi.hoisted(() => vi.fn());
+const updateUserOnboardingRoleMock = vi.hoisted(() => vi.fn());
 const trackMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
@@ -26,8 +25,8 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../user-profile/store.js", () => ({
-  getUserProfile: (...args: any[]) => getUserProfileMock(...args),
-  updateUserProfile: (...args: any[]) => updateUserProfileMock(...args),
+  updateUserOnboardingRole: (...args: any[]) =>
+    updateUserOnboardingRoleMock(...args),
 }));
 
 vi.mock("../tracking/index.js", () => ({
@@ -135,16 +134,7 @@ describe("onboarding plugin routes", () => {
     });
     appStateGetMock.mockResolvedValue(null);
     appStatePutMock.mockResolvedValue(undefined);
-    getUserProfileMock.mockResolvedValue({
-      email: "alice@example.com",
-      name: "Alice",
-      onboardingRole: null,
-    });
-    updateUserProfileMock.mockResolvedValue({
-      email: "alice@example.com",
-      name: "Alice",
-      onboardingRole: "developer",
-    });
+    updateUserOnboardingRoleMock.mockResolvedValue("developer");
     trackMock.mockReset();
   });
 
@@ -361,10 +351,8 @@ describe("onboarding plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ ok: true, role: "developer" });
-    expect(getUserProfileMock).toHaveBeenCalledWith("alice@example.com");
-    expect(updateUserProfileMock).toHaveBeenCalledWith(
+    expect(updateUserOnboardingRoleMock).toHaveBeenCalledWith(
       "alice@example.com",
-      "Alice",
       "developer",
     );
     expect(trackMock).toHaveBeenCalledWith(
@@ -388,7 +376,7 @@ describe("onboarding plugin routes", () => {
 
     expect(result.status).toBe(400);
     expect(result.body).toEqual({ error: "Invalid onboarding role" });
-    expect(updateUserProfileMock).not.toHaveBeenCalled();
+    expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
     expect(trackMock).not.toHaveBeenCalled();
   });
 });

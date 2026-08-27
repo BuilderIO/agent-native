@@ -39,7 +39,7 @@ import {
 } from "../shared/first-run-onboarding.js";
 import { track } from "../tracking/index.js";
 import { onboardingRoleSchema } from "../user-profile/shared.js";
-import { getUserProfile, updateUserProfile } from "../user-profile/store.js";
+import { updateUserOnboardingRole } from "../user-profile/store.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
@@ -369,10 +369,8 @@ export function createOnboardingPlugin(
         }
 
         return withOnboardingRequestContext(context, async () => {
-          const profile = await getUserProfile(context.userEmail!);
-          const saved = await updateUserProfile(
+          const savedRole = await updateUserOnboardingRole(
             context.userEmail!,
-            profile.name,
             parsed.data,
           );
           track(
@@ -380,7 +378,7 @@ export function createOnboardingPlugin(
             { role: parsed.data },
             { userId: context.userEmail },
           );
-          return { ok: true, role: saved.onboardingRole };
+          return { ok: true, role: savedRole };
         });
       }),
     );

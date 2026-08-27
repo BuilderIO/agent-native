@@ -90,3 +90,39 @@ export async function updateUserProfile(
 
   return getUserProfile(email);
 }
+
+export async function updateUserOnboardingRole(
+  email: string,
+  onboardingRole: OnboardingRole,
+): Promise<OnboardingRole> {
+  const normalizedOnboardingRole = normalizeOnboardingRole(onboardingRole);
+  if (!normalizedOnboardingRole) {
+    throw new Error("Cannot save an empty onboarding role.");
+  }
+
+  const authUser = await getAuthUser(email);
+  const adapter = authUser
+    ? await getBetterAuthInternalAdapter().catch(() => undefined)
+    : undefined;
+  if (!authUser?.user.id || !adapter?.updateUser) {
+    throw new Error(
+      "Cannot save onboarding role because the Better Auth user row is unavailable.",
+    );
+  }
+
+  await adapter.updateUser(authUser.user.id, {
+    onboardingRole: normalizedOnboardingRole,
+  });
+  const saved = await getAuthUser(email);
+  const savedRole = normalizeOnboardingRole(
+    typeof saved?.user.onboardingRole === "string"
+      ? saved.user.onboardingRole
+      : null,
+  );
+  if (savedRole !== normalizedOnboardingRole) {
+    throw new Error(
+      "Failed to save onboarding role on the Better Auth user row.",
+    );
+  }
+  return normalizedOnboardingRole;
+}

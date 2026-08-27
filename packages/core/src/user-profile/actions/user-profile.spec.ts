@@ -374,7 +374,8 @@ describe("user profile store", () => {
 
     vi.resetModules();
     vi.doUnmock("../store.js");
-    const { updateUserProfile } = await import("../store.js");
+    const { updateUserProfile, updateUserOnboardingRole } =
+      await import("../store.js");
 
     await expect(
       updateUserProfile("alice@example.com", "Alice Smith", "developer"),
@@ -385,6 +386,22 @@ describe("user profile store", () => {
     });
     expect(updateUser).toHaveBeenCalledWith("user-1", {
       name: "Alice Smith",
+      onboardingRole: "developer",
+    });
+
+    findUserByEmail.mockResolvedValueOnce(firstLookup).mockResolvedValueOnce({
+      user: {
+        ...secondLookup.user,
+        name: "Updated in Settings",
+      },
+      accounts: [],
+    });
+    updateUser.mockClear();
+
+    await expect(
+      updateUserOnboardingRole("alice@example.com", "developer"),
+    ).resolves.toBe("developer");
+    expect(updateUser).toHaveBeenCalledWith("user-1", {
       onboardingRole: "developer",
     });
   });
