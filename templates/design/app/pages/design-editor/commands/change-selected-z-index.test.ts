@@ -18,8 +18,8 @@ const CONTENT = `<html><body><div data-agent-native-node-id="wrap">
 </div></body></html>`;
 
 /** Selection state carries projection ids, not authored node attributes. */
-function projectionId(authoredId: string): string {
-  const node = buildCodeLayerProjection(CONTENT).nodes.find(
+function projectionId(authoredId: string, content = CONTENT): string {
+  const node = buildCodeLayerProjection(content).nodes.find(
     (candidate) =>
       candidate.dataAttributes["data-agent-native-node-id"] === authoredId,
   );
@@ -27,8 +27,12 @@ function projectionId(authoredId: string): string {
   return node.id;
 }
 
-function harness(element: Partial<ElementInfo>, authoredId = "b") {
-  const targetId = projectionId(authoredId);
+function harness(
+  element: Partial<ElementInfo>,
+  authoredId = "b",
+  content = CONTENT,
+) {
+  const targetId = projectionId(authoredId, content);
   const applyLocalContentUpdate = vi.fn();
   const commitVisualStyles = vi.fn();
   const selectedElement = {
@@ -49,7 +53,7 @@ function harness(element: Partial<ElementInfo>, authoredId = "b") {
       current: new Map([[targetId, { fileId: "file-1" }]]),
     },
     commitVisualStyles,
-    getFreshActiveContent: () => CONTENT,
+    getFreshActiveContent: () => content,
     selectedElement,
     selectedLayerIdsState: [targetId],
     setSelectedElement: vi.fn(),
@@ -145,5 +149,63 @@ describe("runChangeSelectedZIndex — send to back must not hide the layer", () 
     expect(commitVisualStyles.mock.calls.some(([, s]) => s.isolation)).toBe(
       false,
     );
+  });
+});
+
+// PR #3585 review round 2.
+describe("runChangeSelectedZIndex — send to back must reach the back", () => {
+  it("goes below a sibling that is already negative", () => {
+    const content = `<html><body><div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a" style="z-index:-2"></div>
+<div data-agent-native-node-id="b"></div>
+</div></body></html>`;
+    const { args, targetStyles } = harness(
+      { computedStyles: { position: "static", zIndex: "auto" } },
+      "b",
+      content,
+    );
+    runChangeSelectedZIndex(args, "back");
+    expect(targetStyles()?.zIndex).toBe("-3");
+  });
+
+  it("does not raise a layer that is already lower than its siblings", () => {
+    const { args, targetStyles } = harness({
+      computedStyles: { position: "static", zIndex: "-5" },
+    });
+    runChangeSelectedZIndex(args, "back");
+    expect(targetStyles()?.zIndex).toBe("-5");
+  });
+});
+
+describe("runChangeSelectedZIndex — must not relocate positioned children", () => {
+  const withAbsChild = `<html><body><div data-agent-native-node-id="wrap">
+<div data-agent-native-node-id="a"></div>
+<div data-agent-native-node-id="b"><span data-agent-native-node-id="pin" style="position:absolute;left:10px;top:10px"></span></div>
+</div></body></html>`;
+
+  it("reorders markup rather than positioning a static container with an absolute child", () => {
+    const { args, applyLocalContentUpdate, commitVisualStyles } = harness(
+      { computedStyles: { position: "static", zIndex: "auto" } },
+      "b",
+      withAbsChild,
+    );
+    runChangeSelectedZIndex(args, "backward");
+    expect(commitVisualStyles).not.toHaveBeenCalled();
+    expect(applyLocalContentUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("still writes z-index when the element is a flex item, which needs no positioning", () => {
+    const { args, applyLocalContentUpdate, targetStyles } = harness(
+      {
+        isFlexChild: true,
+        parentDisplay: "flex",
+        computedStyles: { position: "static", zIndex: "auto" },
+      },
+      "b",
+      withAbsChild,
+    );
+    runChangeSelectedZIndex(args, "backward");
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(targetStyles()?.zIndex).toBeDefined();
   });
 });

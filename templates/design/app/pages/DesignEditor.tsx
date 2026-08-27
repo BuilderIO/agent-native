@@ -9427,7 +9427,7 @@ function DesignEditor() {
     if (!measureTargetSelector || !measureTargetKey) return;
     let cancelled = false;
     void requestSelectionMeasurement({
-      targetWindows: designPreviewWindows(),
+      targetWindows: designPreviewWindows,
       screenId: measureTargetScreenId,
       selector: measureTargetSelector,
     }).then((measured) => {

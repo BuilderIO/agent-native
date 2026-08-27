@@ -209,18 +209,32 @@ export function isContainerElement(element: ElementInfo): boolean {
 }
 
 /**
- * Whether `fit-content` has anything to measure. Stated as a deny-list on
- * purpose: an allow-list of container/text tags silently denies Hug to every
- * tag in neither list — `button`, `td`, `summary`, `figcaption` — and the
- * sizing control then no-ops with no way to tell it apart from a failed write.
+ * Whether `fit-content` has anything to measure. A deny-list on purpose: an
+ * allow-list of container/text tags silently denied Hug to every tag in
+ * neither list — `button`, `td`, `summary` — and the control then no-oped
+ * indistinguishably from a failed write.
  */
 export function canHugContent(element: ElementInfo): boolean {
   const primitiveKind = element.primitiveKind?.trim().toLowerCase();
-  // Drawn shapes have no content; hug would collapse them to nothing.
+  const tag = (element.tagName || "").toLowerCase();
+  // A text layer hugs its own text, and an empty one is mid-authoring.
+  if (primitiveKind === "text" || TEXT_TAGS.has(tag)) return true;
   if (primitiveKind) {
-    return ["frame", "rectangle", "rect", "text"].includes(primitiveKind);
+    // Drawn shapes other than these are leaves; hug would collapse them.
+    if (!["frame", "rectangle", "rect"].includes(primitiveKind)) return false;
+    return hasMeasurableContent(element);
   }
-  return !LEAF_TAGS.has((element.tagName || "").toLowerCase());
+  if (LEAF_TAGS.has(tag)) return false;
+  return hasMeasurableContent(element);
+}
+
+/** Absent signals mean "cannot tell", which must not read as "empty": hug on a
+ *  genuinely empty box resolves to 0 and the layer disappears. */
+function hasMeasurableContent(element: ElementInfo): boolean {
+  const children = element.childElementCount;
+  const text = element.textContent?.trim();
+  if (children === undefined && element.textContent === undefined) return true;
+  return (children ?? 0) > 0 || Boolean(text);
 }
 
 export function isParentFlex(element: ElementInfo): boolean {
@@ -439,13 +453,17 @@ export function measuredElementSize(
       ? element.computedStyles.width
       : element.computedStyles.height;
   const parsed = resolvedPxSize(reported);
-  if (parsed !== null) return parsed > 0 ? parsed : null;
+  // A collapsed layer really is 0 wide; blanking that loses a valid value and
+  // disables aspect locking.
+  if (parsed !== null) return parsed;
   // A relative or intrinsic value the host cannot resolve: unknown, not stale.
   if (reported?.trim()) return null;
   const rect =
     axis === "horizontal"
       ? element.boundingRect.width
       : element.boundingRect.height;
+  // 0 here is `elementInfoFromCodeLayerNode`'s placeholder rect rather than a
+  // measurement — the opposite of the computed-style case above.
   return Number.isFinite(rect) && rect > 0 ? rect : null;
 }
 

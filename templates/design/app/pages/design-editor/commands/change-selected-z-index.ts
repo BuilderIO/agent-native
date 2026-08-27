@@ -62,21 +62,61 @@ export interface ChangeSelectedZIndexArgs {
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
 }
 
-/** Selector for the node's parent, so a negative z-index can be bounded to it. */
-function inFlowParentSelector(
+interface InFlowZIndexContext {
+  /** Bounds a negative index so it cannot escape behind an ancestor. */
+  parentSelector?: string;
+  /** Lowest paint level among the siblings the layer must get behind. */
+  siblingFloor: number;
+  /** Positioning the target would re-resolve these children's left/top. */
+  hasPositionedDescendant: boolean;
+}
+
+function inFlowZIndexContext(
   content: string,
   targetId: string,
-): string | undefined {
+): InFlowZIndexContext {
   const projection = buildCodeLayerProjection(content);
+  const byId = new Map(projection.nodes.map((node) => [node.id, node]));
   const siblingOrder = findCodeLayerSiblingOrder(
     buildCodeLayerTree(projection),
     targetId,
   );
-  if (!siblingOrder?.parentId) return undefined;
-  const parent = projection.nodes.find(
-    (node) => node.id === siblingOrder.parentId,
-  );
-  return parent ? preferredCodeLayerSelector(parent) : undefined;
+
+  // An unpositioned sibling paints at the auto level, so 0 is the floor to beat
+  // even when no sibling declares a z-index.
+  let siblingFloor = 0;
+  for (const siblingId of siblingOrder?.siblingIds ?? []) {
+    if (siblingId === targetId) continue;
+    const declared = Number.parseInt(
+      byId.get(siblingId)?.style["z-index"] ?? "",
+      10,
+    );
+    if (Number.isFinite(declared)) {
+      siblingFloor = Math.min(siblingFloor, declared);
+    }
+  }
+
+  let hasPositionedDescendant = false;
+  const pending = [...(byId.get(targetId)?.children ?? [])];
+  while (pending.length > 0) {
+    const node = byId.get(pending.pop()!);
+    if (!node) continue;
+    const position = node.layout.position ?? node.style.position;
+    if (position === "absolute" || position === "fixed") {
+      hasPositionedDescendant = true;
+      break;
+    }
+    pending.push(...node.children);
+  }
+
+  const parent = siblingOrder?.parentId
+    ? byId.get(siblingOrder.parentId)
+    : undefined;
+  return {
+    parentSelector: parent ? preferredCodeLayerSelector(parent) : undefined,
+    siblingFloor,
+    hasPositionedDescendant,
+  };
 }
 
 export function runChangeSelectedZIndex(
@@ -98,29 +138,29 @@ export function runChangeSelectedZIndex(
   if (!selector) return;
   const currentSelectedElement = selectedElement;
 
-  const zIndexFallback = (parentSelector?: string) => {
+  const zIndexFallback = (context?: InFlowZIndexContext) => {
     const current = Number.parseInt(
-      currentSelectedElement.computedStyles.zIndex || "0",
+      currentSelectedElement.computedStyles.zIndex || "",
       10,
     );
     const base = Number.isFinite(current) ? current : 0;
-    // Back must go below the in-flow siblings, which only a negative index
-    // does — a positioned element at 0 still paints above them.
+    const floor = context?.siblingFloor ?? 0;
     const next =
       mode === "front"
         ? 999
         : mode === "back"
-          ? -1
+          ? // Below every sibling, and never raising a layer already lower.
+            Math.min(base, floor - 1)
           : mode === "forward"
             ? base + 1
             : base - 1;
     // A negative index escapes to the nearest stacking-context ancestor and can
     // land behind an opaque background, hiding the layer outright. Isolating
     // the parent bounds it; with no parent, a weaker move is the safer one.
-    if (next < 0 && parentSelector) {
-      commitVisualStyles(parentSelector, { isolation: "isolate" });
+    if (next < 0 && context?.parentSelector) {
+      commitVisualStyles(context.parentSelector, { isolation: "isolate" });
     }
-    const safeNext = next < 0 && !parentSelector ? 0 : next;
+    const safeNext = next < 0 && !context?.parentSelector ? 0 : next;
     commitVisualStyles(selector, {
       position:
         currentSelectedElement.computedStyles.position === "static"
@@ -146,16 +186,30 @@ export function runChangeSelectedZIndex(
     zIndexFallback();
     return;
   }
+  const baseContent = getFreshActiveContent();
   if (!outOfFlow) {
-    zIndexFallback(inFlowParentSelector(getFreshActiveContent(), targetId));
-    return;
+    const context = inFlowZIndexContext(baseContent, targetId);
+    // Positioning a static container hands it a containing block, so its
+    // absolutely positioned children re-resolve and jump — the very thing this
+    // path exists to avoid. A flex/grid item needs no positioning at all.
+    const isFlexOrGridItem =
+      currentSelectedElement.isFlexChild ||
+      /flex|grid/.test(currentSelectedElement.parentDisplay ?? "");
+    const wouldMoveChildren =
+      (!position || position === "static") &&
+      !isFlexOrGridItem &&
+      context.hasPositionedDescendant;
+    if (!wouldMoveChildren) {
+      zIndexFallback(context);
+      return;
+    }
+    // Otherwise fall through: shifting the layer beats relocating its children.
   }
   const owner = codeLayerOwnerByNodeIdRef.current.get(targetId);
   if (!owner || owner.fileId !== activeFile.id) {
     zIndexFallback();
     return;
   }
-  const baseContent = getFreshActiveContent();
   const tree = buildCodeLayerTree(buildCodeLayerProjection(baseContent));
   const siblingOrder = findCodeLayerSiblingOrder(tree, targetId);
   if (!siblingOrder || siblingOrder.siblingIds.length < 2) {

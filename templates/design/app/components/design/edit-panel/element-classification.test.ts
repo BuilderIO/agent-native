@@ -17,6 +17,7 @@ import type { AutoLayoutSizingAxis } from "../inspector";
 import type { ElementInfo } from "../types";
 import {
   availableSizingForElement,
+  canHugContent,
   commitElementMinMax,
   commitElementSizing,
   componentNameForElementInfo,
@@ -321,6 +322,8 @@ describe("availableSizingForElement — hug availability", () => {
       tagName: "button",
       isFlexChild: true,
       parentDisplay: "flex",
+      childElementCount: 0,
+      textContent: "1W",
       computedStyles: { width: "42px", height: "29.5px" },
       parentLayout: { flexDirection: "row" },
     });
@@ -330,7 +333,12 @@ describe("availableSizingForElement — hug availability", () => {
   it.each(["td", "th", "summary", "figcaption", "output"])(
     "offers hug on <%s>, which is in neither tag set",
     (tagName) => {
-      expect(hugFor(makeElement({ tagName }), "horizontal")).toBe(true);
+      const element = makeElement({
+        tagName,
+        childElementCount: 0,
+        textContent: "content",
+      });
+      expect(hugFor(element, "horizontal")).toBe(true);
     },
   );
 
@@ -521,5 +529,63 @@ describe("parentFlexDirection — unknown parent vs unknown direction", () => {
     expect(patch.flexGrow).toBe("1");
     expect(patch.flexBasis).toBe("0");
     expect(patch.alignSelf).toBeUndefined();
+  });
+});
+
+// PR #3585 review round 2.
+describe("measuredElementSize — zero is a size, not an absence", () => {
+  it("reports 0 for a collapsed layer", () => {
+    const element = makeElement({
+      computedStyles: { width: "0px" },
+      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBe(0);
+  });
+
+  it("still reports null for the projection's placeholder rect", () => {
+    // No computed size at all plus an all-zero rect is "never measured".
+    const element = makeElement({
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBeNull();
+  });
+});
+
+describe("canHugContent — hug needs something to measure", () => {
+  it("withholds hug from an empty drawn rectangle", () => {
+    const element = makeElement({
+      primitiveKind: "rectangle",
+      childElementCount: 0,
+      textContent: undefined,
+    });
+    expect(canHugContent(element)).toBe(false);
+  });
+
+  it("offers hug to a rectangle that has children", () => {
+    const element = makeElement({
+      primitiveKind: "rectangle",
+      childElementCount: 2,
+    });
+    expect(canHugContent(element)).toBe(true);
+  });
+
+  it("withholds hug from an empty plain container", () => {
+    expect(
+      canHugContent(makeElement({ tagName: "div", childElementCount: 0 })),
+    ).toBe(false);
+  });
+
+  it("offers hug to a text primitive even while empty", () => {
+    const element = makeElement({
+      primitiveKind: "text",
+      childElementCount: 0,
+    });
+    expect(canHugContent(element)).toBe(true);
+  });
+
+  it("treats an absent content signal as unknown, not empty", () => {
+    // Older/hover payloads omit both; denying hug there would be a guess.
+    expect(canHugContent(makeElement({ tagName: "div" }))).toBe(true);
   });
 });

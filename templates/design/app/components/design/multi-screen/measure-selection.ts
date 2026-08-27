@@ -4,15 +4,39 @@ import type { ElementInfo } from "../types";
  * Ask a screen's bridge to re-measure one element. An inspector commit never
  * reaches the bridge, so nothing else refreshes the geometry it just changed.
  */
-export function requestSelectionMeasurement(args: {
-  targetWindows: (Window | null | undefined)[];
+export async function requestSelectionMeasurement(args: {
+  /** A thunk, not a list: a frame that mounts between attempts must be seen. */
+  targetWindows: () => (Window | null | undefined)[];
   /** The screen that owns the element. Breakpoint screens share node ids, so
    *  without this a positive match from the wrong screen wins the race. */
   screenId: string;
   selector?: string;
+  attempts?: number;
+  timeoutMs?: number;
+  retryDelayMs?: number;
+}): Promise<ElementInfo | null> {
+  const attempts = Math.max(1, args.attempts ?? 3);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const measured = await measureOnce(args);
+    if (measured) return measured;
+    // An iframe can expose contentWindow before its bridge installs a message
+    // listener, so the first post is silently dropped and nothing retries it.
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, args.retryDelayMs ?? 150),
+      );
+    }
+  }
+  return null;
+}
+
+function measureOnce(args: {
+  targetWindows: () => (Window | null | undefined)[];
+  screenId: string;
+  selector?: string;
   timeoutMs?: number;
 }): Promise<ElementInfo | null> {
-  const targets = args.targetWindows.filter((w): w is Window => Boolean(w));
+  const targets = args.targetWindows().filter((w): w is Window => Boolean(w));
   if (targets.length === 0) return Promise.resolve(null);
   const correlationId = `measure-${globalThis.crypto.randomUUID()}`;
   return new Promise((resolve) => {
@@ -21,7 +45,7 @@ export function requestSelectionMeasurement(args: {
       window.removeEventListener("message", listener);
       resolve(value);
     };
-    const timer = window.setTimeout(() => settle(null), args.timeoutMs ?? 500);
+    const timer = window.setTimeout(() => settle(null), args.timeoutMs ?? 250);
     const listener = (event: MessageEvent) => {
       if (
         !event.data ||
