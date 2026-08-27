@@ -113,6 +113,7 @@ import {
   ChatRunningTurnIdContext,
   ChatRunDurationContext,
   ReasoningCell,
+  RanToolsSummary,
   useLocalizedWorkedDuration,
   WorkedForSummary,
   toolCallHasPendingApproval,
@@ -1574,17 +1575,26 @@ export function groupAssistantWorkParts(
   index: number,
   parts: readonly AssistantWorkPart[],
   thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
-): ["group-work"] | null {
+): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  const toolSummary = getAssistantToolSummaryInfo(parts);
+  const isOlderToolWork =
+    toolSummary.startIndex >= 0 &&
+    index < toolSummary.startIndex &&
+    (isCollapsibleAssistantWorkPart(part, thinkingDisplay) ||
+      isCallAgentToolCallShadowed(parts, index));
+  const groupKey: ["group-work"] | ["group-work", "group-ran-tools"] =
+    isOlderToolWork ? ["group-work", "group-ran-tools"] : ["group-work"];
+
   if (isCallAgentToolCallShadowed(parts, index)) {
     const previousPart = parts[index - 1];
     const previousPartIsInWorkGroup =
       previousPart != null &&
       (isCollapsibleAssistantWorkPart(previousPart, thinkingDisplay) ||
         isCallAgentToolCallShadowed(parts, index - 1));
-    return previousPartIsInWorkGroup ? ["group-work"] : null;
+    return previousPartIsInWorkGroup ? groupKey : null;
   }
   if (isCollapsibleAssistantWorkPart(part, thinkingDisplay)) {
-    return ["group-work"];
+    return groupKey;
   }
   return null;
 }
@@ -1735,7 +1745,7 @@ export function AssistantMessage() {
       part: AssistantWorkPart,
       index: number,
       parts: readonly AssistantWorkPart[],
-    ): ["group-work"] | null =>
+    ): ["group-work"] | ["group-work", "group-ran-tools"] | null =>
       groupAssistantWorkParts(part, index, parts, thinkingDisplay),
     [thinkingDisplay],
   );
@@ -1949,6 +1959,9 @@ export function AssistantMessage() {
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
+  const assistantToolSummary = getAssistantToolSummaryInfo(
+    Array.isArray(msgContent) ? msgContent : [],
+  );
   const hasCodeAgentTools =
     Array.isArray(msgContent) &&
     msgContent.some(
@@ -2025,6 +2038,15 @@ export function AssistantMessage() {
                     </WorkedForSummary>
                   );
                 }
+                case "group-ran-tools":
+                  return (
+                    <RanToolsSummary
+                      toolCount={assistantToolSummary.hiddenToolCount}
+                      motionKey={`assistant-${msg.id}`}
+                    >
+                      {children}
+                    </RanToolsSummary>
+                  );
                 case "text":
                   if (
                     isUserStoppedRun &&
