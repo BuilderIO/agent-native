@@ -23,6 +23,7 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import { ensureUniqueSlideIds } from "../shared/slide-ids.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -68,6 +69,11 @@ export default defineAction({
     withDeckLock(args.deckId, async () => {
       const deckId = args.deckId;
       const deck = args.deck as DeckPayload;
+      if (Array.isArray(deck.slides)) {
+        deck.slides = ensureUniqueSlideIds(
+          deck.slides as Array<{ id?: unknown }>,
+        ).slides;
+      }
       assertValidAspectRatio(deck);
 
       const db = getDb();

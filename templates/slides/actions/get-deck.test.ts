@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockNotifyClients = vi.fn();
+let updatedFields: { data?: string; updatedAt?: string } | undefined;
+const mockWhereUpdate = vi.fn(async () => undefined);
+const mockSet = vi.fn((fields: { data?: string; updatedAt?: string }) => {
+  updatedFields = fields;
+  return { where: mockWhereUpdate };
+});
+const mockUpdate = vi.fn(() => ({ set: mockSet }));
+const mockDb = { update: mockUpdate };
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
@@ -10,12 +19,24 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "alice@example.com",
 }));
 
-vi.mock("../server/db/index.js", () => ({}));
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => mockDb,
+  schema: { decks: { id: "id_col" } },
+}));
+
+vi.mock("../server/handlers/decks.js", () => ({
+  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
+}));
+
+vi.mock("./patch-deck.js", () => ({
+  withDeckLock: (_deckId: string, run: () => Promise<unknown>) => run(),
+}));
 
 import action from "./get-deck";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  updatedFields = undefined;
   mockResolveAccess.mockResolvedValue({
     resource: {
       id: "deck-1",
@@ -68,6 +89,43 @@ describe("get-deck", () => {
     });
     expect(result.createdByMe).toBe(true);
     expect(result.slides[0]).not.toHaveProperty("index");
+  });
+
+  it("repairs duplicate persisted slide IDs before returning the deck", async () => {
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        id: "deck-1",
+        title: "Quarterly Review",
+        visibility: "private",
+        ownerEmail: "Alice@Example.com",
+        updatedAt: "2026-05-02T00:00:00.000Z",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [
+            { id: "slide-a", content: "<h1>First</h1>" },
+            { id: "slide-a", content: "<h1>Second</h1>" },
+          ],
+        }),
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "frontend" },
+    )) as any;
+    const ids = result.slides.map((slide: { id: string }) => slide.id);
+
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(result.slides[0].id).toBe("slide-a");
+    expect(result.slides[1].content).toBe("<h1>Second</h1>");
+    expect(updatedFields?.data).toBeDefined();
+    expect(
+      JSON.parse(updatedFields!.data!).slides.map(
+        (slide: { id: string }) => slide.id,
+      ),
+    ).toEqual(ids);
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
   it("defaults agent calls to compact output so full slide HTML is not retransmitted", async () => {

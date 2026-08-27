@@ -251,4 +251,20 @@ describe("create-deck — aspectRatio", () => {
     });
     expect(data.slides[0].content).toBe("<div>Slide</div>");
   });
+
+  it("repairs duplicate slide IDs before persisting a deck", async () => {
+    const result = await action.run({
+      title: "T",
+      slides: [
+        { id: "slide-a", content: "<div>First</div>" },
+        { id: "slide-a", content: "<div>Second</div>" },
+      ],
+    });
+    const data = JSON.parse(insertedRow!.data as string);
+    const ids = data.slides.map((slide: { id: string }) => slide.id);
+
+    expect(new Set(ids).size).toBe(2);
+    expect(result.slides.map((slide) => slide.id)).toEqual(ids);
+    expect(data.slides[1].content).toBe("<div>Second</div>");
+  });
 });

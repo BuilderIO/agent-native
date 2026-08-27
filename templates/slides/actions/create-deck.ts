@@ -24,6 +24,7 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import { ensureUniqueSlideIds } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 
 const ReuseLabelSchema = z
@@ -159,6 +160,12 @@ export default defineAction({
   }) => {
     const db = getDb();
     const now = new Date().toISOString();
+    const { slides } = ensureUniqueSlideIds(
+      rawSlides.map((s) => ({
+        ...s,
+        content: normalizeSlidePadding(s.content),
+      })),
+    );
     const validatedCreativeContext = await validateGenerationCreativeContext({
       contextPackId,
       contextModeOverride,
@@ -166,7 +173,7 @@ export default defineAction({
         new Map(
           [
             ...reuseLabels,
-            ...rawSlides.flatMap(
+            ...slides.flatMap(
               (slide) => slide.creativeContextReuseLabels ?? [],
             ),
           ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
@@ -186,7 +193,7 @@ export default defineAction({
         ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
         label: label.label,
       })),
-      ...rawSlides.flatMap((slide) => {
+      ...slides.flatMap((slide) => {
         const labels = slide.creativeContextReuseLabels ?? [];
         return labels.length
           ? labels.map((label) => ({
@@ -206,7 +213,7 @@ export default defineAction({
               },
             ];
       }),
-      ...(reuseLabels.length === 0 && rawSlides.length === 0
+      ...(reuseLabels.length === 0 && slides.length === 0
         ? [
             {
               elementId: "deck",
@@ -217,10 +224,6 @@ export default defineAction({
         : []),
     ];
 
-    const slides = rawSlides.map((s) => ({
-      ...s,
-      content: normalizeSlidePadding(s.content),
-    }));
     const firstSlideContent = slides[0]?.content;
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
