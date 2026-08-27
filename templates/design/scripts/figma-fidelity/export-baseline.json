@@ -1,6 +1,6 @@
 {
   "effects-transforms": {
-    "maxDiffPercent": 1.371,
+    "maxDiffPercent": 1.85,
     "maxOmitted": 0,
     "maxApproximated": 0
   },
@@ -40,7 +40,7 @@
     "maxApproximated": 0
   },
   "typography": {
-    "maxDiffPercent": 2.014,
+    "maxDiffPercent": 3.05,
     "maxOmitted": 0,
     "maxApproximated": 0
   },

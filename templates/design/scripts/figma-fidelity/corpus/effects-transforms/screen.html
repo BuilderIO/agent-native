@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><title>Effects and transforms</title><style>
   *{box-sizing:border-box}
   html,body{margin:0;background:#f4f4f5;font-family:Inter,Helvetica,Arial,sans-serif;color:#18181b}
-  .frame{position:relative;width:1000px;height:700px;overflow:hidden;background:
+  .frame{position:relative;width:1000px;height:1010px;overflow:hidden;background:
     radial-gradient(ellipse 70% 55% at 78% 12%, rgba(99,102,241,.30), transparent 62%),
     linear-gradient(200deg,#fafafa 0%,#e4e4e7 100%);padding:44px}
   h1{margin:0 0 28px;font-size:34px;font-weight:800;letter-spacing:-.028em}
@@ -33,6 +33,14 @@
   .fade{flex:1;border-radius:14px;border:1px dashed rgba(24,24,27,.32);
     background:linear-gradient(90deg,rgba(99,102,241,.85),rgba(99,102,241,0));
     display:flex;align-items:flex-end;padding:16px;font-size:12px;font-weight:700;color:#fff}
+.xf{display:flex;gap:22px;margin-top:26px;align-items:flex-start}
+.xf>div{width:150px;height:96px;border-radius:10px;color:#fff;font:600 12px/1.3 system-ui;padding:10px;box-sizing:border-box}
+.xf .scaled{background:#2f6b4f;transform:scale(1.18)}
+.xf .skewed{background:#7b3f9d;transform:skewX(-12deg)}
+.xf .mirrored{background:#b4522f;transform:scaleX(-1)}
+.xf .squashed{background:#1d6b85;transform:scale(1.3,0.72)}
+.nest{margin-top:34px;width:260px;height:150px;background:#243247;border-radius:12px;transform:rotate(9deg);position:relative}
+.nest .kid{position:absolute;left:26px;top:34px;width:150px;height:70px;background:#e0b23c;border-radius:8px;transform:rotate(-21deg);color:#1a1a1a;font:600 12px/1.3 system-ui;padding:8px;box-sizing:border-box}
 </style></head><body>
 <main class="frame" data-agent-native-node-id="frame">
   <h1>Rotation, shadows and clipping</h1>
@@ -46,5 +54,14 @@
     <div class="panel"><h2>Layered shadows</h2><span>An outer drop shadow with negative spread plus an inset highlight on the same element.</span></div>
     <div class="clip"><div class="bleed"></div><span class="label">Overflow hidden</span></div>
     <div class="fade">Gradient to transparent</div>
+  </div>
+  <div class="xf">
+    <div class="scaled">scale(1.18)</div>
+    <div class="skewed">skewX(-12deg)</div>
+    <div class="mirrored">scaleX(-1)</div>
+    <div class="squashed">scale(1.3, .72)</div>
+  </div>
+  <div class="nest">rotate(9deg) parent
+    <div class="kid">rotate(-21deg) child</div>
   </div>
 </main></body></html>
