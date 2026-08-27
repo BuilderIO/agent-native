@@ -352,7 +352,10 @@ import {
 } from "@/components/visual-editor/DrawOverlay";
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { useDesignSystems } from "@/hooks/use-design-systems";
+import {
+  preferredOwnedDesignSystemId,
+  useDesignSystems,
+} from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
   designEditorCommandKey,
@@ -3553,10 +3556,8 @@ function DesignEditor() {
   const resolvePromptDesignSystemId = useCallback(
     () =>
       design?.designSystemId ??
-      defaultSystem?.id ??
-      designSystems[0]?.id ??
-      null,
-    [defaultSystem?.id, design?.designSystemId, designSystems],
+      preferredOwnedDesignSystemId(designSystems, defaultSystem),
+    [defaultSystem, design?.designSystemId, designSystems],
   );
 
   const selectedPromptDesignSystemId =

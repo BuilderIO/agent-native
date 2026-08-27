@@ -46,7 +46,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { useDesignSystems } from "@/hooks/use-design-systems";
+import {
+  preferredOwnedDesignSystemId,
+  useDesignSystems,
+} from "@/hooks/use-design-systems";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
 type TemplateCategory =
@@ -131,7 +134,7 @@ export default function Templates() {
     ) {
       return template.designSystemId;
     }
-    return defaultSystem?.id ?? designSystems[0]?.id ?? null;
+    return preferredOwnedDesignSystemId(designSystems, defaultSystem);
   };
 
   const setSelectedTemplateParam = (templateId: string | null) => {

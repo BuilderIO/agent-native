@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull, ne, type SQL } from "drizzle-orm";
 
+import { isUniqueConstraintViolation } from "../../shared/db-conflict.js";
 import { getDb, schema } from "../db/index.js";
 
 type DesignSystemTx = Parameters<
@@ -29,8 +30,10 @@ export function ownedDesignSystemScope(
 
 /**
  * Clear every default flagged inside one owner/org scope, optionally keeping
- * one row flagged. Callers run this inside the transaction that also writes
- * their own row so no create can interleave between the clear and the claim.
+ * one row flagged. Unsetting a default never conflicts with
+ * `design_systems_one_default_per_scope_idx` (see server/plugins/db.ts) --
+ * the index only covers rows where isDefault is true -- so this needs no
+ * conflict handling of its own.
  */
 export async function clearOwnedDesignSystemDefaults(
   tx: DesignSystemTx,
@@ -59,15 +62,16 @@ export async function clearOwnedDesignSystemDefaults(
 }
 
 /**
- * Decide whether a design system about to be inserted becomes this owner's
- * default, and leave the scope holding at most one flagged row.
+ * Guess whether a design system about to be inserted becomes this owner's
+ * default, and self-heal a scope a previous race already left with more than
+ * one flagged row.
  *
- * Both callers previously read the scope and then inserted with `isDefault`
- * derived from that read. Two creates racing (several sources syncing at once)
- * each saw "no default yet" and each claimed it, so the list rendered a Default
- * badge on more than one system. Reading and claiming in one transaction closes
- * that window, and healing an already-duplicated scope clears the badges a
- * previous race left behind.
+ * This read is a fast-path guess, not the enforcement: on Postgres READ
+ * COMMITTED, a SELECT over an empty scope takes no row lock, so a concurrent
+ * insert can still commit its own default between this read and the caller's
+ * write. `insertDesignSystemClaimingDefault` below is what actually holds the
+ * invariant under real concurrency, using the
+ * `design_systems_one_default_per_scope_idx` partial unique index.
  */
 export async function claimOwnedDesignSystemDefault(
   tx: DesignSystemTx,
@@ -106,4 +110,105 @@ export async function claimOwnedDesignSystemDefault(
   }
 
   return claimsDefault;
+}
+
+/**
+ * Insert one design system row, claiming the owner's default when the scope
+ * looks empty. `claimOwnedDesignSystemDefault`'s read is only a guess: two
+ * concurrent create/proxy calls can both read an empty scope and both try to
+ * commit `isDefault: true`. The `design_systems_one_default_per_scope_idx`
+ * partial unique index is the real enforcement -- the loser's insert raises a
+ * unique-constraint error instead of silently leaving two defaults.
+ *
+ * The insert runs inside a savepoint (`tx.transaction` nested inside the
+ * caller's own transaction) so a losing insert can be rolled back and
+ * retried without aborting the outer transaction. Retrying with
+ * `isDefault: false` can never itself conflict, since the index only covers
+ * rows where isDefault is true.
+ */
+export async function insertDesignSystemClaimingDefault(
+  tx: DesignSystemTx,
+  scope: { ownerEmail: string; orgId?: string | null; now: string },
+  insertRow: (tx: DesignSystemTx, isDefault: boolean) => PromiseLike<unknown>,
+): Promise<boolean> {
+  const claimsDefault = await claimOwnedDesignSystemDefault(tx, scope);
+
+  try {
+    await tx.transaction(async (savepoint) => {
+      await insertRow(savepoint, claimsDefault);
+    });
+    return claimsDefault;
+  } catch (err) {
+    if (!claimsDefault || !isUniqueConstraintViolation(err)) throw err;
+    // Lost the race: a concurrent insert committed its own default between
+    // our read above and this insert. The design system itself must still be
+    // saved, just without the flag the other insert already won.
+    await tx.transaction(async (savepoint) => {
+      await insertRow(savepoint, false);
+    });
+    return false;
+  }
+}
+
+const MAX_DEFAULT_CLAIM_ATTEMPTS = 3;
+
+/**
+ * Set (or unset) one owned design system as the default. Unsetting can never
+ * conflict with the unique index. Claiming it can: a concurrent
+ * `setOwnedDesignSystemDefault` call for a different target can commit its
+ * own default between this call's clear and its set, so the set raises a
+ * unique-constraint error. Retry the clear-then-set pair inside a fresh
+ * savepoint -- the next attempt's clear observes the committed winner and
+ * removes it before this call sets its own target.
+ */
+export async function setOwnedDesignSystemDefault(
+  tx: DesignSystemTx,
+  {
+    ownerEmail,
+    orgId,
+    now,
+    targetId,
+    isDefault,
+  }: {
+    ownerEmail: string;
+    orgId?: string | null;
+    now: string;
+    targetId: string;
+    isDefault: boolean;
+  },
+): Promise<void> {
+  const targetScope = ownedDesignSystemScope(ownerEmail, orgId);
+
+  if (!isDefault) {
+    await tx
+      .update(schema.designSystems)
+      .set({ isDefault: false, updatedAt: now })
+      .where(and(eq(schema.designSystems.id, targetId), targetScope));
+    return;
+  }
+
+  for (let attempt = 1; attempt <= MAX_DEFAULT_CLAIM_ATTEMPTS; attempt += 1) {
+    try {
+      await tx.transaction(async (savepoint) => {
+        await clearOwnedDesignSystemDefaults(savepoint, {
+          ownerEmail,
+          orgId,
+          now,
+          keepId: targetId,
+        });
+        await savepoint
+          .update(schema.designSystems)
+          .set({ isDefault: true, updatedAt: now })
+          .where(and(eq(schema.designSystems.id, targetId), targetScope));
+      });
+      return;
+    } catch (err) {
+      if (
+        attempt === MAX_DEFAULT_CLAIM_ATTEMPTS ||
+        !isUniqueConstraintViolation(err)
+      ) {
+        throw err;
+      }
+    }
+  }
 }

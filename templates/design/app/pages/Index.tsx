@@ -78,7 +78,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDesignSystems } from "@/hooks/use-design-systems";
+import {
+  preferredOwnedDesignSystemId,
+  useDesignSystems,
+} from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   readStoredDesignFilter,
@@ -268,8 +271,8 @@ export default function Index() {
   }, [designsData, page, totalPages]);
 
   const resolveDefaultDesignSystemId = useCallback(
-    () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
-    [defaultSystem?.id, designSystems],
+    () => preferredOwnedDesignSystemId(designSystems, defaultSystem),
+    [defaultSystem, designSystems],
   );
 
   const syncSelectedTemplate = useCallback(

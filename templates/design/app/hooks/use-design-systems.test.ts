@@ -13,7 +13,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
-import { useDesignSystems } from "./use-design-systems.js";
+import {
+  preferredOwnedDesignSystemId,
+  useDesignSystems,
+} from "./use-design-systems.js";
 
 function summary(overrides: Record<string, unknown>) {
   return {
@@ -55,5 +58,35 @@ describe("useDesignSystems defaultSystem", () => {
     };
 
     expect(useDesignSystems().defaultSystem).toBeUndefined();
+  });
+});
+
+describe("preferredOwnedDesignSystemId", () => {
+  it("never falls back to another member's org-visible system", () => {
+    const designSystems = [
+      summary({ id: "teammate", isDefault: false, accessRole: "editor" }),
+    ];
+
+    expect(preferredOwnedDesignSystemId(designSystems, undefined)).toBeNull();
+  });
+
+  it("falls back to the viewer's own first system when there is no default", () => {
+    const designSystems = [
+      summary({ id: "teammate", isDefault: false, accessRole: "editor" }),
+      summary({ id: "mine", isDefault: false, accessRole: "owner" }),
+    ];
+
+    expect(preferredOwnedDesignSystemId(designSystems, undefined)).toBe("mine");
+  });
+
+  it("prefers the resolved default over the first owned system", () => {
+    const designSystems = [
+      summary({ id: "mine-first", isDefault: false, accessRole: "owner" }),
+      summary({ id: "mine-default", isDefault: true, accessRole: "owner" }),
+    ];
+
+    expect(
+      preferredOwnedDesignSystemId(designSystems, { id: "mine-default" }),
+    ).toBe("mine-default");
   });
 });

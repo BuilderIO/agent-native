@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { claimOwnedDesignSystemDefault } from "../server/lib/design-system-defaults.js";
+import { insertDesignSystemClaimingDefault } from "../server/lib/design-system-defaults.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -135,30 +135,27 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    const isDefault = await db.transaction(async (tx) => {
-      const claimsDefault = await claimOwnedDesignSystemDefault(tx, {
-        ownerEmail,
-        orgId,
-        now,
-      });
-
-      await tx.insert(schema.designSystems).values({
-        id,
-        title: resolvedTitle,
-        description: resolvedDescription ?? null,
-        data: resolvedData,
-        assets: assets ?? null,
-        customInstructions: resolvedInstructions,
-        isDefault: claimsDefault,
-        ownerEmail,
-        orgId,
-        visibility: orgId ? "org" : "private",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return claimsDefault;
-    });
+    const isDefault = await db.transaction(async (tx) =>
+      insertDesignSystemClaimingDefault(
+        tx,
+        { ownerEmail, orgId, now },
+        (insertTx, claimsDefault) =>
+          insertTx.insert(schema.designSystems).values({
+            id,
+            title: resolvedTitle,
+            description: resolvedDescription ?? null,
+            data: resolvedData,
+            assets: assets ?? null,
+            customInstructions: resolvedInstructions,
+            isDefault: claimsDefault,
+            ownerEmail,
+            orgId,
+            visibility: orgId ? "org" : "private",
+            createdAt: now,
+            updatedAt: now,
+          }),
+      ),
+    );
 
     return {
       id,

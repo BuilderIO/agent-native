@@ -105,6 +105,13 @@ vi.mock("@/hooks/use-design-systems", () => ({
     defaultSystem: null,
     isLoading: false,
   }),
+  preferredOwnedDesignSystemId: (
+    designSystems: Array<{ id: string; accessRole?: string }>,
+    defaultSystem: { id: string } | null | undefined,
+  ) =>
+    defaultSystem?.id ??
+    designSystems.find((ds) => ds.accessRole === "owner")?.id ??
+    null,
 }));
 
 vi.mock("@/lib/agent-chat", () => ({

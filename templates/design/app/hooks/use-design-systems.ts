@@ -23,6 +23,24 @@ export function isViewerDefaultDesignSystem(
   return ds.isDefault && ds.accessRole === "owner";
 }
 
+/**
+ * The source design system for a new design/template must be one the viewer
+ * owns, or explicitly shared as a default — never picked because it happened
+ * to be first in an org-visible list. `designSystems[0]` can be another
+ * member's system, so callers resolving "the design system to use" fall back
+ * through this instead of indexing the raw list directly.
+ */
+export function preferredOwnedDesignSystemId(
+  designSystems: Pick<DesignSystemSummary, "id" | "isDefault" | "accessRole">[],
+  defaultSystem: Pick<DesignSystemSummary, "id"> | undefined,
+): string | null {
+  return (
+    defaultSystem?.id ??
+    designSystems.find((ds) => ds.accessRole === "owner")?.id ??
+    null
+  );
+}
+
 export function useDesignSystems(enabled = true) {
   const { data, isLoading, error, refetch } = useActionQuery<{
     designSystems: DesignSystemSummary[];

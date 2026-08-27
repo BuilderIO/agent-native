@@ -4,14 +4,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  clearOwnedDesignSystemDefaults,
-  ownedDesignSystemScope,
-} from "../server/lib/design-system-defaults.js";
+import { setOwnedDesignSystemDefault } from "../server/lib/design-system-defaults.js";
 
 export default defineAction({
   description:
@@ -50,22 +47,15 @@ export default defineAction({
       throw new Error("Only the owner can set a design system as default");
     }
 
-    await db.transaction(async (tx) => {
-      const targetScope = ownedDesignSystemScope(userEmail, orgId);
-
-      if (isDefault) {
-        await clearOwnedDesignSystemDefaults(tx, {
-          ownerEmail: userEmail,
-          orgId,
-          now,
-        });
-      }
-
-      await tx
-        .update(schema.designSystems)
-        .set({ isDefault, updatedAt: now })
-        .where(and(eq(schema.designSystems.id, id), targetScope));
-    });
+    await db.transaction(async (tx) =>
+      setOwnedDesignSystemDefault(tx, {
+        ownerEmail: userEmail,
+        orgId,
+        now,
+        targetId: id,
+        isDefault,
+      }),
+    );
 
     return { id, isDefault };
   },
