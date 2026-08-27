@@ -359,7 +359,7 @@ multi-design file came to 93MB, while one design each came to 0.9MB, 3.8MB and
 | case | `.fig` vs Figma | nodes off >1.5px | REST, same design |
 | --- | --- | --- | --- |
 | shapes | 1.68% | **0 of 11** | 0.54% |
-| card grid | 2.25% | 3 of 11 | 3.10% |
+| card grid | 2.25% | **0 of 11** | 3.10% |
 | interior single product | **2.59%** | 1 of 136 | 3.35% |
 | constraints | 3.04% | **0 of 7** | 2.28% |
 | whitepace | 3.18% | 3 of 1026 | 2.96% |
@@ -375,6 +375,13 @@ path on it, because **a `.fig` container carries image bytes** where the REST
 path re-fetches renders and a clipboard paste carries only hashes. Each of the
 three reports zero approximated nodes, so none of these numbers is hiding a
 reported hole.
+
+Eight of the eleven frames have NO node off by more than 1.5px. The audit skips
+a node id it sees more than once in the render: an inlined symbol child carries
+the MASTER's id, and the REST tree's box for that id is the master's position
+out on the canvas rather than where any instance draws — comparing those
+invented one offender per instance on the card-grid fixture, with sizes that
+matched exactly.
 
 The per-node column is the one that moved most, and it is the one to read.
 Measuring this path at all found four layout defects the pixel number alone
