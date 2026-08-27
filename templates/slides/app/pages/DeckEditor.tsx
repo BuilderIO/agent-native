@@ -1008,6 +1008,7 @@ export default function DeckEditor() {
       setDrawMode(false);
       setTextBoxMode(false);
       setPinMode(true);
+      setShapeType(null);
     };
 
     document.addEventListener("keydown", handleCommentShortcut);
