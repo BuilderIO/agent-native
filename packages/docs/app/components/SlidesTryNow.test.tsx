@@ -204,7 +204,7 @@ describe("SlidesTryNow", () => {
     expect(labelId).toBe("slides-try-now-prompt-label");
     const label = document.getElementById(labelId || "");
     expect(label?.textContent).toBe("Presentation generation prompt");
-    expect(label).toHaveClass("sr-only");
+    expect(label?.classList.contains("sr-only")).toBe(true);
     expect(prompt.getAttribute("data-placeholder")).toBeNull();
     expect(prompt.getAttribute("contenteditable")).toBe("true");
   });
@@ -212,9 +212,7 @@ describe("SlidesTryNow", () => {
   it("does not render visible prompt header or tooltip chrome", () => {
     renderSlidesTryNow();
 
-    expect(
-      screen.queryByRole("button", { name: "Prompt tip" }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Prompt tip" })).toBeNull();
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 });
