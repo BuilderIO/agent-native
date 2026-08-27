@@ -511,7 +511,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
         description: action.description,
         ...(action.inputSchema ? { schema: action.inputSchema } : {}),
         ...(action.readOnly ? { readOnly: true } : {}),
-        run: async (args) => {
+        run: async (args, runtime) => {
           const result = await fetchImpl(
             `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
             {
@@ -522,6 +522,7 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
                 "Content-Type": "application/json",
               },
               body: JSON.stringify(args),
+              ...(runtime.signal ? { signal: runtime.signal } : {}),
             },
           );
           const body = await result.json();
@@ -599,6 +600,7 @@ function actionRuntime(
   options: AgentNativeWebMcpRegistrationOptions,
   context: AgentNativeHostContext,
   session: AgentNativeHostSession,
+  signal?: AbortSignal,
 ): AgentNativeClientActionRuntime {
   const origin = options.origin ?? "agent-native-webmcp";
   const runCommand = async (command: string, payload?: unknown) => {
@@ -614,6 +616,7 @@ function actionRuntime(
     );
   };
   return {
+    ...(signal ? { signal } : {}),
     origin,
     context,
     session,
@@ -799,7 +802,12 @@ export function createAgentNativeWebMcpRegistration(
               }
               const result = await action.run(
                 input,
-                actionRuntime(options, context, session),
+                actionRuntime(
+                  options,
+                  context,
+                  session,
+                  executionOptions?.signal,
+                ),
               );
               if (executionOptions?.signal.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);

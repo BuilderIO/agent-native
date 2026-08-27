@@ -2480,6 +2480,10 @@ describe("mountWebMcpActionRoutes", () => {
           run: vi.fn(),
           needsApproval: true,
         } as any,
+        "invalid name": {
+          tool: { description: "Invalid", parameters: { type: "object" } },
+          run: vi.fn(),
+        } as any,
       },
       { getOwnerFromEvent, actionRouteAuth: { resolveCaller } },
     );

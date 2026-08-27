@@ -240,6 +240,7 @@ describe("automatic server action WebMCP registration", () => {
         method: "POST",
         credentials: "same-origin",
         body: '{"id":"order-1"}',
+        signal: expect.any(AbortSignal),
       }),
     );
   });

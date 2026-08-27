@@ -825,8 +825,10 @@ export function mountWebMcpActionRoutes(
 ) {
   const eligible = Object.fromEntries(
     Object.entries(actions).filter(
-      ([, entry]) =>
-        entry.agentTool !== false && entry.needsApproval === undefined,
+      ([name, entry]) =>
+        /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
+        entry.agentTool !== false &&
+        entry.needsApproval === undefined,
     ),
   );
   if (Object.keys(eligible).length === 0) return;
