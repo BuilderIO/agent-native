@@ -5116,12 +5116,17 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
-  const handleComposerStop = useCallback(() => {
-    try {
-      void onStop?.();
-    } finally {
-      stopActiveRun({ preserveQueuedMessages: true });
+  const handleComposerStop = useCallback(async () => {
+    let hostStopSucceeded = true;
+    if (onStop) {
+      try {
+        hostStopSucceeded = (await onStop()) !== false;
+      } catch {
+        hostStopSucceeded = false;
+      }
     }
+    if (!hostStopSucceeded) return;
+    stopActiveRun({ preserveQueuedMessages: true });
   }, [onStop, stopActiveRun]);
 
   // Explicit opt-in interrupt from a queued bubble: hoist the entry to the

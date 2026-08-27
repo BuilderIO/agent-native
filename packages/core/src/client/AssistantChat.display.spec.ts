@@ -2304,8 +2304,12 @@ describe("chat submit and stop hardening", () => {
     });
 
     expect(source).toContain("onStop?: () => void | Promise<unknown>;");
-    expect(source).toContain("const handleComposerStop = useCallback");
-    expect(source).toContain("void onStop?.();");
+    expect(source).toContain(
+      "const handleComposerStop = useCallback(async () => {",
+    );
+    expect(source).toContain("hostStopSucceeded = (await onStop()) !== false;");
+    expect(source).toContain("hostStopSucceeded = false;");
+    expect(source).toContain("if (!hostStopSucceeded) return;");
     expect(source).toContain(
       "stopActiveRun({ preserveQueuedMessages: true });",
     );

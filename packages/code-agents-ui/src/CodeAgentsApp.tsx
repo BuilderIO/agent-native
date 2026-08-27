@@ -5343,7 +5343,10 @@ function RunDetailCard({
   const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
   const wasRunActiveRef = useRef(runIsActive);
   const externalStreamingBaselineEventIdsRef = useRef<Set<string>>(
-    new Set(runIsActive ? [] : transcriptEvents.map((event) => event.id)),
+    new Set(transcriptEvents.map((event) => event.id)),
+  );
+  const externalStreamingBaselineInitializedRef = useRef(
+    !runIsActive || !transcriptLoading,
   );
   const stopInFlightRef = useRef(false);
   const stopSucceededRef = useRef(false);
@@ -5371,6 +5374,7 @@ function RunDetailCard({
       externalStreamingBaselineEventIdsRef.current = new Set(
         transcriptEvents.map((event) => event.id),
       );
+      externalStreamingBaselineInitializedRef.current = true;
       wasRunActiveRef.current = false;
       return;
     }
@@ -5379,8 +5383,17 @@ function RunDetailCard({
       stopSucceededRef.current = false;
       setUserStoppedRunId(null);
     }
+    if (
+      !externalStreamingBaselineInitializedRef.current &&
+      !transcriptLoading
+    ) {
+      externalStreamingBaselineEventIdsRef.current = new Set(
+        transcriptEvents.map((event) => event.id),
+      );
+      externalStreamingBaselineInitializedRef.current = true;
+    }
     wasRunActiveRef.current = true;
-  }, [runIsActive, transcriptEvents]);
+  }, [runIsActive, transcriptEvents, transcriptLoading]);
 
   useEffect(() => {
     if (!runIsActive) return;

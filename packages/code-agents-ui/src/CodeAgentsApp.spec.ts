@@ -284,6 +284,11 @@ describe("CodeAgentsApp transcript selection", () => {
     expect(source).toContain("else if (!stopSucceededRef.current) {");
     expect(source).toContain("return result.ok;");
     expect(source).toContain("externalStreamingBaselineEventIdsRef");
+    expect(source).toContain("externalStreamingBaselineInitializedRef");
+    expect(source).toContain("!runIsActive || !transcriptLoading");
+    expect(source).toContain(
+      "!externalStreamingBaselineInitializedRef.current",
+    );
     expect(source).toContain("externalStreamingMessageId");
     expect(source).toContain(
       "externalStreamingMessageId={externalStreamingMessageId}",
