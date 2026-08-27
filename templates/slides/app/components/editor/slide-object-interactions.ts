@@ -318,6 +318,12 @@ export function removeTransientBuilderIds(element: HTMLElement): void {
   });
 }
 
+export function stripTransientSlideLayoutSpacers(root: Element): void {
+  root
+    .querySelectorAll(".fmd-layout-spacer:not([data-slide-layout-preserved])")
+    .forEach((spacer) => spacer.remove());
+}
+
 const ID_REFERENCE_ATTRIBUTES = [
   "aria-activedescendant",
   "aria-controls",
@@ -437,6 +443,17 @@ export function freezeSlideElementForFreeform(
   const objectId = ensureSlideObjectId(element);
   const spacer = element.cloneNode(false) as HTMLElement;
   removeTransientBuilderIds(spacer);
+  for (const className of Array.from(spacer.classList)) {
+    if (className.startsWith("fmd-pptx-")) spacer.classList.remove(className);
+  }
+  for (const attribute of Array.from(spacer.attributes)) {
+    if (
+      attribute.name === "data-imported-pptx" ||
+      attribute.name.startsWith("data-pptx-")
+    ) {
+      spacer.removeAttribute(attribute.name);
+    }
+  }
   spacer.removeAttribute("id");
   spacer.removeAttribute("data-slide-object-id");
   spacer.removeAttribute("contenteditable");
@@ -505,6 +522,21 @@ export function freezeSlideElementForFreeform(
   return spacer;
 }
 
+export function preserveSlideObjectLayoutSpacer(element: HTMLElement): void {
+  const objectId = element.getAttribute("data-slide-object-id");
+  if (!objectId) return;
+  const owner = element.parentElement ?? element.ownerDocument;
+  for (const spacer of Array.from(
+    owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
+  )) {
+    if (spacer.getAttribute("data-slide-layout-spacer-for") !== objectId) {
+      continue;
+    }
+    spacer.removeAttribute("data-slide-layout-spacer-for");
+    spacer.setAttribute("data-slide-layout-preserved", "true");
+  }
+}
+
 /** Preserve a flow element's measured slot after its content is deleted. */
 function preserveSlideElementLayoutSlot(element: HTMLElement): void {
   const computed = window.getComputedStyle(element);
@@ -524,8 +556,7 @@ function preserveSlideElementLayoutSlot(element: HTMLElement): void {
       alignSelf: computed.alignSelf,
     },
   );
-  spacer.removeAttribute("data-slide-layout-spacer-for");
-  spacer.setAttribute("data-slide-layout-preserved", "true");
+  preserveSlideObjectLayoutSpacer(element);
   element.remove();
 }
 

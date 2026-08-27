@@ -24,10 +24,12 @@ import {
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  preserveSlideObjectLayoutSpacer,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
   snapSlideObjectMove,
+  stripTransientSlideLayoutSpacers,
   SLIDE_OBJECT_PASTE_OFFSET,
   distributeSlideObjectMembers,
   type SlideObjectGeometry,
@@ -465,6 +467,65 @@ describe("slide object interactions", () => {
       expect(parent.children).toHaveLength(0);
     },
   );
+
+  it("does not copy imported PPTX metadata onto a layout spacer", () => {
+    const parent = document.createElement("div");
+    const shape = document.createElement("div");
+    shape.className = "fmd-pptx-shape";
+    shape.setAttribute("data-pptx-element-kind", "shape");
+    shape.setAttribute("data-pptx-image-name", "not-an-image");
+    parent.append(shape);
+
+    const spacer = freezeSlideElementForFreeform(
+      shape,
+      { x: 0, y: 0, width: 120, height: 80 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+
+    expect(spacer.classList.contains("fmd-pptx-shape")).toBe(false);
+    expect(spacer.hasAttribute("data-pptx-element-kind")).toBe(false);
+    expect(spacer.hasAttribute("data-pptx-image-name")).toBe(false);
+  });
+
+  it("keeps a committed flow slot through serialization cleanup", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    root.append(rectangle);
+
+    freezeSlideElementForFreeform(
+      rectangle,
+      { x: 0, y: 0, width: 120, height: 80 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+    preserveSlideObjectLayoutSpacer(rectangle);
+
+    const serializedRoot = root.cloneNode(true) as HTMLElement;
+    stripTransientSlideLayoutSpacers(serializedRoot);
+    const persisted = sanitizeSlideHtml(serializedRoot.innerHTML);
+    const persistedRoot = document.createElement("div");
+    persistedRoot.innerHTML = persisted;
+
+    expect(
+      persistedRoot.querySelector(
+        '.fmd-layout-spacer[data-slide-layout-preserved="true"]',
+      ),
+    ).toBeTruthy();
+    expect(persistedRoot.querySelector("[data-slide-layout-spacer-for]")).toBe(
+      null,
+    );
+  });
 
   it("sends an object in front of every peer", () => {
     const container = document.createElement("div");

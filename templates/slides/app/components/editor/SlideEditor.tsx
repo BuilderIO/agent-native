@@ -147,8 +147,10 @@ import {
   isDeletableFlowImage,
   isDeletableSlideElement,
   removeSlideObjectAndLayoutSpacer,
+  preserveSlideObjectLayoutSpacer,
   resolveSlideObjectContainingBlock,
   snapSlideObjectMove,
+  stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
   type CopiedSlideObjects,
   type SlideAlignmentGuide,
@@ -293,13 +295,7 @@ function stripBuilderIds(html: string): string {
       stripPlaceholderZws(stripRoot);
       // Transient spacers only keep an in-flow element's slot stable while a
       // drag is live. A preserved gap is durable slide layout state.
-      stripRoot
-        .querySelectorAll(
-          ".fmd-layout-spacer:not([data-slide-layout-preserved])",
-        )
-        .forEach((spacer) => {
-          spacer.remove();
-        });
+      stripTransientSlideLayoutSpacers(stripRoot);
     }
     cleaned = stripRoot?.innerHTML ?? doc.body.innerHTML;
   }
@@ -3809,6 +3805,7 @@ export default function SlideEditor({
             clone.remove();
             activeElement = element;
           }
+          if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           const html = readCurrentSlideContentHtml();
           // Markdown slides temporarily move their ReactMarkdown children into
           // an fmd canvas during promotion. Restore that live tree after
@@ -4036,6 +4033,7 @@ export default function SlideEditor({
           const currentSelector = getBuilderSelector(element);
           if (currentSelector)
             selectElementForStyling(element, currentSelector);
+          if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           const html = readCurrentSlideContentHtml();
           if (restoreMarkdownTree) {
             removeFreeformLayoutSpacer();
@@ -4391,6 +4389,9 @@ export default function SlideEditor({
           // Serialize while the promoted elements still live in their fmd
           // canvas. Markdown promotion restores the React tree below, but
           // the persisted HTML must retain the canvas and absolute geometry.
+          for (const promotion of promotions) {
+            preserveSlideObjectLayoutSpacer(promotion.element);
+          }
           const html = readCurrentSlideContentHtml();
           for (const promotion of promotions) {
             removeFreeformLayoutSpacer(promotion.element);
@@ -4592,6 +4593,7 @@ export default function SlideEditor({
       geometry.x += dx;
       geometry.y += dy;
       applyObjectGeometry(frozen.element, geometry);
+      preserveSlideObjectLayoutSpacer(frozen.element);
       const html = readCurrentSlideContentHtml();
 
       if (frozen.restoreMarkdownTree) {
