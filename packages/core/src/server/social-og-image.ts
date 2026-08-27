@@ -543,10 +543,7 @@ export function renderAgentNativeOgImageSvg(
       : configuredBrand.mode);
   const logoUrl =
     mode === "custom"
-      ? sanitizeLogoUrl(
-          input.logoUrl ??
-            (input.appName ? undefined : configuredBrand.logoUrl),
-        )
+      ? sanitizeLogoUrl(input.logoUrl ?? configuredBrand.logoUrl)
       : undefined;
   const title = cleanText(input.title) || titleFromAppName(appName);
   const accentText =

@@ -154,6 +154,10 @@ describe("social OG image", () => {
     );
     expect(svg).not.toContain('<path d="M24.5537');
     expect(svg).not.toContain("Agent-Native");
+
+    expect(renderAgentNativeOgImageSvg({ appName: "Acme Override" })).toContain(
+      '<image x="0" y="0" width="114" height="66" href="https://cdn.example.com/acme.svg"',
+    );
   });
 
   it("can return SVG fallback headers", () => {
