@@ -847,13 +847,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const togglePinned = useCallback(
     (id: string) => {
-      const current = settings?.pinnedLabels ?? [];
+      const current = pinnedLabels;
       const next = current.includes(id)
         ? current.filter((x) => x !== id)
         : [...current, id];
       updateSettings.mutate({ pinnedLabels: next });
     },
-    [settings?.pinnedLabels, updateSettings],
+    [pinnedLabels, updateSettings],
   );
 
   // Drag-to-reorder tab handlers

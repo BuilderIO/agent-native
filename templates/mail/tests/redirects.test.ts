@@ -13,7 +13,7 @@ function expectInboxRedirect(routeLoader: typeof loader | typeof clientLoader) {
   expect(thrown).toBeInstanceOf(Response);
   const response = thrown as Response;
   expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/inbox?label=important");
+  expect(response.headers.get("location")).toBe("/inbox");
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
 }
 

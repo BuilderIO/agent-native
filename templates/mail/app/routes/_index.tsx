@@ -29,14 +29,14 @@ export function meta() {
  * `No routes matched location "/inbox"` because the navigation fired during
  * hydration, before the route tree was fully attached. A `loader` runs as
  * part of the server response and the navigation completes before the app
- * hydrates. The app opens to the Important triage tab by default.
+ * hydrates. The app opens to the inbox so saved tab preferences can apply.
  */
 export function loader() {
-  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
+  throw withSsrHtmlContentType(redirect("/inbox"));
 }
 
 export function clientLoader() {
-  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
+  throw withSsrHtmlContentType(redirect("/inbox"));
 }
 
 export function HydrateFallback() {
@@ -48,6 +48,6 @@ export function HydrateFallback() {
 }
 
 export default function IndexRoute() {
-  // Should never render — both loaders redirect to the default triage tab.
+  // Should never render — both loaders redirect to the inbox.
   return null;
 }
