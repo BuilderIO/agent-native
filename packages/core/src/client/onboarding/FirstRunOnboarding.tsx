@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import {
   buildMcpOAuthStartUrl,
@@ -57,14 +58,14 @@ type FirstRunScreen =
   | "extension";
 
 const FIRST_RUN_ROLE_OPTIONS = [
-  { value: "product", label: "Product" },
-  { value: "design", label: "Design" },
-  { value: "developer", label: "Developer" },
-  { value: "marketing", label: "Marketing" },
-  { value: "sales", label: "Sales" },
-  { value: "ops", label: "Ops" },
-  { value: "individual", label: "Individual" },
-  { value: "other", label: "Other" },
+  { value: "product", labelKey: "onboarding.roleProduct" },
+  { value: "design", labelKey: "onboarding.roleDesign" },
+  { value: "developer", labelKey: "onboarding.roleDeveloper" },
+  { value: "marketing", labelKey: "onboarding.roleMarketing" },
+  { value: "sales", labelKey: "onboarding.roleSales" },
+  { value: "ops", labelKey: "onboarding.roleOps" },
+  { value: "individual", labelKey: "onboarding.roleIndividual" },
+  { value: "other", labelKey: "onboarding.roleOther" },
 ] as const;
 
 const BUILDER_MORE_SERVICES = [
@@ -89,6 +90,7 @@ export function FirstRunOnboarding({
   skipIntegrations = shouldSkipFirstRunIntegrations(),
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
+  const t = useT();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -229,7 +231,7 @@ export function FirstRunOnboarding({
       handleFinish();
     } catch (error) {
       setRoleSaveError(
-        error instanceof Error ? error.message : "Could not save your role.",
+        error instanceof Error ? error.message : t("onboarding.saveRoleError"),
       );
     } finally {
       setSavingRole(false);
@@ -595,16 +597,16 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => setScreen("role")}
             >
-              Skip for now
+              {t("onboarding.skipForNow")}
             </button>
             <button
               type="button"
               className={primaryButtonClass}
               onClick={() => setScreen("role")}
             >
-              Continue
+              {t("common.continue")}
               <IconArrowRight size={15} />
             </button>
           </div>
@@ -726,17 +728,17 @@ export function FirstRunOnboarding({
             className="mb-5 self-start text-xs text-muted-foreground hover:text-foreground"
             onClick={() => setScreen(roleBackScreen)}
           >
-            Back
+            {t("onboarding.back")}
           </button>
           <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
-            Let’s customize this for you.
+            {t("onboarding.customizeRole")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            What best describes your role?
+            {t("onboarding.roleQuestion")}
           </p>
           <fieldset className="mt-7 grid gap-2">
-            <legend className="sr-only">Choose your role</legend>
-            {FIRST_RUN_ROLE_OPTIONS.map(({ value, label }) => (
+            <legend className="sr-only">{t("onboarding.chooseRole")}</legend>
+            {FIRST_RUN_ROLE_OPTIONS.map(({ value, labelKey }) => (
               <label
                 key={value}
                 data-testid={`first-run-role-${value}`}
@@ -755,7 +757,7 @@ export function FirstRunOnboarding({
                   onChange={() => setSelectedRole(value)}
                   className="size-4 accent-primary"
                 />
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
               </label>
             ))}
           </fieldset>
@@ -771,7 +773,7 @@ export function FirstRunOnboarding({
               onClick={handleFinish}
               disabled={savingRole}
             >
-              Skip for now
+              {t("onboarding.skipForNow")}
             </button>
             <button
               type="button"
@@ -779,7 +781,7 @@ export function FirstRunOnboarding({
               onClick={() => void handleRoleContinue()}
               disabled={!selectedRole || savingRole}
             >
-              {savingRole ? "Saving…" : "Continue"}
+              {savingRole ? t("common.saving") : t("common.continue")}
               {!savingRole && <IconArrowRight size={15} />}
             </button>
           </div>

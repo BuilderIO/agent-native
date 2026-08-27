@@ -88,7 +88,8 @@ export async function updateUserProfile(
     });
   }
 
-  return getUserProfile(email);
+  const profile = await getUserProfile(email);
+  return { ...profile, name: normalizedName };
 }
 
 export async function updateUserOnboardingRole(

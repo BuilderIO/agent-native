@@ -447,4 +447,38 @@ describe("user profile store", () => {
       onboardingRole: "developer",
     });
   });
+
+  it("returns the normalized name after a name-only Better Auth update", async () => {
+    getUserSettingMock.mockResolvedValue({ name: "Legacy Name" });
+    const authUser = {
+      user: {
+        id: "user-1",
+        email: "alice@example.com",
+        name: "Alice",
+        onboardingRole: "developer",
+      },
+      accounts: [],
+    };
+    const findUserByEmail = vi.fn().mockResolvedValue(authUser);
+    const updateUser = vi.fn().mockResolvedValue(undefined);
+    getBetterAuthInternalAdapterMock.mockResolvedValue({
+      findUserByEmail,
+      updateUser,
+    });
+
+    vi.resetModules();
+    vi.doUnmock("../store.js");
+    const { updateUserProfile } = await import("../store.js");
+
+    await expect(
+      updateUserProfile("alice@example.com", "Alice Smith"),
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: "developer",
+    });
+    expect(updateUser).toHaveBeenCalledWith("user-1", {
+      name: "Alice Smith",
+    });
+  });
 });

@@ -296,6 +296,43 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toContain("Agent integrations");
   });
 
+  it("routes the optional integrations skip through the role step", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='onboarding-tools-footer'] button")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-screen='role']"),
+    ).toBeTruthy();
+    expect(mocks.completeFirstRun).not.toHaveBeenCalled();
+  });
+
   it("saves the selected role before completing first-run onboarding", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
