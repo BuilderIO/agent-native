@@ -92,9 +92,12 @@ describe("release everything workflow", () => {
     assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /getReleaseByTag/);
+    assert.match(source, /hasCompleteDesktopRelease/);
+    assert.match(source, /desktopAlreadyPublished/);
     assert.match(source, /hasCompleteClipsRelease/);
     assert.match(source, /const clipsTagSha = await getRemoteTagSha/);
     assert.match(source, /clipsTagSha !== releaseSha/);
+    assert.match(source, /Agent-Native-arm64\.dmg/);
     assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
     assert.match(source, /clipsAlreadyPublished/);
     assert.match(source, /source_ref: releaseSha/);

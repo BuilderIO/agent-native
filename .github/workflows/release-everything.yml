@@ -117,6 +117,23 @@ jobs:
               ].every((asset) => assets.has(asset));
             }
 
+            function hasCompleteDesktopRelease(release) {
+              if (!release || release.draft || release.prerelease) return false;
+              const assets = new Set(release.assets.map((asset) => asset.name));
+              return [
+                "Agent-Native-arm64.dmg",
+                "Agent-Native-x64.dmg",
+                "Agent-Native-arm64.exe",
+                "Agent-Native-x64.exe",
+                "Agent-Native-arm64.AppImage",
+                "Agent-Native-x86_64.AppImage",
+                "latest.yml",
+                "latest-mac.yml",
+                "latest-linux.yml",
+                "latest-linux-arm64.yml",
+              ].every((asset) => assets.has(asset));
+            }
+
             async function getRun(runId) {
               return (await github.rest.actions.getWorkflowRun({
                 owner,
@@ -364,6 +381,12 @@ jobs:
               throw new Error("The production site manifest contains no *.agent-native.com sites.");
             }
 
+            const existingDesktopRelease = await getPublishedRelease(`v${desktopVersion}`);
+            const desktopAlreadyPublished = hasCompleteDesktopRelease(existingDesktopRelease);
+            if (desktopAlreadyPublished) {
+              core.info(`Desktop v${desktopVersion} is already published with its required assets; treating it as complete.`);
+            }
+
             const existingClipsRelease = await getPublishedRelease(`clips-v${clipsVersion}`);
             const clipsAlreadyPublished = hasCompleteClipsRelease(existingClipsRelease, clipsVersion);
             if (clipsAlreadyPublished) {
@@ -377,11 +400,16 @@ jobs:
             }
 
             const [desktop, clips, production] = await Promise.all([
-              dispatch("desktop-release.yml", workflowRef, {
-                channel: "production",
-                version: desktopVersion,
-                source_ref: releaseSha,
-              }),
+              desktopAlreadyPublished
+                ? Promise.resolve({
+                    url: existingDesktopRelease.html_url,
+                    existing: true,
+                  })
+                : dispatch("desktop-release.yml", workflowRef, {
+                    channel: "production",
+                    version: desktopVersion,
+                    source_ref: releaseSha,
+                  }),
               clipsAlreadyPublished
                 ? Promise.resolve({
                     url: existingClipsRelease.html_url,
