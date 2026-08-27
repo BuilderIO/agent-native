@@ -1,9 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
+const accessibleTemplateFilterMock = vi.hoisted(() => vi.fn());
+const accessFilterMock = vi.hoisted(() => vi.fn());
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: accessFilterMock,
+}));
+
+vi.mock("../../actions/_template-access.js", () => ({
+  accessibleTemplateFilter: accessibleTemplateFilterMock,
 }));
 
 vi.mock("./json.js", () => ({
@@ -22,6 +33,7 @@ vi.mock("../db/index.js", () => ({
   schema: {
     assetTemplates: { id: "templates.id" },
     assetLibraries: { id: "libraries.id" },
+    assetLibraryShares: "library_shares",
   },
 }));
 
@@ -53,6 +65,10 @@ function createDb(rowSets: unknown[][]) {
 describe("prepareTemplateChatContext", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    accessibleTemplateFilterMock.mockResolvedValue({
+      op: "template-access",
+    });
+    accessFilterMock.mockReturnValue({ op: "library-access" });
   });
 
   it("returns nothing when no preset references are tagged", async () => {
@@ -156,6 +172,50 @@ describe("prepareTemplateChatContext", () => {
 
     // First inArray call is the template lookup; it should get one deduped id.
     expect(vi.mocked(inArray).mock.calls[0][1]).toEqual(["preset-1"]);
+  });
+
+  it("does not embed a forged template reference outside the caller's ACL", async () => {
+    getDbMock.mockReturnValue(createDb([[]]));
+
+    const result = await prepareTemplateChatContext({
+      message: "go",
+      references: [ref("private-template")],
+    });
+
+    expect(result).toBeUndefined();
+    expect(accessibleTemplateFilterMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not embed Brand Kit context without access to the linked kit", async () => {
+    getDbMock.mockReturnValue(
+      createDb([
+        [
+          {
+            id: "template-1",
+            libraryId: "private-kit",
+            title: "Shared template",
+            aspectRatio: "1:1",
+            imageSize: "2K",
+            model: "gemini-3.1-flash-image",
+            settings: "{}",
+          },
+        ],
+        [],
+      ]),
+    );
+
+    const result = await prepareTemplateChatContext({
+      message: "go",
+      references: [ref("template-1")],
+    });
+
+    const message = (result as { message: string }).message;
+    expect(message).toContain('Template "Shared template"');
+    expect(message).not.toContain("- Brand kit:");
+    expect(accessFilterMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "library_shares",
+    );
   });
 
   it("accepts legacy preset references and omits the brand-kit block for globals", async () => {

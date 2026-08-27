@@ -1,8 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import { serializeTemplate } from "./_helpers.js";
 import { resolveTemplateAccess } from "./_template-access.js";
 
@@ -14,17 +13,13 @@ export default defineAction({
   run: async ({ id }) => {
     const access = await resolveTemplateAccess(id, "viewer");
     const template = access.resource;
-    const [library] = template.libraryId
-      ? await getDb()
-          .select({ title: schema.assetLibraries.title })
-          .from(schema.assetLibraries)
-          .where(eq(schema.assetLibraries.id, template.libraryId))
-          .limit(1)
-      : [null];
+    const libraryAccess = template.libraryId
+      ? await resolveAccess("asset-library", template.libraryId)
+      : null;
     return serializeTemplate({
       ...template,
       accessRole: access.role,
-      libraryTitle: library?.title ?? null,
+      libraryTitle: libraryAccess?.resource.title ?? null,
     });
   },
 });

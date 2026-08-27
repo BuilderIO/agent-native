@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -16,6 +19,15 @@ type Candidate = {
   updatedAt: string;
   settings: string;
 };
+
+function ownedTemplateScope(ownerEmail: string, orgId: string | undefined) {
+  return and(
+    eq(schema.assetTemplates.ownerEmail, ownerEmail),
+    orgId
+      ? eq(schema.assetTemplates.orgId, orgId)
+      : isNull(schema.assetTemplates.orgId),
+  );
+}
 
 export async function listMigrationOrphansForAuditAdmin(
   db: any,
@@ -48,11 +60,12 @@ export default defineAction({
   run: async ({ dryRun }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
+    const orgId = getRequestOrgId();
     const db = getDb();
     const rows = (await db
       .select()
       .from(schema.assetTemplates)
-      .where(eq(schema.assetTemplates.ownerEmail, ownerEmail))) as Candidate[];
+      .where(ownedTemplateScope(ownerEmail, orgId))) as Candidate[];
     const groups = new Map<string, Candidate[]>();
     for (const row of rows) {
       const settings = parseJson<{ seedId?: unknown; source?: unknown }>(
@@ -80,34 +93,52 @@ export default defineAction({
       );
       const [winner, ...duplicates] = sorted;
       const referencedIds = duplicates.map((row) => row.id);
-      const [sessionReferences, runReferences] = referencedIds.length
-        ? await Promise.all([
-            db
-              .select({ presetId: schema.assetGenerationSessions.presetId })
-              .from(schema.assetGenerationSessions)
-              .where(
-                inArray(schema.assetGenerationSessions.presetId, referencedIds),
-              ),
-            db
-              .select({ presetId: schema.assetGenerationRuns.presetId })
-              .from(schema.assetGenerationRuns)
-              .where(
-                inArray(schema.assetGenerationRuns.presetId, referencedIds),
-              ),
-          ])
-        : [[], []];
-      const protectedIds = new Set(
+      const [sessionReferences, runReferences, shareReferences] =
+        referencedIds.length
+          ? await Promise.all([
+              db
+                .select({ presetId: schema.assetGenerationSessions.presetId })
+                .from(schema.assetGenerationSessions)
+                .where(
+                  inArray(
+                    schema.assetGenerationSessions.presetId,
+                    referencedIds,
+                  ),
+                ),
+              db
+                .select({ presetId: schema.assetGenerationRuns.presetId })
+                .from(schema.assetGenerationRuns)
+                .where(
+                  inArray(schema.assetGenerationRuns.presetId, referencedIds),
+                ),
+              db
+                .select({ resourceId: schema.assetTemplateShares.resourceId })
+                .from(schema.assetTemplateShares)
+                .where(
+                  inArray(schema.assetTemplateShares.resourceId, referencedIds),
+                ),
+            ])
+          : [[], [], []];
+      const generationReferencedIds = new Set(
         [...sessionReferences, ...runReferences]
           .map((row) => row.presetId)
           .filter((id): id is string => typeof id === "string"),
       );
+      const sharedIds = new Set(
+        shareReferences
+          .map((row) => row.resourceId)
+          .filter((id): id is string => typeof id === "string"),
+      );
+      const protectedIds = new Set([...generationReferencedIds, ...sharedIds]);
       const deletable = duplicates.filter((row) => !protectedIds.has(row.id));
       for (const row of duplicates) {
-        if (protectedIds.has(row.id)) {
+        if (generationReferencedIds.has(row.id)) {
           kept.push({
             id: row.id,
             reason: "Referenced by a generation run or session.",
           });
+        } else if (sharedIds.has(row.id)) {
+          kept.push({ id: row.id, reason: "Has explicit shares." });
         }
       }
       if (!deletable.length) continue;
@@ -115,10 +146,15 @@ export default defineAction({
         await db
           .update(schema.assetTemplates)
           .set({ libraryId: null, collectionId: null })
-          .where(eq(schema.assetTemplates.id, winner.id));
+          .where(
+            and(
+              eq(schema.assetTemplates.id, winner.id),
+              ownedTemplateScope(ownerEmail, orgId),
+            ),
+          );
         await db.delete(schema.assetTemplates).where(
           and(
-            eq(schema.assetTemplates.ownerEmail, ownerEmail),
+            ownedTemplateScope(ownerEmail, orgId),
             inArray(
               schema.assetTemplates.id,
               deletable.map((row) => row.id),

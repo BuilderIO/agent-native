@@ -342,7 +342,9 @@ export default function TemplatesIndexRoute() {
                     },
                     onError: (deleteError: Error) =>
                       toast.error(
-                        deleteError.message || t("templates.deleteFailed"),
+                        deleteError.message === "template-in-use"
+                          ? t("templates.deleteInUse")
+                          : deleteError.message || t("templates.deleteFailed"),
                       ),
                   },
                 );

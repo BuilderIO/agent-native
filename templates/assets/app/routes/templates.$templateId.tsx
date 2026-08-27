@@ -1143,9 +1143,11 @@ export default function TemplateEditorRoute() {
       navigate(settingsHref);
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : t("brandKitDetail.couldNotDeletePreset"),
+        error instanceof Error && error.message === "template-in-use"
+          ? t("templates.deleteInUse")
+          : error instanceof Error
+            ? error.message
+            : t("brandKitDetail.couldNotDeletePreset"),
       );
     }
   }

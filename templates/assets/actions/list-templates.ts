@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -57,7 +58,12 @@ export default defineAction({
             title: schema.assetLibraries.title,
           })
           .from(schema.assetLibraries)
-          .where(inArray(schema.assetLibraries.id, libraryIds))
+          .where(
+            and(
+              inArray(schema.assetLibraries.id, libraryIds),
+              accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+            ),
+          )
       : [];
     const libraryTitleById = new Map(
       libraries.map((library) => [library.id, library.title]),

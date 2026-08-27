@@ -12,15 +12,19 @@ export default defineAction({
   run: async ({ id }) => {
     await resolveTemplateAccess(id, "editor");
     const db = getDb();
-    const [session] = await db
-      .select({ id: schema.assetGenerationSessions.id })
-      .from(schema.assetGenerationSessions)
-      .where(eq(schema.assetGenerationSessions.presetId, id))
-      .limit(1);
-    if (session)
-      throw new Error(
-        "Template is used by an existing handoff session and cannot be deleted.",
-      );
+    const [[session], [run]] = await Promise.all([
+      db
+        .select({ id: schema.assetGenerationSessions.id })
+        .from(schema.assetGenerationSessions)
+        .where(eq(schema.assetGenerationSessions.presetId, id))
+        .limit(1),
+      db
+        .select({ id: schema.assetGenerationRuns.id })
+        .from(schema.assetGenerationRuns)
+        .where(eq(schema.assetGenerationRuns.presetId, id))
+        .limit(1),
+    ]);
+    if (session || run) throw new Error("template-in-use");
     await db
       .delete(schema.assetTemplateShares)
       .where(eq(schema.assetTemplateShares.resourceId, id));

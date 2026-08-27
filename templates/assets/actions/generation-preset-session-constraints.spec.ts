@@ -73,6 +73,7 @@ vi.mock("../server/db/index.js", () => ({
     assetGenerationRuns: {
       id: "runs.id",
       libraryId: "runs.library_id",
+      presetId: "runs.preset_id",
     },
   },
 }));
@@ -142,7 +143,22 @@ describe("generation preset/session constraints", () => {
     getDbMock.mockReturnValue(db);
 
     await expect(deletePresetAction.run({ id: "preset-1" })).rejects.toThrow(
-      /handoff session/,
+      /template-in-use/,
+    );
+
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
+  it("blocks deleting a template referenced by a generation run", async () => {
+    const db = createDb([
+      [{ id: "template-1", libraryId: "lib-1" }],
+      [],
+      [{ id: "run-1" }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(deletePresetAction.run({ id: "template-1" })).rejects.toThrow(
+      /template-in-use/,
     );
 
     expect(db.delete).not.toHaveBeenCalled();

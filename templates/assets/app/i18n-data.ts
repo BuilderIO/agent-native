@@ -754,6 +754,7 @@ const enUS = {
     updateFailed: "Could not save template.",
     deleted: "Template deleted.",
     deleteFailed: "Could not delete template.",
+    deleteInUse: "This template is used by an existing generation.",
     back: "Back to templates",
   },
   team: {
@@ -4113,6 +4114,7 @@ export const messagesByLocale = {
       updateFailed: "无法保存模板。",
       deleted: "模板已删除。",
       deleteFailed: "无法删除模板。",
+      deleteInUse: "此模板已用于现有生成，无法删除。",
       back: "返回模板",
     },
     team: {
@@ -5027,6 +5029,7 @@ export const messagesByLocale = {
       updateFailed: "No se pudo guardar la plantilla.",
       deleted: "Plantilla eliminada.",
       deleteFailed: "No se pudo eliminar la plantilla.",
+      deleteInUse: "Esta plantilla se usa en una generación existente.",
       back: "Volver a plantillas",
     },
     team: {
@@ -5520,6 +5523,7 @@ export const messagesByLocale = {
       updateFailed: "Impossible d’enregistrer le modèle.",
       deleted: "Modèle supprimé.",
       deleteFailed: "Impossible de supprimer le modèle.",
+      deleteInUse: "Ce modèle est utilisé par une génération existante.",
       back: "Retour aux modèles",
     },
     team: {
@@ -5941,6 +5945,8 @@ export const messagesByLocale = {
       updateFailed: "Vorlage konnte nicht gespeichert werden.",
       deleted: "Vorlage gelöscht.",
       deleteFailed: "Vorlage konnte nicht gelöscht werden.",
+      deleteInUse:
+        "Diese Vorlage wird von einer vorhandenen Generierung verwendet.",
       back: "Zurück zu Vorlagen",
     },
     team: {
@@ -6331,6 +6337,7 @@ export const messagesByLocale = {
       updateFailed: "テンプレートを保存できませんでした。",
       deleted: "テンプレートを削除しました。",
       deleteFailed: "テンプレートを削除できませんでした。",
+      deleteInUse: "このテンプレートは既存の生成で使用されています。",
       back: "テンプレートに戻る",
     },
     team: {
@@ -6719,6 +6726,7 @@ export const messagesByLocale = {
       updateFailed: "템플릿을 저장할 수 없습니다.",
       deleted: "템플릿을 삭제했습니다.",
       deleteFailed: "템플릿을 삭제할 수 없습니다.",
+      deleteInUse: "이 템플릿은 기존 생성에서 사용 중입니다.",
       back: "템플릿으로 돌아가기",
     },
     team: {
@@ -7190,6 +7198,7 @@ export const messagesByLocale = {
       updateFailed: "Não foi possível salvar o modelo.",
       deleted: "Modelo excluído.",
       deleteFailed: "Não foi possível excluir o modelo.",
+      deleteInUse: "Este modelo é usado por uma geração existente.",
       back: "Voltar aos modelos",
     },
     team: {
@@ -7596,6 +7605,7 @@ export const messagesByLocale = {
       updateFailed: "टेम्प्लेट सहेजा नहीं जा सका।",
       deleted: "टेम्प्लेट हटाया गया।",
       deleteFailed: "टेम्प्लेट हटाया नहीं जा सका।",
+      deleteInUse: "यह टेम्प्लेट किसी मौजूदा जनरेशन में उपयोग हो रहा है।",
       back: "टेम्प्लेट पर वापस जाएं",
     },
     team: {
@@ -8069,6 +8079,7 @@ export const messagesByLocale = {
       updateFailed: "تعذر حفظ القالب.",
       deleted: "تم حذف القالب.",
       deleteFailed: "تعذر حذف القالب.",
+      deleteInUse: "هذا القالب مستخدم في عملية إنشاء حالية.",
       back: "العودة إلى القوالب",
     },
     team: {

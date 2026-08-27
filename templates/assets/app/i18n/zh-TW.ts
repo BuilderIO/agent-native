@@ -151,6 +151,7 @@ const messages = {
     updateFailed: "無法儲存範本。",
     deleted: "範本已刪除。",
     deleteFailed: "無法刪除範本。",
+    deleteInUse: "此範本已用於現有生成，無法刪除。",
     back: "返回範本",
   },
   team: {

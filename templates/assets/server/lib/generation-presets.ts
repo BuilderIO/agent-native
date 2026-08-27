@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { DEFAULT_GENERATION_PRESET_SEEDS } from "../../shared/generation-presets.js";
@@ -22,7 +22,14 @@ export async function ensureDefaultTemplates({
   const existing = await db
     .select({ settings: schema.assetTemplates.settings })
     .from(schema.assetTemplates)
-    .where(eq(schema.assetTemplates.ownerEmail, ownerEmail));
+    .where(
+      and(
+        eq(schema.assetTemplates.ownerEmail, ownerEmail),
+        orgId
+          ? eq(schema.assetTemplates.orgId, orgId)
+          : isNull(schema.assetTemplates.orgId),
+      ),
+    );
   const existingSeedIds = new Set(
     existing.flatMap((row: { settings?: string | null }) => {
       const settings = JSON.parse(row.settings ?? "{}") as { seedId?: unknown };

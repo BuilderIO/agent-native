@@ -1,6 +1,8 @@
 import type { AgentChatReference } from "@agent-native/core/server";
-import { inArray } from "drizzle-orm";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, inArray } from "drizzle-orm";
 
+import { accessibleTemplateFilter } from "../../actions/_template-access.js";
 import type { StyleBrief } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { parseJson } from "./json.js";
@@ -31,10 +33,13 @@ export async function prepareTemplateChatContext(args: {
   if (!templateIds.length) return;
 
   const db = getDb();
+  const templateAccess = await accessibleTemplateFilter();
   const templates = (await db
     .select()
     .from(schema.assetTemplates)
-    .where(inArray(schema.assetTemplates.id, templateIds))) as TemplateRow[];
+    .where(
+      and(inArray(schema.assetTemplates.id, templateIds), templateAccess),
+    )) as TemplateRow[];
   if (!templates.length) return;
 
   const libraryIds = Array.from(
@@ -48,7 +53,12 @@ export async function prepareTemplateChatContext(args: {
     ? ((await db
         .select()
         .from(schema.assetLibraries)
-        .where(inArray(schema.assetLibraries.id, libraryIds))) as LibraryRow[])
+        .where(
+          and(
+            inArray(schema.assetLibraries.id, libraryIds),
+            accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+          ),
+        )) as LibraryRow[])
     : [];
   const libraryById = new Map(
     libraries.map((library) => [library.id, library]),

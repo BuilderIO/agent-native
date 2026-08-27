@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getDbMock = vi.hoisted(() => vi.fn());
 const resolveMock = vi.hoisted(() => vi.fn());
 const targetAccessMock = vi.hoisted(() => vi.fn());
+const accessFilterMock = vi.hoisted(() => vi.fn());
+const resolveAccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (entry: unknown) => entry,
@@ -16,7 +18,8 @@ vi.mock("drizzle-orm", () => ({
   or: vi.fn((...conditions) => ({ op: "or", conditions })),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
-  accessFilter: vi.fn(() => ({ op: "template-access" })),
+  accessFilter: accessFilterMock,
+  resolveAccess: resolveAccessMock,
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: getDbMock,
@@ -28,6 +31,7 @@ vi.mock("../server/db/index.js", () => ({
       collectionId: "template.collection",
     },
     assetLibraries: { id: "library.id", title: "library.title" },
+    assetLibraryShares: "library_shares",
   },
 }));
 vi.mock("./_template-access.js", async (importOriginal) => ({
@@ -46,35 +50,97 @@ vi.mock("./_template-input.js", () => ({
 }));
 
 import associate from "./associate-template.js";
+import getTemplate from "./get-template.js";
 import action from "./list-templates.js";
 
+function queryResult(rows: unknown[]) {
+  return {
+    orderBy: vi.fn(async () => rows),
+    limit: vi.fn(async () => rows),
+    then: (
+      resolve: (value: unknown[]) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise.resolve(rows).then(resolve, reject),
+  };
+}
+
+function createSequentialDb(rowSets: unknown[][]) {
+  return {
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => queryResult(rowSets.shift() ?? [])),
+      })),
+    })),
+  };
+}
+
 describe("list-templates access", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    accessFilterMock.mockImplementation((table) => ({ op: "access", table }));
+  });
 
   it("returns no other-owner templates when the caller has no library or template grants", async () => {
-    const otherOwnerTemplates = [
-      { id: "other-template", ownerEmail: "other@example.com" },
-    ];
-    let call = 0;
-    const where = vi.fn((condition) => ({
-      orderBy: vi.fn(async () => {
-        call += 1;
-        return call === 1
-          ? []
-          : condition.op === "template-access"
-            ? []
-            : otherOwnerTemplates;
-      }),
-    }));
-    getDbMock.mockReturnValue({
-      select: vi.fn(() => ({ from: vi.fn(() => ({ where })) })),
-    });
+    getDbMock.mockReturnValue(createSequentialDb([[], []]));
 
     await expect(action.run({ scope: "all" })).resolves.toEqual({
       count: 0,
       templates: [],
     });
-    expect(where).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not disclose a linked Brand Kit title without access to the kit", async () => {
+    getDbMock.mockReturnValue(
+      createSequentialDb([
+        [],
+        [
+          {
+            id: "shared-template",
+            libraryId: "private-kit",
+            title: "Shared template",
+          },
+        ],
+        [],
+      ]),
+    );
+
+    await expect(action.run({ scope: "all" })).resolves.toEqual({
+      count: 1,
+      templates: [
+        expect.objectContaining({
+          id: "shared-template",
+          libraryId: "private-kit",
+          libraryTitle: null,
+        }),
+      ],
+    });
+    expect(accessFilterMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "library_shares",
+    );
+  });
+
+  it("does not disclose the linked Brand Kit title from get-template", async () => {
+    resolveMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "shared-template",
+        libraryId: "private-kit",
+        title: "Shared template",
+      },
+    });
+    resolveAccessMock.mockResolvedValue(null);
+
+    await expect(getTemplate.run({ id: "shared-template" })).resolves.toEqual(
+      expect.objectContaining({
+        id: "shared-template",
+        libraryTitle: null,
+      }),
+    );
+    expect(resolveAccessMock).toHaveBeenCalledWith(
+      "asset-library",
+      "private-kit",
+    );
   });
 
   it("refuses to make a pinned template global and names the pins", async () => {
