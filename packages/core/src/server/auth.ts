@@ -297,6 +297,11 @@ export interface AuthOptions {
    */
   getSession?: (event: H3Event) => Promise<AuthSession | null>;
   /**
+   * Set only when the custom provider independently verifies email ownership.
+   * Without this opt-in, an omitted `emailVerified` value remains unknown.
+   */
+  trustCustomEmailVerification?: boolean;
+  /**
    * Paths that are accessible without authentication.
    * Supports prefix matching: "/book" matches /book/anything.
    * Both page routes and API routes can be made public.
@@ -1525,6 +1530,7 @@ async function mapLegacySession(
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
+let trustCustomEmailVerification = false;
 
 /**
  * Mutable config for the auth guard. Stored separately from the guard function
@@ -3858,7 +3864,12 @@ async function resolveSessionUncached(
   // 3. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
-    if (session) return session;
+    if (session) {
+      if (trustCustomEmailVerification && session.emailVerified === undefined) {
+        return { ...session, emailVerified: true };
+      }
+      return session;
+    }
 
     const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
@@ -6020,6 +6031,8 @@ export async function autoMountAuth(
     // can't see the template's server/plugins/ dir and auto-mounts defaults).
     if (options.getSession) {
       customGetSession = options.getSession;
+      trustCustomEmailVerification =
+        options.trustCustomEmailVerification === true;
     }
     if (_authGuardConfig) {
       if (options.googleOnly || options.loginHtml || options.marketing) {
@@ -6069,6 +6082,7 @@ export async function autoMountAuth(
   if (!app) {
     if (isDevEnvironment()) {
       customGetSession = null;
+      trustCustomEmailVerification = false;
       return false;
     }
     throw new Error(
@@ -6078,6 +6092,7 @@ export async function autoMountAuth(
 
   // Reset globals
   customGetSession = null;
+  trustCustomEmailVerification = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
@@ -6087,6 +6102,8 @@ export async function autoMountAuth(
 
   if (options.getSession) {
     customGetSession = options.getSession;
+    trustCustomEmailVerification =
+      options.trustCustomEmailVerification === true;
   }
 
   // BYOA — custom getSession provider

@@ -2855,6 +2855,44 @@ describe("server/auth", () => {
       }
     });
 
+    it("promotes omitted verification for explicitly trusted BYOA providers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), {
+        getSession: async () => ({ email: "verified@builder.io" }),
+        trustCustomEmailVerification: true,
+      });
+
+      await expect(getSession(createMockEvent())).resolves.toMatchObject({
+        email: "verified@builder.io",
+        emailVerified: true,
+      });
+    });
+
+    it("keeps omitted BYOA verification unknown without the trust opt-in", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth, getSession } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), {
+        getSession: async () => ({ email: "unknown@builder.io" }),
+      });
+
+      await expect(getSession(createMockEvent())).resolves.toEqual({
+        email: "unknown@builder.io",
+      });
+    });
+
     it("preserves the beta opt-out in custom login HTML before authentication", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

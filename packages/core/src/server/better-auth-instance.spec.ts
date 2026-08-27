@@ -294,6 +294,22 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     );
   });
 
+  it("reconciles pending invitations for a fallback-created Google user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+    delete adapter.createOAuthUser;
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: " Owner@Example.com ",
+      accountId: "google-sub-1",
+    });
+
+    expect(created).toBe(true);
+    expect(createOAuthUser).not.toHaveBeenCalled();
+    expect(mockAcceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+      "owner@example.com",
+    );
+  });
+
   it("rechecks the Google account after a concurrent create race", async () => {
     const existing = {
       user: {

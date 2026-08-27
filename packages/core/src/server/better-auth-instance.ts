@@ -1229,6 +1229,19 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     throw new Error("Google identity is missing an email or account id");
   }
 
+  const reconcilePendingInvitations = async (): Promise<void> => {
+    try {
+      // Google verification can bypass Better Auth's user-create hook, so
+      // reconcile invitations only after the verified identity is committed.
+      await acceptPendingInvitationsForEmail(email);
+    } catch (error) {
+      console.error(
+        "[auth] failed to reconcile pending invitations after Google verification",
+        error,
+      );
+    }
+  };
+
   const name = identity.name?.trim() || email.split("@")[0] || "User";
   const findExisting = () =>
     adapter.findUserByEmail(email, { includeAccounts: true });
@@ -1285,6 +1298,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         providerId: "google",
         accountId,
       });
+      await reconcilePendingInvitations();
       return true;
     }
   }
@@ -1320,16 +1334,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
-    try {
-      // This promotion bypasses Better Auth's user-create hook, so reconcile
-      // invitations only after the verified Google identity is committed.
-      await acceptPendingInvitationsForEmail(email);
-    } catch (error) {
-      console.error(
-        "[auth] failed to reconcile pending invitations after Google verification",
-        error,
-      );
-    }
+    await reconcilePendingInvitations();
     return false;
   }
   await adapter.linkAccount({
