@@ -309,11 +309,22 @@ function drawLinkAnnotations(
     const measuredRects = rects.length ? rects : [link.getBoundingClientRect()];
     for (const rect of measuredRects) {
       if (rect.width <= 0 || rect.height <= 0) continue;
+      const left = Math.max(rect.left, sourceRect.left);
+      const top = Math.max(rect.top, sourceRect.top);
+      const right = Math.min(
+        rect.left + rect.width,
+        sourceRect.left + sourceRect.width,
+      );
+      const bottom = Math.min(
+        rect.top + rect.height,
+        sourceRect.top + sourceRect.height,
+      );
+      if (right <= left || bottom <= top) continue;
       pdf.link(
-        (rect.left - sourceRect.left) * positionScale,
-        (rect.top - sourceRect.top) * positionScale,
-        rect.width * positionScale,
-        rect.height * positionScale,
+        (left - sourceRect.left) * positionScale,
+        (top - sourceRect.top) * positionScale,
+        (right - left) * positionScale,
+        (bottom - top) * positionScale,
         { url },
       );
     }

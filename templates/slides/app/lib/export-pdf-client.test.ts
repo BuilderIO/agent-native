@@ -292,6 +292,22 @@ describe("exportDeckAsPdf", () => {
     });
   });
 
+  it("clips link annotations to the rendered slide bounds", async () => {
+    const canvas = renderSlide("s1");
+    const link = document.createElement("a");
+    link.setAttribute("href", "https://example.com/docs");
+    link.textContent = "Read more";
+    link.getBoundingClientRect = () =>
+      ({ width: 120, height: 40, left: 900, top: 520 }) as DOMRect;
+    canvas.append(link);
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.link).toHaveBeenCalledWith(900, 520, 60, 20, {
+      url: "https://example.com/docs",
+    });
+  });
+
   it("sizes the text layer from the slide's own layout, not its on-screen scale", async () => {
     // Every slide canvas renders inside a `scale(var(--slide-scale))` wrapper,
     // so the same deck exports from a quarter-scale thumbnail and a full-size
