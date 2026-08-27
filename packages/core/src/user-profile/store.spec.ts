@@ -41,6 +41,7 @@ describe("user profile store", () => {
       email: "alice@example.com",
       name: "Saved Name",
       image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      onboardingRole: null,
     });
 
     await expect(getUserProfiles(["alice@example.com"])).resolves.toEqual(
@@ -51,6 +52,7 @@ describe("user profile store", () => {
             email: "alice@example.com",
             name: "Saved Name",
             image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+            onboardingRole: null,
           },
         ],
       ]),

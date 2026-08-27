@@ -1,9 +1,27 @@
+import { z } from "zod";
+
 export const USER_PROFILE_SETTING_KEY = "user-profile";
+
+export const ONBOARDING_ROLE_VALUES = [
+  "product",
+  "design",
+  "developer",
+  "marketing",
+  "sales",
+  "ops",
+  "individual",
+  "other",
+] as const;
+
+export const onboardingRoleSchema = z.enum(ONBOARDING_ROLE_VALUES);
+
+export type OnboardingRole = z.infer<typeof onboardingRoleSchema>;
 
 export interface UserProfile {
   email: string;
   name: string;
   image?: string | null;
+  onboardingRole?: OnboardingRole | null;
 }
 
 export function isEmailDerivedName(
@@ -49,4 +67,11 @@ export function resolveUserProfileName(
     return connectedName;
   }
   return explicitName || null;
+}
+
+export function normalizeOnboardingRole(
+  value: string | null | undefined,
+): OnboardingRole | null {
+  if (value == null) return null;
+  return onboardingRoleSchema.parse(value);
 }

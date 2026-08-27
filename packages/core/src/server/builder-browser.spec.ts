@@ -504,6 +504,7 @@ describe("Builder callback CSRF state", () => {
       expect(redirectUrl).toBeTruthy();
       const parsedRedirect = new URL(redirectUrl!);
       expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
+      expect(parsed.searchParams.get("cli")).toBe("true");
       // No _an_state — Builder can safely append its own params.
       expect(parsedRedirect.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
     });
