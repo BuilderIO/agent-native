@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import { and, asc, eq, isNull, ne, type SQL } from "drizzle-orm";
 
 import { isUniqueConstraintViolation } from "../../shared/db-conflict.js";
@@ -6,6 +7,60 @@ import { getDb, schema } from "../db/index.js";
 type DesignSystemTx = Parameters<
   Parameters<ReturnType<typeof getDb>["transaction"]>[0]
 >[0];
+
+let oneDefaultIndexPromise: Promise<void> | null = null;
+
+/**
+ * Best-effort unique index enforcing at most one default design system per
+ * (owner_email, org_id) scope. An application-level read-then-write inside a
+ * transaction is not enough on Postgres READ COMMITTED: a SELECT over an
+ * empty scope takes no row lock, so two concurrent create/proxy/set-default
+ * transactions can each observe "no default yet" and each commit
+ * isDefault: true. This index turns the loser's write into a real
+ * unique-constraint error instead of a silent second default -- see
+ * `insertDesignSystemClaimingDefault` and `setOwnedDesignSystemDefault`
+ * below for the savepoint-and-retry recovery built on top of it.
+ *
+ * `COALESCE(org_id, '')` matters: a plain `UNIQUE(owner_email, org_id)`
+ * would not catch duplicates for the no-org case, because standard SQL
+ * unique constraints treat every `NULL` as distinct from every other `NULL`.
+ * Normalizing `NULL` to `''` makes every no-org row for one owner collide
+ * for uniqueness purposes, the same as it does for org-scoped rows.
+ *
+ * `WHERE is_default` (rather than `= true` / `= 1`) is deliberately
+ * dialect-neutral: Postgres accepts a bare boolean column reference as a
+ * partial-index predicate, and SQLite treats the same nonzero/zero integer
+ * as truthy/falsy in a `WHERE` expression.
+ *
+ * Created lazily on first use rather than at plugin boot -- schema DDL in a
+ * server plugin body runs on every cold start regardless of whether that
+ * request ever touches design systems (see the `performance` skill and
+ * `guard:no-boot-data-work`). Memoized per warm process; `CREATE UNIQUE INDEX
+ * IF NOT EXISTS` is itself idempotent, so a cold start racing a fresh call
+ * pays this at most once more. Fails soft (logged, not thrown) so a database
+ * that still has pre-existing duplicate defaults from before this fix
+ * doesn't block every design-system write.
+ */
+function ensureOneDefaultPerScopeIndex(): Promise<void> {
+  if (!oneDefaultIndexPromise) {
+    oneDefaultIndexPromise = (async () => {
+      try {
+        await getDbExec().execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS design_systems_one_default_per_scope_idx ON design_systems (owner_email, COALESCE(org_id, '')) WHERE is_default`,
+        );
+      } catch (err) {
+        console.warn(
+          "[db] design_systems_one_default_per_scope_idx not created — " +
+            "likely pre-existing duplicate defaults from the create/proxy " +
+            "race predating this fix. New concurrent claims remain " +
+            "best-effort until the duplicates are cleaned up:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    })();
+  }
+  return oneDefaultIndexPromise;
+}
 
 /**
  * The default flag is scoped per (ownerEmail, orgId) pair, never globally. An
@@ -131,6 +186,7 @@ export async function insertDesignSystemClaimingDefault(
   scope: { ownerEmail: string; orgId?: string | null; now: string },
   insertRow: (tx: DesignSystemTx, isDefault: boolean) => PromiseLike<unknown>,
 ): Promise<boolean> {
+  await ensureOneDefaultPerScopeIndex();
   const claimsDefault = await claimOwnedDesignSystemDefault(tx, scope);
 
   try {
@@ -186,6 +242,8 @@ export async function setOwnedDesignSystemDefault(
       .where(and(eq(schema.designSystems.id, targetId), targetScope));
     return;
   }
+
+  await ensureOneDefaultPerScopeIndex();
 
   for (let attempt = 1; attempt <= MAX_DEFAULT_CLAIM_ATTEMPTS; attempt += 1) {
     try {
