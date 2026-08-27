@@ -137,6 +137,19 @@ describe("slide animation element parsing", () => {
     ).toBe(target);
   });
 
+  it("keeps parsed paths aligned after preserved layout spacers", () => {
+    const html = `<div class="fmd-slide">
+      <div>First</div>
+      <div class="fmd-layout-spacer" data-slide-layout-preserved="true"></div>
+      <div>Second</div>
+    </div>`;
+
+    expect(parseSlideAnimationElements(html).map(({ path }) => path)).toEqual([
+      [0],
+      [1],
+    ]);
+  });
+
   it("expands paragraph animations from an individually selected paragraph", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide">
