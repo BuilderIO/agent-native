@@ -5298,10 +5298,18 @@ function RunDetailCard({
   const runIsActive = run ? isRunActive(run) : false;
   const runId = run?.id;
   const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);
+  const wasRunActiveRef = useRef(runIsActive);
   const handleStop = useCallback(() => {
     if (runId) setUserStoppedRunId(runId);
     onStop();
   }, [onStop, runId]);
+
+  useEffect(() => {
+    if (runIsActive && !wasRunActiveRef.current) {
+      setUserStoppedRunId(null);
+    }
+    wasRunActiveRef.current = runIsActive;
+  }, [runIsActive]);
 
   useEffect(() => {
     if (!runIsActive) return;

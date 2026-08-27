@@ -211,6 +211,7 @@ describe("CodeAgentsApp transcript selection", () => {
     expect(source).toContain(
       "const [userStoppedRunId, setUserStoppedRunId] = useState<string | null>(null);",
     );
+    expect(source).toContain("if (runIsActive && !wasRunActiveRef.current) {");
     expect(source).toContain("if (runId) setUserStoppedRunId(runId);");
     expect(source).toContain(
       "externalUserStopped={userStoppedRunId === run.id}",
