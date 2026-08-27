@@ -424,6 +424,101 @@ const messages = {
     freeAndOpenSource: "100% 免費 • 開放原始碼",
     viewAllApps: "查看所有應用",
   },
+  homepage: {
+    hero: {
+      title: "面向 agentic 應用的框架",
+      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine2: "使用你自己的 LLM，隨處部署。",
+      learnMore: "了解更多",
+    },
+    install: {
+      copyCommand: "複製安裝指令",
+    },
+    actions: {
+      title: "一個 Action 驅動所有能力面",
+      bodyLine1: "Action 是 Agent-Native 應用的基礎構建區塊。",
+      bodyLine2:
+        "只需定義一次功能，即可在 UI、agent 對話、HTTP API、MCP、A2A 或 CLI 中使用。",
+      diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
+    },
+    builtIn: {
+      title: "每個 Agent-Native 應用都內建這些能力",
+      body: "使用者和 AI agent 協同工作所需的一切，已經整合到同一個應用中。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "為使用者提供熟悉的畫面，用於瀏覽、編輯和審閱工作。",
+        },
+        agentChat: {
+          title: "內嵌 agent 對話",
+          body: "讓使用者不必離開應用即可委派工作、提問和查看結果。",
+        },
+        sharedState: {
+          title: "共用的應用狀態",
+          body: "agent 知道使用者正在查看、選取和編輯的內容。",
+        },
+        sharedSql: {
+          title: "共用的 SQL 資料",
+          body: "使用者和 agent 讀取並更新同一份可信資料來源。",
+        },
+        skillsMemory: {
+          title: "Skills 與 memory",
+          body: "為 agent 提供可重複使用的專業知識和持久脈絡。",
+        },
+        automations: {
+          title: "自動化",
+          body: "按排程或應用事件自動執行 agent 工作。",
+        },
+        agentTeams: {
+          title: "Agent 團隊",
+          body: "在應用內部或跨應用把工作委派給專業 agent。",
+        },
+        auth: {
+          title: "身分驗證與組織",
+          body: "登入、使用者帳號和組織成員關係均已內建。",
+        },
+        sharing: {
+          title: "分享與權限",
+          body: "控制誰可以查看、留言、編輯或管理每一項資源。",
+        },
+      },
+    },
+    stack: {
+      title: "適配你的技術堆疊",
+      body: "帶上你自己的 LLM、資料庫、工具和基礎設施，Agent-Native 是開放原始碼的 TypeScript，你的應用始終歸你所有。",
+      exploreApps: "探索用 Agent-Native 打造的應用",
+    },
+    showcase: {
+      title: "你能用 Agent-Native 打造什麼？",
+      body: "從聊天、專注的內部工具，到完整的面向客戶產品，任何形態都能從這裡開始。每個應用都為使用者提供 UI，也為 agent 提供完成相同工作的工具。",
+      browseApps: "瀏覽應用",
+      scrollLeft: "向左捲動應用",
+      scrollRight: "向右捲動應用",
+    },
+    bottomCta: {
+      title: "打造你的第一個 Agent-Native 應用",
+      body: "為使用者和 AI agent 打造同一個應用。使用你自己的 LLM，隨處部署。",
+    },
+    getStartedModal: {
+      title: "開始使用",
+      close: "關閉",
+      buildLocally: "在本機建置應用",
+      tryAnApp: "試用一個應用",
+      buildInCloud: "在雲端建置",
+    },
+    footer: {
+      tagline: "面向 agentic 應用的框架。",
+      framework: "框架",
+      ecosystem: "生態系",
+      community: "社群",
+      legal: "法律",
+      docs: "文件",
+      actions: "行動",
+      apps: "應用",
+      privacyPolicy: "隱私權政策",
+      saasTerms: "SaaS 條款",
+    },
+  },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
     eyebrow: "從一個可執行的 app 開始，讓 agent 繼續改進它。",

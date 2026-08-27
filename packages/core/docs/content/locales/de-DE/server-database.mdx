@@ -259,9 +259,15 @@ von ihrer Versionsnummer verfolgt.
 
 Verwenden Sie für neue Schemaänderungen der App `pnpm db:generate`, um
 prüfbares SQL zu erzeugen. Dadurch entsteht
+<<<<<<< HEAD
 `server/db/migrations/<id_name>.sql`. `runDrizzleMigrations` lädt diese Dateien
 in Node.js- und Node-basierten Serverless-Runtimes in den gemeinsamen
 Agent-Native-Runner. Der Release-Schritt bleibt für Produktionsänderungen
+=======
+`server/db/migrations/<id_name>.sql`. `runDrizzleMigrations` lädt diese
+Dateien in Node.js- und Node-basierten Serverless-Runtimes in den gemeinsamen
+Agent-Native Runner. Der Release-Schritt bleibt für Produktionsänderungen
+>>>>>>> origin/main
 zuständig. Verwenden Sie `runMigrations()` weiterhin für dialektspezifisches SQL,
 D1-Verhalten, Backfills und verzögerte JavaScript-Schritte.
 
