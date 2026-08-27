@@ -53,6 +53,13 @@ describe("new deck generation flow", () => {
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
   });
 
+  it("carries hidden prompt context through generation retries", () => {
+    expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
+    expect(source).toContain("retryContext?: string");
+    expect(flow).toContain("retryContext: additionalContext || undefined");
+    expect(source).toContain("context: context ?? newDeckRetryContext");
+  });
+
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
       "After reading any requested or attached reference material, but before adding the first slide",

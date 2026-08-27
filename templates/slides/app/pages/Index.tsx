@@ -92,22 +92,29 @@ import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
+const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
+  retryContext?: string;
 }
 
 function savePromptForRetry(
   prompt: string,
-  options: { persistAcrossSignIn?: boolean } = {},
+  options: { context?: string; persistAcrossSignIn?: boolean } = {},
 ) {
   let signInHandoffSaved = !options.persistAcrossSignIn;
   if (options.persistAcrossSignIn) {
     try {
       sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+      if (options.context) {
+        sessionStorage.setItem(PENDING_PROMPT_CONTEXT_KEY, options.context);
+      } else {
+        sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
+      }
       signInHandoffSaved = true;
     } catch {}
   }
@@ -118,6 +125,7 @@ function savePromptForRetry(
 function clearPendingPromptForRetry() {
   try {
     sessionStorage.removeItem(PENDING_PROMPT_KEY);
+    sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
   } catch {}
 }
 
@@ -280,6 +288,9 @@ export default function Index() {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
+  const [newDeckRetryContext, setNewDeckRetryContext] = useState<
+    string | undefined
+  >();
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
@@ -472,6 +483,7 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryContext(undefined);
         }
       }
     },
@@ -479,10 +491,19 @@ export default function Index() {
   );
 
   const preservePromptForSignIn = useCallback(
-    (prompt: string, options: { hadFiles?: boolean } = {}) => {
-      if (!savePromptForRetry(prompt, { persistAcrossSignIn: true })) {
+    (
+      prompt: string,
+      options: { context?: string; hadFiles?: boolean } = {},
+    ) => {
+      if (
+        !savePromptForRetry(prompt, {
+          context: options.context,
+          persistAcrossSignIn: true,
+        })
+      ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
+      setNewDeckRetryContext(options.context);
       setNewDeckRetryFiles([]);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
@@ -531,10 +552,14 @@ export default function Index() {
   useEffect(() => {
     if (!session) return;
     let saved: string | null = null;
+    let savedContext: string | undefined;
     try {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
+      savedContext =
+        sessionStorage.getItem(PENDING_PROMPT_CONTEXT_KEY) ?? undefined;
     } catch {}
     if (!saved) return;
+    setNewDeckRetryContext(savedContext);
     if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt(null);
@@ -564,6 +589,7 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
+    setNewDeckRetryContext(state.retryContext);
     setShowNewDeckPrompt(true);
     navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
@@ -598,7 +624,10 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
-      preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
+      preservePromptForSignIn(prompt, {
+        context: additionalContext,
+        hadFiles: files.length > 0,
+      });
       return;
     }
 
@@ -649,9 +678,10 @@ export default function Index() {
     });
 
     const recoverFromGenerationSetupFailure = (description: string) => {
-      if (!savePromptForRetry(prompt)) {
+      if (!savePromptForRetry(prompt, { context: additionalContext })) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
+      setNewDeckRetryContext(additionalContext || undefined);
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), { description });
@@ -664,6 +694,7 @@ export default function Index() {
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
+            retryContext: additionalContext || undefined,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
         });
@@ -701,6 +732,7 @@ export default function Index() {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
+    setNewDeckRetryContext(undefined);
     const trimmedPrompt = prompt.trim();
     const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
       (value) => value.includes("<google-doc "),
@@ -832,10 +864,14 @@ export default function Index() {
   const handlePromptSubmit = useCallback(
     (prompt: string, files: UploadedFile[], context?: string) => {
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      setPendingDeck({ prompt, files, context });
+      setPendingDeck({
+        prompt,
+        files,
+        context: context ?? newDeckRetryContext,
+      });
       setShowNewDeckReferenceStep(true);
     },
-    [setNewDeckPromptOpen],
+    [newDeckRetryContext, setNewDeckPromptOpen],
   );
 
   const handlePromptSkip = useCallback(() => {
