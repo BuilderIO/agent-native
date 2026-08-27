@@ -73,6 +73,7 @@ import {
 } from "@/lib/design-system-preview";
 
 import { QueryErrorState } from "../components/QueryErrorState";
+import { isViewerDefaultDesignSystem } from "../hooks/use-design-systems";
 import {
   builderRefreshKey,
   parseDesignSystemData,
@@ -238,14 +239,12 @@ export default function DesignSystems() {
           if (!old?.designSystems) return old;
           return {
             ...old,
-            designSystems: old.designSystems.map((ds: DesignSystem) => ({
-              ...ds,
-              isDefault: isDefault
-                ? ds.id === id
-                : ds.id === id
-                  ? false
-                  : ds.isDefault,
-            })),
+            designSystems: old.designSystems.map((ds: DesignSystem) => {
+              if (ds.id === id) return { ...ds, isDefault };
+              // Only the viewer's own systems share the default being claimed.
+              if (!isDefault || ds.accessRole !== "owner") return ds;
+              return { ...ds, isDefault: false };
+            }),
           };
         },
       );
@@ -655,7 +654,7 @@ export default function DesignSystems() {
                               <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
                                 {ds.title}
                               </h3>
-                              {ds.isDefault && (
+                              {isViewerDefaultDesignSystem(ds) && (
                                 <span className="text-[10px] text-[#609FF8] font-medium">
                                   {t("designSystems.defaultBadge")}
                                 </span>

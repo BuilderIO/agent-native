@@ -12,10 +12,11 @@ import {
   type BuilderDesignSystemGitHubSource,
   type BuilderDesignSystemSourceKind,
 } from "@agent-native/core/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
+import { claimOwnedDesignSystemDefault } from "./design-system-defaults.js";
 
 type ProxyData = Record<string, unknown> & {
   colors?: Record<string, unknown>;
@@ -388,34 +389,30 @@ export async function upsertBuilderProxyDesignSystem({
       })
       .where(eq(schema.designSystems.id, existing.id));
   } else {
-    const [ownedSystem] = await db
-      .select({ id: schema.designSystems.id })
-      .from(schema.designSystems)
-      .where(
-        orgId
-          ? and(
-              eq(schema.designSystems.ownerEmail, ownerEmail),
-              eq(schema.designSystems.orgId, orgId),
-            )
-          : and(
-              eq(schema.designSystems.ownerEmail, ownerEmail),
-              isNull(schema.designSystems.orgId),
-            ),
-      )
-      .limit(1);
-    await db.insert(schema.designSystems).values({
-      id: localDesignSystemId,
-      title: proxyFields.title,
-      description: proxyFields.description,
-      data: proxyFields.data,
-      assets: "[]",
-      customInstructions: proxyFields.customInstructions,
-      isDefault: !ownedSystem,
-      ownerEmail,
-      orgId: orgId ?? null,
-      visibility: orgId ? "org" : "private",
-      createdAt: now,
-      updatedAt: now,
+    // Claim the default in the same transaction that inserts the row: several
+    // sources can sync at once, and a check-then-insert let each one flag its
+    // own row as this owner's default.
+    await db.transaction(async (tx) => {
+      const claimsDefault = await claimOwnedDesignSystemDefault(tx, {
+        ownerEmail,
+        orgId,
+        now,
+      });
+
+      await tx.insert(schema.designSystems).values({
+        id: localDesignSystemId,
+        title: proxyFields.title,
+        description: proxyFields.description,
+        data: proxyFields.data,
+        assets: "[]",
+        customInstructions: proxyFields.customInstructions,
+        isDefault: claimsDefault,
+        ownerEmail,
+        orgId: orgId ?? null,
+        visibility: orgId ? "org" : "private",
+        createdAt: now,
+        updatedAt: now,
+      });
     });
   }
 

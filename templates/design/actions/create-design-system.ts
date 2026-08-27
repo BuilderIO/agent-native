@@ -3,11 +3,11 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { claimOwnedDesignSystemDefault } from "../server/lib/design-system-defaults.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -135,40 +135,29 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Check only this user's owned systems within the same org. Shared systems
-    // should not prevent the first system a user creates from becoming their
-    // default, and systems in other orgs must not suppress the default in this org.
-    const existing = await db
-      .select({ id: schema.designSystems.id })
-      .from(schema.designSystems)
-      .where(
-        orgId
-          ? and(
-              eq(schema.designSystems.ownerEmail, ownerEmail),
-              eq(schema.designSystems.orgId, orgId),
-            )
-          : and(
-              eq(schema.designSystems.ownerEmail, ownerEmail),
-              isNull(schema.designSystems.orgId),
-            ),
-      )
-      .limit(1);
+    const isDefault = await db.transaction(async (tx) => {
+      const claimsDefault = await claimOwnedDesignSystemDefault(tx, {
+        ownerEmail,
+        orgId,
+        now,
+      });
 
-    const isDefault = existing.length === 0;
+      await tx.insert(schema.designSystems).values({
+        id,
+        title: resolvedTitle,
+        description: resolvedDescription ?? null,
+        data: resolvedData,
+        assets: assets ?? null,
+        customInstructions: resolvedInstructions,
+        isDefault: claimsDefault,
+        ownerEmail,
+        orgId,
+        visibility: orgId ? "org" : "private",
+        createdAt: now,
+        updatedAt: now,
+      });
 
-    await db.insert(schema.designSystems).values({
-      id,
-      title: resolvedTitle,
-      description: resolvedDescription ?? null,
-      data: resolvedData,
-      assets: assets ?? null,
-      customInstructions: resolvedInstructions,
-      isDefault,
-      ownerEmail,
-      orgId,
-      visibility: orgId ? "org" : "private",
-      createdAt: now,
-      updatedAt: now,
+      return claimsDefault;
     });
 
     return {

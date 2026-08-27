@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const testState = vi.hoisted(() => ({
-  existing: [] as Array<{ id: string }>,
+  existing: [] as Array<{ id: string; isDefault?: boolean }>,
   insertedValues: null as Record<string, unknown> | null,
+  clearedDefaults: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -15,8 +16,10 @@ vi.mock("drizzle-orm", async (importOriginal) => {
   return {
     ...original,
     and: (...values: unknown[]) => ({ and: values }),
+    asc: (value: unknown) => ({ asc: value }),
     eq: (...values: unknown[]) => ({ eq: values }),
     isNull: (value: unknown) => ({ isNull: value }),
+    ne: (...values: unknown[]) => ({ ne: values }),
   };
 });
 
@@ -24,23 +27,34 @@ vi.mock("nanoid", () => ({ nanoid: () => "design_system_example" }));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          limit: () => Promise.resolve(testState.existing),
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: () => Promise.resolve(testState.existing),
+            }),
+          }),
+        }),
+        update: () => ({
+          set: (fields: Record<string, unknown>) => {
+            testState.clearedDefaults.push(fields);
+            return { where: () => Promise.resolve() };
+          },
+        }),
+        insert: () => ({
+          values: (values: Record<string, unknown>) => {
+            testState.insertedValues = values;
+            return Promise.resolve();
+          },
         }),
       }),
-    }),
-    insert: () => ({
-      values: (values: Record<string, unknown>) => {
-        testState.insertedValues = values;
-        return Promise.resolve();
-      },
-    }),
   }),
   schema: {
     designSystems: {
       id: "designSystems.id",
+      isDefault: "designSystems.isDefault",
+      createdAt: "designSystems.createdAt",
       ownerEmail: "designSystems.ownerEmail",
       orgId: "designSystems.orgId",
     },
@@ -52,6 +66,7 @@ import action, { createDesignSystemSchema } from "./create-design-system.js";
 beforeEach(() => {
   testState.existing = [];
   testState.insertedValues = null;
+  testState.clearedDefaults = [];
 });
 
 describe("create-design-system production templates", () => {
@@ -86,7 +101,7 @@ describe("create-design-system production templates", () => {
   });
 
   it("keeps the existing default behavior when another system already exists", async () => {
-    testState.existing = [{ id: "existing_system" }];
+    testState.existing = [{ id: "existing_system", isDefault: true }];
 
     await action.run({ templateId: "primer-light", title: "Team Primer" });
 
@@ -94,6 +109,30 @@ describe("create-design-system production templates", () => {
       title: "Team Primer",
       isDefault: false,
     });
+    expect(testState.clearedDefaults).toEqual([]);
+  });
+
+  it("clears the scope in the same transaction that claims the default", async () => {
+    await action.run({ templateId: "carbon-white" });
+
+    expect(testState.clearedDefaults).toEqual([
+      expect.objectContaining({ isDefault: false }),
+    ]);
+    expect(testState.insertedValues).toMatchObject({ isDefault: true });
+  });
+
+  it("heals a scope that already holds duplicate defaults", async () => {
+    testState.existing = [
+      { id: "older_default", isDefault: true },
+      { id: "racing_default", isDefault: true },
+    ];
+
+    await action.run({ templateId: "primer-light", title: "Team Primer" });
+
+    expect(testState.clearedDefaults).toEqual([
+      expect.objectContaining({ isDefault: false }),
+    ]);
+    expect(testState.insertedValues).toMatchObject({ isDefault: false });
   });
 
   it("rejects data overrides that would turn a named template into a lookalike", () => {

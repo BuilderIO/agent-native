@@ -18,8 +18,10 @@ vi.mock("drizzle-orm", async (importOriginal) => {
   return {
     ...original,
     and: (...values: unknown[]) => ({ and: values }),
+    asc: (value: unknown) => ({ asc: value }),
     eq: (...values: unknown[]) => ({ eq: values }),
     isNull: (value: unknown) => ({ isNull: value }),
+    ne: (...values: unknown[]) => ({ ne: values }),
   };
 });
 
@@ -48,6 +50,8 @@ vi.mock("../server/db/index.js", () => ({
   schema: {
     designSystems: {
       id: "designSystems.id",
+      isDefault: "designSystems.isDefault",
+      createdAt: "designSystems.createdAt",
       ownerEmail: "designSystems.ownerEmail",
       orgId: "designSystems.orgId",
     },
