@@ -74,7 +74,6 @@ import { downloadImage } from "@/lib/image-download";
 import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
-  getElementPath,
   getElementPreview,
   getPersistedElementPath,
   type SelectedAnimationTarget,
