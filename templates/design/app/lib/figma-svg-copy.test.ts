@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildFigmaSvgFromLiveDocument,
@@ -14,41 +14,92 @@ import {
   type FigmaSvgExportActionResult,
 } from "./figma-svg-copy";
 
+// `background-image: none` is what every real browser computes for an element
+// with no background image; happy-dom answers "initial", which the shared
+// pipeline (correctly) reports as an unrecognized paint layer. Say it out loud
+// in the fixture rather than teaching the exporter about a test-only value.
+const NO_BG_IMAGE = "background-image: none";
+
+function rect(x: number, y: number, width: number, height: number) {
+  return {
+    x,
+    y,
+    left: x,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+    width,
+    height,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
 function liveDocumentFixture() {
   document.body.innerHTML = `
     <main data-agent-native-node-id="screen" data-agent-native-layer-name="Screen"
-      style="width: 320px; height: 240px; background: rgb(255, 255, 255)">
-      <button data-agent-native-node-id="cta" style="box-sizing: border-box; width: 120px; height: 40px; padding: 8px 20px; background: rgb(0, 100, 255); color: white; box-shadow: rgba(0, 0, 0, 0.25) 0px 12px 28px 0px">Continue</button>
+      style="width: 320px; height: 240px; background-color: rgb(255, 255, 255); ${NO_BG_IMAGE}">
+      <button data-agent-native-node-id="cta" style="box-sizing: border-box; width: 120px; height: 40px; padding: 8px 20px; background-color: rgb(0, 100, 255); ${NO_BG_IMAGE}; color: white; box-shadow: rgba(0, 0, 0, 0.25) 0px 12px 28px 0px">Continue</button>
     </main>`;
   const screen = document.querySelector("main")!;
   const button = document.querySelector("button")!;
-  vi.spyOn(screen, "getBoundingClientRect").mockReturnValue({
-    x: 0,
-    y: 0,
-    left: 0,
-    top: 0,
-    right: 320,
-    bottom: 240,
-    width: 320,
-    height: 240,
-    toJSON: () => ({}),
-  });
-  vi.spyOn(button, "getBoundingClientRect").mockReturnValue({
-    x: 24,
-    y: 32,
-    left: 24,
-    top: 32,
-    right: 144,
-    bottom: 72,
-    width: 120,
-    height: 40,
-    toJSON: () => ({}),
-  });
+  vi.spyOn(screen, "getBoundingClientRect").mockReturnValue(
+    rect(0, 0, 320, 240),
+  );
+  vi.spyOn(button, "getBoundingClientRect").mockReturnValue(
+    rect(24, 32, 120, 40),
+  );
   return { button, document, screen };
 }
 
+/**
+ * The shared DOM walk measures real text with `Range.getClientRects()`, which
+ * happy-dom always answers with an empty list — the same reason the server's
+ * walk is exercised by the Playwright fidelity harness rather than by vitest.
+ * Stand in a deterministic monospace layout so the text path (line splitting,
+ * baselines, `text-transform`) is still covered here.
+ */
+const CHAR_WIDTH = 6;
+const LINE_HEIGHT = 20;
+
+function stubMeasuredText(
+  charsPerLine: number,
+  origin = { left: 44, top: 32 },
+) {
+  vi.spyOn(Range.prototype, "getClientRects").mockImplementation(
+    function (this: Range) {
+      const node = this.startContainer;
+      if (node.nodeType !== Node.TEXT_NODE) return [] as unknown as DOMRectList;
+      const text = node.textContent ?? "";
+      const to = Math.min(this.endOffset, text.length);
+      const rects: DOMRect[] = [];
+      for (let offset = this.startOffset; offset < to; offset += 1) {
+        const top =
+          origin.top + Math.floor(offset / charsPerLine) * LINE_HEIGHT;
+        const left = origin.left + (offset % charsPerLine) * CHAR_WIDTH;
+        const previous = rects[rects.length - 1];
+        if (previous && previous.top === top) {
+          rects[rects.length - 1] = rect(
+            previous.left,
+            top,
+            left + CHAR_WIDTH - previous.left,
+            LINE_HEIGHT,
+          );
+        } else {
+          rects.push(rect(left, top, CHAR_WIDTH, LINE_HEIGHT));
+        }
+      }
+      return rects as unknown as DOMRectList;
+    },
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("buildFigmaSvgFromLiveDocument", () => {
   it("uses live computed layout and emits editable SVG primitives without foreignObject", () => {
+    stubMeasuredText(64);
     const { document, screen } = liveDocumentFixture();
     const result = buildFigmaSvgFromLiveDocument({
       document,
@@ -59,22 +110,39 @@ describe("buildFigmaSvgFromLiveDocument", () => {
     });
 
     expect(result.svg).toContain('viewBox="0 0 390 844"');
-    expect(result.svg).toContain('<rect id="cta"');
-    expect(result.svg).toContain('x="44"');
-    expect(result.svg).toContain('flood-color="rgb(0, 0, 0)"');
-    expect(result.svg).toContain('flood-opacity="0.25"');
-    expect(result.svg).not.toContain('flood-color="0px"');
-    expect(result.svg).toContain(">Continue</text>");
+    expect(result.svg).toContain("<title>Checkout</title>");
+    // Button box: origin-relative x/y straight off the live rects.
+    expect(result.svg).toContain(
+      '<rect x="24" y="32" width="120" height="40" fill="rgb(0, 100, 255)"/>',
+    );
+    expect(result.svg).toContain("<text ");
+    expect(result.svg).toContain(">Continue</tspan>");
     expect(result.svg).not.toContain("foreignObject");
     expect(result.report).toMatchObject({ source: "live-dom" });
+  });
+
+  it("splits an rgba() shadow into a premultiplied color and its own opacity", () => {
+    const { document, screen } = liveDocumentFixture();
+    const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
+
+    // The old client emitted feDropShadow with the raw CSS color; the shared
+    // pipeline paints real shadow geometry with the alpha split off, which is
+    // what Figma imports as an editable drop shadow.
+    expect(result.svg).toContain('fill="rgb(0, 0, 0)" fill-opacity="0.25"');
+    expect(result.svg).toContain("<feGaussianBlur");
+    expect(result.svg).not.toContain('flood-color="0px"');
   });
 
   it("scopes a copy to the selected node id", () => {
     const { document } = liveDocumentFixture();
     const result = buildFigmaSvgFromLiveDocument({ document }, "cta");
+    const report = result.report as { vectorized: string[] };
 
-    expect(result.svg).toContain('id="cta"');
-    expect(result.svg).not.toContain('id="screen"');
+    expect(report.vectorized).toContain("cta");
+    expect(report.vectorized).not.toContain("Screen");
+    // Scoping re-origins the scene on the selected node.
+    expect(result.svg).toContain('viewBox="0 0 120 40"');
+    expect(result.svg).toContain('<rect x="0" y="0" width="120" height="40"');
   });
 
   it("fails closed when a requested live node no longer exists", () => {
@@ -84,101 +152,96 @@ describe("buildFigmaSvgFromLiveDocument", () => {
     ).toThrow(/no longer exists/);
   });
 
-  it("turns a live CSS gradient into an SVG gradient definition", () => {
+  it("turns a live CSS gradient into a user-space SVG gradient definition", () => {
     const { document, screen } = liveDocumentFixture();
     (screen as HTMLElement).style.backgroundImage =
       "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(0, 0, 255) 100%)";
     const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
 
     expect(result.svg).toContain("<linearGradient");
-    expect(result.svg).toContain('fill="url(#gradient-');
+    // A box-relative gradient renders as a flat band once the box is away from
+    // the origin; userSpaceOnUse endpoints are the server-path fix this client
+    // never had.
+    expect(result.svg).toContain('gradientUnits="userSpaceOnUse"');
+    expect(result.svg).toContain('fill="url(#');
   });
 
-  it("preserves browser-measured text wrapping with editable tspan lines", () => {
-    const { button, document, screen } = liveDocumentFixture();
-    button.textContent = "Editable design, round tripped.";
-    const realCreateRange = document.createRange.bind(document);
-    let start = 0;
-    vi.spyOn(document, "createRange").mockImplementation(() => {
-      const range = realCreateRange();
-      Object.defineProperties(range, {
-        setStart: {
-          value: (_node: Node, offset: number) => {
-            start = offset;
-          },
-        },
-        setEnd: { value: () => undefined },
-        getBoundingClientRect: {
-          value: () => {
-            const secondLine = start >= 17;
-            const lineOffset = secondLine ? start - 17 : start;
-            const left = 44 + lineOffset * 6;
-            const top = secondLine ? 52 : 32;
-            return {
-              x: left,
-              y: top,
-              left,
-              top,
-              right: left + 6,
-              bottom: top + 16,
-              width: 6,
-              height: 16,
-              toJSON: () => ({}),
-            };
-          },
-        },
-      });
-      return range;
-    });
-
+  it("premultiplies a transparent gradient stop instead of fading through black", () => {
+    const { document, screen } = liveDocumentFixture();
+    (screen as HTMLElement).style.backgroundImage =
+      "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgba(0, 0, 0, 0) 100%)";
     const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
 
     expect(result.svg).toContain(
-      '<tspan x="44" y="48">Editable design,</tspan>',
+      '<stop offset="100%" stop-color="rgb(255, 0, 0)" stop-opacity="0"/>',
     );
-    expect(result.svg).toContain('<tspan x="44" y="68">round tripped.</tspan>');
   });
 
-  it("preserves native SVG child geometry while sanitizing scripts", () => {
-    const { document, screen } = liveDocumentFixture();
-    screen.innerHTML = `<svg data-agent-native-node-id="logo" width="40" height="30"><rect x="3" y="4" width="20" height="10"/><script>bad()</script></svg>`;
-    const svg = screen.querySelector("svg")!;
-    vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
-      x: 10,
-      y: 12,
-      left: 10,
-      top: 12,
-      right: 50,
-      bottom: 42,
-      width: 40,
-      height: 30,
-      toJSON: () => ({}),
-    });
+  it("exports the glyphs CSS actually paints, not the source text", () => {
+    stubMeasuredText(64);
+    const { button, document, screen } = liveDocumentFixture();
+    (button as HTMLElement).style.textTransform = "uppercase";
+    const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
+
+    expect(result.svg).toContain(">CONTINUE</tspan>");
+    expect(result.svg).not.toContain(">Continue</tspan>");
+  });
+
+  it("preserves browser-measured text wrapping as separate baselines", () => {
+    const { button, document, screen } = liveDocumentFixture();
+    button.textContent = "Editable design, round tripped.";
+    stubMeasuredText(17);
 
     const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
+    const tspans = Array.from(
+      result.svg.matchAll(/<tspan[^>]*y="([\d.]+)"[^>]*>([^<]*)<\/tspan>/g),
+    ).map((match) => ({ y: Number(match[1]), text: match[2] }));
+
+    expect(tspans.map((line) => line.text)).toEqual([
+      "Editable design,",
+      "round tripped.",
+    ]);
+    expect(tspans[1]!.y - tspans[0]!.y).toBe(LINE_HEIGHT);
+  });
+
+  it("passes an inline SVG icon through as vector art while stripping scripts", () => {
+    const { document, screen } = liveDocumentFixture();
+    screen.innerHTML = `<svg data-agent-native-node-id="logo" width="40" height="30" viewBox="0 0 40 30"><rect x="3" y="4" width="20" height="10" onclick="bad()"/><script>bad()</script></svg>`;
+    const svg = screen.querySelector("svg")!;
+    vi.spyOn(svg, "getBoundingClientRect").mockReturnValue(
+      rect(10, 12, 40, 30),
+    );
+
+    const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
+
+    expect(result.svg).toContain('<svg x="10" y="12" width="40" height="30"');
+    expect(result.svg).toContain('viewBox="0 0 40 30"');
     expect(result.svg).toContain('<rect x="3" y="4" width="20" height="10"');
     expect(result.svg).not.toContain("<script");
+    expect(result.svg).not.toContain("onclick");
+    expect((result.report as { vectorized: string[] }).vectorized).toContain(
+      "logo",
+    );
   });
 
-  it("reports unsupported transform, background, clip, and overflow behavior", () => {
-    const { button, document, screen } = liveDocumentFixture();
-    (button as HTMLElement).style.transform = "rotate(10deg)";
-    (button as HTMLElement).style.backgroundImage =
-      'url("https://example.com/background.png")';
-    (button as HTMLElement).style.clipPath = "circle(40%)";
-    (button as HTMLElement).style.overflow = "hidden";
+  it("warns instead of shipping an empty image when a node cannot be rasterized", () => {
+    const { document, screen } = liveDocumentFixture();
+    screen.innerHTML = `<canvas data-agent-native-node-id="chart" width="100" height="80"></canvas>`;
+    const canvas = screen.querySelector("canvas")!;
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+      rect(0, 0, 100, 80),
+    );
+
     const result = buildFigmaSvgFromLiveDocument({ document, root: screen });
     const report = result.report as {
-      approximated: Array<{ note: string }>;
+      rasterized: Array<{ node: string; reason: string }>;
       warnings: string[];
     };
-    const notes = report.approximated.map((item) => item.note).join("\n");
-    expect(notes).toMatch(/transform/);
-    expect(notes).toMatch(/background image/);
-    expect(notes).toMatch(/clip-path/);
-    expect(notes).toMatch(/Overflow clipping/);
-    expect(report.approximated.length).toBeGreaterThanOrEqual(4);
-    expect(report.warnings).not.toHaveLength(0);
+
+    expect(report.rasterized.map((item) => item.node)).toContain("chart");
+    // The server screenshots these; a browser tab cannot, so it must say so
+    // rather than emit an <image> pointing at nothing.
+    expect(report.warnings.join(" ")).toMatch(/could not be rasterized/i);
   });
 });
 
@@ -284,17 +347,9 @@ describe("copyDesignAsFigmaSvg", () => {
     const { document, screen } = liveDocumentFixture();
     screen.innerHTML = `<img data-agent-native-node-id="hero" src="https://example.com/expiring.png">`;
     const image = screen.querySelector("img")!;
-    vi.spyOn(image, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      left: 0,
-      top: 0,
-      right: 100,
-      bottom: 80,
-      width: 100,
-      height: 80,
-      toJSON: () => ({}),
-    });
+    vi.spyOn(image, "getBoundingClientRect").mockReturnValue(
+      rect(0, 0, 100, 80),
+    );
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("blocked")));
     try {
       const result = await exportDesignAsFigmaSvg(
@@ -327,7 +382,7 @@ describe("copyDesignAsFigmaSvg", () => {
 
     expect(callExportAction).not.toHaveBeenCalled();
     expect(await (await constructed[0]!["text/plain"]).text()).toContain(
-      '<rect id="cta"',
+      '<rect x="24" y="32" width="120" height="40" fill="rgb(0, 100, 255)"/>',
     );
   });
 
