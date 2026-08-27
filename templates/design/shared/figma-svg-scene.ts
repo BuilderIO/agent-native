@@ -983,19 +983,6 @@ function isTopLeftObjectPosition(position: string | undefined): boolean {
 // Shadow filter defs
 // ---------------------------------------------------------------------------
 
-function floodColorParts(color: string): {
-  floodColor: string;
-  floodOpacity: number;
-} {
-  const parsed = parseCssColorExtended(color);
-  if (!parsed) return { floodColor: color, floodOpacity: 1 };
-  return {
-    // guard:allow-raw-color — exported SVG paint read from the design's own computed styles, never app UI
-    floodColor: `rgb(${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)})`,
-    floodOpacity: parsed.a,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Node renderer
 // ---------------------------------------------------------------------------
@@ -2709,9 +2696,6 @@ export function collectRawFigmaSvgScene(
     // `dominant-baseline="central"` measured against the tight rect lands a
     // few px off from where the line visually centers (this was the global
     // baseline-offset bug).
-    const lineHeightPx =
-      Number.parseFloat(style.lineHeight) || elRect.height / lineRects.length;
-
     // Emit the true alphabetic baseline instead of a line centre plus
     // `dominant-baseline="central"`. Figma's SVG importer ignores
     // dominant-baseline and reads `y` as the baseline, which lifted every
