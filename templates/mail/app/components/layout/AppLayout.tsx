@@ -882,7 +882,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const handleTabDrop = useCallback(() => {
     if (!dragPinnedId || !dropIndicator) return;
-    const current = settings?.pinnedLabels ?? [];
+    const current = pinnedLabels;
     if (!current.includes(dragPinnedId)) return;
 
     const targetTab = visibleTabs[dropIndicator.tabIndex];
@@ -906,13 +906,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     updateSettings.mutate({ pinnedLabels: without });
     setDragPinnedId(null);
     setDropIndicator(null);
-  }, [
-    dragPinnedId,
-    dropIndicator,
-    settings?.pinnedLabels,
-    visibleTabs,
-    updateSettings,
-  ]);
+  }, [dragPinnedId, dropIndicator, pinnedLabels, visibleTabs, updateSettings]);
 
   const handleTabDragEnd = useCallback(() => {
     setDragPinnedId(null);
@@ -1215,8 +1209,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   const tabIndex = visibleIndex >= 0 ? visibleIndex : idx;
                   const count = getTopBarCount(tab.id);
                   const isDragging = dragPinnedId === tab.pinnedId;
-                  const canDrag =
-                    !!tab.pinnedId && tab.pinnedId !== "important";
+                  const canDrag = !!tab.pinnedId;
                   const showLeft =
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "left";
