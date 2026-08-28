@@ -10,84 +10,110 @@ export interface LockedLayerSnapshot {
   id: string;
   label: string;
   source: string;
-  ancestorIds: string[];
-  parentId: string | null;
-  /** Durable identities of every sibling, in document order, including self. */
-  siblingIds: string[];
-  selfId: string;
+  /** Null when nothing tells this node apart from another one. */
+  token: string | null;
+  ancestorTokens: (string | null)[];
+  siblingTokens: (string | null)[];
 }
 
-/**
- * Never fall back to `node.id`: it hashes the element's byte offset, so an
- * unstamped ancestor changes identity whenever anything earlier in the
- * document changes length, and a sibling that merely moved reads as a
- * different node.
- */
-function durableNodeIdentity(node: CodeLayerNode): string {
+function explicitIdentity(node: CodeLayerNode): string | null {
   const stableId = node.dataAttributes["data-agent-native-node-id"];
   if (stableId) return `node:${stableId}`;
   const htmlId = node.attributes.id;
   if (typeof htmlId === "string" && htmlId.length > 0) return `id:${htmlId}`;
+  return null;
+}
+
+function signature(node: CodeLayerNode): string {
   return `sig:${node.tag}|${node.classes.join(".")}`;
+}
+
+function countBy<T>(items: readonly T[], key: (item: T) => string | null) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const value = key(item);
+    if (value !== null) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * One identity per node, or null when nothing distinguishes it. Never derive
+ * it from a byte offset: unrelated edits move offsets, and a node that merely
+ * moved keeps its markup.
+ */
+function buildTokens(
+  projection: CodeLayerProjection,
+): Map<string, string | null> {
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const globalCounts = countBy(projection.nodes, explicitIdentity);
+  const tokens = new Map<string, string | null>();
+
+  const assignSiblingGroup = (childIds: readonly string[]) => {
+    const group = childIds.flatMap((id) => {
+      const node = nodesById.get(id);
+      return node ? [node] : [];
+    });
+    const signatureCounts = countBy(group, (node) =>
+      explicitIdentity(node) ? null : signature(node),
+    );
+    for (const node of group) {
+      const explicit = explicitIdentity(node);
+      if (explicit) {
+        tokens.set(node.id, globalCounts.get(explicit) === 1 ? explicit : null);
+        continue;
+      }
+      const sig = signature(node);
+      tokens.set(node.id, signatureCounts.get(sig) === 1 ? sig : null);
+    }
+  };
+
+  assignSiblingGroup(projection.rootNodeIds);
+  for (const node of projection.nodes) assignSiblingGroup(node.children);
+  return tokens;
 }
 
 function lockedLayerPlacement(
   projection: CodeLayerProjection,
+  tokens: Map<string, string | null>,
   node: CodeLayerNode,
-): Omit<LockedLayerSnapshot, "id" | "label" | "source"> {
+): Pick<LockedLayerSnapshot, "token" | "ancestorTokens" | "siblingTokens"> {
   const nodesById = new Map(
     projection.nodes.map((candidate) => [candidate.id, candidate]),
   );
-  const ancestors: CodeLayerNode[] = [];
+  const ancestorTokens: (string | null)[] = [];
   let parent = node.parentId ? nodesById.get(node.parentId) : undefined;
   while (parent) {
-    ancestors.unshift(parent);
+    ancestorTokens.unshift(tokens.get(parent.id) ?? null);
     parent = parent.parentId ? nodesById.get(parent.parentId) : undefined;
   }
 
-  const siblingIds = (
-    node.parentId
-      ? (nodesById.get(node.parentId)?.children ?? [])
-      : projection.rootNodeIds
-  ).flatMap((siblingId) => {
-    const sibling = nodesById.get(siblingId);
-    return sibling ? [durableNodeIdentity(sibling)] : [];
-  });
+  const siblingIds = node.parentId
+    ? (nodesById.get(node.parentId)?.children ?? [])
+    : projection.rootNodeIds;
 
   return {
-    ancestorIds: ancestors.map(durableNodeIdentity),
-    parentId:
-      ancestors.length > 0
-        ? durableNodeIdentity(ancestors[ancestors.length - 1]!)
-        : null,
-    siblingIds,
-    selfId: durableNodeIdentity(node),
+    token: tokens.get(node.id) ?? null,
+    ancestorTokens,
+    siblingTokens: siblingIds.map((id) => tokens.get(id) ?? null),
   };
 }
 
-/** Identities appearing exactly once, so a repeated one anchors nothing. */
-function unambiguous(ids: readonly string[]): Set<string> {
-  const seen = new Map<string, number>();
-  for (const id of ids) seen.set(id, (seen.get(id) ?? 0) + 1);
-  return new Set(
-    Array.from(seen).flatMap(([id, count]) => (count === 1 ? [id] : [])),
+function lockedNodes(projection: CodeLayerProjection): CodeLayerNode[] {
+  return projection.nodes.filter(
+    (node) => node.dataAttributes[LOCKED_ATTRIBUTE] === "true" && node.source,
   );
 }
 
-/**
- * Order among the siblings that anchor on BOTH sides. A raw position would
- * make any insert earlier in the parent read as "the locked layer moved".
- */
-function orderAmongSurvivingSiblings(
-  siblingIds: string[],
-  selfId: string,
-  otherSiblingIds: readonly string[],
+/** Position among the siblings both documents can name, self included. */
+function orderAmongSharedSiblings(
+  side: Pick<LockedLayerSnapshot, "token" | "siblingTokens">,
+  other: Pick<LockedLayerSnapshot, "siblingTokens">,
 ): number {
-  const mine = unambiguous(siblingIds);
-  const theirs = unambiguous(otherSiblingIds);
-  return siblingIds
-    .filter((id) => mine.has(id) && theirs.has(id))
-    .indexOf(selfId);
+  const shared = new Set(other.siblingTokens.filter((token) => token !== null));
+  return side.siblingTokens
+    .filter((token) => token !== null && shared.has(token))
+    .indexOf(side.token);
 }
 
 /**
@@ -97,19 +123,13 @@ function orderAmongSurvivingSiblings(
  */
 export function lockedLayerSnapshots(html: string): LockedLayerSnapshot[] {
   const projection = buildCodeLayerProjection(html);
-  return projection.nodes.flatMap((node) => {
-    if (node.dataAttributes[LOCKED_ATTRIBUTE] !== "true" || !node.source) {
-      return [];
-    }
-    return [
-      {
-        id: node.id,
-        label: node.layerName,
-        source: html.slice(node.source.start, node.source.end),
-        ...lockedLayerPlacement(projection, node),
-      },
-    ];
-  });
+  const tokens = buildTokens(projection);
+  return lockedNodes(projection).map((node) => ({
+    id: node.id,
+    label: node.layerName,
+    source: html.slice(node.source!.start, node.source!.end),
+    ...lockedLayerPlacement(projection, tokens, node),
+  }));
 }
 
 export function countLockedLayers(html: string): number {
@@ -127,72 +147,109 @@ export function countLockedLayersAcrossFiles(
   );
 }
 
-function namesFor(labels: string[]): string {
+function namesFor(labels: readonly string[]): string {
   return Array.from(new Set(labels)).slice(0, 5).join(", ");
 }
 
+function plural(count: number): string {
+  return count === 1 ? "" : "s";
+}
+
+function unverifiable(labels: string[]): Error {
+  return new Error(
+    `Cannot verify locked layer${plural(labels.length)}: ${namesFor(labels)}. ` +
+      "The layer, its parent, or a sibling has no unique " +
+      "data-agent-native-node-id, so this edit cannot be checked. Re-read the " +
+      "file and keep its stamped ids.",
+  );
+}
+
 /**
- * Locked layers are immutable for agent-authored whole-file or text edits, in
- * BOTH directions: an agent that re-adds the flag undoes the human's unlock
- * and re-blocks itself forever. The human editor's own layer control writes as
- * `caller: "frontend"`, which does not reach this guard.
+ * Locked layers are agent-immutable in BOTH directions: re-adding the flag
+ * undoes the human's unlock and re-blocks the agent forever. Ambiguous
+ * identity never passes. The human editor's layer control writes as
+ * `caller: "frontend"` and does not reach this guard.
  */
 export function assertLockedLayersPreserved(
   before: string,
   after: string,
 ): void {
-  // Comparing lock sets needs BOTH sides projected, and most designs carry no
+  // Both sides need projecting to compare lock sets, and most designs carry no
   // locked layer. Keep that case off the parser on every guarded write.
   if (!before.includes(LOCKED_ATTRIBUTE) && !after.includes(LOCKED_ATTRIBUTE)) {
     return;
   }
+
+  const afterProjection = buildCodeLayerProjection(after);
+  const afterTokens = buildTokens(afterProjection);
   const locked = lockedLayerSnapshots(before);
-  const nextProjection = buildCodeLayerProjection(after);
-  const lockedBeforeIds = new Set(locked.map((snapshot) => snapshot.id));
-  const nowLocked = nextProjection.nodes.filter(
-    (node) =>
-      node.dataAttributes[LOCKED_ATTRIBUTE] === "true" &&
-      !lockedBeforeIds.has(node.id),
+  const nowLocked = lockedNodes(afterProjection).map((node) => ({
+    node,
+    token: afterTokens.get(node.id) ?? null,
+  }));
+
+  const nameless = [
+    ...locked
+      .filter((snapshot) => snapshot.token === null)
+      .map((snapshot) => snapshot.label),
+    ...nowLocked
+      .filter((entry) => entry.token === null)
+      .map((entry) => entry.node.layerName),
+  ];
+  if (nameless.length > 0) throw unverifiable(nameless);
+
+  const lockedBeforeTokens = new Set(locked.map((snapshot) => snapshot.token!));
+  const added = nowLocked.filter(
+    (entry) => !lockedBeforeTokens.has(entry.token!),
   );
-  if (nowLocked.length > 0) {
+  if (added.length > 0) {
     throw new Error(
-      `This edit locks layer${nowLocked.length === 1 ? "" : "s"} the editor had unlocked: ` +
-        `${namesFor(nowLocked.map((node) => node.layerName))}. ` +
+      `This edit locks layer${plural(added.length)} the editor had unlocked: ` +
+        `${namesFor(added.map((entry) => entry.node.layerName))}. ` +
         "Only the human editor sets data-agent-native-locked. Re-read the " +
         "file and rebuild the edit from its current content.",
     );
   }
-  if (locked.length === 0) return;
 
-  const nextById = new Map(nextProjection.nodes.map((node) => [node.id, node]));
+  const afterByToken = new Map(nowLocked.map((entry) => [entry.token!, entry]));
   const changed: string[] = [];
+  const unchecked: string[] = [];
 
   for (const snapshot of locked) {
-    const next = nextById.get(snapshot.id);
-    if (!next?.source) {
+    const next = afterByToken.get(snapshot.token!);
+    if (!next) {
       changed.push(snapshot.label);
       continue;
     }
-    const nextSource = after.slice(next.source.start, next.source.end);
-    const nextPlacement = lockedLayerPlacement(nextProjection, next);
     if (
-      nextSource !== snapshot.source ||
-      nextPlacement.parentId !== snapshot.parentId ||
-      nextPlacement.selfId !== snapshot.selfId ||
-      orderAmongSurvivingSiblings(
-        nextPlacement.siblingIds,
-        nextPlacement.selfId,
-        snapshot.siblingIds,
-      ) !==
-        orderAmongSurvivingSiblings(
-          snapshot.siblingIds,
-          snapshot.selfId,
-          nextPlacement.siblingIds,
-        ) ||
-      nextPlacement.ancestorIds.length !== snapshot.ancestorIds.length ||
-      nextPlacement.ancestorIds.some(
-        (ancestorId, index) => ancestorId !== snapshot.ancestorIds[index],
-      )
+      after.slice(next.node.source!.start, next.node.source!.end) !==
+      snapshot.source
+    ) {
+      changed.push(snapshot.label);
+      continue;
+    }
+    const placement = lockedLayerPlacement(
+      afterProjection,
+      afterTokens,
+      next.node,
+    );
+    // A null anchor on the BEFORE side could be hiding the move we are looking
+    // for. Nulls only in AFTER are newly inserted siblings.
+    if (
+      snapshot.ancestorTokens.includes(null) ||
+      placement.ancestorTokens.includes(null) ||
+      snapshot.siblingTokens.includes(null)
+    ) {
+      unchecked.push(snapshot.label);
+      continue;
+    }
+    if (
+      placement.ancestorTokens.length !== snapshot.ancestorTokens.length ||
+      placement.ancestorTokens.some(
+        (token, index) => token !== snapshot.ancestorTokens[index],
+      ) ||
+      orderAmongSharedSiblings(snapshot, placement) !==
+        orderAmongSharedSiblings(placement, snapshot)
     ) {
       changed.push(snapshot.label);
     }
@@ -200,8 +257,9 @@ export function assertLockedLayersPreserved(
 
   if (changed.length > 0) {
     throw new Error(
-      `This edit changes locked layer${changed.length === 1 ? "" : "s"}: ${namesFor(changed)}. ` +
+      `This edit changes locked layer${plural(changed.length)}: ${namesFor(changed)}. ` +
         "Preserve locked layers exactly, or ask the user to unlock them first.",
     );
   }
+  if (unchecked.length > 0) throw unverifiable(unchecked);
 }

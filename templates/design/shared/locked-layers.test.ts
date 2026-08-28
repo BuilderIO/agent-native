@@ -146,6 +146,63 @@ describe("locked layers", () => {
     ).toThrow(/locked layer/i);
   });
 
+  it("allows an unstamped locked layer when earlier content changes length", () => {
+    const page = (lead: string) =>
+      `<!doctype html><html><body><main data-agent-native-node-id="art">
+  <p>${lead}</p>
+  <div class="bg" data-agent-native-layer-name="BG" data-agent-native-locked="true"></div>
+</main></body></html>`;
+    expect(() =>
+      assertLockedLayersPreserved(page("hi"), page("a much longer lead line")),
+    ).not.toThrow();
+  });
+
+  it("refuses to pass a move it cannot verify past indistinguishable siblings", () => {
+    const shell = (inner: string) =>
+      `<!doctype html><html><body><main data-agent-native-node-id="art">${inner}
+</main></body></html>`;
+    const locked =
+      '<div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">L</div>';
+    expect(() =>
+      assertLockedLayersPreserved(
+        shell(`\n  <span>x</span>\n  <span>x</span>\n  ${locked}`),
+        shell(`\n  ${locked}\n  <span>x</span>\n  <span>x</span>`),
+      ),
+    ).toThrow(/cannot verify/i);
+  });
+
+  it("refuses a duplicated stable id instead of treating the clone as the original", () => {
+    const node =
+      '<div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">A</div>';
+    const shell = (inner: string) =>
+      `<!doctype html><html><body><main data-agent-native-node-id="art">${inner}
+</main></body></html>`;
+    expect(() =>
+      assertLockedLayersPreserved(
+        shell(`\n  ${node}`),
+        shell(`\n  ${node}\n  ${node}`),
+      ),
+    ).toThrow(/cannot verify/i);
+  });
+
+  it("refuses reparenting between containers it cannot tell apart", () => {
+    const locked =
+      '<div data-agent-native-node-id="logo" data-agent-native-layer-name="Logo" data-agent-native-locked="true">L</div>';
+    const shell = (inner: string) =>
+      `<!doctype html><html><body><main data-agent-native-node-id="art">${inner}
+</main></body></html>`;
+    expect(() =>
+      assertLockedLayersPreserved(
+        shell(
+          `\n  <div class="box">${locked}</div>\n  <div class="box"></div>`,
+        ),
+        shell(
+          `\n  <div class="box"></div>\n  <div class="box">${locked}</div>`,
+        ),
+      ),
+    ).toThrow(/cannot verify/i);
+  });
+
   it("allows inserting a sibling that duplicates another sibling's signature", () => {
     const shell = (inner: string) => `<!doctype html><html><body>
   <main data-agent-native-node-id="art">${inner}
