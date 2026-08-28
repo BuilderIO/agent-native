@@ -4181,7 +4181,10 @@ export default function SlideEditor({
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
       box.style.fontFamily = "'Poppins', sans-serif";
       box.style.lineHeight = "1.3";
-      if (text !== ZERO_WIDTH_SPACE) box.style.whiteSpace = "pre-wrap";
+      if (text !== ZERO_WIDTH_SPACE) {
+        box.style.whiteSpace = "pre-wrap";
+        box.style.overflowWrap = "anywhere";
+      }
       box.textContent = text;
       positioningLayer.appendChild(box);
 

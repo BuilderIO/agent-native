@@ -1686,13 +1686,7 @@ export default function DeckEditor() {
       }, 50);
     };
     document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      if (slidePasteFallbackRef.current !== null) {
-        window.clearTimeout(slidePasteFallbackRef.current);
-        slidePasteFallbackRef.current = null;
-      }
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [
     deck,
     id,
@@ -1713,14 +1707,17 @@ export default function DeckEditor() {
       slidePasteFallbackRef.current = null;
     };
     window.addEventListener("paste", handlePaste, true);
+    return () => window.removeEventListener("paste", handlePaste, true);
+  }, []);
+
+  useEffect(() => {
     return () => {
-      window.removeEventListener("paste", handlePaste, true);
       if (slidePasteFallbackRef.current !== null) {
         window.clearTimeout(slidePasteFallbackRef.current);
         slidePasteFallbackRef.current = null;
       }
     };
-  }, []);
+  }, [activeSlideId, id]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.

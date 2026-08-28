@@ -74,6 +74,18 @@ describe("slide paste fallback", () => {
     expect(pasteBody).not.toContain("hasText");
     expect(pasteBody).not.toContain("hasImage");
   });
+
+  it("owns fallback cleanup by slide lifecycle, not ordinary rerenders", () => {
+    expect(deckEditorSource).toContain(`
+  useEffect(() => {
+    return () => {
+      if (slidePasteFallbackRef.current !== null) {
+        window.clearTimeout(slidePasteFallbackRef.current);
+        slidePasteFallbackRef.current = null;
+      }
+    };
+  }, [activeSlideId, id]);`);
+  });
 });
 
 describe("syncSlideContentSnapshots", () => {
