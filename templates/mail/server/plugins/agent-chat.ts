@@ -24,6 +24,8 @@ const INITIAL_TOOL_NAMES = [
   "navigate",
   "get-mail-settings",
   "update-mail-settings",
+  "manage-automations",
+  "manage-email-rules",
   "find-contact",
   "provider-api-catalog",
   "provider-api-docs",
@@ -149,8 +151,9 @@ Be concise and helpful. When summarizing emails, include sender, subject, and a 
 
 ## Automations
 
-You can create and manage email automation rules that process new inbox emails automatically using AI.
-Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
+Use manage-automations for recurring or event-triggered automations shown in Settings > Automations. For a new schedule, confirm the summary with the user, then define it with the schedule, timezone, and email actions it should run. Use an event trigger when it should run only when something changes.
+
+Use manage-email-rules for natural-language rules that process each new inbox email, such as auto-labeling newsletters or starring messages from a manager. These are separate from recurring or event-triggered automations.
 
 Sending email from an automation is opt-in. Mail keeps "Allow automations to send emails automatically" off by default. When it is off, an automation may draft or queue an email, but a real send remains approval-gated. Turning it on lets event-triggered automations send without asking for approval each time; it does not remove approval from normal interactive sends.
 
