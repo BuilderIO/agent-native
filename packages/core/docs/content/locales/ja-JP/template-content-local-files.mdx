@@ -7,25 +7,99 @@ description: "Markdown / MDX フォルダーを、データベースで管理さ
 
 Content のデータモデルは 1 つです。すべてのページは SQL に保存され、
 **スペース**に属し、そのスペースのシステムデータベース **Files** の項目に
-なります。ローカルフォルダーは Files に接続するソースであり、別のアプリ
-モードではありません。`AGENT_NATIVE_MODE` 切り替えは廃止されました。
+なります。ローカルフォルダーは Files に接続するソースであり、他のすべての
+ページと同じコラボレーション、共有、コメント、履歴、検索、データベース
+プロパティ、アクションサーフェスを利用します。
 
 ユーザーには個人スペース、アクセス可能な組織には組織スペースがあり、個人の
 **Workspaces** カタログが表示対象を決めます。Files は通常の Content
 データベースなので、プロパティ、フィルター、並べ替え、グループ、保存ビューを
 サイドバー表示にも利用できます。
 
+<Diagram id="doc-block-content11" title="ローカルフォルダーは 1 つのスペースの Files データベースに接続する" summary={"すべてのページは、ちょうど 1 つのスペースとちょうど 1 つの Files データベースに属します。ローカルフォルダーは、既存スペースの Files データベースに参加するか、独自の Files データベースを持つ新しいフォルダーバックドスペースを作成します。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      既存スペース<br /><small class="diagram-muted"
+        >個人または組織</small
+      >
+    </div>
+    <div class="diagram-node">
+      新しいフォルダーバックドスペース<br /><small class="diagram-muted"
+        >このフォルダー専用に作成</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files データベース</span
+    ><small class="diagram-muted">スペースごとに 1 つ</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    ローカルフォルダー<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## フォルダーを接続する
 
-ブラウザーまたは Agent-Native Desktop でフォルダーを選び、既存スペースへ
-接続するか、専用の非公開スペースを作成します。SQL に保存されるのは不透明な
-接続 ID、相対パス、ハッシュ、ソースメタデータのみです。絶対パス、ブラウザー
-ハンドル、ファイル本文は保存されません。
+<Steps>
 
-ポリシーは `database_primary`、`source_primary`、
-`reviewed_bidirectional` です。同期はファイルを通常の SQL ページとして
-実体化します。両側が同時に変わった場合は上書きせず、レビュー対象の変更を
-作成します。切断してもページとローカルファイルは残ります。
+### ローカルフォルダー画面を開く
+
+ブラウザーの File System Access API または Agent-Native Desktop でフォルダー
+を選びます。SQL に保存されるのは不透明な接続 ID、相対パス、ハッシュ、ソース
+メタデータのみです。絶対パス、ブラウザーハンドル、ファイル本文は保存されません。
+
+### フォルダーの接続先を選ぶ
+
+既存の個人または組織スペースの Files データベースに接続するか、専用の Files
+データベースを持つ非公開のフォルダーバックドスペースを作成します。
+
+### 信頼できる情報源ポリシーを選ぶ
+
+| ポリシー                 | 動作                                                       |
+| ------------------------ | ---------------------------------------------------------- |
+| `database_primary`       | Content が正であり、フォルダーの変更は使用前にレビューされます |
+| `source_primary`         | 同時に行われた Content の編集がない場合、フォルダーが正になります |
+| `reviewed_bidirectional` | どちらの方向の変更も、競合時にレビューが必要です             |
+
+</Steps>
+
+同期はファイルを通常の SQL ページとして実体化します。両側が同時に変わった
+場合は上書きせず、レビュー対象の変更を作成します。切断してもページとローカル
+ファイルは残ります。
 
 ## リポジトリから起動
 
@@ -34,7 +108,7 @@ npx @agent-native/core@latest content .
 ```
 
 通常のデータベース版 Content が起動し、フォルダーをソースとして登録して接続
-画面を開きます。モード用環境変数は設定しません。
+画面を開きます。
 
 ## 設定
 

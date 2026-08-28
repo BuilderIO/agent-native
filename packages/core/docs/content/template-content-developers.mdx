@@ -9,11 +9,46 @@ This page is for anyone customizing the Content template or building on it: the 
 
 ## Quick start {#quick-start}
 
+This walks through running Content from nothing installed to a live page you
+can edit and ask the agent about. The commands are identical whether you're
+in Terminal on macOS or PowerShell/Command Prompt on Windows, they're plain
+Node.js tooling.
+
+<Steps>
+
+### Create the app
+
 ```bash
 npx @agent-native/core@latest create my-content --standalone --template content
+cd my-content
+pnpm install
 ```
 
-See [Getting started](/docs/getting-started) for the rest of the setup and the framework fundamentals (actions, application state, live sync).
+This needs [Node.js](https://nodejs.org) 22 or later and
+[pnpm](https://pnpm.io) installed first. See [Getting
+started](/docs/getting-started) if you haven't installed either yet.
+
+### Start the dev server
+
+```bash
+pnpm dev
+```
+
+The app opens at `http://localhost:8083`. If it doesn't open automatically,
+visit that URL in your browser.
+
+### Sign in and connect an LLM
+
+On the Welcome screen, select **Continue as local dev**. You don't need an
+email or password for local development. Then connect an LLM: select
+**Connect Builder.io** for free credits, or **Custom keys** to add an
+Anthropic/OpenAI key or a local Ollama model.
+
+</Steps>
+
+Content provisions your personal space and its Files database automatically,
+so once an LLM is connected you can click **+ New page** and start writing,
+or ask the agent to create one for you.
 
 <FileTree
   id="doc-block-content8"
@@ -46,7 +81,7 @@ See [Getting started](/docs/getting-started) for the rest of the setup and the f
 
 ## Data model
 
-Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the nine a much earlier version of this doc described. Nine cover the document lifecycle, collaboration, and sync surfaces below; the other 13 belong to the inline-database and external-source subsystem, documented in full on [Databases, properties & forms](/docs/template-content-databases#data-model).
+Content's schema (`server/db/schema.ts`) currently defines 22 tables, not the nine a much earlier version of this doc described. Nine cover the document lifecycle, collaboration, and sync surfaces below; the other 13 belong to the inline-database and external-source subsystem, documented in full on [Databases, properties, and forms](/docs/template-content-databases#data-model).
 
 | Table                                      | What it holds                                                                                            |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
@@ -404,9 +439,9 @@ The agent can make most of these changes itself — ask it to "add a tags column
 ## What's next
 
 - [Content overview](/docs/template-content) — what the app is and how to get started
-- [Writing & organizing documents](/docs/template-content-editing) — the non-developer view of the editor and sharing model
-- [Databases, properties & forms](/docs/template-content-databases) — the full inline-database and external-source data model
-- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — the non-developer view of every sync surface
+- [Writing and organizing documents](/docs/template-content-editing) — the non-developer view of the editor and sharing model
+- [Databases, properties, and forms](/docs/template-content-databases) — the full inline-database and external-source data model
+- [Local files, Notion, and Builder CMS sync](/docs/template-content-sync) — the non-developer view of every sync surface
 - [Database](/docs/server-database) — the framework's Drizzle conventions and migration rules
 - [Actions](/docs/actions-overview) — the action system every operation above is built on
 - [Sharing](/docs/sharing) — the share-grant model `document_shares` builds on

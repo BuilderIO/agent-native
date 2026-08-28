@@ -7,8 +7,10 @@ description: "Markdown- und MDX-Ordner mit den datenbankgestützten Content-Bere
 
 Content verwendet nur noch ein Datenmodell: Jede Seite liegt in SQL, gehört zu
 einem **Bereich** und ist Mitglied der Systemdatenbank **Files** dieses Bereichs.
-Ein lokaler Ordner ist eine mit Files verbundene Quelle, kein zweiter App-Modus.
-Einen `AGENT_NATIVE_MODE`-Schalter gibt es nicht mehr.
+Ein lokaler Markdown- oder MDX-Ordner ist eine mit Files verbundene Quelle –
+neben Zusammenarbeit, Freigabe, Kommentaren, Verlauf, Suche,
+Datenbankeigenschaften und derselben Aktionsoberfläche, die jede andere Seite
+nutzt.
 
 Jeder Benutzer erhält einen persönlichen Bereich, jede zugängliche Organisation
 einen Organisationsbereich. Der persönliche **Workspaces**-Katalog bestimmt,
@@ -16,17 +18,92 @@ welche Bereiche erscheinen. Files ist eine normale Content-Datenbank; ihre
 Eigenschaften, Filter, Sortierungen, Gruppen und gespeicherten Ansichten können
 auch die Seitenleiste darstellen.
 
+<Diagram id="doc-block-content11" title="Ein lokaler Ordner wird an die Files-Datenbank eines Bereichs angehängt" summary={"Jede Seite gehört zu genau einem Bereich und genau einer Files-Datenbank. Ein lokaler Ordner schließt sich entweder der Files-Datenbank eines vorhandenen Bereichs an oder erstellt einen neuen ordnergestützten Bereich mit einer eigenen."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Vorhandener Bereich<br /><small class="diagram-muted"
+        >persönlich oder Organisation</small
+      >
+    </div>
+    <div class="diagram-node">
+      Neuer ordnergestützter Bereich<br /><small class="diagram-muted"
+        >eigens für diesen Ordner erstellt</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files-Datenbank</span
+    ><small class="diagram-muted">eine pro Bereich</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    Lokaler Ordner<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## Ordner verbinden
 
-Wählen Sie den Ordner im Browser oder in Agent-Native Desktop. Verbinden Sie ihn
-mit einem vorhandenen Bereich oder erstellen Sie einen privaten ordnergestützten
-Bereich. SQL speichert nur die undurchsichtige Verbindungs-ID, relative Pfade,
-Hashes und Quellmetadaten — nie absoluten Pfad, Browser-Handle oder Dateitext.
+<Steps>
 
-Verfügbar sind `database_primary`, `source_primary` und
-`reviewed_bidirectional`. Die Synchronisierung materialisiert Dateien als
-normale SQL-Seiten. Gleichzeitige Änderungen werden zur Prüfung erfasst, statt
-eine Seite zu überschreiben. Beim Trennen bleiben Seiten und Dateien erhalten.
+### Bildschirm für lokale Ordner öffnen
+
+Wählen Sie einen Ordner über die File System Access API des Browsers oder
+Agent-Native Desktop. Content speichert in SQL nur eine undurchsichtige
+Verbindungs-ID, relative Pfade, Hashes und Quellmetadaten. Der absolute Pfad,
+das Browser-Handle oder Dateiinhalte werden dort nie gespeichert.
+
+### Auswählen, wo der Ordner angehängt wird
+
+Hängen Sie ihn an die Files-Datenbank eines vorhandenen persönlichen oder
+Organisationsbereichs an, oder erstellen Sie einen privaten ordnergestützten
+Bereich mit eigener Files-Datenbank.
+
+### Eine Wahrheitsrichtlinie wählen
+
+| Richtlinie               | Verhalten                                                          |
+| ------------------------ | ------------------------------------------------------------------ |
+| `database_primary`       | Content ist maßgeblich; Änderungen im Ordner werden vor der Übernahme geprüft |
+| `source_primary`         | Der Ordner ist maßgeblich, wenn keine gleichzeitige Content-Änderung vorliegt |
+| `reviewed_bidirectional` | Änderungen in beide Richtungen erfordern bei Konflikten eine Prüfung |
+
+</Steps>
+
+Die Synchronisierung materialisiert Dateien als normale SQL-Seiten.
+Gleichzeitige Änderungen werden zur Prüfung erfasst, statt eine Seite zu
+überschreiben. Beim Trennen bleiben Seiten und Dateien erhalten.
 
 ## Aus einem Repository starten
 
@@ -35,7 +112,7 @@ npx @agent-native/core@latest content .
 ```
 
 Der Befehl startet die normale datenbankgestützte Content-App, registriert den
-Ordner als Quelle und öffnet die Verbindung — ohne Modus-Umgebungsvariable.
+Ordner als lokale Ordnerquelle und öffnet den Verbindungsbildschirm.
 
 ## Konfiguration
 
@@ -64,8 +141,36 @@ Ordner als Quelle und öffnet die Verbindung — ohne Modus-Umgebungsvariable.
 }
 ```
 
-Zur Migration `mode: "local-files"` und
-`AGENT_NATIVE_MODE=local-files` entfernen, Roots behalten und `source`
-ergänzen. Frontmatter-IDs bewahren die Seitenidentität bei Umbenennungen und
+Frontmatter-IDs bewahren die Seitenidentität bei Umbenennungen und
 Verschiebungen. Lokale Komponenten und Erweiterungen verwenden weiter die
 vertrauenswürdige lokale Bridge.
+
+## Migration aus dem Local File Mode
+
+<Callout tone="info">
+
+Überspringen Sie diesen Abschnitt, wenn Sie einen lokalen Ordner zum ersten Mal
+einrichten. Er gilt nur für ein Manifest, das älter ist als das aktuelle
+Quellenmodell.
+
+</Callout>
+
+Ein älteres Manifest kann `mode: "local-files"` enthalten, und ein älterer
+Start-Workflow kann `AGENT_NATIVE_MODE=local-files` setzen. Entfernen Sie
+beides. Behalten Sie die konfigurierten Roots bei, ergänzen Sie `source.type`,
+`source.connectionId` und `source.truthPolicy`, und starten Sie dann mit
+`agent-native content <file-or-folder>`.
+
+Prüfen Sie nach der ersten Verbindung und Synchronisierung, dass:
+
+- Der Ordner als Quelle auf der vorgesehenen Files-Datenbank erscheint.
+- Jede importierte Seite zum vorgesehenen Bereich gehört.
+- Benutzerdefinierte Eigenschaften und gespeicherte Seitenleisten-Ansichten normal funktionieren.
+- Gleichzeitige Änderungen als prüfbare Änderungssätze erscheinen.
+- Das Trennen sowohl die Datenbankseiten als auch die Dateien auf der Festplatte erhält.
+
+## Was kommt als nächstes?
+
+- [**Datenbank**](/docs/server-database) — das SQL-Modell, auf dem jede Content-Seite und jeder Bereich basiert
+- [**Content**](/docs/template-content) — die App, mit der dies verbunden ist: Bereiche, die Files-Datenbank und der darauf aufbauende Editor
+- [**Content: Lokale Dateien, Notion und Builder-CMS-Synchronisierung**](/docs/template-content-sync) — einen Ordner im Alltag verbinden, lokale MDX-Komponenten und Konfliktbehandlung

@@ -6,23 +6,95 @@ description: "將 Markdown 與 MDX 資料夾連接至由資料庫支援的 Conte
 # Content：本機資料夾來源
 
 Content 現在只有一個資料模型：每個頁面都儲存在 SQL 中，屬於一個**空間**，並且
-是該空間系統 **Files** 資料庫的項目。本機資料夾是連接至 Files 的來源，而不是
-另一種應用程式模式。`AGENT_NATIVE_MODE` 切換已移除。
+是該空間系統 **Files** 資料庫的項目。本機 Markdown 或 MDX 資料夾是連接至
+Files 的來源，並與協作、分享、留言、歷史記錄、搜尋、資料庫屬性，以及其他每個
+頁面所使用的相同操作介面並存。
 
 每位使用者有個人空間，每個可存取的組織有組織空間；個人 **Workspaces** 目錄
 決定應用程式顯示哪些空間。Files 是一般 Content 資料庫，因此它的屬性、篩選、
 排序、分組與已儲存檢視也能呈現為側邊欄。
 
+<Diagram id="doc-block-content11" title={"本機資料夾會連接至一個空間的 Files 資料庫"} summary={"每個頁面都恰好屬於一個空間與一個 Files 資料庫。本機資料夾可以加入既有空間的 Files 資料庫，或建立一個擁有專屬 Files 資料庫的新資料夾支援空間。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      既有空間<br /><small class="diagram-muted">個人或組織</small>
+    </div>
+    <div class="diagram-node">
+      新的資料夾支援空間<br /><small class="diagram-muted"
+        >專為此資料夾建立</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files 資料庫</span
+    ><small class="diagram-muted">每個空間一個</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    本機資料夾<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## 連接資料夾
 
-透過瀏覽器或 Agent-Native Desktop 選擇資料夾，將它連接至既有空間，或建立一個
-由該資料夾支援的私人空間。SQL 只儲存不透明的連線 ID、相對路徑、雜湊與來源
-中繼資料；不儲存絕對路徑、瀏覽器控制代碼或原始檔案本文。
+<Steps>
 
-可用策略為 `database_primary`、`source_primary` 與
-`reviewed_bidirectional`。同步會將檔案實體化為一般 SQL 頁面。若檔案和 Content
-頁面同時變更，系統會建立待審查的變更，而不會悄悄覆寫任一方。中斷連線會保留
-頁面與本機檔案。
+### 開啟本機資料夾畫面
+
+透過瀏覽器的 File System Access API 或 Agent-Native Desktop 選擇資料夾。
+SQL 只儲存不透明的連線 ID、相對路徑、雜湊與來源中繼資料；不儲存絕對路徑、
+瀏覽器控制代碼或原始檔案本文。
+
+### 選擇資料夾要連接的位置
+
+將它連接至既有個人或組織空間的 Files 資料庫，或建立一個由該資料夾支援、
+擁有專屬 Files 資料庫的私人空間。
+
+### 選擇真實來源政策
+
+| 政策                      | 行為                                          |
+| ------------------------ | --------------------------------------------- |
+| `database_primary`       | Content 為主要真實來源；資料夾的變更會先經審查才套用 |
+| `source_primary`         | 在沒有並行的 Content 編輯時，以資料夾為主要真實來源  |
+| `reviewed_bidirectional` | 任一方向的變更，發生衝突時都需要經過審查            |
+
+</Steps>
+
+同步會將檔案實體化為一般 SQL 頁面。若檔案和 Content 頁面同時變更，系統會建立
+待審查的變更，而不會悄悄覆寫任一方。中斷連線會保留頁面與本機檔案。
 
 ## 從儲存庫啟動
 
@@ -30,8 +102,7 @@ Content 現在只有一個資料模型：每個頁面都儲存在 SQL 中，屬�
 npx @agent-native/core@latest content .
 ```
 
-此命令啟動一般的資料庫版 Content，將資料夾註冊為來源並開啟連線畫面；它不會
-設定模式環境變數。
+此命令啟動一般的資料庫版 Content，將資料夾註冊為來源並開啟連線畫面。
 
 ## 設定
 
@@ -60,6 +131,33 @@ npx @agent-native/core@latest content .
 }
 ```
 
-移轉時請刪除 `mode: "local-files"` 與 `AGENT_NATIVE_MODE=local-files`，保留
-roots 並加入 `source`。frontmatter ID 能在重新命名與移動時維持頁面身分。本機
-元件和擴充功能仍透過受信任的本機橋接載入。
+frontmatter ID 能在重新命名與移動時維持頁面身分。本機元件和擴充功能仍透過
+受信任的本機橋接載入。
+
+## 從 Local File Mode 遷移
+
+<Callout tone="info">
+
+如果您是第一次設定本機資料夾，可以略過此章節。此章節僅適用於採用舊版來源
+模型的 manifest。
+
+</Callout>
+
+較舊的 manifest 可能包含 `mode: "local-files"`，較舊的啟動流程也可能設定
+`AGENT_NATIVE_MODE=local-files`。請將兩者都移除。保留已設定的 roots，加入
+`source.type`、`source.connectionId` 與 `source.truthPolicy`，然後以
+`agent-native content <file-or-folder>` 啟動。
+
+完成初次連線並同步後，請確認：
+
+- 該資料夾已成為預期 Files 資料庫上的來源。
+- 每個匯入的頁面都屬於預期的空間。
+- 自訂屬性與已儲存的側邊欄檢視皆正常運作。
+- 並行的編輯會顯示為可供審查的變更。
+- 中斷連線會保留資料庫頁面與磁碟上的檔案。
+
+## 下一步
+
+- [**資料庫**](/docs/server-database) — 每個 Content 頁面與空間所依據的 SQL 模型
+- [**Content**](/docs/template-content) — 此功能所連接的應用程式：空間、Files 資料庫，以及建立於其上的編輯器
+- [**Content：本機檔案、Notion 與 Builder CMS 同步**](/docs/template-content-sync) — 日常連接資料夾、本機 MDX 元件與衝突處理

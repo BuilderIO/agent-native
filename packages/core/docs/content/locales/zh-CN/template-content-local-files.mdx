@@ -5,24 +5,94 @@ description: "将 Markdown 和 MDX 文件夹连接到由数据库支持的 Conte
 
 # Content：本地文件夹源
 
-Content 现在只有一个数据模型：每个页面都存储在 SQL 中，属于一个**空间**，并且
-是该空间系统 **Files** 数据库的条目。本地文件夹是连接到 Files 的数据源，而不是
-另一种应用模式。`AGENT_NATIVE_MODE` 开关已被移除。
+Content 只有一个数据模型：每个页面都存储在 SQL 中，属于一个**空间**，并且是该空间系统 **Files** 数据库的条目。本地 Markdown 或 MDX 文件夹是连接到 Files 的一个数据源，同时享有协作、共享、评论、历史记录、搜索、数据库属性，以及其他所有页面所使用的同一套操作界面。
 
 每位用户有个人空间，每个可访问的组织有组织空间；个人 **Workspaces** 目录决定
 应用中显示哪些空间。Files 是普通的 Content 数据库，因此它的属性、筛选、排序、
 分组和保存视图也可以呈现为侧边栏。
 
+<Diagram id="doc-block-content11" title="本地文件夹连接到一个空间的 Files 数据库" summary={"每个页面都恰好属于一个空间和一个 Files 数据库。本地文件夹要么加入现有空间的 Files 数据库，要么创建一个拥有自己 Files 数据库的、由文件夹支持的新空间。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      现有空间<br /><small class="diagram-muted"
+        >个人或组织</small
+      >
+    </div>
+    <div class="diagram-node">
+      由文件夹支持的新空间<br /><small class="diagram-muted"
+        >专为此文件夹创建</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files 数据库</span
+    ><small class="diagram-muted">每个空间一个</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    本地文件夹<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## 连接文件夹
 
-通过浏览器或 Agent-Native Desktop 选择文件夹，将它连接到现有空间，或创建一个
-由该文件夹支持的私有空间。SQL 只保存不透明的连接 ID、相对路径、哈希和数据源
-元数据；不保存绝对路径、浏览器句柄或原始文件正文。
+<Steps>
 
-可选策略为 `database_primary`、`source_primary` 和
-`reviewed_bidirectional`。同步会把文件实体化为普通 SQL 页面。如果文件与 Content
-页面同时更改，系统会创建待审核变更，而不会悄悄覆盖任一方。断开连接会保留页面
-和本地文件。
+### 打开本地文件夹连接界面
+
+通过浏览器的 File System Access API 或 Agent-Native Desktop 选择一个文件夹。
+Content 只在 SQL 中保存不透明的连接标识符、相对路径、哈希值和数据源元数据，
+绝不会在其中保存绝对路径、浏览器句柄或原始文件正文。
+
+### 选择文件夹要连接到的位置
+
+将其连接到某个现有个人空间或组织空间的 Files 数据库，或者创建一个拥有自己
+Files 数据库的、由文件夹支持的私有空间。
+
+### 选择真实来源策略
+
+| 策略                      | 行为                                                 |
+| ------------------------- | ---------------------------------------------------- |
+| `database_primary`       | Content 具有权威性；文件夹的更改会先经过审核才会生效 |
+| `source_primary`         | 当不存在并发的 Content 编辑时，文件夹具有权威性       |
+| `reviewed_bidirectional` | 任一方向的更改在出现冲突时都需要审核                 |
+
+</Steps>
+
+同步会把文件实体化为普通 SQL 页面。如果文件与 Content 页面同时更改，系统会创建待审核变更，而不会悄悄覆盖任一方。断开连接会保留页面和本地文件。
 
 ## 从仓库启动
 
@@ -30,8 +100,7 @@ Content 现在只有一个数据模型：每个页面都存储在 SQL 中，属�
 npx @agent-native/core@latest content .
 ```
 
-此命令启动正常的数据库版 Content，将文件夹注册为数据源并打开连接界面；它不会
-设置模式环境变量。
+此命令启动正常的数据库版 Content，将文件夹注册为数据源并打开连接界面。
 
 ## 配置
 
@@ -60,6 +129,26 @@ npx @agent-native/core@latest content .
 }
 ```
 
-迁移时请删除 `mode: "local-files"` 和 `AGENT_NATIVE_MODE=local-files`，保留
-roots 并添加 `source`。frontmatter ID 能在重命名和移动时保持页面身份。本地组件
-和扩展仍通过受信任的本地桥接加载。
+## 从 Local File Mode 迁移
+
+<Callout tone="info">
+
+如果你是首次设置本地文件夹，可以跳过本节。它只适用于早于当前数据源模型的清单。
+
+</Callout>
+
+请删除 `mode: "local-files"` 和 `AGENT_NATIVE_MODE=local-files`，保留 roots 并添加 `source`。frontmatter ID 能在重命名和移动时保持页面身份。本地组件和扩展仍通过受信任的本地桥接加载。
+
+完成首次连接和同步后，请确认：
+
+- 该文件夹已作为数据源出现在目标 Files 数据库上。
+- 每个导入的页面都属于目标空间。
+- 自定义属性和已保存的侧边栏视图正常工作。
+- 并发的更改会显示为可审核的变更集。
+- 断开连接会同时保留数据库中的页面和磁盘上的文件。
+
+## 后续内容
+
+- [**Database**](/docs/server-database) — 每个 Content 页面和空间都基于的 SQL 模型
+- [**Content**](/docs/template-content) — 本文件夹连接的目标应用：空间、Files 数据库，以及基于其构建的编辑器
+- [**Content：本地文件、Notion 与 Builder CMS 同步**](/docs/template-content-sync) — 日常连接文件夹、本地 MDX 组件与冲突处理

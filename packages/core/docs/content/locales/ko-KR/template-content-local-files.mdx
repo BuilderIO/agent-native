@@ -7,22 +7,97 @@ description: "Markdown 및 MDX 폴더를 데이터베이스 기반 Content 공�
 
 Content에는 하나의 데이터 모델만 있습니다. 모든 페이지는 SQL에 저장되고
 **공간**에 속하며 해당 공간의 시스템 **Files** 데이터베이스 항목이 됩니다.
-로컬 폴더는 Files에 연결되는 소스이지 별도의 앱 모드가 아닙니다.
-`AGENT_NATIVE_MODE` 전환은 더 이상 사용하지 않습니다.
+로컬 Markdown 또는 MDX 폴더는 Files에 연결되는 소스이며, 다른 모든 페이지와
+마찬가지로 협업, 공유, 댓글, 기록, 검색, 데이터베이스 속성, 동일한 액션
+표면을 그대로 사용합니다.
 
 사용자마다 개인 공간이 있고 접근 가능한 조직마다 조직 공간이 있습니다. 개인
 **Workspaces** 카탈로그가 앱에 표시할 공간을 정합니다. Files는 일반 Content
 데이터베이스이므로 속성, 필터, 정렬, 그룹 및 저장된 보기를 사이드바에도 사용할 수
 있습니다.
 
+<Diagram id="doc-block-content11" title={"로컬 폴더는 한 공간의 Files 데이터베이스에 연결됩니다"} summary={"모든 페이지는 정확히 하나의 공간과 하나의 Files 데이터베이스에 속합니다. 로컬 폴더는 기존 공간의 Files 데이터베이스에 합류하거나, 자체 데이터베이스를 가진 새로운 폴더 기반 공간을 생성합니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      기존 공간<br /><small class="diagram-muted"
+        >개인 또는 조직</small
+      >
+    </div>
+    <div class="diagram-node">
+      새 폴더 기반 공간<br /><small class="diagram-muted"
+        >이 폴더 전용으로 생성됨</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files 데이터베이스</span
+    ><small class="diagram-muted">공간당 하나</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    로컬 폴더<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## 폴더 연결
 
-브라우저 또는 Agent-Native Desktop에서 폴더를 선택해 기존 공간에 연결하거나
-전용 비공개 공간을 만듭니다. SQL에는 불투명한 연결 ID, 상대 경로, 해시와 소스
-메타데이터만 저장합니다. 절대 경로, 브라우저 핸들, 원본 파일 본문은 저장하지
-않습니다.
+<Steps>
 
-정책은 `database_primary`, `source_primary`, `reviewed_bidirectional`입니다.
+### 로컬 폴더 화면 열기
+
+브라우저의 File System Access API 또는 Agent-Native Desktop을 통해 폴더를
+선택합니다. Content는 SQL에 불투명한 연결 ID, 상대 경로, 해시, 소스
+메타데이터만 저장합니다. 절대 경로, 브라우저 핸들, 원본 파일 본문은 그곳에
+저장하지 않습니다.
+
+### 폴더가 연결될 위치 선택
+
+기존 개인 또는 조직 공간의 Files 데이터베이스에 연결하거나, 자체 Files
+데이터베이스를 가진 비공개 폴더 기반 공간을 새로 만듭니다.
+
+### 진실 정책 선택
+
+| 정책                     | 동작                                                    |
+| ------------------------ | ------------------------------------------------------- |
+| `database_primary`       | Content가 우선하며, 폴더 변경 사항은 사용 전에 검토됩니다 |
+| `source_primary`         | 동시에 진행 중인 Content 편집이 없으면 폴더가 우선합니다 |
+| `reviewed_bidirectional` | 충돌이 발생하면 양방향 모두 변경 사항 검토가 필요합니다  |
+
+</Steps>
+
 동기화는 파일을 일반 SQL 페이지로 구체화합니다. 양쪽이 동시에 바뀌면 덮어쓰는
 대신 검토할 변경을 만듭니다. 연결을 끊어도 페이지와 로컬 파일은 유지됩니다.
 
@@ -33,7 +108,7 @@ npx @agent-native/core@latest content .
 ```
 
 이 명령은 일반 데이터베이스 기반 Content를 시작하고 폴더를 소스로 등록한 뒤 연결
-화면을 엽니다. 모드 환경 변수는 설정하지 않습니다.
+화면을 엽니다.
 
 ## 설정
 
@@ -62,7 +137,31 @@ npx @agent-native/core@latest content .
 }
 ```
 
-마이그레이션할 때 `mode: "local-files"`와
-`AGENT_NATIVE_MODE=local-files`를 제거하고 roots는 유지한 채 `source`를
-추가합니다. frontmatter ID는 이름 변경과 이동 시 페이지 정체성을 유지합니다.
-로컬 컴포넌트와 확장은 계속 신뢰할 수 있는 로컬 브리지를 사용합니다.
+frontmatter ID는 이름 변경과 이동 시 페이지 정체성을 유지합니다. 로컬
+컴포넌트와 확장은 계속 신뢰할 수 있는 로컬 브리지를 사용합니다.
+
+## 로컬 파일 모드에서 마이그레이션
+
+<Callout tone="info">
+
+처음 로컬 폴더를 설정하는 경우 이 섹션은 건너뛰어도 됩니다. 현재 소스 모델
+이전에 작성된 매니페스트에만 해당됩니다.
+
+</Callout>
+
+마이그레이션할 때 `mode: "local-files"`와 `AGENT_NATIVE_MODE=local-files`를
+제거하고 roots는 유지한 채 `source`를 추가합니다.
+
+최초 연결 및 동기화 후 다음을 확인하세요:
+
+- 폴더가 의도한 Files 데이터베이스의 소스로 표시됩니다.
+- 가져온 각 페이지가 의도한 공간에 속합니다.
+- 커스텀 속성과 저장된 사이드바 보기가 정상적으로 작동합니다.
+- 동시 편집 내용이 검토 가능한 변경 세트로 표시됩니다.
+- 연결을 끊어도 데이터베이스 페이지와 디스크의 파일이 그대로 유지됩니다.
+
+## 다음 단계
+
+- [**데이터베이스**](/docs/server-database) — 모든 Content 페이지와 공간이 기반하는 SQL 모델
+- [**Content**](/docs/template-content) — 이 폴더가 연결되는 앱: 공간, Files 데이터베이스, 그 위에 구축된 에디터
+- [**콘텐츠: 로컬 파일, Notion 및 Builder CMS 동기화**](/docs/template-content-sync) — 폴더를 일상적으로 연결하는 방법, 로컬 MDX 컴포넌트, 충돌 처리

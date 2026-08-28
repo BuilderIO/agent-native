@@ -7,20 +7,95 @@ description: "Markdown और MDX फ़ोल्डर को डेटाब�
 
 Content में अब एक ही डेटा मॉडल है: हर पेज SQL में रहता है, किसी **स्पेस** से
 जुड़ा होता है और उस स्पेस के सिस्टम **Files** डेटाबेस का आइटम होता है। लोकल
-फ़ोल्डर Files से जुड़ा स्रोत है, ऐप का दूसरा मोड नहीं। `AGENT_NATIVE_MODE`
-स्विच अब नहीं है।
+फ़ोल्डर Files से जुड़ा एक स्रोत है, साथ ही collaboration, sharing, comments,
+history, search, डेटाबेस गुण, और वही action सतह भी मिलती है जो बाकी हर पेज पर
+उपलब्ध है।
 
 हर उपयोगकर्ता का निजी स्पेस, हर उपलब्ध संगठन का संगठन स्पेस और दिखाई देने वाले
 स्पेस चुनने के लिए निजी **Workspaces** कैटलॉग होता है। Files एक सामान्य Content
 डेटाबेस है; उसके गुण, फ़िल्टर, क्रम, समूह और सहेजे गए व्यू साइडबार भी बना सकते हैं।
 
+<Diagram id="doc-block-content11" title="एक लोकल फ़ोल्डर किसी एक स्पेस के Files डेटाबेस से जुड़ता है" summary={"हर पेज ठीक एक स्पेस और ठीक एक Files डेटाबेस से जुड़ा होता है। लोकल फ़ोल्डर या तो किसी मौजूदा स्पेस के Files डेटाबेस से जुड़ता है, या अपने खुद के Files डेटाबेस के साथ एक नया फ़ोल्डर-आधारित स्पेस बनाता है।"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      मौजूदा स्पेस<br /><small class="diagram-muted"
+        >निजी या संगठन</small
+      >
+    </div>
+    <div class="diagram-node">
+      नया फ़ोल्डर-आधारित स्पेस<br /><small class="diagram-muted"
+        >इसी फ़ोल्डर के लिए बनाया गया</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files डेटाबेस</span
+    ><small class="diagram-muted">प्रति स्पेस एक</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    लोकल फ़ोल्डर<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## फ़ोल्डर जोड़ें
 
-ब्राउज़र या Agent-Native Desktop से फ़ोल्डर चुनकर उसे मौजूदा स्पेस में जोड़ें,
-या उसका निजी स्पेस बनाएँ। SQL में केवल अपारदर्शी कनेक्शन ID, सापेक्ष पथ, hash और
-स्रोत मेटाडेटा रहता है—absolute path, browser handle या फ़ाइल का मूल body नहीं।
+<Steps>
 
-नीतियाँ `database_primary`, `source_primary` और `reviewed_bidirectional` हैं।
+### लोकल-फ़ोल्डर स्क्रीन खोलें
+
+ब्राउज़र के File System Access API या Agent-Native Desktop के ज़रिए फ़ोल्डर
+चुनें। SQL में केवल अपारदर्शी कनेक्शन ID, सापेक्ष पथ, hash और स्रोत मेटाडेटा
+रहता है—absolute path, browser handle या फ़ाइल का मूल body कभी नहीं।
+
+### फ़ोल्डर कहाँ जुड़ेगा, यह चुनें
+
+इसे किसी मौजूदा निजी या संगठन स्पेस के Files डेटाबेस से जोड़ें, या अपने खुद के
+Files डेटाबेस वाला एक निजी फ़ोल्डर-आधारित स्पेस बनाएँ।
+
+### एक truth policy चुनें
+
+| नीति                     | व्यवहार                                                            |
+| ------------------------ | ------------------------------------------------------------------ |
+| `database_primary`       | Content प्रामाणिक है; फ़ोल्डर के बदलाव उपयोग से पहले समीक्षा किए जाते हैं |
+| `source_primary`         | जब कोई समवर्ती Content एडिट न हो, तब फ़ोल्डर प्रामाणिक होता है         |
+| `reviewed_bidirectional` | किसी भी दिशा के बदलाव में टकराव होने पर समीक्षा ज़रूरी है              |
+
+</Steps>
+
 Sync फ़ाइलों को सामान्य SQL पेज बनाता है। दोनों तरफ एक साथ बदलाव होने पर किसी
 को overwrite करने के बजाय समीक्षा योग्य बदलाव बनता है। Disconnect करने पर पेज
 और लोकल फ़ाइलें बनी रहती हैं।
@@ -32,7 +107,7 @@ npx @agent-native/core@latest content .
 ```
 
 यह सामान्य database-backed Content शुरू करता है, फ़ोल्डर को स्रोत के रूप में
-दर्ज करता है और कनेक्शन स्क्रीन खोलता है। कोई mode environment variable नहीं लगता।
+दर्ज करता है और कनेक्शन स्क्रीन खोलता है।
 
 ## Configuration
 
@@ -61,6 +136,32 @@ npx @agent-native/core@latest content .
 }
 ```
 
-Migration में `mode: "local-files"` और `AGENT_NATIVE_MODE=local-files` हटाएँ,
-roots रखें और `source` जोड़ें। Frontmatter ID rename या move पर पेज की पहचान
-बचाता है। लोकल components और extensions trusted local bridge से ही लोड होते हैं।
+Frontmatter ID rename या move पर पेज की पहचान बचाता है। लोकल components और
+extensions trusted local bridge से ही लोड होते हैं।
+
+## Local File Mode से माइग्रेट करें
+
+<Callout tone="info">
+
+यदि आप पहली बार लोकल फ़ोल्डर सेट कर रहे हैं, तो इस भाग को छोड़ सकते हैं। यह
+केवल उस manifest पर लागू होता है जो मौजूदा source मॉडल से पहले का है।
+
+</Callout>
+
+माइग्रेट करने के लिए `mode: "local-files"` और `AGENT_NATIVE_MODE=local-files`
+हटाएँ, roots रखें और `source` जोड़ें।
+
+पहले कनेक्शन और sync के बाद, पुष्टि करें कि:
+
+- फ़ोल्डर तय किए गए Files डेटाबेस पर एक स्रोत के रूप में दिखाई देता है।
+- हर आयातित पेज तय किए गए स्पेस से संबंधित है।
+- कस्टम गुण और सहेजे गए साइडबार व्यू सामान्य रूप से काम करते हैं।
+- समवर्ती एडिट समीक्षा योग्य चेंज सेट के रूप में दिखाई देते हैं।
+- Disconnect करने पर डेटाबेस पेज और डिस्क पर मौजूद फ़ाइलें दोनों सुरक्षित रहते
+  हैं।
+
+## आगे क्या है
+
+- [**डेटाबेस**](/docs/server-database) — वह SQL मॉडल जिस पर हर Content पेज और स्पेस आधारित है
+- [**Content**](/docs/template-content) — वह ऐप जिससे यह जुड़ता है: स्पेस, Files डेटाबेस, और उस पर बना एडिटर
+- [**Content: स्थानीय फ़ाइलें, Notion और Builder CMS सिंक**](/docs/template-content-sync) — रोज़ाना फ़ोल्डर जोड़ना, लोकल MDX कंपोनेंट्स, और टकराव संभालना

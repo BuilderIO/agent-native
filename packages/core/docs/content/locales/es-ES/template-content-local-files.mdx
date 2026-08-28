@@ -5,38 +5,145 @@ description: "Conecte carpetas Markdown y MDX a los espacios de Content respalda
 
 # Content: Fuentes de carpetas locales
 
-Content tiene un único modelo de datos: cada página se guarda en SQL, pertenece
-a un **espacio** y figura en la base del sistema **Files** de ese espacio. Una
-carpeta local es una fuente conectada a Files, no otro modo de la aplicación. Ya
-no existe un interruptor `AGENT_NATIVE_MODE`.
+Content tiene un único modelo de datos: cada página vive en SQL, pertenece a un
+**espacio** y es miembro de la base de datos **Files** del sistema de ese
+espacio. Una carpeta local de Markdown o MDX es una fuente conectada a Files,
+junto con la colaboración, el uso compartido, los comentarios, el historial, la
+búsqueda, las propiedades de base de datos y la misma superficie de acciones
+que usa cualquier otra página.
 
-Cada usuario tiene un espacio personal, cada organización accesible tiene el
-suyo, y el catálogo personal **Workspaces** decide qué espacios aparecen. Files
-es una base de Content normal: sus propiedades, filtros, orden, agrupación y
-vistas guardadas también pueden representar la barra lateral.
+## Espacios, Files y Workspaces
+
+Content aprovisiona:
+
+- un espacio personal para cada usuario
+- un espacio de organización para cada organización a la que el usuario tiene acceso
+- una base de datos del sistema **Files** en cada espacio
+- un catálogo personal **Workspaces** que hace referencia a los espacios que se muestran en la aplicación
+
+Cada página ordinaria pertenece exactamente a un espacio y exactamente a una
+base de datos Files. Files es una base de Content normal: puede añadir
+propiedades, guardar vistas, filtrar, ordenar o agrupar. Su vista de barra
+lateral representa esas mismas filas como navegación. Agrupar una vista de
+barra lateral crea secciones plegables, y las vistas guardadas pueden
+convertirse en pestañas alternativas de la barra lateral.
+
+El catálogo Workspaces aplica la misma idea un nivel más arriba. Controla qué
+espacios personales, de organización y respaldados por carpetas participan en
+la barra lateral de la aplicación.
+
+<Diagram id="doc-block-content11" title="Una carpeta local se conecta a la base de datos Files de un espacio" summary={"Cada página pertenece exactamente a un espacio y exactamente a una base de datos Files. Una carpeta local se une a la base de datos Files de un espacio existente o crea un nuevo espacio respaldado por carpeta con la suya propia."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Espacio existente<br /><small class="diagram-muted"
+        >personal u organización</small
+      >
+    </div>
+    <div class="diagram-node">
+      Nuevo espacio respaldado por carpeta<br /><small class="diagram-muted"
+        >creado solo para esta carpeta</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Base de datos Files</span
+    ><small class="diagram-muted">una por espacio</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    Carpeta local<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
 
 ## Conectar una carpeta
 
-Elija una carpeta mediante el navegador o Agent-Native Desktop y conéctela a un
-espacio existente, o cree un espacio privado respaldado por esa carpeta. SQL
-solo guarda el identificador opaco, rutas relativas, hashes y metadatos; nunca
-la ruta absoluta, el identificador del navegador ni el cuerpo bruto del archivo.
+<Steps>
 
-Las políticas son `database_primary`, `source_primary` y
-`reviewed_bidirectional`. La sincronización materializa los archivos como
-páginas SQL normales. Los cambios simultáneos crean un cambio revisable en vez
-de sobrescribir un lado. Desconectar conserva las páginas y los archivos.
+### Abrir la pantalla de carpeta local
 
-## Iniciar desde un repositorio
+Elija una carpeta mediante la API File System Access del navegador o
+Agent-Native Desktop. Content guarda en SQL únicamente un identificador de
+conexión opaco, rutas relativas, hashes y metadatos de origen. Nunca guarda
+ahí la ruta absoluta, el identificador del navegador ni el cuerpo bruto de los
+archivos.
+
+### Elegir dónde se conecta la carpeta
+
+Conéctela a la base de datos Files de un espacio personal u organización
+existente, o cree un espacio privado respaldado por carpeta con su propia
+base de datos Files.
+
+### Elegir una política de verdad
+
+| Política                 | Comportamiento                                                          |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `database_primary`       | Content es la fuente autorizada; los cambios en la carpeta se revisan antes de usarse |
+| `source_primary`         | La carpeta es la fuente autorizada cuando no existe una edición simultánea en Content |
+| `reviewed_bidirectional` | Los cambios en cualquier dirección requieren revisión ante conflictos   |
+
+</Steps>
+
+La sincronización inicial materializa los archivos como páginas SQL normales y
+registra su identidad de origen. Una sincronización repetida es idempotente.
+Si un archivo y su página de Content cambian a la vez, Content registra un
+conjunto de cambios entrante en lugar de sobrescribir silenciosamente alguno
+de los lados. Desconectar conserva tanto las páginas SQL como los archivos
+locales.
+
+## Iniciar Content para un repositorio
+
+Desde un repositorio o carpeta, ejecute:
 
 ```bash
 npx @agent-native/core@latest content .
 ```
 
-El comando inicia Content con su base de datos normal, registra la carpeta como
-fuente y abre la conexión. No define una variable de modo.
+También puede apuntar a un solo archivo:
 
-## Configuración
+```bash
+npx @agent-native/core@latest content docs/getting-started.mdx
+```
+
+El comando inicia la aplicación Content normal respaldada por base de datos,
+registra la carpeta como fuente local y abre la pantalla de conexión.
+
+## Configuración del manifiesto
+
+`agent-native.json` declara las raíces de carpetas y sus metadatos de
+adaptador:
 
 ```json
 {
@@ -57,13 +164,55 @@ fuente y abre la conexión. No define una variable de modo.
         }
       ],
       "components": "components",
-      "extensions": "extensions"
+      "extensions": "extensions",
+      "hide": ["**/_*.md", "**/_*.mdx"]
     }
   }
 }
 ```
 
-Para migrar, elimine `mode: "local-files"` y
-`AGENT_NATIVE_MODE=local-files`, conserve las raíces y añada `source`. Los IDs
-del frontmatter mantienen la identidad al renombrar o mover una página. Los
-componentes y extensiones locales siguen usando el puente local de confianza.
+El identificador de conexión es deliberadamente opaco. El puente de confianza
+del navegador o de Desktop lo asocia de nuevo a una referencia de carpeta de
+forma local.
+
+## Formato de archivo e identidad
+
+Content lee `.md` y `.mdx`. El frontmatter puede conservar el ID estable de la
+página de Content, el título, el padre, el orden y otros metadatos admitidos.
+Conservar el ID permite que los renombrados y los movimientos mantengan la
+identidad de la página en lugar de crear duplicados.
+
+Las herramientas que editan el origen deben conservar el frontmatter
+desconocido, los imports, JSX y el MDX personalizado. Los componentes locales
+permanecen en la carpeta `components/` configurada y solo se cargan a través
+del puente local de confianza. Las extensiones locales permanecen aisladas
+bajo `extensions/`.
+
+## Migrar desde el modo de archivos locales
+
+<Callout tone="info">
+
+Omita esta sección si está configurando una carpeta local por primera vez.
+Solo se aplica a un manifiesto anterior al modelo de fuentes actual.
+
+</Callout>
+
+Un manifiesto anterior puede contener `mode: "local-files"`, y un flujo de
+inicio anterior puede definir `AGENT_NATIVE_MODE=local-files`. Elimine ambos.
+Conserve las raíces configuradas, añada `source.type`, `source.connectionId` y
+`source.truthPolicy`, y luego inicie con `agent-native content
+<archivo-o-carpeta>`.
+
+Tras la primera conexión y sincronización, confirme que:
+
+- La carpeta aparece como fuente en la base de datos Files prevista.
+- Cada página importada pertenece al espacio previsto.
+- Las propiedades personalizadas y las vistas guardadas de la barra lateral funcionan con normalidad.
+- Las ediciones simultáneas aparecen como conjuntos de cambios revisables.
+- Desconectar conserva las páginas de la base de datos y los archivos en disco.
+
+## Qué sigue
+
+- [**Base de datos**](/docs/server-database) — el modelo SQL que respalda cada página y espacio de Content
+- [**Content**](/docs/template-content) — la aplicación a la que esto se conecta: espacios, la base de datos Files y el editor construido sobre ella
+- [**Sincronización con archivos locales, Notion y Builder CMS**](/docs/template-content-sync) — conectar una carpeta en el día a día, componentes MDX locales y manejo de conflictos

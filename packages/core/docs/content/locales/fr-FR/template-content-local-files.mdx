@@ -5,29 +5,105 @@ description: "Connectez des dossiers Markdown et MDX aux espaces Content, tous s
 
 # Content : Sources de dossiers locaux
 
-Content utilise désormais un seul modèle de données : chaque page est stockée
-en SQL, appartient à un **espace** et figure dans la base système **Files** de
-cet espace. Un dossier local est une source connectée à Files, pas un second
-mode d'application. Il n'existe plus de commutateur `AGENT_NATIVE_MODE`.
+Content a un seul modèle de données : chaque page est stockée en SQL,
+appartient à un **espace** et figure dans la base système **Files** de cet
+espace. Un dossier Markdown ou MDX local est une source connectée à Files, au
+même titre que la collaboration, le partage, les commentaires, l'historique,
+la recherche, les propriétés de base de données et la même surface d'actions
+que toute autre page.
 
 Chaque utilisateur possède un espace personnel, chaque organisation accessible
 possède son espace, et le catalogue personnel **Workspaces** détermine les
 espaces affichés. Files est une base Content normale : ses propriétés, filtres,
 tris, groupes et vues enregistrées peuvent aussi rendre la barre latérale.
 
+<Diagram id="doc-block-content11" title="Un dossier local se rattache à la base Files d'un espace" summary={"Chaque page appartient à exactement un espace et une base Files. Un dossier local rejoint soit la base Files d'un espace existant, soit crée un nouvel espace associé au dossier avec sa propre base."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Espace existant<br /><small class="diagram-muted"
+        >personnel ou organisation</small
+      >
+    </div>
+    <div class="diagram-node">
+      Nouvel espace associé à un dossier<br /><small class="diagram-muted"
+        >créé spécifiquement pour ce dossier</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Base Files</span
+    ><small class="diagram-muted">une par espace</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    Dossier local<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## Connecter un dossier
 
-Choisissez un dossier via le navigateur ou Agent-Native Desktop, puis rattachez-
-le à un espace existant ou créez un espace privé associé au dossier. SQL ne
-conserve que l'identifiant opaque de connexion, les chemins relatifs, les
-empreintes et les métadonnées de source — jamais le chemin absolu, le handle du
-navigateur ou le corps brut des fichiers.
+<Steps>
 
-Les stratégies disponibles sont `database_primary`, `source_primary` et
-`reviewed_bidirectional`. La synchronisation matérialise les fichiers comme des
-pages SQL ordinaires. En cas de modifications concurrentes, elle crée un
-changement à examiner au lieu d'écraser un côté. La déconnexion conserve les
-pages et les fichiers locaux.
+### Ouvrir l'écran de dossier local
+
+Choisissez un dossier via l'API File System Access du navigateur ou via
+Agent-Native Desktop. Content ne conserve dans SQL que l'identifiant opaque de
+connexion, les chemins relatifs, les empreintes et les métadonnées de source.
+Il n'y stocke jamais le chemin absolu, le handle du navigateur ou le corps brut
+des fichiers.
+
+### Choisir où le dossier se rattache
+
+Rattachez-le à la base Files d'un espace personnel ou organisationnel
+existant, ou créez un espace privé associé au dossier avec sa propre base
+Files.
+
+### Choisir une stratégie de vérité
+
+| Politique                | Comportement                                                             |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `database_primary`       | Content fait autorité ; les modifications du dossier sont examinées avant d'être appliquées |
+| `source_primary`         | Le dossier fait autorité tant qu'aucune modification Content concurrente n'existe |
+| `reviewed_bidirectional` | Les modifications dans les deux sens nécessitent un examen en cas de conflit |
+
+</Steps>
+
+La synchronisation matérialise les fichiers comme des pages SQL ordinaires. En
+cas de modifications concurrentes, elle crée un changement à examiner au lieu
+d'écraser un côté. La déconnexion conserve les pages et les fichiers locaux.
 
 ## Démarrer depuis un dépôt
 
@@ -35,8 +111,8 @@ pages et les fichiers locaux.
 npx @agent-native/core@latest content .
 ```
 
-La commande démarre l'application Content normale, enregistre le dossier comme
-source et ouvre l'écran de connexion. Elle ne définit aucune variable de mode.
+La commande démarre l'application Content normale, enregistre le dossier
+comme source et ouvre l'écran de connexion.
 
 ## Configuration
 
@@ -65,8 +141,37 @@ source et ouvre l'écran de connexion. Elle ne définit aucune variable de mode.
 }
 ```
 
+Les identifiants de frontmatter préservent l'identité d'une page lors d'un
+renommage ou déplacement. Les composants et extensions locaux continuent de
+passer par le pont local de confiance.
+
+## Migrer depuis Local File Mode
+
+<Callout tone="info">
+
+Ignorez cette section si vous configurez un dossier local pour la première
+fois. Elle ne s'applique qu'à un manifeste antérieur au modèle de source
+actuel.
+
+</Callout>
+
 Pour migrer, supprimez `mode: "local-files"` et
 `AGENT_NATIVE_MODE=local-files`, conservez les racines et ajoutez la section
-`source`. Les identifiants de frontmatter préservent l'identité d'une page lors
-d'un renommage ou déplacement. Les composants et extensions locaux continuent
-de passer par le pont local de confiance.
+`source`.
+
+Après la première connexion et synchronisation, vérifiez que :
+
+- Le dossier apparaît comme source sur la base Files prévue.
+- Chaque page importée appartient à l'espace prévu.
+- Les propriétés personnalisées et les vues de barre latérale enregistrées
+  fonctionnent normalement.
+- Les modifications concurrentes apparaissent comme des changements à
+  examiner.
+- La déconnexion préserve les pages de la base de données et les fichiers sur
+  le disque.
+
+## Étapes suivantes
+
+- [**Base de données**](/docs/server-database) — le modèle SQL sur lequel repose chaque page et chaque espace Content
+- [**Content**](/docs/template-content) — l'application à laquelle cela se connecte : les espaces, la base Files et l'éditeur construit par-dessus
+- [**Content : synchronisation avec les fichiers locaux, Notion et Builder CMS**](/docs/template-content-sync) — connecter un dossier au quotidien, les composants MDX locaux et la gestion des conflits

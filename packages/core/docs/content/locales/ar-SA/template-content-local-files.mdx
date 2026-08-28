@@ -5,27 +5,103 @@ description: "اربط مجلدات Markdown وMDX بمساحات Content الم
 
 # المحتوى: مصادر المجلدات المحلية
 
-يستخدم Content الآن نموذج بيانات واحدًا: تُحفظ كل صفحة في SQL، وتنتمي إلى
+يستخدم Content نموذج بيانات واحدًا: تُحفظ كل صفحة في SQL، وتنتمي إلى
 **مساحة**، وتكون عنصرًا في قاعدة النظام **Files** لتلك المساحة. المجلد المحلي
-مصدر متصل بـ Files، وليس وضعًا آخر للتطبيق. لم يعد هناك مفتاح
-`AGENT_NATIVE_MODE`.
+من Markdown أو MDX هو مصدر متصل بـ Files، إلى جانب التعاون والمشاركة
+والتعليقات والسجل والبحث وخصائص قاعدة البيانات، ونفس سطح الإجراءات الذي
+تستخدمه كل صفحة أخرى.
 
 لكل مستخدم مساحة شخصية، ولكل مؤسسة متاحة مساحة مؤسسة، ويحدد كتالوج
 **Workspaces** الشخصي المساحات التي تظهر. Files قاعدة Content عادية؛ يمكن
 لخصائصها وعوامل التصفية والترتيب والتجميع وطرق العرض المحفوظة أن تعرض الشريط
 الجانبي أيضًا.
 
+<Diagram id="doc-block-content11" title="يرتبط المجلد المحلي بقاعدة Files الخاصة بمساحة واحدة" summary={"تنتمي كل صفحة إلى مساحة واحدة وقاعدة Files واحدة بالتحديد. ينضم المجلد المحلي إما إلى قاعدة Files لمساحة موجودة أو يُنشئ مساحة جديدة مدعومة بمجلد لها قاعدة خاصة بها."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      مساحة موجودة<br /><small class="diagram-muted"
+        >شخصية أو مؤسسة</small
+      >
+    </div>
+    <div class="diagram-node">
+      مساحة جديدة مدعومة بمجلد<br /><small class="diagram-muted"
+        >أُنشئت لهذا المجلد فقط</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">قاعدة Files</span
+    ><small class="diagram-muted">واحدة لكل مساحة</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    مجلد محلي<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## ربط مجلد
 
-اختر مجلدًا عبر المتصفح أو Agent-Native Desktop، ثم اربطه بمساحة موجودة أو
-أنشئ له مساحة خاصة. لا يخزن SQL سوى معرف الاتصال المعتم، والمسارات النسبية،
-والبصمات، وبيانات المصدر الوصفية؛ ولا يخزن المسار المطلق أو مقبض المتصفح أو نص
-الملف الخام.
+<Steps>
 
-السياسات هي `database_primary` و`source_primary` و`reviewed_bidirectional`.
-تحول المزامنة الملفات إلى صفحات SQL عادية. إذا تغير الملف وصفحته معًا، يُنشئ
-Content تغييرًا للمراجعة بدل الكتابة فوق أحدهما. يحافظ قطع الاتصال على الصفحات
-والملفات المحلية.
+### افتح شاشة المجلد المحلي
+
+اختر مجلدًا عبر واجهة File System Access في المتصفح أو عبر Agent-Native
+Desktop. لا يخزّن Content في SQL سوى معرف اتصال معتم، والمسارات النسبية،
+والبصمات، وبيانات المصدر الوصفية. لا يخزّن أبدًا المسار المطلق أو مقبض
+المتصفح أو محتوى الملفات الخام هناك.
+
+### اختر مكان ارتباط المجلد
+
+اربطه بقاعدة Files لمساحة شخصية أو مساحة مؤسسة موجودة، أو أنشئ مساحة خاصة
+مدعومة بمجلد لها قاعدة Files خاصة بها.
+
+### اختر سياسة المصدر الموثوق
+
+| السياسة                  | السلوك                                                              |
+| ------------------------ | -------------------------------------------------------------------- |
+| `database_primary`       | Content هو المرجع الموثوق؛ تتم مراجعة تغييرات المجلد قبل استخدامها  |
+| `source_primary`         | يكون المجلد هو المرجع الموثوق عند عدم وجود تعديل متزامن في Content |
+| `reviewed_bidirectional` | تتطلب التغييرات في أي من الاتجاهين المراجعة عند وجود تعارضات        |
+
+</Steps>
+
+تُحوّل المزامنة الأولى الملفات إلى صفحات عادية مدعومة بـ SQL وتسجل هوية
+مصدرها. المزامنة المتكررة متكافئة الأثر (idempotent). إذا تغير الملف وصفحته
+في Content معًا، يسجّل Content مجموعة تغييرات واردة بدل الكتابة فوق أي من
+الجانبين. يحافظ قطع الاتصال على صفحات SQL والملفات المحلية معًا.
 
 ## البدء من مستودع
 
@@ -34,7 +110,7 @@ npx @agent-native/core@latest content .
 ```
 
 يشغل الأمر تطبيق Content العادي المدعوم بقاعدة البيانات، ويسجل المجلد كمصدر،
-ويفتح شاشة الاتصال. ولا يضبط متغير بيئة خاصًا بالوضع.
+ويفتح شاشة الاتصال.
 
 ## الإعداد
 
@@ -62,6 +138,15 @@ npx @agent-native/core@latest content .
   }
 }
 ```
+
+## الترحيل من وضع الملفات المحلية
+
+<Callout tone="info">
+
+تخطَّ هذا القسم إذا كنت تُعِدّ مجلدًا محليًا لأول مرة. فهو ينطبق فقط على
+ملف إعداد (manifest) يسبق نموذج المصدر الحالي.
+
+</Callout>
 
 للترحيل، احذف `mode: "local-files"` و`AGENT_NATIVE_MODE=local-files`، واحتفظ
 بالجذور، وأضف `source`. تحافظ معرفات frontmatter على هوية الصفحة عند إعادة

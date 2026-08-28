@@ -7,13 +7,9 @@ description: "Connect Markdown and MDX folders to Content's database-backed spac
 
 Content has one data model: every page lives in SQL, belongs to a **space**, and
 is a member of that space's system **Files** database. A local Markdown or MDX
-folder is a source connected to Files. It is not a second application mode and
-does not replace the database.
-
-This means local files can keep their familiar repo workflow while Content still
-provides collaboration, sharing, comments, history, search, database properties,
-and the same action surface everywhere. There is no `AGENT_NATIVE_MODE` switch
-and no database/local fork in document actions.
+folder is a source connected to Files, alongside collaboration, sharing,
+comments, history, search, database properties, and the same action surface
+every other page uses.
 
 ## Spaces, Files, and Workspaces
 
@@ -33,25 +29,87 @@ sidebar tabs.
 The Workspaces catalog applies the same idea one level higher. It controls which
 personal, organization, and folder-backed spaces participate in the app sidebar.
 
+<Diagram id="doc-block-content11" title="A local folder attaches to one space's Files database" summary={"Every page belongs to exactly one space and exactly one Files database. A local folder either joins an existing space's Files database or creates a new folder-backed space with its own."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Existing space<br /><small class="diagram-muted"
+        >personal or organization</small
+      >
+    </div>
+    <div class="diagram-node">
+      New folder-backed space<br /><small class="diagram-muted"
+        >created just for this folder</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Files database</span
+    ><small class="diagram-muted">one per space</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box">
+    Local folder<br /><small class="diagram-muted"
+      >database_primary · source_primary · reviewed_bidirectional</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
 ## Connect a folder
 
-Open Content's local-folder screen and select a folder through the browser File
-System Access API or Agent-Native Desktop. Content stores only an opaque
-connection identifier, relative paths, hashes, and source metadata in SQL. It
-does not store the absolute path, browser handle, or raw file bodies there.
+<Steps>
 
-A folder can be connected in either way:
+### Open the local-folder screen
 
-- attach it to the Files database of an existing personal or organization space
-- create a private folder-backed space with its own Files database
+Select a folder through the browser File System Access API or Agent-Native
+Desktop. Content stores only an opaque connection identifier, relative paths,
+hashes, and source metadata in SQL. It never stores the absolute path, browser
+handle, or raw file bodies there.
 
-Choose a truth policy for the connection:
+### Choose where the folder attaches
+
+Attach it to the Files database of an existing personal or organization space,
+or create a private folder-backed space with its own Files database.
+
+### Choose a truth policy
 
 | Policy                   | Behavior                                                           |
 | ------------------------ | ------------------------------------------------------------------ |
 | `database_primary`       | Content is authoritative; folder changes are reviewed before use   |
 | `source_primary`         | The folder is authoritative when no concurrent Content edit exists |
 | `reviewed_bidirectional` | Changes in either direction require review at conflicts            |
+
+</Steps>
 
 Initial sync materializes files as ordinary SQL-backed pages and records their
 source identity. A repeated sync is idempotent. If a file and its Content page
@@ -72,14 +130,12 @@ You can also target one file:
 npx @agent-native/core@latest content docs/getting-started.mdx
 ```
 
-The CLI starts the normal database-backed Content app, registers the folder as a
-local-folder source, and opens the connection screen. It does not set a mode
-environment variable.
+The CLI starts the normal database-backed Content app, registers the folder as
+a local-folder source, and opens the connection screen.
 
 ## Manifest configuration
 
-`agent-native.json` declares folder roots and their adapter metadata. `mode` is
-not a runtime selector:
+`agent-native.json` declares folder roots and their adapter metadata:
 
 ```json
 {
@@ -121,27 +177,30 @@ that edit the source. Local components remain in the configured `components/`
 folder and are loaded only through the trusted local bridge. Local extensions
 remain sandboxed under `extensions/`.
 
-## Migration from Local File Mode
+## Migrate from Local File Mode
 
-Older manifests may contain `mode: "local-files"`, and older launch workflows
-may set `AGENT_NATIVE_MODE=local-files`. Remove both. Keep the configured roots,
-add `source.type`, `source.connectionId`, and `source.truthPolicy`, then launch
-with `agent-native content <file-or-folder>`.
+<Callout tone="info">
 
-After the first connection and sync, verify:
+Skip this section if you're setting up a local folder for the first time. It
+only applies to a manifest that predates the current source model.
 
-1. the folder appears as a source on the intended Files database
-2. each imported page belongs to the intended space
-3. custom properties and saved sidebar views work normally
-4. concurrent edits appear as reviewable change sets
-5. disconnecting preserves the database pages and the files on disk
+</Callout>
 
-The old two-mode architecture is retired. Local folders are now adapters around
-the global database model—which is less dramatic than a mode switch, and much
-less likely to leave half the product living in a parallel universe.
+An older manifest may contain `mode: "local-files"`, and an older launch
+workflow may set `AGENT_NATIVE_MODE=local-files`. Remove both. Keep the
+configured roots, add `source.type`, `source.connectionId`, and
+`source.truthPolicy`, then launch with `agent-native content <file-or-folder>`.
+
+After the first connection and sync, confirm that:
+
+- The folder appears as a source on the intended Files database.
+- Each imported page belongs to the intended space.
+- Custom properties and saved sidebar views work normally.
+- Concurrent edits appear as reviewable change sets.
+- Disconnecting preserves the database pages and the files on disk.
 
 ## What's next
 
-- [**Database**](/docs/server-database) — the SQL model every Content page and space is backed by, mode switch or not
+- [**Database**](/docs/server-database) — the SQL model every Content page and space is backed by
 - [**Content**](/docs/template-content) — the app this connects to: spaces, the Files database, and the editor built on top of it
-- [**Content: Local Files, Notion & Builder CMS Sync**](/docs/template-content-sync) — connecting a folder day-to-day, local MDX components, and conflict handling
+- [**Content: Local Files, Notion, and Builder CMS Sync**](/docs/template-content-sync) — connecting a folder day-to-day, local MDX components, and conflict handling
