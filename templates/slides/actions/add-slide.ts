@@ -22,6 +22,7 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { assertDeckWriteApplied, deckRevisionWhere } from "./_deck-write.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -342,14 +343,15 @@ export default defineAction({
         { label: "Before adding slide" },
       );
       await db.transaction(async (tx: any) => {
-        await tx
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             ...(repairedTitle ? { title: repairedTitle } : {}),
             data: JSON.stringify(deck),
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "slide addition");
         await recordGenerationCreativeContext(
           {
             appId: "slides",

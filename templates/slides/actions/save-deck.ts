@@ -13,7 +13,6 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -35,9 +34,11 @@ import {
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
+  assertDeckWriteApplied,
   deckDesignSystemId,
   deckHttpError,
   deckTitle,
+  deckRevisionWhere,
   type DeckPayload,
 } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
@@ -165,7 +166,7 @@ export default defineAction({
             { label: "Before editor save" },
           );
         }
-        await db
+        const updateResult = await db
           .update(schema.decks)
           .set({
             title,
@@ -174,7 +175,10 @@ export default defineAction({
               nextDesignSystemId ?? access.resource.designSystemId,
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(
+            deckRevisionWhere(schema.decks, deckId, access.resource.updatedAt),
+          );
+        assertDeckWriteApplied(updateResult, deckId, "deck save");
       } else {
         // Viewer-only access — same 404 as no-access so we don't leak that the
         // deck exists with restricted permissions.

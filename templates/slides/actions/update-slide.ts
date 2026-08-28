@@ -30,6 +30,7 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import { assertDeckWriteApplied, deckRevisionWhere } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -120,6 +121,112 @@ function styleInvariant(content: string): string {
     .trim();
 }
 
+const protectedStyleProperties = new Set([
+  "padding",
+  "padding-block",
+  "padding-block-start",
+  "padding-block-end",
+  "padding-inline",
+  "padding-inline-start",
+  "padding-inline-end",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "margin",
+  "margin-block",
+  "margin-block-start",
+  "margin-block-end",
+  "margin-inline",
+  "margin-inline-start",
+  "margin-inline-end",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "gap",
+  "row-gap",
+  "column-gap",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "line-height",
+  "letter-spacing",
+  "width",
+  "height",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
+  "position",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "inset",
+  "inset-block",
+  "inset-inline",
+  "display",
+  "visibility",
+  "content",
+  "opacity",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "white-space",
+  "word-break",
+  "overflow-wrap",
+  "flex",
+  "flex-direction",
+  "flex-wrap",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
+  "grid",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid-column",
+  "grid-row",
+  "align-items",
+  "align-content",
+  "align-self",
+  "justify-content",
+  "justify-items",
+  "justify-self",
+  "transform",
+  "clip",
+  "clip-path",
+  "text-indent",
+]);
+
+function protectedStyleInvariant(content: string): string {
+  const styles = [
+    ...Array.from(
+      content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
+      (match) => match[1] ?? "",
+    ),
+    ...Array.from(
+      content.matchAll(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
+      (match) => match[1] ?? match[2] ?? match[3] ?? "",
+    ),
+  ];
+  const declarations: string[] = [];
+  for (const style of styles) {
+    for (const match of style.matchAll(
+      /(?:^|[;{])\s*([\w-]+)\s*:\s*([^;{}]+)/g,
+    )) {
+      const property = match[1].toLowerCase();
+      if (protectedStyleProperties.has(property)) {
+        declarations.push(
+          `${property}:${match[2].replace(/\s+/g, " ").trim()}`,
+        );
+      }
+    }
+  }
+  return declarations.sort().join(";");
+}
+
 function assertStyleOnlyEdit(
   previousContent: string,
   nextContent: string,
@@ -129,11 +236,19 @@ function assertStyleOnlyEdit(
       "Style-only slide edits must preserve text, markup, element order, and layout structure; use edits that change only CSS declarations",
     );
   }
+  if (
+    protectedStyleInvariant(previousContent) !==
+    protectedStyleInvariant(nextContent)
+  ) {
+    throw new Error(
+      "Style-only slide edits must preserve text, markup, and protected layout CSS; use edits that change only the requested visual CSS declarations",
+    );
+  }
 }
 
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for style-only requests, reorders, or changes that must stay consistent across lists, tables, or other representations. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation and the requested scope. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for style-only requests, reorders, or changes that must stay consistent across lists, tables, or other representations. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation and the requested scope. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -274,6 +389,9 @@ export default defineAction({
         "Style-only slide edits require --edits and cannot use --fullContent or legacy find/replace",
       );
     }
+    if (replace !== undefined && find === undefined) {
+      throw new Error("Legacy --replace requires --find");
+    }
     if (find !== undefined && find.length === 0) {
       throw new Error("find must not be empty for legacy search/replace");
     }
@@ -301,6 +419,7 @@ export default defineAction({
           data: schema.decks.data,
           ownerEmail: schema.decks.ownerEmail,
           designSystemId: schema.decks.designSystemId,
+          updatedAt: schema.decks.updatedAt,
         })
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId))
@@ -412,7 +531,7 @@ export default defineAction({
       // that path, so preserving the old list would reveal the wrong content.
       // patch-deck is the explicit escape hatch when content and animations
       // are intentionally revised together.
-      if (applied && Array.isArray(slide.animations)) {
+      if (applied && Array.isArray(slide.animations) && !styleOnly) {
         delete slide.animations;
       }
 
@@ -499,10 +618,11 @@ export default defineAction({
         const now = new Date().toISOString();
         deck.updatedAt = now;
         await db.transaction(async (tx: any) => {
-          await tx
+          const updateResult = await tx
             .update(schema.decks)
             .set({ data: JSON.stringify(deck), updatedAt: now })
-            .where(eq(schema.decks.id, deckId));
+            .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+          assertDeckWriteApplied(updateResult, deckId, "slide edit");
           await recordGenerationCreativeContext(
             {
               appId: "slides",

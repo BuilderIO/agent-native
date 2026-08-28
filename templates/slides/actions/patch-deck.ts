@@ -43,6 +43,7 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
+import { assertDeckWriteApplied, deckRevisionWhere } from "./_deck-write.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -905,7 +906,7 @@ export default defineAction({
       }
 
       await db.transaction(async (tx: any) => {
-        await tx
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             title: sqlTitle,
@@ -913,7 +914,8 @@ export default defineAction({
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "deck patch");
         if (generationRecord) {
           await recordGenerationCreativeContext(
             {
