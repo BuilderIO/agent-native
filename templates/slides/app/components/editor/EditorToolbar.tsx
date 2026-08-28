@@ -34,7 +34,7 @@ import {
   IconPlus,
   IconSquare,
   IconTextSize,
-  IconTransitionRight,
+  IconBolt,
   IconLayersSubtract,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -445,9 +445,9 @@ export default function EditorToolbar({
         commands.push({
           id: "element-animations",
           group: "slideTools",
-          label: t("editorToolbar.elementAnimations"),
+          label: t("animations.title"),
           keywords: ["animation", "motion", "transition"],
-          icon: IconTransitionRight,
+          icon: IconBolt,
           active: animationsOpen,
           run: onToggleAnimations,
         });
@@ -505,7 +505,7 @@ export default function EditorToolbar({
           group: "slideTools" as const,
           label: t(transition.labelKey),
           keywords: ["slide", "transition", transition.value],
-          icon: IconTransitionRight,
+          icon: IconBolt,
           active: activeSlideTransition === transition.value,
           run: () => onChangeSlideTransition(transition.value),
         })),
@@ -803,8 +803,8 @@ export default function EditorToolbar({
                           : undefined
                       }
                     >
-                      <IconTransitionRight className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
+                      <IconBolt className="size-4" />
+                      {t("animations.title")}
                     </DropdownMenuItem>
                   )}
                   {canEdit && currentSlide && onToggleLayers && (
