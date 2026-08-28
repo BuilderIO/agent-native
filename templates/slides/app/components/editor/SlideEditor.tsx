@@ -143,6 +143,7 @@ import {
   collectMovableSlideObjects,
   copySlideObjects,
   computeSlideObjectZOrder,
+  createSlideObjectPlacementGeometry,
   createSlidesSelectionState,
   ensureSlideObjectId,
   ensureSlideTextBoxCanvas,
@@ -212,6 +213,16 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
+const SLIDE_SHAPE_DEFAULT_SIZES = {
+  rectangle: { width: 192, height: 144 },
+  circle: { width: 144, height: 144 },
+  arrow: { width: 192, height: 144 },
+  triangle: { width: 144, height: 144 },
+  line: { width: 240, height: 4 },
+} satisfies Record<
+  SlideShapeType,
+  Pick<SlideObjectGeometry, "width" | "height">
+>;
 
 /**
  * Operations that require an already-persisted freeform object are narrower
@@ -660,12 +671,12 @@ interface SlideEditorProps {
   canComment?: boolean;
   /** Called when pin mode should exit */
   onExitPinMode?: () => void;
-  /** Whether the "add text box" tool is active — the next click on the slide
-   *  places a new text box there instead of selecting/marquee-selecting */
+  /** Whether the "add text box" tool is active — drag on the slide to size a
+   *  new text box instead of selecting/marquee-selecting. */
   textBoxMode?: boolean;
   /** Called after a text box is placed (or the tool should otherwise exit) */
   onExitTextBoxMode?: () => void;
-  /** Whether the shape picker has armed a shape for the next canvas click. */
+  /** Whether the shape picker has armed a shape for drag-to-place on canvas. */
   shapeType?: SlideShapeType | null;
   /** Called after a shape is placed (or the tool should otherwise exit). */
   onExitShapeMode?: () => void;
@@ -1000,6 +1011,13 @@ function MultiSelectOutline({
 /** Translucent rectangle drawn while marquee-dragging */
 type MarqueeSelectionRect = { x: number; y: number; w: number; h: number };
 
+type SlidePlacementGesture = {
+  start: { x: number; y: number };
+  current: { x: number; y: number };
+  target: HTMLElement | null;
+  shapeType: SlideShapeType | null;
+};
+
 function MarqueeRect({
   rect,
   viewportRect,
@@ -1252,6 +1270,9 @@ export default function SlideEditor({
   const [chipAnchorRect, setChipAnchorRect] = useState<DOMRect | null>(null);
   /** Active marquee rectangle (viewport coords). null = not dragging. */
   const [marquee, setMarquee] = useState<MarqueeSelectionRect | null>(null);
+  /** Preview rectangle while a shape or text box is being placed. */
+  const [placementRect, setPlacementRect] =
+    useState<MarqueeSelectionRect | null>(null);
   const [activeAlignmentGuides, setActiveAlignmentGuides] = useState<{
     guides: SlideAlignmentGuide[];
     viewport: AlignmentGuideViewport;
@@ -1546,6 +1567,7 @@ export default function SlideEditor({
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
   /** Latest marquee geometry, readable by the stable window pointer handlers. */
   const marqueeRef = useRef<MarqueeSelectionRect | null>(null);
+  const placementRef = useRef<SlidePlacementGesture | null>(null);
   /** Set right before placing a text box so the click event that follows the
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
@@ -3508,20 +3530,16 @@ export default function SlideEditor({
   ]);
 
   const placeTextBoxAt = useCallback(
-    (clientX: number, clientY: number, target: HTMLElement | null) => {
+    (
+      geometry: SlideObjectGeometry,
+      target: HTMLElement | null,
+      dragSized: boolean,
+    ) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
         : null;
       if (!canvas) return;
       const { fmdSlide, positioningLayer } = canvas;
-      const rect = positioningLayer.getBoundingClientRect();
-      const { x, y } = clientPointToSlideCoordinates(
-        clientX,
-        clientY,
-        rect,
-        positioningLayer.offsetWidth,
-        positioningLayer.offsetHeight,
-      );
 
       if (getComputedStyle(fmdSlide).position === "static") {
         fmdSlide.style.position = "relative";
@@ -3532,9 +3550,10 @@ export default function SlideEditor({
       ensureSlideObjectId(box);
       ensureBuilderId(box);
       box.style.position = "absolute";
-      box.style.left = `${x}px`;
-      box.style.top = `${y}px`;
-      box.style.width = "320px";
+      box.style.left = `${Math.max(0, geometry.x)}px`;
+      box.style.top = `${Math.max(0, geometry.y)}px`;
+      box.style.width = `${geometry.width}px`;
+      if (dragSized) box.style.height = `${geometry.height}px`;
       box.style.fontSize = "24px";
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
       box.style.fontFamily = "'Poppins', sans-serif";
@@ -3562,8 +3581,7 @@ export default function SlideEditor({
 
   const placeShapeAt = useCallback(
     (
-      clientX: number,
-      clientY: number,
+      geometry: SlideObjectGeometry,
       type: SlideShapeType,
       target: HTMLElement | null,
     ) => {
@@ -3572,22 +3590,6 @@ export default function SlideEditor({
         : null;
       if (!canvas) return;
       const { fmdSlide, positioningLayer } = canvas;
-      const rect = positioningLayer.getBoundingClientRect();
-      const size = {
-        rectangle: { width: 192, height: 144 },
-        circle: { width: 144, height: 144 },
-        arrow: { width: 192, height: 144 },
-        triangle: { width: 144, height: 144 },
-        line: { width: 240, height: 4 },
-      }[type];
-      const { width, height } = size;
-      const point = clientPointToSlideCoordinates(
-        clientX,
-        clientY,
-        rect,
-        positioningLayer.offsetWidth,
-        positioningLayer.offsetHeight,
-      );
 
       if (getComputedStyle(fmdSlide).position === "static") {
         fmdSlide.style.position = "relative";
@@ -3601,10 +3603,10 @@ export default function SlideEditor({
       ensureSlideObjectId(shape);
       ensureBuilderId(shape);
       shape.style.position = "absolute";
-      shape.style.left = `${Math.max(0, Math.min(point.x, positioningLayer.offsetWidth - width))}px`;
-      shape.style.top = `${Math.max(0, Math.min(point.y, positioningLayer.offsetHeight - height))}px`;
-      shape.style.width = `${width}px`;
-      shape.style.height = `${height}px`;
+      shape.style.left = `${Math.max(0, Math.min(geometry.x, positioningLayer.offsetWidth - geometry.width))}px`;
+      shape.style.top = `${Math.max(0, Math.min(geometry.y, positioningLayer.offsetHeight - geometry.height))}px`;
+      shape.style.width = `${geometry.width}px`;
+      shape.style.height = `${geometry.height}px`;
       shape.style.boxSizing = "border-box";
       shape.style.backgroundColor = color;
       shape.style.border =
@@ -3621,9 +3623,9 @@ export default function SlideEditor({
       positioningLayer.appendChild(shape);
 
       const selector = getBuilderSelector(shape);
+      if (selector) selectElementForStyling(shape, selector);
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
-      if (selector) selectElementForStyling(shape, selector);
     },
     [readCurrentSlideContentHtml, selectElementForStyling, t],
   );
@@ -4805,12 +4807,92 @@ export default function SlideEditor({
 
   // --- Marquee drag handlers (attached to slide-content via React props) ---
 
+  const handleSlidePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const placement = placementRef.current;
+      if (!placement) return;
+
+      placement.current = { x: e.clientX, y: e.clientY };
+
+      placementRef.current = null;
+      setPlacementRect(null);
+      activeGestureCancelRef.current = null;
+
+      const canvas = containerRef.current
+        ? ensureSlideTextBoxCanvas(containerRef.current)
+        : null;
+      if (!canvas) {
+        suppressNextClickRef.current = false;
+        return;
+      }
+
+      const { positioningLayer } = canvas;
+      const rect = positioningLayer.getBoundingClientRect();
+      const start = clientPointToSlideCoordinates(
+        placement.start.x,
+        placement.start.y,
+        rect,
+        positioningLayer.offsetWidth,
+        positioningLayer.offsetHeight,
+      );
+      const end = clientPointToSlideCoordinates(
+        placement.current.x,
+        placement.current.y,
+        rect,
+        positioningLayer.offsetWidth,
+        positioningLayer.offsetHeight,
+      );
+      const dragSized =
+        Math.abs(placement.current.x - placement.start.x) >= 4 ||
+        Math.abs(placement.current.y - placement.start.y) >= 4;
+      const defaultSize = placement.shapeType
+        ? SLIDE_SHAPE_DEFAULT_SIZES[placement.shapeType]
+        : { width: 320, height: 24 };
+      const geometry = dragSized
+        ? createSlideObjectPlacementGeometry(
+            start,
+            end,
+            placement.shapeType === "line" ? 4 : undefined,
+          )
+        : { x: start.x, y: start.y, ...defaultSize };
+
+      if (placement.shapeType) {
+        placeShapeAt(geometry, placement.shapeType, placement.target);
+        onExitShapeMode?.();
+      } else {
+        placeTextBoxAt(geometry, placement.target, dragSized);
+        onExitTextBoxMode?.();
+      }
+
+      window.setTimeout(function clearPlacementClickSuppression() {
+        suppressNextClickRef.current = false;
+      }, 0);
+    },
+    [onExitShapeMode, onExitTextBoxMode, placeShapeAt, placeTextBoxAt],
+  );
+
+  const handleSlidePointerCancel = useCallback(() => {
+    if (!placementRef.current) return;
+    activeGestureCancelRef.current?.();
+  }, []);
+
   const clearEdgeMoveCursor = useCallback(() => {
     if (slideCanvasRef.current) slideCanvasRef.current.style.cursor = "";
   }, []);
 
   const handleSlidePointerMove = useCallback(
     (e: React.PointerEvent) => {
+      const placement = placementRef.current;
+      if (placement) {
+        placement.current = { x: e.clientX, y: e.clientY };
+        setPlacementRect({
+          x: Math.min(placement.start.x, e.clientX),
+          y: Math.min(placement.start.y, e.clientY),
+          w: Math.abs(e.clientX - placement.start.x),
+          h: Math.abs(e.clientY - placement.start.y),
+        });
+        return;
+      }
       if (editingEl || readOnly) {
         clearEdgeMoveCursor();
         return;
@@ -4844,23 +4926,51 @@ export default function SlideEditor({
         e.preventDefault();
         if (editingEl) exitInlineEdit();
         suppressNextClickRef.current = true;
-        placeShapeAt(e.clientX, e.clientY, shapeType, target);
-        onExitShapeMode?.();
+        const placement: SlidePlacementGesture = {
+          start: { x: e.clientX, y: e.clientY },
+          current: { x: e.clientX, y: e.clientY },
+          target,
+          shapeType,
+        };
+        placementRef.current = placement;
+        setPlacementRect({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+        const cancelPlacement = () => {
+          if (placementRef.current !== placement) return;
+          placementRef.current = null;
+          setPlacementRect(null);
+          suppressNextClickRef.current = false;
+          if (activeGestureCancelRef.current === cancelPlacement) {
+            activeGestureCancelRef.current = null;
+          }
+        };
+        activeGestureCancelRef.current = cancelPlacement;
+        if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
 
       if (textBoxMode) {
-        // Unlike the marquee/select flow below, the text-box tool places a
-        // box on the very next click no matter what it lands on (mirroring
-        // Google Slides / PowerPoint). Gating this on "whitespace" left the
-        // tool silently stuck on when a click landed on existing text —
-        // editing that text worked, but the tool state never cleared, so an
-        // unrelated later click would unexpectedly drop a new box.
         e.preventDefault();
         if (editingEl) exitInlineEdit();
         suppressNextClickRef.current = true;
-        placeTextBoxAt(e.clientX, e.clientY, target);
-        onExitTextBoxMode?.();
+        const placement: SlidePlacementGesture = {
+          start: { x: e.clientX, y: e.clientY },
+          current: { x: e.clientX, y: e.clientY },
+          target,
+          shapeType: null,
+        };
+        placementRef.current = placement;
+        setPlacementRect({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+        const cancelPlacement = () => {
+          if (placementRef.current !== placement) return;
+          placementRef.current = null;
+          setPlacementRect(null);
+          suppressNextClickRef.current = false;
+          if (activeGestureCancelRef.current === cancelPlacement) {
+            activeGestureCancelRef.current = null;
+          }
+        };
+        activeGestureCancelRef.current = cancelPlacement;
+        if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
       if (
@@ -4949,15 +5059,11 @@ export default function SlideEditor({
       getSlideContent,
       isSlideWhitespaceTarget,
       multiSelection,
-      onExitShapeMode,
       applyMultiSelection,
       clearSelectedElement,
       textBoxMode,
       shapeType,
       exitInlineEdit,
-      placeShapeAt,
-      placeTextBoxAt,
-      onExitTextBoxMode,
       resolveSelectedElement,
       startElementDrag,
       startGroupDrag,
@@ -5325,6 +5431,7 @@ export default function SlideEditor({
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
       const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest("[data-radix-menu-content]")) return;
       if (target && slideCanvasRef.current?.contains(target)) return;
       clearCanvasSelection();
     },
@@ -5505,7 +5612,11 @@ export default function SlideEditor({
   /** Bring-to-front / send-to-back for the selected freeform object. */
   const handleArrangeSelected = useCallback(
     (target: SlideObjectZOrderTarget) => {
-      const element = resolveSelectedElement();
+      const contextMenuTarget = contextMenuTargetRef.current;
+      const element =
+        (contextMenuTarget && containerRef.current?.contains(contextMenuTarget)
+          ? contextMenuTarget
+          : null) ?? resolveSelectedElement();
       if (!element) return;
       const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
       const positioningLayer = fmdSlide
@@ -5522,6 +5633,9 @@ export default function SlideEditor({
         positioningLayer,
       );
       const change = computeSlideObjectZOrder(element, containingBlock, target);
+      const selector = getBuilderSelector(element);
+      if (!selector) return;
+      selectElementForStyling(element, selector);
       if (!change) return;
 
       element.style.zIndex = String(change.value);
@@ -5531,8 +5645,6 @@ export default function SlideEditor({
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });
-      const selector = getBuilderSelector(element);
-      if (selector) selectElementForStyling(element, selector);
     },
     [
       readCurrentSlideContentHtml,
@@ -5809,20 +5921,14 @@ export default function SlideEditor({
                     className="shrink-0"
                     style={{ width: canvasWidth, maxWidth: canvasWidth }}
                   >
-                    <ContextMenu
-                      onOpenChange={(open) => {
-                        if (!open) {
-                          contextMenuTargetRef.current = null;
-                          contextMenuTableCellRef.current = null;
-                          setContextMenuTableInfo(null);
-                        }
-                      }}
-                    >
+                    <ContextMenu>
                       <ContextMenuTrigger asChild disabled={readOnly}>
                         <div
                           ref={slideCanvasRef}
                           className={`slide-image-clickable relative outline-none ${
-                            pinMode ? "cursor-crosshair" : ""
+                            pinMode || textBoxMode || shapeType
+                              ? "cursor-crosshair"
+                              : ""
                           }`}
                           data-slide-canvas-focus="true"
                           tabIndex={0}
@@ -5832,6 +5938,8 @@ export default function SlideEditor({
                           onDoubleClick={handleSlideDoubleClick}
                           onPointerDown={handleSlidePointerDown}
                           onPointerMove={handleSlidePointerMove}
+                          onPointerUp={handleSlidePointerUp}
+                          onPointerCancel={handleSlidePointerCancel}
                           onPointerLeave={clearEdgeMoveCursor}
                           onDragStart={(event) => event.preventDefault()}
                           onDragOver={handleSlideDragOver}
@@ -5908,7 +6016,13 @@ export default function SlideEditor({
                             )}
                         </div>
                       </ContextMenuTrigger>
-                      <ContextMenuContent>
+                      <ContextMenuContent
+                        onCloseAutoFocus={() => {
+                          contextMenuTargetRef.current = null;
+                          contextMenuTableCellRef.current = null;
+                          setContextMenuTableInfo(null);
+                        }}
+                      >
                         {contextMenuTableInfo && (
                           <>
                             <ContextMenuItem
@@ -6080,6 +6194,12 @@ export default function SlideEditor({
       {/* Active marquee rectangle */}
       {marquee && (marquee.w > 1 || marquee.h > 1) && (
         <MarqueeRect rect={marquee} viewportRect={selectionViewportRect} />
+      )}
+      {placementRect && (placementRect.w > 1 || placementRect.h > 1) && (
+        <MarqueeRect
+          rect={placementRect}
+          viewportRect={selectionViewportRect}
+        />
       )}
 
       {activeAlignmentGuides && (
