@@ -428,6 +428,10 @@ export default function DeckEditor() {
     PendingImagePreview[]
   >([]);
   const pendingImagePreviewsRef = useRef<PendingImagePreview[]>([]);
+  // Keep upload completion ahead of React when a slide edit has been queued
+  // locally but its render has not committed yet.
+  const latestSlideContentRef = useRef(new Map<string, string>());
+  const renderedSlideContentRef = useRef(new Map<string, string>());
 
   const updatePendingImagePreviews = useCallback(
     (update: PendingImagePreviewUpdate) => {
@@ -945,14 +949,16 @@ export default function DeckEditor() {
           return;
         }
         const targetSlide =
-          getDeck(id)?.slides.find((slide) => slide.id === targetSlideId) ??
-          (currentSlideRef.current?.id === targetSlideId
+          currentSlideRef.current?.id === targetSlideId
             ? currentSlideRef.current
-            : undefined);
+            : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
         if (!targetSlide) {
           clearPreview();
           return;
         }
+        const targetContent =
+          latestSlideContentRef.current.get(targetSlideId) ??
+          targetSlide.content;
         const activePreview = pendingImagePreviewsRef.current.find(
           (preview) => preview.previewSrc === previewSrc,
         );
@@ -961,7 +967,7 @@ export default function DeckEditor() {
           (preview) => preview.slideId === targetSlideId,
         );
         const cleanTargetContent = stripOptimisticImagePreviews(
-          targetSlide.content,
+          targetContent,
           pendingForSlide,
         );
         const previewContent = applyOptimisticImagePreview(
@@ -977,7 +983,8 @@ export default function DeckEditor() {
           clearPreview();
           return;
         }
-        if (updatedContent !== targetSlide.content) {
+        latestSlideContentRef.current.set(targetSlideId, updatedContent);
+        if (updatedContent !== targetContent) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
         clearPreview();
@@ -1907,6 +1914,20 @@ export default function DeckEditor() {
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
+  if (currentSlide) {
+    const previousRenderedContent = renderedSlideContentRef.current.get(
+      currentSlide.id,
+    );
+    const latestContent = latestSlideContentRef.current.get(currentSlide.id);
+    if (
+      latestContent === undefined ||
+      (previousRenderedContent !== undefined &&
+        currentSlide.content !== previousRenderedContent)
+    ) {
+      latestSlideContentRef.current.set(currentSlide.id, currentSlide.content);
+    }
+    renderedSlideContentRef.current.set(currentSlide.id, currentSlide.content);
+  }
   const pendingForCurrentSlide = currentSlide
     ? pendingImagePreviews.filter(
         (preview) => preview.slideId === currentSlide.id,
@@ -2356,6 +2377,12 @@ export default function DeckEditor() {
                       ),
                     }
                   : updates;
+              if (typeof safeUpdates.content === "string") {
+                latestSlideContentRef.current.set(
+                  targetSlideId,
+                  safeUpdates.content,
+                );
+              }
               updateSlide(id, targetSlideId, safeUpdates, options);
             }}
             onInlineEditStart={(slideId) => {

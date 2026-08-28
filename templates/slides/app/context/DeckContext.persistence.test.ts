@@ -585,7 +585,6 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
-    let contentDuringUpdate: string | undefined;
     act(() => {
       result.current.updateSlide(
         initial.id,
@@ -593,12 +592,7 @@ describe("DeckContext deck creation persistence", () => {
         { content: '<div class="fmd-slide"><h1>After</h1></div>' },
         { persistence: "immediate" },
       );
-      contentDuringUpdate = result.current.getDeck(initial.id)?.slides[0]
-        ?.content;
     });
-    expect(contentDuringUpdate).toBe(
-      normalizeSlidePadding('<div class="fmd-slide"><h1>After</h1></div>'),
-    );
     expect(
       result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
     ).not.toBe("initial-revision");
