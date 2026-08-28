@@ -83,4 +83,22 @@ describe("slide clipboard storage", () => {
       copiedAt: null,
     });
   });
+
+  it("normalizes omitted notes and layout from older slides", () => {
+    const result = readSlideClipboard(
+      createStorage({
+        "slides:slide-clipboard": JSON.stringify({
+          version: 1,
+          slide: { ...slide, notes: null, layout: null },
+          copiedAt: 2_000,
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "ready",
+      slide: { ...slide, notes: "", layout: "content" },
+      copiedAt: 2_000,
+    });
+  });
 });

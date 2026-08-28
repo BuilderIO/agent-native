@@ -1,9 +1,9 @@
-import type { Slide } from "@/context/DeckContext";
+import type { Slide, SlideLayout } from "@/context/DeckContext";
 
 export const SLIDE_CLIPBOARD_STORAGE_KEY = "slides:slide-clipboard";
 
 const SLIDE_CLIPBOARD_VERSION = 1;
-const SLIDE_LAYOUTS: readonly string[] = [
+const SLIDE_LAYOUTS: readonly SlideLayout[] = [
   "title",
   "section",
   "content",
@@ -41,19 +41,39 @@ function getBrowserStorage(): SlideClipboardStorage | null {
   }
 }
 
-function isSlide(value: unknown): value is Slide {
+function normalizeSlide(value: unknown): Slide | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
+    return null;
   }
   const candidate = value as Partial<Slide>;
-  return (
-    typeof candidate.id === "string" &&
-    candidate.id.length > 0 &&
-    typeof candidate.content === "string" &&
-    typeof candidate.notes === "string" &&
-    typeof candidate.layout === "string" &&
-    SLIDE_LAYOUTS.includes(candidate.layout)
-  );
+  if (
+    typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
+    typeof candidate.content !== "string"
+  ) {
+    return null;
+  }
+
+  const notes = candidate.notes;
+  if (notes !== undefined && notes !== null && typeof notes !== "string") {
+    return null;
+  }
+
+  const layout = candidate.layout;
+  if (
+    layout !== undefined &&
+    layout !== null &&
+    (typeof layout !== "string" ||
+      !SLIDE_LAYOUTS.includes(layout as SlideLayout))
+  ) {
+    return null;
+  }
+
+  return {
+    ...candidate,
+    notes: notes ?? "",
+    layout: (layout as SlideLayout | null | undefined) ?? "content",
+  } as Slide;
 }
 
 export function readSlideClipboard(
@@ -75,9 +95,10 @@ export function readSlideClipboard(
 
   try {
     const parsed = JSON.parse(raw) as Partial<StoredSlideClipboard>;
+    const slide = normalizeSlide(parsed.slide);
     if (
       parsed.version !== SLIDE_CLIPBOARD_VERSION ||
-      !isSlide(parsed.slide) ||
+      !slide ||
       typeof parsed.copiedAt !== "number" ||
       !Number.isFinite(parsed.copiedAt)
     ) {
@@ -85,7 +106,7 @@ export function readSlideClipboard(
     }
     return {
       status: "ready",
-      slide: parsed.slide,
+      slide,
       copiedAt: parsed.copiedAt,
     };
   } catch {
@@ -100,13 +121,14 @@ export function writeSlideClipboard(
   copiedAt: number,
   storage: SlideClipboardStorage | null = getBrowserStorage(),
 ): boolean {
-  if (!storage) return false;
+  const normalizedSlide = normalizeSlide(slide);
+  if (!storage || !normalizedSlide) return false;
   try {
     storage.setItem(
       SLIDE_CLIPBOARD_STORAGE_KEY,
       JSON.stringify({
         version: SLIDE_CLIPBOARD_VERSION,
-        slide,
+        slide: normalizedSlide,
         copiedAt,
       } satisfies StoredSlideClipboard),
     );
