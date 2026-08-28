@@ -120,6 +120,44 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).toContain("Visible");
   });
 
+  it("strips a handler attached with a slash separator", () => {
+    // `/` is a legal separator, so this is an image with a live handler. Every
+    // scrub here is whitespace-anchored, so none of them saw it.
+    for (const attack of [
+      "<img/src=x/onerror=alert(1)>",
+      '<img src="x"/onerror="alert(1)">',
+      "<img src='x'/onerror='alert(1)'>",
+    ]) {
+      const html = sanitizeSlideHtml(`<div class="fmd-slide">${attack}</div>`);
+      expect(html).not.toContain("onerror");
+    }
+  });
+
+  it("sanitizes a style attached with a slash separator", () => {
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><div/style="background:url(https://attacker.example/p)">x</div></div>',
+    );
+    expect(html).not.toContain("attacker.example");
+    expect(html).toContain("x");
+  });
+
+  it("does not rewrite separators inside a stylesheet's own text", () => {
+    // The normalizer must only touch start tags; CSS is not markup, and
+    // `font: 12px/1.5` is a shorthand whose slash carries meaning.
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><style>.a{font:12px/1.5 sans-serif}</style><h1>T</h1></div>',
+    );
+    expect(html).toContain("12px/1.5");
+    expect(html).toContain("T");
+  });
+
+  it("does not rewrite separators inside a style attribute's value", () => {
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><p style="font: 12px/1.5 sans-serif">T</p></div>',
+    );
+    expect(html).toContain("12px/1.5");
+  });
+
   it("leaves a quoted URL that merely looks like a handler intact", () => {
     // Widening the attribute scrubs to treat `/` as a separator corrupted this
     // — the match ran straight into the middle of a legitimate value.
