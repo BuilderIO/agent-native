@@ -601,8 +601,9 @@ describe("Dispatch NavContent", () => {
     const sidebarLogo = container.querySelector(
       "a[data-dispatch-logo] svg[data-agent-native-icon]",
     );
-    expect(sidebarLogo?.className).toContain("text-black");
-    expect(sidebarLogo?.className).toContain("dark:text-white");
+    expect(sidebarLogo?.className).toContain("text-foreground");
+    expect(sidebarLogo?.className).toContain("h-[17px]");
+    expect(sidebarLogo?.className).toContain("w-[30px]");
     expect(container.textContent).not.toContain("Workspace control plane");
 
     const threadButton = [...container.querySelectorAll("button")].find(

@@ -267,9 +267,8 @@ export function Sidebar() {
               data-sidebar-brand-toggle
             >
               <AgentNativeIcon
-                size={28}
                 aria-hidden="true"
-                className="h-4 w-7 shrink-0 text-black dark:text-white"
+                className="h-3.5 w-6 shrink-0 text-foreground"
               />
             </button>
           </TooltipTrigger>
@@ -388,14 +387,13 @@ export function Sidebar() {
                     ? t("sidebar.openAskFullScreen")
                     : t("sidebar.collapseSidebar")
                 }
-                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-muted-foreground/80 active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-foreground active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={handleBrandClick}
                 data-sidebar-brand-toggle
               >
                 <AgentNativeIcon
-                  size={28}
                   aria-hidden="true"
-                  className="h-4 w-7 shrink-0 text-black dark:text-white"
+                  className="h-3.5 w-6 shrink-0 text-foreground"
                 />
                 <span className="truncate">{t("navigation.brand")}</span>
               </button>

@@ -2356,9 +2356,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
             >
               <AgentNativeIcon
-                size={35}
                 aria-hidden="true"
-                className="h-5 w-[35px] shrink-0 text-black dark:text-white"
+                className="h-[17px] w-[30px] shrink-0 text-sidebar-foreground"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}
