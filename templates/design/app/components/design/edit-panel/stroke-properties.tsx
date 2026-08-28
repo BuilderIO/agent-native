@@ -73,6 +73,9 @@ import { STROKE_POSITION_OPTIONS } from "./style-options";
  */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
 
+// guard:allow-raw-color — authored strokes need a concrete CSS color fallback.
+const DEFAULT_STROKE_COLOR = "#000000";
+
 type StrokeLayerKind = "border" | "outline";
 type StrokePosition = "inside" | "outside" | "center";
 
@@ -175,11 +178,7 @@ function StrokeLayerControl({
         <InspectorGridCell span={20}>
           <ColorInput
             label=""
-            value={cssColorOrFallback(
-              color,
-              /* guard:allow-raw-color - ColorInput needs a concrete swatch fallback. */
-              "#000000",
-            )}
+            value={cssColorOrFallback(color, DEFAULT_STROKE_COLOR)}
             onChange={(value, meta) =>
               onStyleChange(`${prefix}Color`, value, meta)
             }
@@ -436,7 +435,7 @@ export function StrokeProperties({
                   {
                     borderWidth: "1px",
                     borderStyle: "solid",
-                    borderColor: "#000000",
+                    borderColor: DEFAULT_STROKE_COLOR,
                     outlineWidth: "0px",
                     outlineStyle: "none",
                   },
@@ -457,7 +456,7 @@ export function StrokeProperties({
                   existingParsed
                     ? rgbaToCss(withColorOpacity(existingParsed, 100))
                     : existingBorderColor,
-                  "#000000",
+                  DEFAULT_STROKE_COLOR,
                 );
                 commitStylePatch(
                   {
@@ -484,7 +483,7 @@ export function StrokeProperties({
                 );
                 const outlineColor = cssColorOrFallback(
                   styles.outlineColor || styles.borderColor,
-                  "#000000",
+                  DEFAULT_STROKE_COLOR,
                 );
                 commitStylePatch(
                   {
@@ -504,7 +503,7 @@ export function StrokeProperties({
                   outlineStyle: "solid",
                   outlineColor: cssColorOrFallback(
                     styles.borderColor,
-                    "#000000",
+                    DEFAULT_STROKE_COLOR,
                   ),
                   outlineOffset: "0px",
                 },
@@ -530,11 +529,7 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="border"
               visible={borderVisible}
-              color={
-                styles.borderColor ||
-                /* guard:allow-raw-color - a new stroke needs a concrete color. */
-                "#000000"
-              }
+              color={styles.borderColor || DEFAULT_STROKE_COLOR}
               width={styles.borderWidth || "0px"}
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
@@ -558,8 +553,7 @@ export function StrokeProperties({
               color={
                 styles.outlineColor ||
                 styles.borderColor ||
-                /* guard:allow-raw-color - a new stroke needs a concrete color. */
-                "#000000"
+                DEFAULT_STROKE_COLOR
               }
               width={styles.outlineWidth || "0px"}
               styleValue={styles.outlineStyle || "solid"}
@@ -686,7 +680,7 @@ function TextStrokeProperties({
                   }
                   const restoredColor = parsed
                     ? rgbaToCss(withColorOpacity(parsed, 100))
-                    : "#000000";
+                    : DEFAULT_STROKE_COLOR;
                   commitStylePatch(
                     {
                       "-webkit-text-stroke-color": restoredColor,

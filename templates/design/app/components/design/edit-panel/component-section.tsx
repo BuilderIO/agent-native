@@ -18,7 +18,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,7 +39,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useApplePlatform } from "@/hooks/use-shortcut-label";
 
 import {
   canRebuildAlpineDataLosslessly,
@@ -467,9 +465,6 @@ export function ComponentSection({
   sourceCapabilities?: string[];
 }) {
   const t = useT();
-  const applePlatform = useApplePlatform();
-  const shortcut = (binding: string) =>
-    formatShortcutLabel(binding, applePlatform);
   const queryClient = useQueryClient();
   const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
   const detailsKey = ["action", "get-component-details", detailsParams];
@@ -996,7 +991,7 @@ export function ComponentSection({
                               type="button"
                               disabled={swapMutation.isPending}
                               onClick={() => handleSwapInstance(candidate.name)}
-                              className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-white disabled:cursor-wait disabled:opacity-60"
+                              className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-primary-foreground disabled:cursor-wait disabled:opacity-60"
                             >
                               <span className="min-w-0 flex-1 truncate">
                                 {candidate.name}

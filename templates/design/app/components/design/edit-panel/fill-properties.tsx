@@ -46,11 +46,7 @@ import {
   SectionIconButton,
   useRowDragReorder,
 } from "./inspector-controls";
-import {
-  InspectorGrid,
-  InspectorGridCell,
-  InspectorPaintRow,
-} from "./inspector-grid";
+import { InspectorGridCell, InspectorPaintRow } from "./inspector-grid";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,

@@ -319,7 +319,7 @@ export function layerRowIndentCount(depth: number): number {
 }
 
 export function layerSelectionBlockId(
-  row: Pick<FlatLayerRow, "node" | "ancestorIds">,
+  row: Pick<FlatLayerRow, "node" | "ancestorIds">, // i18n-ignore -- TypeScript generic, not visible copy.
   selectedIds: ReadonlySet<string>,
 ): string | null {
   if (selectedIds.has(row.node.id)) return row.node.id;

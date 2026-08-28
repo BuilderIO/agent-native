@@ -77,6 +77,9 @@ export interface ShadowLayer {
   inset: boolean;
 }
 
+// guard:allow-raw-color — authored shadows need a concrete CSS color fallback.
+const DEFAULT_DROP_SHADOW_COLOR = "rgba(0, 0, 0, 0.25)";
+
 function defaultDropShadowLayer(index: number): ShadowLayer {
   return {
     id: `shadow-${index}`,
@@ -84,7 +87,7 @@ function defaultDropShadowLayer(index: number): ShadowLayer {
     y: 4,
     blur: 12,
     spread: 0,
-    color: "rgba(0, 0, 0, 0.25)",
+    color: DEFAULT_DROP_SHADOW_COLOR,
     inset: false,
   };
 }
@@ -105,7 +108,7 @@ function parseShadowLayer(layer: string, index: number): ShadowLayer {
     // like a numeric length. Without this, tweaking x/y/blur would reset it to
     // the hardcoded default below.
     tokens.find((token) => token !== "inset" && !/^[-+]?[\d.]/.test(token)) ??
-    "rgba(0, 0, 0, 0.25)";
+    DEFAULT_DROP_SHADOW_COLOR;
   const numericTokens = tokens
     .filter((token) => token !== "inset" && token !== colorToken)
     .map((token) => parseFloat(token))
@@ -556,7 +559,7 @@ function ShadowEffectRow({
       <InspectorControlField label={t("editPanel.labels.color")}>
         <ColorInput
           label={t("editPanel.labels.color")}
-          value={cssColorOrFallback(layer.color, "rgba(0, 0, 0, 0.25)")}
+          value={cssColorOrFallback(layer.color, DEFAULT_DROP_SHADOW_COLOR)}
           onChange={(value, meta) => onChange({ color: value }, meta)}
         />
       </InspectorControlField>

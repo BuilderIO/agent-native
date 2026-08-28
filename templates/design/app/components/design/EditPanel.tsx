@@ -158,7 +158,6 @@ import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
   ExportSettingsPanel,
   DesignColorPicker,
-  ScrubInput,
   type ExportSettingsValue,
   type FrameSizePreset,
   InteractionStatePanel,
@@ -176,6 +175,9 @@ import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
+
+// guard:allow-raw-color — authored selections need a concrete CSS color fallback.
+const DEFAULT_AUTHORED_COLOR = "#000000";
 
 export {
   alpineDataValueLiteral,
@@ -1640,7 +1642,10 @@ function SelectionColorsProperties({
                     className="w-80 p-0"
                   >
                     <DesignColorPicker
-                      value={cssColorOrFallback(color.value, "#000000")}
+                      value={cssColorOrFallback(
+                        color.value,
+                        DEFAULT_AUTHORED_COLOR,
+                      )}
                       // PF12: per-tick drag preview vs. one authoritative
                       // commit on gesture-end — same split as ColorInput's
                       // setNext (see its PF12 comment above).
