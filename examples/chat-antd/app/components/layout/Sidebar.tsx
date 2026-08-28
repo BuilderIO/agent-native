@@ -338,7 +338,7 @@ export function Sidebar({
         >
           <AgentNativeIcon
             aria-hidden="true"
-            className="h-4 w-7 shrink-0 text-black dark:text-white"
+            className="h-3.5 w-6 shrink-0 text-sidebar-accent-foreground"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
