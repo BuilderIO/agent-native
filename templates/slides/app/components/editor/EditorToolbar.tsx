@@ -34,7 +34,8 @@ import {
   IconPlus,
   IconSquare,
   IconTextSize,
-  IconTransitionRight,
+  IconBolt,
+  IconLayersSubtract,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -122,6 +123,10 @@ interface EditorToolbarProps {
   animationsOpen?: boolean;
   /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
+  /** Whether the slide layers panel is open */
+  layersOpen?: boolean;
+  /** Toggle the slide layers panel */
+  onToggleLayers?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -140,7 +145,7 @@ interface EditorToolbarProps {
   onToggleTextBoxMode?: () => void;
   /** Active shape tool */
   shapeType?: SlideShapeType | null;
-  /** Arm a shape tool for the next canvas click */
+  /** Arm a shape tool for drag-to-place on the canvas */
   onSelectShape?: (shape: SlideShapeType) => void;
   /** Update the current slide's entrance transition from the overflow menu. */
   onChangeSlideTransition?: (transition: SlideTransition) => void;
@@ -198,6 +203,8 @@ export default function EditorToolbar({
   currentUserEmail,
   animationsOpen,
   onToggleAnimations,
+  layersOpen,
+  onToggleLayers,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -438,11 +445,22 @@ export default function EditorToolbar({
         commands.push({
           id: "element-animations",
           group: "slideTools",
-          label: t("editorToolbar.elementAnimations"),
+          label: t("animations.title"),
           keywords: ["animation", "motion", "transition"],
-          icon: IconTransitionRight,
+          icon: IconBolt,
           active: animationsOpen,
           run: onToggleAnimations,
+        });
+      }
+      if (currentSlide && onToggleLayers) {
+        commands.push({
+          id: "layers",
+          group: "slideTools",
+          label: t("editorToolbar.layers"),
+          keywords: ["layers", "hierarchy", "stack"],
+          icon: IconLayersSubtract,
+          active: layersOpen,
+          run: onToggleLayers,
         });
       }
       if (onToggleTweaks) {
@@ -487,7 +505,7 @@ export default function EditorToolbar({
           group: "slideTools" as const,
           label: t(transition.labelKey),
           keywords: ["slide", "transition", transition.value],
-          icon: IconTransitionRight,
+          icon: IconBolt,
           active: activeSlideTransition === transition.value,
           run: () => onChangeSlideTransition(transition.value),
         })),
@@ -586,6 +604,7 @@ export default function EditorToolbar({
     activeSlideTransition,
     addSlideGenerating,
     animationsOpen,
+    layersOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -603,6 +622,7 @@ export default function EditorToolbar({
     onSelectShape,
     onChangeSlideTransition,
     onToggleAnimations,
+    onToggleLayers,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
@@ -763,7 +783,10 @@ export default function EditorToolbar({
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
             {((canEdit &&
-              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (onToggleAnimations ||
+                onToggleLayers ||
+                onToggleTweaks ||
+                onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -780,8 +803,21 @@ export default function EditorToolbar({
                           : undefined
                       }
                     >
-                      <IconTransitionRight className="size-4" />
-                      {t("editorToolbar.elementAnimations")}
+                      <IconBolt className="size-4" />
+                      {t("animations.title")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && currentSlide && onToggleLayers && (
+                    <DropdownMenuItem
+                      onSelect={onToggleLayers}
+                      className={
+                        layersOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconLayersSubtract className="size-4" />
+                      {t("editorToolbar.layers")}
                     </DropdownMenuItem>
                   )}
                   {canEdit && onToggleTweaks && (

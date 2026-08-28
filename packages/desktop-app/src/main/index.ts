@@ -125,7 +125,10 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
+import {
+  DESKTOP_DEEP_LINK_PROTOCOL,
+  DESKTOP_RELEASE_CHANNEL,
+} from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -329,6 +332,7 @@ import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
+  releaseChannel: DESKTOP_RELEASE_CHANNEL,
   appDataPath: app.getPath("appData"),
   defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(

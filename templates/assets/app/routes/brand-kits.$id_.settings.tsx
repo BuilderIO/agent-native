@@ -27,7 +27,7 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
-import { GenerationPresetsPanel } from "@/components/library/GenerationPresetsPanel";
+import { TemplatesPanel } from "@/components/library/TemplatesPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,14 +74,14 @@ export default function BrandKitSettingsRoute() {
   const { id } = useParams();
   const libraryId = id ?? "";
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
-  const { data: presetData } = useActionQuery("list-generation-presets", {
+  const { data: presetData } = useActionQuery("list-templates", {
     libraryId,
   }) as any;
   const updateLibrary = useActionMutation("update-library");
 
   const library = data?.library;
   const assets = (data?.assets ?? []) as any[];
-  const generationPresets = ((presetData as any)?.presets ?? []) as any[];
+  const generationPresets = ((presetData as any)?.templates ?? []) as any[];
 
   useEffect(() => {
     if (!library) return;
@@ -427,10 +427,7 @@ export default function BrandKitSettingsRoute() {
         </div>
       </div>
 
-      <GenerationPresetsPanel
-        libraryId={libraryId}
-        presets={generationPresets}
-      />
+      <TemplatesPanel libraryId={libraryId} templates={generationPresets} />
 
       <Dialog
         open={navigationBlocker.state === "blocked"}

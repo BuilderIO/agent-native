@@ -41,6 +41,7 @@ import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
+import { ShellSettledProvider } from "./shell-ready";
 
 import tokensCss from "./components/website-redesign/tokens.css?url";
 import appCss from "./global.css?url";
@@ -515,9 +516,7 @@ export default function Root() {
   );
 }
 
-type RootShellProps = { AgentSidebar: AgentSidebarComponent | null };
-
-function RootShell({ AgentSidebar }: RootShellProps) {
+export function RootShell({ mounted }: { mounted: boolean }) {
   const t = useT();
   const content = (
     <DocsChrome>
@@ -536,31 +535,40 @@ function RootShell({ AgentSidebar }: RootShellProps) {
     </div>
   );
 
-  // Two fixed child slots, so the content's ancestor chain changes exactly once
-  // -- when the sidebar arrives -- instead of also shifting position inside the
-  // fragment on the way there.
+  // One tree shape for every phase. Returning `fallback` bare before mount and
+  // a fragment+Suspense after put the placeholder at two different positions,
+  // so React tore the whole page down and rebuilt it on the `mounted` flip --
+  // on top of the rebuild the lazy swap itself causes. Keeping the fragment and
+  // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
-      {AgentSidebar ? <AgentNativeRouteWarmup /> : null}
-      {AgentSidebar ? (
-        <AgentSidebar
-          storageKey="docs"
-          position="right"
-          defaultOpen={false}
-          defaultSidebarWidth={400}
-          emptyStateText={t("agent.emptyState")}
-          suggestions={[
-            t("agent.suggestionGettingStarted"),
-            t("agent.suggestionActions"),
-            t("agent.suggestionPolling"),
-            t("agent.suggestionDeploy"),
-          ]}
-        >
-          {content}
-        </AgentSidebar>
-      ) : (
-        fallback
-      )}
+      {mounted && <AgentNativeRouteWarmup />}
+      <Suspense fallback={fallback}>
+        {mounted ? (
+          <LazyAgentSidebar
+            storageKey="docs"
+            position="right"
+            defaultOpen={false}
+            defaultSidebarWidth={400}
+            emptyStateText={t("agent.emptyState")}
+            suggestions={[
+              t("agent.suggestionGettingStarted"),
+              t("agent.suggestionActions"),
+              t("agent.suggestionPolling"),
+              t("agent.suggestionDeploy"),
+            ]}
+          >
+            {/* Provided from inside the final tree, not from a state flag: the
+                lazy component still resolves a tick after its chunk arrives, so
+                anything keyed off "chunk loaded" opens while Suspense is still
+                showing the placeholder -- and mounts into the subtree that is
+                about to be thrown away. */}
+            <ShellSettledProvider value>{content}</ShellSettledProvider>
+          </LazyAgentSidebar>
+        ) : (
+          fallback
+        )}
+      </Suspense>
     </>
   );
 }

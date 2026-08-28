@@ -278,14 +278,14 @@ function headersWithSignupAttribution(
 
 export interface AuthSession {
   email: string;
-  /** Better Auth's email-ownership state, when the provider exposes it. */
-  emailVerified?: boolean;
   userId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
   /** Profile image from the auth provider, when available. */
   image?: string;
+  /** Whether the auth provider has verified this session's email address. */
+  emailVerified?: boolean;
   /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -2479,11 +2479,9 @@ function workspaceOAuthCallbackRelayResponse(
   const normalizedPath = stripAppBasePath(rawPath);
   const basePath = getAppBasePath();
   if (
-    !basePath ||
-    !isWorkspaceOAuthCallbackRelayEnabled() ||
     !isFrameworkOAuthCallbackPath(normalizedPath) ||
-    rawPath === `${basePath}/_agent-native` ||
-    rawPath.startsWith(`${basePath}/_agent-native/`)
+    (basePath && rawPath === `${basePath}/_agent-native`) ||
+    (basePath && rawPath.startsWith(`${basePath}/_agent-native/`))
   ) {
     return undefined;
   }
@@ -2493,6 +2491,15 @@ function workspaceOAuthCallbackRelayResponse(
   ).get("state");
   const appId = extractOAuthStateAppId(state);
   const provider = extractOAuthStateProvider(state);
+  const isWorkspaceCallbackRelay = isWorkspaceOAuthCallbackRelayEnabled();
+  const isStandaloneGoogleProviderCallback =
+    !basePath &&
+    !isWorkspaceCallbackRelay &&
+    normalizedPath === "/_agent-native/google/callback" &&
+    isWorkspaceGoogleOAuthProvider(provider);
+  if (!isWorkspaceCallbackRelay && !isStandaloneGoogleProviderCallback) {
+    return undefined;
+  }
   const cookieAppId =
     !appId && !provider && normalizedPath === "/_agent-native/google/callback"
       ? extractMcpOAuthCookieAppId(event, state)
@@ -2519,7 +2526,7 @@ function workspaceOAuthCallbackRelayResponse(
   return new Response("", {
     status: 302,
     headers: {
-      Location: `/${effectiveAppId}${providerCallbackPath}${search}`,
+      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : ""}${providerCallbackPath}${search}`,
     },
   });
 }
@@ -3813,6 +3820,9 @@ function mapBetterAuthSession(baSession: {
     userId: baSession.user.id,
     name: baSession.user.name,
     ...(baSession.user.image ? { image: baSession.user.image } : {}),
+    ...(typeof baSession.user.emailVerified === "boolean"
+      ? { emailVerified: baSession.user.emailVerified }
+      : {}),
     token: baSession.session?.token,
   };
 }

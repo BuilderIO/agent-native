@@ -502,7 +502,7 @@ const frFR = {
     },
     showcase: {
       title: "Que pouvez-vous construire avec Agent-Native ?",
-      body: "Commencez par un chat, un outil interne ciblé, ou un produit complet destiné aux clients. Chaque app donne aux utilisateurs une UI et aux agents les outils pour faire le même travail.",
+      body: "Des apps agentiques qui comprennent votre travail, passent à l’action et collaborent avec vous. Créez la vôtre ou essayez l’une de ces apps open source.",
       browseApps: "Parcourir les apps",
       scrollLeft: "Défiler les apps vers la gauche",
       scrollRight: "Défiler les apps vers la droite",
@@ -590,7 +590,7 @@ const frFR = {
     clips: {
       replaces: "Remplace ou complète Loom, Granola et Wisprflow",
       description:
-        "Enregistrements d'écran avec capture de débogage du navigateur, notes de réunion synchronisées avec le calendrier et dictée vocale Fn-hold — le tout transcrit, résumé et consultable, avec un agent capable de les modifier.",
+        "Enregistre votre écran, vos réunions et vos notes vocales afin que les agents comprennent ce qui s’est passé et agissent.",
     },
     plan: {
       replaces: "Mode plan visuel pour Codex, Claude Code et agents de code",
@@ -600,27 +600,27 @@ const frFR = {
     design: {
       replaces: "Remplace ou complète les outils de prototypage design",
       description:
-        "Studio de prototypage HTML agent-native. Générez des designs Alpine/Tailwind interactifs, comparez les variantes, ajustez les contrôles en direct et exportez le résultat.",
+        "Transforme vos instructions en designs interactifs conformes à votre système de design tandis que l’agent affine chaque écran selon vos retours.",
     },
     content: {
       replaces: "Remplace ou augmente Obsidian pour MDX, Notion, Google Docs",
       description:
-        "Modifiez les fichiers Markdown/MDX locaux comme Obsidian, générez de riches blocs personnalisés interactifs et utilisez un agent AI pour rédiger, réécrire et publier.",
+        "Travaille avec vos documents pendant qu’un agent rédige dans votre style, crée du contenu interactif et publie sur votre site.",
     },
     slides: {
       replaces: "Remplace ou augmente Google Slides, Pitch",
       description:
-        "Générez des présentations complètes à partir d’une invite. Modifiez visuellement ou conversationnellement. Génération d'images AI, 8 mises en page et mode de présentation intégrés.",
+        "Crée des présentations modifiables et conformes à votre marque à partir d’instructions ou de diapositives existantes, que l’agent peut créer, modifier et affiner.",
     },
     analytics: {
       replaces: "Alternative open source à Amplitude et FullStory",
       description:
-        "Connectez n'importe quelle source de données, demandez n'importe quel graphique, créez des tableaux de bord réutilisables. L'agent écrit SQL, génère des visualisations et fait évoluer l'application.",
+        "Connecte vos données pour qu’un agent réponde aux questions en langage courant et transforme les résultats en graphiques et tableaux de bord.",
     },
     mail: {
       replaces: "Remplace ou augmente Superhuman, Gmail",
       description:
-        "Client de messagerie de style Superhuman avec raccourcis clavier, triage AI, prise en charge multi-comptes et automatisations de messagerie. Possédez le flux de travail de votre boîte de réception.",
+        "Une boîte de réception pensée pour le clavier, où un agent hiérarchise les e-mails, rédige les réponses, résume les fils et assure le suivi.",
     },
     forms: {
       replaces: "Remplace ou augmente Typeform, Google Forms",
@@ -631,12 +631,12 @@ const frFR = {
       replaces:
         "Remplace ou augmente DAMs, les bibliothèques d'actifs de marque et les générateurs multimédia AI",
       description:
-        "Gestionnaire d'actifs numériques pour les téléchargements, les bibliothèques de marques, les références consultables et la génération d'images/vidéos de marque que d'autres applications peuvent appeler via A2A ou intégrer en tant que sélecteur.",
+        "Offre aux agents une bibliothèque partagée de règles, d’images et de vidéos de marque pour créer et choisir des médias conformes dans vos applications.",
     },
     calendar: {
       replaces: "Remplace ou augmente Google Calendar, Calendly",
       description:
-        "Calendrier complet avec synchronisation Google, gestion des disponibilités et page de réservation publique. L'agent trouve des créneaux libres, crée des événements et gère votre emploi du temps.",
+        "Réunit vos calendriers Google afin qu’un agent trouve des créneaux, planifie ou reprogramme des événements et gère les réservations.",
     },
     dispatch: {
       replaces: "Contrôle de mission pour vos applications natives d'agent",
@@ -2152,8 +2152,9 @@ const frFR = {
     dispatchDevelopers: "Guide développeur",
     forms: "Formulaires",
     formsOverview: "Vue d'ensemble",
-    formsBuildingPublishing: "Création et publication",
-    formsResponses: "Réponses et aperçus",
+    formsFeatures: "Fonctionnalités",
+    formsAgent: "Parler à l'agent",
+    formsIntegrations: "Utilisation multi-apps",
     docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },

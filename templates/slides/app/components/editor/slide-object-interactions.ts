@@ -6,6 +6,109 @@ import {
 
 export const MIN_SLIDE_OBJECT_SIZE = 24;
 
+const SLIDE_LAYER_VOID_ELEMENTS = new Set([
+  "AREA",
+  "BASE",
+  "BR",
+  "COL",
+  "EMBED",
+  "HR",
+  "IMG",
+  "INPUT",
+  "LINK",
+  "META",
+  "PARAM",
+  "SOURCE",
+  "TRACK",
+  "WBR",
+]);
+
+const SLIDE_LAYER_NON_CONTAINER_ELEMENTS = new Set([
+  "A",
+  "ABBR",
+  "B",
+  "BDI",
+  "BDO",
+  "BUTTON",
+  "CITE",
+  "CODE",
+  "DATA",
+  "DFN",
+  "EM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "I",
+  "KBD",
+  "LABEL",
+  "MARK",
+  "P",
+  "Q",
+  "RP",
+  "RT",
+  "RUBY",
+  "S",
+  "SAMP",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "TEXTAREA",
+  "TIME",
+  "U",
+  "VAR",
+]);
+
+const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
+  "CAPTION",
+  "COL",
+  "COLGROUP",
+  "DD",
+  "DT",
+  "LI",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
+const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
+  ["COLGROUP", new Set(["COL"])],
+  ["DL", new Set(["DD", "DT"])],
+  ["OL", new Set(["LI"])],
+  ["OPTGROUP", new Set(["OPTION"])],
+  ["SELECT", new Set(["OPTION", "OPTGROUP"])],
+  ["TABLE", new Set(["CAPTION", "COLGROUP", "THEAD", "TBODY", "TFOOT"])],
+  ["TBODY", new Set(["TR"])],
+  ["TFOOT", new Set(["TR"])],
+  ["THEAD", new Set(["TR"])],
+  ["TR", new Set(["TD", "TH"])],
+  ["UL", new Set(["LI"])],
+]);
+
+export function canDropSlideLayerInside(target: Element): boolean {
+  return (
+    !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
+    !SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
+  );
+}
+
+export function canDropSlideLayerAdjacent(
+  source: Element,
+  target: Element,
+): boolean {
+  const parent = target.parentElement;
+  if (!parent || !canDropSlideLayerInside(parent)) return false;
+  const requiredChildren = SLIDE_LAYER_REQUIRED_CHILDREN.get(parent.tagName);
+  return !requiredChildren || requiredChildren.has(source.tagName);
+}
+
 export type ResizeHandle = CanvasResizeHandle;
 
 export interface SlideObjectGeometry {
@@ -13,6 +116,19 @@ export interface SlideObjectGeometry {
   y: number;
   width: number;
   height: number;
+}
+
+export function createSlideObjectPlacementGeometry(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  minSize = MIN_SLIDE_OBJECT_SIZE,
+): SlideObjectGeometry {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.max(Math.abs(end.x - start.x), minSize),
+    height: Math.max(Math.abs(end.y - start.y), minSize),
+  };
 }
 
 export interface SlideLayoutRect {
@@ -655,6 +771,17 @@ export function findPersistedImageObject(
   return null;
 }
 
+export function resolveSlideClipboardElement(
+  selectedElement: HTMLElement | null,
+  selectedImg: HTMLImageElement | null,
+  slideContent: HTMLElement,
+): HTMLElement | null {
+  if (selectedImg) {
+    return findPersistedImageObject(selectedImg, slideContent) ?? selectedImg;
+  }
+  return selectedElement;
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,
@@ -690,6 +817,76 @@ export function resizeSlideObject(
     minWidth: minSize,
     minHeight: minSize,
   });
+}
+
+export function resizeSlideObjectMembers(
+  members: readonly SlideObjectMoveMember[],
+  {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: {
+    handle: ResizeHandle;
+    dx: number;
+    dy: number;
+    preserveAspectRatio?: boolean;
+    minSize?: number;
+  },
+): Map<string, SlideObjectGeometry> {
+  const bounds = unionSlideObjectGeometries(
+    members.map((member) => member.start),
+  );
+  if (!bounds) return new Map();
+
+  const resized = resizeSlideObject(bounds, {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio,
+    minSize: 0,
+  });
+  const minimumScaleX = Math.max(
+    ...members.map((member) => minSize / member.start.width),
+  );
+  const minimumScaleY = Math.max(
+    ...members.map((member) => minSize / member.start.height),
+  );
+  const scaleX = Math.max(resized.width / bounds.width, minimumScaleX);
+  const scaleY = Math.max(resized.height / bounds.height, minimumScaleY);
+  const scale = preserveAspectRatio ? Math.max(scaleX, scaleY) : undefined;
+  const width = bounds.width * (scale ?? scaleX);
+  const height = bounds.height * (scale ?? scaleY);
+  const resizesFromWest = handle === "nw" || handle === "w" || handle === "sw";
+  const resizesFromEast = handle === "ne" || handle === "e" || handle === "se";
+  const resizesFromNorth = handle === "nw" || handle === "n" || handle === "ne";
+  const resizesFromSouth = handle === "sw" || handle === "s" || handle === "se";
+  const group = {
+    x: resizesFromWest
+      ? bounds.x + bounds.width - width
+      : resizesFromEast
+        ? bounds.x
+        : bounds.x + (bounds.width - width) / 2,
+    y: resizesFromNorth
+      ? bounds.y + bounds.height - height
+      : resizesFromSouth
+        ? bounds.y
+        : bounds.y + (bounds.height - height) / 2,
+    width,
+    height,
+  };
+  const plan = new Map<string, SlideObjectGeometry>();
+  for (const member of members) {
+    const { start } = member;
+    plan.set(member.objectId, {
+      x: group.x + ((start.x - bounds.x) / bounds.width) * group.width,
+      y: group.y + ((start.y - bounds.y) / bounds.height) * group.height,
+      width: (start.width / bounds.width) * group.width,
+      height: (start.height / bounds.height) * group.height,
+    });
+  }
+  return plan;
 }
 
 export type SlideObjectZOrderTarget = "front" | "back";
@@ -851,6 +1048,10 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
         (candidate) => candidate !== element && candidate.contains(element),
       ),
   );
+}
+
+export function isValidSlideClipboardRoot(element: HTMLElement): boolean {
+  return !SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN.has(element.tagName);
 }
 
 /**
@@ -1118,10 +1319,12 @@ export interface CopiedSlideObjects {
 
 export function copySlideObjects(elements: HTMLElement[]): CopiedSlideObjects {
   return {
-    html: normalizeSlideObjectRoots(elements).map((element) => {
-      const clone = cloneSlideObject(element);
-      return clone.outerHTML;
-    }),
+    html: normalizeSlideObjectRoots(elements)
+      .filter(isValidSlideClipboardRoot)
+      .map((element) => {
+        const clone = cloneSlideObject(element);
+        return clone.outerHTML;
+      }),
   };
 }
 

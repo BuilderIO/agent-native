@@ -84,6 +84,9 @@ declare global {
       posthogKey?: string;
       posthogHost?: string;
       posthogErrorTracking?: boolean;
+      /** Public first-party Analytics write config for static/SSR shells. */
+      agentNativeAnalyticsPublicKey?: string;
+      agentNativeAnalyticsEndpoint?: string;
       /**
        * Hosted Realtime Gateway config. Impersonal (same for every visitor),
        * so it is safe inside the CDN-cached SSR shell — unlike the per-user
@@ -482,6 +485,10 @@ function applyTrackingIdentity(
  */
 function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
+}
+
+export function getAnalyticsIdentityKey(): string | undefined {
+  return getTrackingUserId() || getOrCreateAnonymousId();
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -1497,6 +1504,7 @@ function emitExceptionToReplay(event: CapturedExceptionEvent): void {
 function errorCaptureAutoEnabled(): boolean {
   const publicKey =
     _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   // A PostHog public key is an equally explicit opt-in — an app running
@@ -1941,12 +1949,14 @@ function sendAgentNativeAnalytics(
 
   const publicKey =
     _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
   const endpoint =
     _agentNativeAnalyticsEndpoint ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;

@@ -1,4 +1,4 @@
-/* Self-hosted via @fontsource-variable/inter and @fontsource/poppins — no render-blocking Google Fonts request */
+/* Self-hosted via Fontsource; no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 /* Poppins has no variable-font Fontsource package; use static weights */
 @import "@fontsource/poppins/300.css";
@@ -7,6 +7,11 @@
 @import "@fontsource/poppins/600.css";
 @import "@fontsource/poppins/700.css";
 @import "@fontsource/poppins/800.css";
+/* JetBrains Mono is offered by the shared font-family picker. */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
@@ -1153,6 +1158,8 @@ button[title="Open agent sidebar"] {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   animation: overlay-fade-in 0.12s ease-out;
 }
 
@@ -1214,6 +1221,39 @@ button[title="Open agent sidebar"] {
 
 .image-overlay-btn:hover {
   background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
+}
+
+.image-overlay-position {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--popover-foreground) / 0.8);
+}
+
+.image-overlay-position:hover,
+.image-overlay-position:focus-within {
+  background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
+}
+
+.image-overlay-position select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.image-overlay-position option {
+  background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
 }
 

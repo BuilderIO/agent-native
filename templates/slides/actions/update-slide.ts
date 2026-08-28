@@ -25,12 +25,11 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
-import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-} from "./_await-fit-check.js";
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -97,7 +96,7 @@ function storedCreativeContext(value: unknown): {
 
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -354,6 +353,8 @@ export default defineAction({
         }
       }
 
+      if (applied) slide.layoutFitRevision = createLayoutFitRevision();
+
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at
       // that path, so preserving the old list would reveal the wrong content.
@@ -471,6 +472,7 @@ export default defineAction({
           slide,
           slideIndex,
           contentHash: hashSlideContent(String(slide.content ?? "")),
+          layoutFitRevision: slide.layoutFitRevision,
           contextMode,
           contextPackId: validated.contextPackId,
           reuseLabels: slideReuseLabels,
@@ -484,6 +486,7 @@ export default defineAction({
         slide,
         slideIndex,
         contentHash: hashSlideContent(String(slide.content ?? "")),
+        layoutFitRevision: slide.layoutFitRevision,
       };
     });
 
@@ -517,10 +520,6 @@ export default defineAction({
       );
     }
 
-    // Start the freshness window after the SQL write and before notifying the
-    // editor. This keeps a fast render from being rejected as stale.
-    const fitSince = Date.now();
-
     // Best-effort presence: light the agent up on this slide in open editors
     // and drop a lingering "AI edited" highlight. Never blocks or fails the
     // write (touchAgentSlidePresence swallows its own errors).
@@ -541,16 +540,6 @@ export default defineAction({
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
     );
 
-    // Wait briefly for the editor to re-render and measure. If the patched
-    // slide still overflows, surface the new measurement so the agent can
-    // tighten further. Timeout = no editor open / nothing to measure.
-    const fit = await awaitLayoutFitCheck(
-      slideId,
-      fitSince,
-      4000,
-      hashSlideContent(rmw.slide?.content ?? ""),
-    );
-
     const base = {
       ok: true,
       deckId,
@@ -564,6 +553,12 @@ export default defineAction({
           }
         : {}),
       contentHash: rmw.contentHash,
+      layoutFit: {
+        status: "pending" as const,
+        slideId,
+        contentHash: rmw.contentHash,
+        layoutFitRevision: rmw.layoutFitRevision,
+      },
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
         ? {
@@ -573,25 +568,6 @@ export default defineAction({
           }
         : {}),
     };
-
-    if (fit.status === "overflows") {
-      return {
-        ...base,
-        layoutOverflow: {
-          verticalOverflow: fit.measurement.verticalOverflow,
-          horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
-          contentWidth: fit.measurement.contentWidth,
-          contentHeight: fit.measurement.contentHeight,
-          viewportWidth: fit.measurement.viewportWidth,
-          viewportHeight: fit.measurement.viewportHeight,
-        },
-        // Keep the skipped-edit warning: an overflow report must not be the
-        // only thing the model sees when part of the patch never landed.
-        message: [base.message, formatOverflowForTool(deckId, fit.measurement)]
-          .filter(Boolean)
-          .join("\n\n"),
-      };
-    }
 
     return base;
   },

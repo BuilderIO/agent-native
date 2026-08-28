@@ -1,5 +1,293 @@
 # @agent-native/core
 
+## 0.176.1
+
+### Patch Changes
+
+- 6621544: Emit `$ai_http_status` on `$ai_generation` events. A model call that streamed to completion reports 200; the call a run died in reports the provider status the engine named. A failure that carried no status omits the field rather than defaulting it, so a transport drop is never reported as a healthy call or an invented rejection.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.20
+  - @agent-native/toolkit@0.17.6
+
+## 0.176.0
+
+### Minor Changes
+
+- f445b44: Make the read-only source/search convergence budget configurable as `agent.sourceSweepToolCallThreshold` (env `AGENT_SOURCE_SWEEP_TOOL_CALL_THRESHOLD`), and raise its default from 12 to 24 tool calls per turn. Research-shaped apps that legitimately inspect many records were hitting the guard mid-task; a deployment can now tune the budget instead of living with a hardcoded constant.
+- f445b44: Add `agent.builtInEngines` so a deployment can choose which built-in agent engines are registered. Unset registers every built-in, as before; setting it (in `defineAppConfig()` or via `AGENT_BUILT_IN_ENGINES`) registers only the named ones, so the rest never appear in the model picker and never resolve by name. An unknown name is a configuration error rather than a silently ignored entry.
+
+### Patch Changes
+
+- 3d10cb0: Use Agent-Native branding in Drizzle migration docs and comments
+- 2ee0e37: Preserve a trailing slash in advertised agent-web page URLs. `normalizePagePath` stripped it from every page path, so a site whose canonical URLs carry a trailing slash had every sitemap entry, `llms.txt` link, and JSON-LD `url` pointing at a redirect instead of the page. Bare page paths are unchanged, and Markdown twin paths still drop the route's trailing slash (`/about/` → `/about.md`). JSON-LD breadcrumb items now follow the page's own URL shape.
+
+  Add an optional `localizeHref` to `BlockRenderContext`. Block fields such as a card `href` go straight to the router without passing through `renderMarkdown`, so a host that canonicalizes its URLs had no way to reach them.
+
+- e37c195: Expose Builder gateway credential availability to server consumers.
+- a29c7ef: Expose MCP connection setup in searchable standard Settings, with the canonical
+  `/mcp` URL and host-specific guidance shared with the connect page.
+- 55b7b6f: Ask for a user's role during shared first-run onboarding and persist the preference for personalization.
+- 5203369: Publish restored composer drafts to host affordances.
+- ca7360e: Clarify the email sign-in action and keep magic-link onboarding as the default entry view.
+- 04b27f9: Use custom app names and optional logos in social OG images while preserving Agent-Native branding for first-party templates.
+- 46e4ada: Refuse to save failed provider and web responses as durable workspace exports.
+- 841c741: Fix two Figma auto-layout rules the REST importer could not express in CSS.
+
+  Figma allows a negative `itemSpacing`, which overlaps auto-layout children. CSS
+  rejects a negative `gap` outright, so the declaration was dropped and silently
+  fell back to 0. On the Positivus landing page the contact block overlaps its
+  children by -367px; losing that overflowed the row, and because CSS flex items
+  shrink by default while Figma never shrinks a FIXED or HUG child, the overflow
+  was redistributed and both children came out the wrong width (1240px rendered
+  as 825px, 692px as 415px) with the illustration thrown outside its card.
+
+  A negative `itemSpacing` is now reproduced as a negative margin on every child
+  after the first, and children whose main-axis sizing is not FILL are pinned
+  with `flex-shrink: 0`. Measured against Figma's own geometry for those nodes,
+  every box now matches to within 0.1px.
+
+- 841c741: Fix a set of Figma import defects that silently dropped or reshaped content,
+  found by measuring 26 real designs against Figma's own render of each node.
+
+  Across that corpus the import diff falls to 3.1% overall, 0.78% with text boxes
+  excluded and 0.44% excluding image fills as well — what remains is Chromium and
+  Figma hinting glyphs and scaling bitmaps differently, not the conversion. The
+  export hop costs under 2.4% on every design. Per node, 23 of the 26 designs have
+  nothing off by more than 1.5px, and every offender in the other three is one
+  glyph: a hugging box holding a `%`, which Google Fonts' Inter draws wider than
+  the Inter Figma bundles.
+
+  A child set to FILL along an axis its auto-layout parent HUGS now keeps the
+  size Figma resolved for it. Figma treats that pair by falling back to the
+  child's own size, but `flex-grow: 1; flex-basis: 0%` in an auto-sized flex
+  container resolves to zero — so the child disappeared and every later sibling
+  slid up by its height. A 343x240 photo vanished from a real landing page this
+  way.
+
+  An auto-layout frame that HUGS an axis but has no children now keeps the size
+  Figma resolved for it. Figma does not collapse an empty hug frame, so it still
+  reports real dimensions; mapping that to `width: auto` collapsed it to nothing,
+  which deleted a 685x456 image placeholder from a real hero section and let its
+  FILL sibling take the whole row, so the heading stopped wrapping too.
+
+  Mirrored nodes are no longer rendered as half turns. Figma's `rotation` field
+  is a decomposition that cannot tell a flip from a 180-degree rotation — both
+  report pi — so a horizontally mirrored group picked up a vertical flip it does
+  not have, and everything inside it landed on the wrong side. The transform now
+  comes from `relativeTransform`'s own 2x2 block as a CSS `matrix()`, which
+  carries mirroring and skew as well as rotation.
+
+  Three auto-layout rules now match Figma's own resolution rather than the raw
+  field values. A row aligned SPACE_BETWEEN no longer also emits `itemSpacing` as
+  a CSS gap — Figma ignores that field in this mode but still reports it, and CSS
+  distributes space on top of a gap rather than instead of it. A negative
+  `itemSpacing` is clamped so the children still fill their container, which is
+  where Figma stops an overlap — the same rule the `.fig` walker already used,
+  rather than a second one, and applied on a FILL axis as well as a FIXED one
+  since a FILL axis takes its parent's definite size. And a rotated auto-layout
+  child now occupies its rotated footprint: a CSS transform does not change
+  layout size, so a vertical rule stored as a wide line turned 90 degrees was
+  taking its full pre-rotation width out of the row.
+
+  Three more sizing rules now follow Figma. A HUG container holding a cross-axis
+  FILL child uses the size Figma resolved: a FILL child does not feed Figma's
+  hug, while CSS still feeds its max-content into the container's shrink-to-fit
+  width, so a card column came out 76px too wide and moved every sibling. A FILL
+  child is allowed to shrink below its own content (`min-width: 0`), which is
+  what Figma's FILL does. And a zero-thickness LINE is placed from its own size
+  rather than the already-rotated bounding box — requiring both dimensions to be
+  positive pushed every rotated rule onto the fallback and squared its rotation.
+
+  Break characters Figma does not lay out as breaks no longer become lines.
+  Figma's stored text can carry them: a real footer holds "Get started for
+  free.\rAdd your whole team as your needs grow." and Figma draws it as ONE
+  flowing paragraph, wrapping at the width, while a heading holding "Customise
+  it\rto your needs" renders "Customise it to / your needs". Both formats say so
+  and neither walker was reading it — REST `lineTypes` and kiwi `textData.lines`
+  hold one entry per line Figma actually laid out. Measured across every
+  break-bearing text node in the corpus that count is never wrong, while counting
+  break characters overstates it on 8 of 20 REST nodes and 17 of 18 kiwi ones.
+  Mapping one such CR to a newline made a footer a line taller and, because its
+  column is vertically centred, moved all 61 nodes in it.
+
+  Trailing whitespace goes for the same reason: Figma neither draws it nor lets
+  it widen a hugging box, while `pre-wrap` does both. Of the 943 hugging text
+  nodes in the corpus the only three wider than Figma's own box are the three
+  whose text ends in a space — the other 940 average 0.02px of error.
+
+  Angular (conic) gradients now sweep the way Figma sweeps them. Figma computes
+  the sweep in the node's normalized space — the box treated as a unit square,
+  then stretched — while CSS `conic-gradient()` sweeps at a true uniform angular
+  rate in real pixels; the two agree only on the axes, so a non-square tile
+  landed its mid-sweep colours visibly early. Drawing the gradient into a square
+  and scaling that square to the box reproduces Figma's definition exactly.
+
+  Zero-thickness vector geometry renders again. The SVG spec says a viewBox with
+  a zero width or height DISABLES rendering of the element, so a stroked path
+  whose own box is 20x0 — a horizontal rule, or the arrow inside a "Learn more"
+  button — disappeared silently. A collapsed axis now takes the stroke's own
+  width, with the geometry centred on it.
+
+  Figma's image CROP is now honoured. `scaleMode: STRETCH` with an
+  `imageTransform` is Figma's Crop mode: the matrix picks a sub-rectangle of the
+  image and stretches that to fill the box. The transform was being discarded and
+  the whole image drawn instead, which reads as the artwork zoomed out — every
+  illustration on a real services page came out visibly smaller than Figma draws
+  it, and it was the largest non-text difference left on that page (4.04% ->
+  3.52%). A rotated or skewed crop still takes the raster fallback, which is
+  exact where a stretch would be wrong.
+
+  A hugging TEXT box now takes Figma's rounded width as a minimum. Figma rounds
+  every hugging text box to a whole pixel and lays its siblings out against that;
+  hugging to our own fractional width makes each label a fraction narrower, and
+  in a row of them the fractions add up — a nav came out 5px short across six
+  items, moving every one of them. As a minimum rather than a fixed width:
+  pinning the width forces the text to wrap wherever our advances run a hair
+  wider than Figma's, which is a different layout entirely.
+
+  The height is a minimum only where the text can wrap. Figma lays a hugging box
+  out at `round(lines * lineHeight)` — 206 of the 207 hug-both nodes in the
+  corpus with a fractional line height — and it rounds DOWN as often as up, so a
+  minimum could never reach it. Text hugging BOTH axes cannot wrap, so its line
+  count is fixed by the break characters and always matches Figma's; there the
+  rounded height is taken outright. Two Space Grotesk headings at 38.28px line
+  height hugged to 38.28 each where Figma laid out 38, and the 0.56px each pushed
+  their whole column down.
+
+  Diamond gradients are now drawn as the four-pointed shape Figma draws, instead
+  of being approximated by an ellipse. The falloff is an L1 distance, which is
+  linear inside each quadrant, so four quadrant-tiled linear gradients reproduce
+  it exactly rather than approximately.
+
+  An image fallback's overflowing ink no longer takes layout space. The `<img>`
+  is sized from render bounds so an OUTSIDE stroke or shadow is drawn at its
+  natural size instead of squished into the smaller geometric box, but Figma
+  stacks siblings against the geometric box and paints the ink outside it. A
+  horizontal LINE is the extreme case — its box is zero-height and the stroke is
+  entirely overflow, so every rule on a page pushed everything below it down a
+  pixel.
+
+  `downscaleImageToFit` is new in `ingestion`: it re-encodes an image to fit a
+  byte budget, keeping the aspect ratio, for callers that must inline one. The
+  Figma SVG export used it to stop dropping a page's 11.5MB hero shot, which had
+  been leaving a hole in the exported file — over a budget is a reason to send
+  fewer pixels, not to send nothing.
+
+  Icon-font glyphs no longer import as `.notdef` boxes. A Private Use Area
+  codepoint means nothing outside the font that assigned it, and fonts reach an
+  imported screen by family name from Google Fonts, which serves none of these
+  icon fonts — so Chromium drew a hollow box beside all 16 nav items of a real
+  admin dashboard, where Figma draws an icon. Such a text node now takes the
+  rendered-PNG fallback the walker already uses for anything it cannot express
+  (0.97% -> 0.83% on that design). The `.fig` walker has no render to fall back
+  on, so it drops the glyph and records the reason against the node instead.
+
+- 841c741: Match Figma's nearest-neighbour sampling when a Figma image fill is magnified.
+
+  Figma upscales an image fill with nearest-neighbour sampling; a browser upscales
+  with bilinear smoothing. Measured across a checkerboard edge on a 16x16 fill
+  blown up to 180x90, Figma steps from `rgb(119,73,132)` to `rgb(227,78,52)` in
+  ONE pixel while the import ramped across twelve, so every low-resolution fill —
+  a pattern, an icon, pixel art, a placeholder — imported blurred.
+
+  `mapFigmaNodeToHtml` now takes `imageFillSizes` (imageRef -> the image's own
+  pixel size) and asks for `image-rendering: pixelated` only when the box is
+  meaningfully larger than the image. Only when magnified: `pixelated` is nearest
+  in both directions and a photo scaled down that way aliases badly. Without a
+  size the fill still renders, just smoothed.
+
+  The Figma importer supplies it for free from the bytes it already downloads to
+  mirror into storage. The `fills-effects` fidelity case went 14.33% -> 12.07%,
+  and the scanline across that edge now matches Figma's within 1/255 per channel.
+
+- 841c741: `fingerprintMedia` no longer imports `node:crypto`. It is re-exported from the
+  `ingestion` barrel, so that one import made the whole barrel — the Figma
+  converters included — fail to load in a browser. It now uses `@noble/hashes`,
+  verified to produce the same SHA-256 digest.
+- 841c741: Figma REST import fidelity: four measured corrections found by pixel-diffing
+  the mapper's output against Figma's own renders.
+  - Rotated nodes tilted the wrong way. `relativeTransform`'s 2x2 block is
+    already CSS's own rotation matrix in the same y-down space, so the CSS angle
+    is `rotation`, not `-rotation`; negating it doubled the error.
+  - Children of a rotated node were positioned and sized from
+    `absoluteBoundingBox`, which is measured in already-rotated absolute space
+    and inflated to the rotated AABB. Geometry now comes from
+    `relativeTransform` + `size` (the node's true pre-rotation box in its
+    parent's own frame) whenever Figma returns them.
+  - Linear gradients used the wrong angle on any non-square box. Figma evaluates
+    the gradient in normalized space, so the CSS angle follows the iso-line
+    normal `(du/w, dv/h)`, not the scaled handle vector `(du*w, dv*h)`.
+  - Per-paint `opacity` on an IMAGE fill was dropped, because CSS background
+    layers have no per-layer opacity. Such a paint (and anything Figma stacks
+    above it) now renders as an absolutely-positioned overlay div.
+
+  Also: layer/background blur radius is scaled by a fitted 0.45x instead of 1:1,
+  and `textAutoResize: TRUNCATE` now renders its ellipsis instead of clipping
+  silently.
+
+- 841c741: Figma REST import now reconstructs real vector geometry. Vectors and boolean
+  operations that carry `fillGeometry`/`strokeGeometry` are emitted as inline
+  `<svg><path>` markup with their own solid and gradient paints, and reported as
+  `exact` fidelity instead of `image-fallback`. Nodes without geometry keep the
+  rendered-PNG fallback.
+- 7379c91: Export the fitted Figma blur-radius constant so the REST and `.fig` import
+  walkers share one value, and stop the fidelity report from describing a text
+  layer's drop shadow as a `text-shadow` when it is emitted as a `box-shadow`.
+- 0705e7f: fix Builder OAuth callbacks for apps hosted on Builder Cloud origins
+- 9f31e60: fix password actions for framework sessions without a Better Auth session
+- 5f9ca21: Keep completed chat responses static when a new run starts and keep stopped-response actions available.
+- 0d69102: Fix Google Drive Docs push authentication to use native channel tokens.
+- 7abab10: Create or reuse a verified Builder account during first-run onboarding.
+- 6e59cdd: Keep Builder editing detection active after SPA navigation removes preview URL markers.
+- 313909c: Keep managed Drizzle app migrations separate from framework release migrations in generated and hosted projects.
+- 56f7bab: Wait for lazy MCP initialization before app-visible MCP actions read the shared manager.
+- Release all public npm packages with a patch version bump.
+- b8bc6bf: Show a readable error page when a workspace OAuth connection cannot start, instead of replacing the page with a raw JSON body
+- 5c66e51: Keep password authentication available when deployed apps do not configure an email provider, and document email delivery as optional but recommended.
+- 292a1ac: Preserve exact visible prompt text when hidden agent context is attached.
+- 387de2d: Stop telling readers their own provider key was rejected when it was not theirs
+
+  A 401 proves the credential a request carried was refused. It does not prove
+  whose credential it was, and the reader is often someone with no saved key to
+  fix — the rejected credential can be a workspace or deployment one they cannot
+  see. The copy named "the saved provider key" as the cause and sent everyone to
+  Settings, which is why one shared credential cost two days of chasing key
+  configuration.
+
+  The message now says only what the 401 proves, and the rejected-credential card
+  offers a retry alongside the setup flow. That retry used to be withheld because
+  it would "replay the same rejected credential and loop"; that stopped being true
+  once a 401 began fingerprinting the credential and skipping it for a backing-off
+  window, so the next attempt reaches for a different one or fails closed as
+  missing credentials. Previously this rendered a setup panel for a connection
+  already marked good, with no action available at all.
+
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+- d2b314b: Keep uploaded files and pasted text visible in chat history without importing new-deck references.
+- a3d0e47: Expose atomic user-scoped settings mutation alongside the existing read and write helpers.
+- 2dc4b25: Fix magic-link startup and Builder credit signup handoff.
+- d5ddd8c: Use connected Google profile names and avatars across shared identity surfaces.
+- 4f7f661: Export scope-aware Builder upload authorization checks from `@agent-native/core/server`.
+- 510eb32: Keep Slides agent generation context and chat history reliable across attachments, follow-ups, and queued sends.
+- 7d89861: Smooth out the skeleton loading animation. Tailwind's stock `animate-pulse`
+  swings opacity 1 → 0.5 and eases hard into both ends, and skeletons that mount
+  at different moments never line up — at that amplitude a screen of placeholders
+  strobes. The shared stylesheet now defines `--animate-pulse` as a calmer
+  1 → 0.72 breathe, honours `prefers-reduced-motion` globally, and the two
+  hand-rolled skeleton keyframes reuse it.
+- 0a0956d: Keep intentionally stopped chat runs from reappearing as missing final responses.
+- 709f807: Track Agent-Native auth, onboarding, activation, and sharing funnel events.
+- e714047: Keep chat response streams available during JSON checks and reject unexpected successful JSON responses explicitly.
+- Updated dependencies [ac1ecfc]
+- Updated dependencies [4776e61]
+- Updated dependencies
+- Updated dependencies [5a12f71]
+- Updated dependencies [d2b314b]
+- Updated dependencies [5c96078]
+  - @agent-native/toolkit@0.17.5
+  - @agent-native/recap-cli@0.5.19
+
 ## 0.175.5
 
 ### Patch Changes
@@ -1576,45 +1864,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   credential for the auth-failure TTL; transcription threw the raw upstream text
   and marked nothing, so one unusable credential re-sent the same doomed request
   on every attempt — 24 identical "Missing Authentication header" 401s in a day.
-
-## 0.161.15
-
-### Patch Changes
-
-- 551b583: Fix `CORS_ALLOWED_ORIGINS` exact-match comparison to tolerate operator formatting differences (scheme/host casing, a trailing slash, or a bare domain with no scheme) instead of silently rejecting an otherwise-legitimate configured origin.
-- 551b583: Stop sending unbounded inline base64 attachments to the model. Text attachments
-  were capped; binary ones were not, so a large screenshot or PDF went out as a
-  multi-megabyte `file_url` and OpenAI rejected the entire request ("string too
-  long", 4,149,128 against a 1,048,576 limit), killing the turn. The upload to
-  blob storage already happened — the hosted URL is now used in place of the bytes
-  when they exceed the cap, instead of being discarded.
-- 00025b1: Keep replayed conversations faithful to what the agent actually did.
-  - Resuming a run (chained background continuation, agent-teams `continue`) now
-    replays the tool calls and results stored in `thread_data` instead of
-    flattening each turn to its prose, so a resumed chunk can see the output of
-    work already committed rather than re-running it. Integration turns keep their
-    existing delivered-text-only replay policy, and each replayed result is bounded
-    with an in-band truncation notice.
-  - The outbound history window no longer slides by one message per turn. Every
-    prompt cache matches a byte-identical prefix, so a window that moved every turn
-    meant no cached prefix ever matched once a thread passed the message cap, and
-    the whole conversation was re-billed at write price on every turn. The window
-    start is now quantized to a stride.
-  - Anthropic `redacted_thinking` blocks survive normalization and replay verbatim.
-    They were silently dropped as an unknown block type, which left the next
-    iteration of a tool-use turn sending an assistant turn the API rejects.
-    Unrecognized content block types now warn instead of vanishing.
-
-## 0.161.14
-
-### Patch Changes
-
-- 96ecc13: Use compact app search and pin labels that stay on one line.
-- 96ecc13: Clear stale thread restore errors when an unavailable saved tab becomes a fresh chat.
-- 96ecc13: Give type-less tool-schema positions a concrete JSON value union. OpenAI rejects
-  any schema position without a `type` ("schema must have a 'type' key") and 400s
-  the entire chat request, the same way it rejected `oneOf`. Zod emits a bare `{}`
-  for `z.unknown()`/`z.any()`, of which there are 137 sites across the templates,
-  so this is answered at the same boundary rather than by retyping every action.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

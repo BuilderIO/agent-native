@@ -3,6 +3,9 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ShellSettledProvider } from "../../shell-ready";
+import { HeroBackground } from "./hero-background";
+
 const { oceanMount, shaderMount } = vi.hoisted(() => ({
   oceanMount: vi.fn(),
   shaderMount: vi.fn(),
@@ -88,16 +91,30 @@ afterEach(() => {
   shaderMount.mockClear();
 });
 
+// HeroBackground now waits for the root shell to stop remounting the page.
+// These cases are about GPU probing, so they run with the shell settled.
+function Settled({ children }: { children: React.ReactNode }) {
+  return <ShellSettledProvider value>{children}</ShellSettledProvider>;
+}
+
 describe("HeroBackground", () => {
   it("renders the ocean when an adapter is available", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     expect(await screen.findByTestId("ocean")).toBeDefined();
   });
 
   it("never flashes the halftone before the ocean", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
 
     // The halftone is the fallback, not a placeholder. Painting it for the
     // few hundred ms before the ocean arrives reads as a different background
@@ -109,14 +126,22 @@ describe("HeroBackground", () => {
 
   it("renders the halftone fallback when WebGPU is absent", async () => {
     removeGpu();
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
   it("treats a null adapter as unsupported rather than as a device", async () => {
     stubGpu(async () => null);
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
@@ -125,14 +150,22 @@ describe("HeroBackground", () => {
     stubGpu(async () => {
       throw new Error("adapter exploded");
     });
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
   it("renders no background at all while the probe is in flight", async () => {
     stubGpu(() => new Promise(() => {}));
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     expect(screen.queryByTestId("halftone")).toBeNull();
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
@@ -141,7 +174,11 @@ describe("HeroBackground", () => {
     stubReducedMotion(true);
     const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
     stubGpu(requestAdapter);
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(requestAdapter).not.toHaveBeenCalled();
   });
@@ -149,7 +186,11 @@ describe("HeroBackground", () => {
   it("demotes to the fallback when reduced motion turns on mid-session", async () => {
     const motion = stubReducedMotion(false);
     stubGpu(async () => ({ name: "adapter" }));
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await screen.findByTestId("ocean");
 
     motion.fire(true);
@@ -158,7 +199,11 @@ describe("HeroBackground", () => {
 
   it("demotes to the fallback when the renderer fails after a good probe", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    await renderHero();
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await screen.findByTestId("ocean");
 
     const { onError } = oceanMount.mock.calls.at(-1)![0];
@@ -210,5 +255,41 @@ describe("HeroBackground", () => {
     render(<HeroBackground />);
     expect(screen.queryByTestId("halftone")).not.toBeNull();
     expect(screen.queryByTestId("ocean")).toBeNull();
+  });
+});
+
+describe("HeroBackground shell gating", () => {
+  it("does not probe for WebGPU until the root shell has settled", () => {
+    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
+    stubGpu(requestAdapter);
+
+    render(
+      <ShellSettledProvider value={false}>
+        <HeroBackground />
+      </ShellSettledProvider>,
+    );
+
+    // The shell remounts everything below it when the sidebar chunk resolves.
+    // Probing before that builds the GPU graph, throws it away, and builds it
+    // again -- the flash this gate exists to prevent.
+    expect(requestAdapter).not.toHaveBeenCalled();
+  });
+
+  it("probes once the shell settles", async () => {
+    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
+    stubGpu(requestAdapter);
+
+    const { rerender } = render(
+      <ShellSettledProvider value={false}>
+        <HeroBackground />
+      </ShellSettledProvider>,
+    );
+    rerender(
+      <ShellSettledProvider value>
+        <HeroBackground />
+      </ShellSettledProvider>,
+    );
+
+    await waitFor(() => expect(requestAdapter).toHaveBeenCalled());
   });
 });

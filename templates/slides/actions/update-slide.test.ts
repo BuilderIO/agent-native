@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
-let mockFitCheckResult:
-  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
-  | undefined;
 
 // Captured by the Drizzle `update().set()` mock so tests can assert on the
 // persisted deck JSON + bumped updatedAt.
@@ -119,18 +116,11 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
 }));
 
-vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
-  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
-    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
-}));
-
 import action from "./update-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
   lastUpdateSet = undefined;
-  mockFitCheckResult = undefined;
   mockDeckRow = {
     id: "deck-1",
     title: "Deck",
@@ -541,95 +531,30 @@ describe("update-slide", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  it("returns layoutOverflow + auto-fix message when the patched slide still overflows", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
+  it("returns a pending fit check keyed to the persisted slide revision", async () => {
     const result = (await action.run({
       deckId: "deck-1",
       slideId: "slide-1",
-      fullContent: "<div>Tightened but still tall</div>",
+      fullContent: "<div>Updated</div>",
     })) as Record<string, unknown>;
 
     expect(result).toMatchObject({
       ok: true,
       deckId: "deck-1",
       slideId: "slide-1",
-      layoutOverflow: {
-        verticalOverflow: 225,
-        contentHeight: 645,
-        viewportHeight: 420,
+      layoutFit: {
+        status: "pending",
+        slideId: "slide-1",
       },
     });
-    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
-  });
-
-  it("omits layoutOverflow when the patched slide fits", async () => {
-    mockFitCheckResult = {
-      status: "fits",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 380,
-        viewportHeight: 420,
-        verticalOverflow: 0,
-        measuredAt: Date.now(),
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
       },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>Now fits</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
-    mockFitCheckResult = { status: "timeout" };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>Headless</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("does not consult fit-check when text-to-find is not present (early bail)", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
-    // When find is not found the action throws BEFORE the fit-check, so no
-    // overflow measurement is taken or reported.
-    await expect(
-      action.run({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        find: "this text does not exist in the slide",
-        replace: "x",
-      }),
-    ).rejects.toThrow("Nothing was written");
+    ).toMatchObject({
+      contentHash: result.contentHash,
+      layoutFitRevision: expect.any(String),
+    });
   });
 });

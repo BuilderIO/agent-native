@@ -63,6 +63,7 @@ import { isMixedValue } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
+  ApplyLayoutFlowHandler,
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
@@ -218,11 +219,13 @@ function FlexContainerControls({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
 }) {
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
@@ -388,6 +391,15 @@ function FlexContainerControls({
             ...styles,
             ...element.inlineStyles,
           });
+          // Children drawn on canvas are absolutely positioned, so the
+          // container styles alone would render no layout at all — only a
+          // selection this editor cannot rewrite falls through to them.
+          if (
+            onApplyLayoutFlow &&
+            onApplyLayoutFlow(nodeId ?? null, patch) !== "unsupported"
+          ) {
+            return;
+          }
           if (onStylesChange) {
             onStylesChange(patch);
             return;
@@ -658,6 +670,7 @@ export function LayoutContextProperties({
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -665,6 +678,7 @@ export function LayoutContextProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -919,6 +933,7 @@ export function LayoutContextProperties({
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
         onDisableAutoLayout={onDisableAutoLayout}
+        onApplyLayoutFlow={onApplyLayoutFlow}
       />
       {childControls}
     </PanelSection>

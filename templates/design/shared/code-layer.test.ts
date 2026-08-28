@@ -1432,6 +1432,47 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("gap: 16px");
   });
 
+  it("writes grid tracks from containerStyles and reflows the children", () => {
+    const html =
+      `<div data-agent-native-node-id="box">` +
+      `<div data-agent-native-node-id="a" style="position: absolute; left: 40px; top: 12px">A</div>` +
+      `<div data-agent-native-node-id="b" class="absolute" style="left: 90px">B</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(1, max-content)",
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: grid");
+    expect(patch.content).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr))",
+    );
+    expect(patch.content).not.toContain("display: flex");
+    expect(patch.content).not.toMatch(/position:\s*absolute/);
+    expect(patch.content).not.toMatch(/left:\s*40px/);
+    expect(patch.content).not.toMatch(/class="absolute"/);
+  });
+
+  it("rejects containerStyles that carry no writable declaration", () => {
+    const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+      containerStyles: { display: "grid; content: url(javascript:0)" },
+    });
+
+    expect(patch.result.status).toBe("needsAgent");
+    expect(patch.content).toBe(html);
+  });
+
   it("uses column and 8px defaults when direction and gap are omitted", () => {
     const html = `<div data-agent-native-node-id="box"><span>A</span></div>`;
     const patch = applyVisualEdit(html, {
