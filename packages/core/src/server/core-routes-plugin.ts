@@ -464,15 +464,14 @@ async function resolveAgentEngineStatusIdentity(
 }
 
 /**
- * A Builder grant is shared by everyone in the caller's org, so establishing,
- * overwriting, or revoking one requires org owner/admin authority. Returns the
- * authorized org id and a denial message (null when allowed). The org id is
- * captured at connect start so the grant is stored under the org that was
- * authorized, not one re-resolved after the OAuth round trip. Fails closed: an
- * unreadable owner/admin role is denied.
+ * Shared Builder grants stay org-scoped, but connect initiation can come from
+ * any authenticated member. Revocation still needs owner/admin authority.
+ * Capture the org id at connect start so the grant is stored under the org
+ * that was authorized, not one re-resolved after the OAuth round trip.
  */
-async function resolveBuilderOrgMutation(
+export async function resolveBuilderOrgMutation(
   event: H3Event,
+  options: { allowMemberInitiation?: boolean } = {},
 ): Promise<{ orgId: string | null; deny: string | null }> {
   let orgId: string | null = null;
   let role: string | null = null;
@@ -482,6 +481,13 @@ async function resolveBuilderOrgMutation(
     role = orgCtx.role ?? null;
   } catch {
     // coercion-ok: org is missing, it will fail closed
+  }
+  if (options.allowMemberInitiation) {
+    if (orgId) return { orgId, deny: null };
+    return {
+      orgId,
+      deny: "Only signed-in organization members can connect Builder.",
+    };
   }
   if (role !== "owner" && role !== "admin") {
     return {
@@ -2876,7 +2882,9 @@ export function createCoreRoutesPlugin(
             });
           }
           const { orgId: connectOrgId, deny: orgConnectDenied } =
-            await resolveBuilderOrgMutation(event);
+            await resolveBuilderOrgMutation(event, {
+              allowMemberInitiation: true,
+            });
           if (orgConnectDenied) {
             await trackBuilderLifecycle(
               event,
@@ -2896,7 +2904,7 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
               title: "Not allowed to connect Builder for this organization",
-              body: "Ask an organization owner or admin to connect Builder.",
+              body: orgConnectDenied,
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }

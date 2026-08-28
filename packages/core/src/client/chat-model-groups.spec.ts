@@ -114,7 +114,7 @@ describe("buildChatModelGroups", () => {
         },
         {
           name: "ai-sdk:google",
-          label: "Gemini",
+          label: "Google AI",
           supportedModels: ["gemini-3.5-flash"],
           requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
         },
@@ -126,7 +126,7 @@ describe("buildChatModelGroups", () => {
         },
         {
           name: "ai-sdk:openrouter",
-          label: "OpenRouter",
+          label: "Router",
           supportedModels: ["z-ai/glm-5.2"],
           requiredEnvVars: ["OPENROUTER_API_KEY"],
         },
@@ -178,6 +178,29 @@ describe("buildChatModelGroups", () => {
     });
   });
 
+  it("hides unconfigured Gemini and OpenRouter, including stale selections", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "ai-sdk:openrouter",
+      currentModel: "z-ai/glm-5.2",
+      engines: [
+        {
+          name: "ai-sdk:google",
+          label: "Gemini",
+          supportedModels: ["gemini-3.5-flash"],
+          requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([]);
+  });
+
   it("keeps a hidden provider visible when it is the current engine", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:groq",
@@ -202,7 +225,7 @@ describe("buildChatModelGroups", () => {
     ]);
   });
 
-  it("puts OpenRouter after other installed custom providers", () => {
+  it("keeps custom providers visible when OpenRouter is unavailable", () => {
     const groups = buildChatModelGroups({
       engines: [
         {
@@ -220,10 +243,7 @@ describe("buildChatModelGroups", () => {
       ],
     });
 
-    expect(groups.map((group) => group.label)).toEqual([
-      "Custom",
-      "OpenRouter",
-    ]);
+    expect(groups.map((group) => group.label)).toEqual(["Custom"]);
   });
 
   it("keeps the current engine visible without re-adding unsupported current models", () => {

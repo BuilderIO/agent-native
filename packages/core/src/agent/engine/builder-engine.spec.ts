@@ -112,6 +112,14 @@ function jsonErrorResponse(status: number, body: unknown): Response {
   });
 }
 
+function makeTool(name: string) {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
+}
+
 const BASE_OPTS: EngineStreamOptions = {
   model: CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
@@ -1870,6 +1878,32 @@ describe("createBuilderEngine", () => {
     const sentBody = (globalThis.fetch as any).mock.calls[0][1].body as string;
     expect(stop?.requestShape?.payloadBytes).toBe(
       new TextEncoder().encode(sentBody).length,
+    );
+  });
+
+  it("caps Builder provider tools at 128 and keeps tool-search", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: Array.from({ length: 129 }, (_, index) =>
+          makeTool(index === 128 ? "tool-search" : `tool-${index}`),
+        ),
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.tools).toHaveLength(128);
+    expect(body.tools.map((tool: { name: string }) => tool.name)).toContain(
+      "tool-search",
+    );
+    expect(body.tools.map((tool: { name: string }) => tool.name)).not.toContain(
+      "tool-127",
     );
   });
 

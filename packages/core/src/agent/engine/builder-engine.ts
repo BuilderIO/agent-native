@@ -57,6 +57,7 @@ import {
   isProviderConnectionErrorMessage,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
   splitSystemPromptForCache,
@@ -265,11 +266,12 @@ class BuilderEngine implements AgentEngine {
         ? BUILDER_DEFAULT_MODEL
         : requestedModel;
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const providerTools = limitProviderTools(opts.tools);
     const messages = engineMessagesToBuilderGatewayAnthropic(
       opts.messages,
       toolNameMap,
     );
-    const tools = engineToolsToAnthropic(opts.tools, toolNameMap);
+    const tools = engineToolsToAnthropic(providerTools, toolNameMap);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
