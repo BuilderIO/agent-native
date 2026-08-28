@@ -311,6 +311,28 @@ function cleanNode(
   return out;
 }
 
+/**
+ * Truncates at the first raw-text or embedding element that never closes.
+ *
+ * An unclosed `<script>` or `<style>` swallows the rest of the document in a
+ * real parser, so the regex path has to drop the remainder to agree with
+ * `cleanNode`. It must check for the closing tag to do that: the sweep used to
+ * match any of these tags and cut to the end of the string unconditionally,
+ * which ate the sanitized `<style>` block the pass above it had just emitted —
+ * and every heading and paragraph after it. A deck with one stylesheet rendered
+ * as an empty slide on the SSR'd share and present pages.
+ */
+function dropFromFirstUnclosedRawText(html: string): string {
+  const openings = /<(script|style|textarea|iframe|object|embed|svg|math)\b/gi;
+  for (let match = openings.exec(html); match; match = openings.exec(html)) {
+    const tag = match[1].toLowerCase();
+    const closing = new RegExp(`</\\s*${tag}\\s*>`, "i");
+    if (!closing.test(html.slice(match.index)))
+      return html.slice(0, match.index);
+  }
+  return html;
+}
+
 function sanitizeHtmlString(
   html: string,
   scopeSelector?: string,
@@ -335,19 +357,19 @@ function sanitizeHtmlString(
       // twin runs instead of cleanNode(). An unclosed raw-text or embedding
       // element swallows the rest of the document in a real parser, so dropping
       // the remainder is what keeps this path agreeing with the DOM path.
-      .replace(
-        /<(script|style|textarea|iframe|object|embed|svg|math)\b[\s\S]*$/i,
-        "",
-      )
+      .replace(/[\s\S]*/, dropFromFirstUnclosedRawText)
       .replace(
         /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
         "",
       )
-      .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      // `/` is a legal attribute separator: `<img/src=x/onerror=alert(1)>` is a
+      // valid img tag with a live handler, and anchoring these scrubs on
+      // whitespace alone let it through untouched.
+      .replace(/[\s/]+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/[\s/]+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/[\s/]+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
       .replace(
-        /\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        /[\s/]+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
         (match, attr, _raw, dq, sq, bare) => {
           const value = dq ?? sq ?? bare ?? "";
           const safe = sanitizeSlideUrl(
