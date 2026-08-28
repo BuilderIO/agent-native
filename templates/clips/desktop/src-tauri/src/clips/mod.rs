@@ -22,13 +22,17 @@ use crate::state::{
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
     mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, tray_monitor_physical_rect,
+    set_capture_excluded_always, set_capture_included, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
+/// Guards `start_topmost_reassert_loop` for the toolbar — see that function's
+/// doc comment. Windows-only in effect; harmless idle flag elsewhere.
+static TOOLBAR_TOPMOST_REASSERT: AtomicBool = AtomicBool::new(false);
 // Geometry of the two circular cancel/skip buttons that flank the countdown
 // number. These MUST stay in sync with the CSS in
 // `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
@@ -1044,6 +1048,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_REASSERT);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -1080,6 +1085,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
+    start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_REASSERT);
     // Deliberately NOT shown here. The pill owns its visibility through
     // `toolbar_set_visible`: it stays hidden through pre-record and the
     // countdown and appears only once the recorder reports capture live —
@@ -1100,6 +1106,7 @@ pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), St
     };
     if visible {
         raise_to_status_level(&win);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_REASSERT);
         crate::util::show_without_activation(&win);
     } else {
         let _ = win.hide();
