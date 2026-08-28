@@ -2,10 +2,11 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { BrowserRouter, MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
+import { useSettingsPanelController } from "./useSettingsPanelController.js";
 
 function stubMobileViewport(isMobile: boolean) {
   vi.stubGlobal(
@@ -64,6 +65,7 @@ describe("SettingsTabsPage", () => {
     container.remove();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("focuses the settings search on desktop entry", () => {
@@ -459,6 +461,92 @@ describe("SettingsTabsPage", () => {
     ).not.toBeNull();
   });
 
+  it("syncs the active tab after router-only settings navigation", () => {
+    function NavigationProbe() {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => void navigate("/settings#workspace")}
+        >
+          Navigate
+        </button>
+      );
+    }
+
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings#agent"]}>
+          <NavigationProbe />
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <div>Agent content</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                content: <div>Workspace content</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent");
+    expect(window.location.hash).toBe("");
+    expect(container.textContent).toContain("Agent content");
+    const navigateButton = container.querySelector("button");
+    expect(navigateButton).not.toBeNull();
+
+    act(() => navigateButton!.click());
+
+    expect(container.textContent).toContain("Workspace content");
+    expect(container.textContent).not.toContain("Agent content");
+  });
+
+  it("keeps BrowserRouter in sync when a tab updates native history", () => {
+    window.history.replaceState(null, "", "/settings#agent");
+
+    act(() => {
+      root.render(
+        <BrowserRouter>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <div>Agent content</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                content: <div>Workspace content</div>,
+              },
+            ]}
+          />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent content");
+    const workspaceTab = container.querySelector<HTMLButtonElement>(
+      "#settings-tab-workspace",
+    );
+    expect(workspaceTab).not.toBeNull();
+
+    act(() => workspaceTab!.click());
+
+    expect(window.location.pathname).toBe("/settings/workspace");
+    expect(container.textContent).toContain("Workspace content");
+    expect(container.textContent).not.toContain("Agent content");
+  });
+
   it("honors the controlled value and reports changes without touching the hash", () => {
     const onValueChange = vi.fn();
 
@@ -573,6 +661,56 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("Agent voice settings");
     expect(container.textContent).not.toContain("General content");
+  });
+
+  it("opens the inner section after BrowserRouter canonicalizes a hash", async () => {
+    window.history.replaceState(null, "", "/settings#uploads");
+
+    function SectionProbe() {
+      const { openSection } = useSettingsPanelController({
+        sections: ["voice", "uploads"],
+      });
+      return <span data-testid="open-section">{openSection}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <SectionProbe />,
+                searchEntries: [
+                  { id: "section:voice", label: "Voice", hash: "voice" },
+                  {
+                    id: "section:uploads",
+                    label: "Uploads",
+                    hash: "uploads",
+                  },
+                ],
+              },
+            ]}
+          />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-testid=open-section]")?.textContent,
+    ).toBe("uploads");
+
+    await act(async () => {
+      window.history.pushState(null, "", "/settings#voice");
+      window.dispatchEvent(new Event("popstate"));
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent/voice");
+    expect(
+      container.querySelector("[data-testid=open-section]")?.textContent,
+    ).toBe("voice");
   });
 
   it("selects the deepest matching tab for nested agent deep links", () => {

@@ -2699,6 +2699,7 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                onOpenSettings={onOpenSettings}
                 desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
                   desktopIdentityStatus,
                 )}
@@ -2818,6 +2819,7 @@ export default function CodeAgentsHub({
       host,
       isActive,
       onLocalCodeChangeStarted,
+      onOpenSettings,
       refreshKey,
       surfaceApps,
       terminalPreferences.agent,
