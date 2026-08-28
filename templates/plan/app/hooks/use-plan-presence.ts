@@ -27,7 +27,10 @@ export interface UsePlanPresenceResult {
    * `Y.Doc`/`Awareness`/poll loop, doubled `/collab/<docId>/*` traffic). Null
    * when presence itself is disabled (recap views, no planId).
    */
-  collabDoc: Pick<UseCollaborativeDocResult, "ydoc" | "awareness" | "isSynced">;
+  collabDoc: Pick<
+    UseCollaborativeDocResult,
+    "ydoc" | "awareness" | "isSynced" | "initialization"
+  >;
 }
 
 /**
@@ -50,14 +53,21 @@ export function usePlanPresence(options: {
   const { planId, enabled = true, user } = options;
   const docId = enabled && planId ? `plan:${planId}` : null;
 
-  const { ydoc, awareness, isSynced, activeUsers, agentPresent, agentActive } =
-    useCollaborativeDoc({
-      docId,
-      user,
-      requestSource: TAB_ID,
-      // Presence is low-stakes; a relaxed poll keeps it cheap.
-      pollInterval: 3000,
-    });
+  const {
+    ydoc,
+    awareness,
+    isSynced,
+    initialization,
+    activeUsers,
+    agentPresent,
+    agentActive,
+  } = useCollaborativeDoc({
+    docId,
+    user,
+    requestSource: TAB_ID,
+    // Presence is low-stakes; a relaxed poll keeps it cheap.
+    pollInterval: 3000,
+  });
 
   const localClientId = ydoc?.clientID ?? null;
   const { others } = usePresence(awareness, localClientId);
@@ -71,6 +81,6 @@ export function usePlanPresence(options: {
     agentPresent,
     agentActive,
     recentEdits,
-    collabDoc: { ydoc, awareness, isSynced },
+    collabDoc: { ydoc, awareness, isSynced, initialization },
   };
 }

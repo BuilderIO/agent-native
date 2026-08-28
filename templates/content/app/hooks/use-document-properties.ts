@@ -31,7 +31,7 @@ type DatabaseScopedRequest = { databaseId: string };
 
 export function documentPropertiesResponseMatchesScope(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
   data: DocumentPropertiesResponse | undefined,
 ): data is DocumentPropertiesResponse {
   return data?.documentId === documentId && data.databaseId === databaseId;
@@ -67,9 +67,11 @@ export function useDocumentProperties(
 ) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
-    documentId && databaseId ? { documentId, databaseId } : undefined,
+    documentId
+      ? { documentId, ...(databaseId ? { databaseId } : {}) }
+      : undefined,
     {
-      enabled: !!documentId && !!databaseId,
+      enabled: !!documentId,
       placeholderData: (prev) => prev,
     },
   );
