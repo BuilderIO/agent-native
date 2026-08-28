@@ -235,6 +235,21 @@ describe("update-slide", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
+  it("rejects mixed edit modes before mutating the deck", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "Old",
+        replace: "New",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toThrow("Use --edits instead of combining it");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("does not persist or clear animations for an optional no-op edit", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
