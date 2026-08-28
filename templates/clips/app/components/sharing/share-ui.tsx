@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
@@ -228,6 +229,9 @@ export function CopyButton({
   disabled,
   className,
   variant = "secondary",
+  resourceType,
+  resourceId,
+  linkType = "share",
 }: {
   value: string;
   children: ReactNode;
@@ -235,6 +239,9 @@ export function CopyButton({
   disabled?: boolean;
   className?: string;
   variant?: "secondary" | "outline" | "default" | "ghost";
+  resourceType?: string;
+  resourceId?: string;
+  linkType?: string;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -251,6 +258,13 @@ export function CopyButton({
     if (disabled || !value) return;
     const result = await copyToClipboard(value);
     if (result === false) return;
+    if (resourceType && resourceId) {
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: linkType,
+      });
+    }
     setCopied(true);
     if (resetTimer.current) clearTimeout(resetTimer.current);
     resetTimer.current = setTimeout(() => setCopied(false), 1_400);

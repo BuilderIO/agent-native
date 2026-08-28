@@ -53,6 +53,7 @@ const windowStub = {
   clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   location: {
     origin: "http://localhost:3000",
+    hostname: "localhost",
     pathname: "/",
     search: "",
   },
