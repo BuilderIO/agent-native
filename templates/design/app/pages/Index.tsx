@@ -555,7 +555,7 @@ export default function Index() {
             templateId: selectedTemplate.id,
             title,
             designSystemId,
-            ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
+            ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
@@ -568,7 +568,7 @@ export default function Index() {
               )?.title ?? t("promptDialog.designSystem");
             writePendingGeneration(result.id, {
               prompt:
-                trimmedPrompt ||
+                prompt.trim() ||
                 t("promptDialog.reskinTemplatePrompt", {
                   title: selectedTemplate.title,
                   system: effectiveSystemTitle,
@@ -647,8 +647,9 @@ export default function Index() {
             // which owns the connect-Builder card flow, keeping the user's
             // prompt so nothing is lost.
             sendToDesignAgentChat({
-              message: `I want to build this design as a full app: ${prompt}`,
+              message: prompt,
               context:
+                `The user's request is to build this design as a full app. ` +
                 `create-fusion-app returned status "not-configured" for design ` +
                 `${id}. ${result?.message ?? ""} Help the user connect ` +
                 `Builder.io (see connect-builder-app), then retry ` +
@@ -662,8 +663,9 @@ export default function Index() {
                 ? error.message
                 : String(error);
             sendToDesignAgentChat({
-              message: `I want to build this design as a full app: ${prompt}`,
+              message: prompt,
               context:
+                `The user's request is to build this design as a full app. ` +
                 `Starting the full-app build for design ${id} failed: ` +
                 `${message}. Check whether the design row exists, Builder is ` +
                 `connected, and create-fusion-app can be retried safely.`,

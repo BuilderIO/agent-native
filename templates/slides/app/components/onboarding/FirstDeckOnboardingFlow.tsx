@@ -162,11 +162,11 @@ export function FirstDeckOnboardingFlow({
         const uploaded = await uploadFiles(files);
         retainFiles(files);
         promptSourceFilesRef.current = files;
+        setPrompt(text);
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
           uploaded,
         );
-        setPrompt(text.trim());
         setPromptFiles(uploaded);
         setPromptAttachments(chatAttachments);
         setStep("references");

@@ -22,6 +22,7 @@ import {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
+import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
 
 import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 
@@ -202,7 +203,6 @@ export function AddSlidePopover({
           }
         }
 
-        const trimmedText = text.trim();
         const googleDocSourceForContext =
           truncateSourceForContext(googleDocContext);
         const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
@@ -211,6 +211,7 @@ export function AddSlidePopover({
               `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
               "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
               "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              WEBSITE_STYLE_REFERENCE_DIRECTIVE,
               googleDocSourceForContext.text,
               googleDocSourceForContext.truncated
                 ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
@@ -224,6 +225,7 @@ export function AddSlidePopover({
               `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
               `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
               "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+              WEBSITE_STYLE_REFERENCE_DIRECTIVE,
               googleDocSourceForContext.text,
               googleDocSourceForContext.truncated
                 ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
@@ -243,7 +245,7 @@ export function AddSlidePopover({
         retainFiles(files);
         try {
           const started = await agentSubmit(
-            addSlideAgentMessage(trimmedText),
+            addSlideAgentMessage(text),
             context,
           );
           if (!started) {
