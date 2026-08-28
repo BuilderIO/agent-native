@@ -2861,22 +2861,48 @@ ${signInJourneyInlineScript()}
     function __anRedirectToSignedInApp(ret) {
       window.location.replace(ret || __anResumeHref());
     }
-    function __anMaybeRedirectSignedIn(ret) {
+    var __AN_SESSION_PROBE_ATTEMPTS = 3;
+    var __AN_SESSION_PROBE_RETRY_MS = 400;
+    /**
+     * Resolves 'signed-in', 'signed-out', or 'unreadable' — never collapsing
+     * the last two. Signed out is a 200 carrying { error }, so a non-ok status,
+     * an unparseable body, or a failed fetch means the question went
+     * unanswered, not that there is no session. Coercing those to signed-out
+     * strands a signed-in visitor on this form: the redirect below never fires
+     * and nothing retries it.
+     */
+    function __anProbeSession() {
       return fetch(__anPath('/_agent-native/auth/session'), {
         headers: { 'Accept': 'application/json' },
         credentials: 'include',
         cache: 'no-store',
       }).then(function(res) {
-        if (!res.ok) return null;
-        return res.json().catch(function() { return null; });
-      }).then(function(data) {
-        if (data && data.email && !data.error) {
-          __anRedirectToSignedInApp(ret);
-          return true;
-        }
-        return false;
-      }).catch(function() {
-        return false;
+        if (!res.ok) return 'unreadable';
+        return res.json().then(function(data) {
+          if (data && data.email && !data.error) return 'signed-in';
+          return 'signed-out';
+        }, function() {
+          return 'unreadable';
+        });
+      }, function() {
+        return 'unreadable';
+      });
+    }
+    function __anResolveSessionState(attemptsLeft) {
+      return __anProbeSession().then(function(state) {
+        if (state !== 'unreadable' || attemptsLeft <= 1) return state;
+        return new Promise(function(resolve) {
+          setTimeout(resolve, __AN_SESSION_PROBE_RETRY_MS);
+        }).then(function() {
+          return __anResolveSessionState(attemptsLeft - 1);
+        });
+      });
+    }
+    function __anMaybeRedirectSignedIn(ret) {
+      return __anResolveSessionState(__AN_SESSION_PROBE_ATTEMPTS).then(function(state) {
+        if (state !== 'signed-in') return false;
+        __anRedirectToSignedInApp(ret);
+        return true;
       });
     }
     function __anIsLoopbackHostname() {
