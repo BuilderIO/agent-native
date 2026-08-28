@@ -756,7 +756,7 @@ function SqlDashboardPageContent({
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
-          name: emailToName(session.email),
+          name: session.name?.trim() || emailToName(session.email),
           email: session.email,
           color: emailToColor(session.email),
         }

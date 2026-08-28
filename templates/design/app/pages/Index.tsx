@@ -100,6 +100,7 @@ interface Design {
   projectType: ProjectType;
   designSystemId?: string | null;
   ownerEmail?: string | null;
+  ownerName?: string | null;
   createdAt?: string;
   updatedAt?: string;
   /** Preview HTML for the thumbnail. Only present when the list query asks
@@ -1109,7 +1110,10 @@ export default function Index() {
                         {showAuthors && design.ownerEmail ? (
                           <>
                             <span aria-hidden>·</span>
-                            <DesignAuthorByline email={design.ownerEmail} />
+                            <DesignAuthorByline
+                              email={design.ownerEmail}
+                              name={design.ownerName}
+                            />
                           </>
                         ) : null}
                       </div>
@@ -1406,8 +1410,14 @@ export default function Index() {
 }
 
 /** Who created a design, shown on its library card in shared workspaces. */
-function DesignAuthorByline({ email }: { email: string }) {
-  const name = emailToName(email);
+function DesignAuthorByline({
+  email,
+  name: profileName,
+}: {
+  email: string;
+  name?: string | null;
+}) {
+  const name = profileName?.trim() || emailToName(email);
   const avatarUrl = useAvatarUrl(email);
 
   return (

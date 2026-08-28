@@ -1309,6 +1309,7 @@ export default function RecordingPage() {
             comments={comments}
             currentMs={playbackMs}
             currentUserEmail={session?.email}
+            currentUserName={session?.name}
             enableComments={recording.enableComments}
             canComment={canComment}
             onSeek={(ms) => playerRef.current?.seek(ms)}

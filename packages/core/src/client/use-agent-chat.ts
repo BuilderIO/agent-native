@@ -44,9 +44,10 @@ export function useAgentChatGenerating(): [
       if (typeof detail?.isRunning !== "boolean") return;
       // Only honor events for the run this hook started. Events carrying a
       // different tabId belong to another chat surface (sidebar, other
-      // composer, automation) and must not flip our state. Legacy events
-      // without a tabId are honored for backwards compatibility.
+      // composer, automation) and must not flip our state. Once a run has a
+      // tab identity, an unscoped event is just as unrelated as another tab.
       const eventTabId = typeof detail.tabId === "string" ? detail.tabId : null;
+      if (activeTabRef.current && !eventTabId) return;
       if (
         eventTabId &&
         activeTabRef.current &&

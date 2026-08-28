@@ -311,11 +311,14 @@ export async function registerWatch(
     return true;
   } catch (err) {
     if (registeredChannel) {
-      await stopGoogleDocsWatchChannel(
+      const stopped = await stopGoogleDocsWatchChannel(
         accessToken,
         registeredChannel.id,
         registeredChannel.resourceId,
       );
+      if (!stopped) {
+        scheduleOrphanedWatchCleanup(registeredChannel);
+      }
     }
     console.error("[google-docs] Watch registration error:", err);
     return false;

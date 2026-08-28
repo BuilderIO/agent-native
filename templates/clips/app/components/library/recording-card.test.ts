@@ -59,8 +59,8 @@ describe("library recording cards", () => {
   it("shows the creator and creation time beneath the title", () => {
     const source = readSource("./recording-card.tsx");
 
-    expect(source).toContain("alt={recording.ownerEmail}");
-    expect(source).toContain("{recording.ownerEmail}");
+    expect(source).toContain("alt={displayOwnerName}");
+    expect(source).toContain("{displayOwnerName}");
     expect(source).toContain("{relative}");
   });
 

@@ -146,6 +146,7 @@ import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthInternalAdapter,
   getBetterAuthUserIdForEmail,
   getAuthSecret,
   getBetterAuth,
@@ -193,7 +194,10 @@ import {
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
-import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
+import {
+  resolveCanonicalUserForLegacySession,
+  type CanonicalLegacyUser,
+} from "./legacy-auth-migration.js";
 import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -528,6 +532,32 @@ function frameworkSessionCookieNamesToClear(): string[] {
   return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
 }
 
+async function enrichLegacySessionIdentity(
+  session: AuthSession,
+  canonicalUser?: CanonicalLegacyUser | null,
+): Promise<AuthSession> {
+  if (!getBetterAuthSync() || !session.email) return session;
+  let existing = canonicalUser;
+  if (existing === undefined) {
+    const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+    if (!adapter) return session;
+    existing = await adapter
+      .findUserByEmail(session.email, { includeAccounts: false })
+      // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
+      .catch(() => null);
+  }
+  if (!existing) return session;
+  return {
+    ...session,
+    ...(!session.name?.trim() && existing.user.name?.trim()
+      ? { name: existing.user.name.trim() }
+      : {}),
+    ...(!session.image?.trim() && existing.user.image?.trim()
+      ? { image: existing.user.image.trim() }
+      : {}),
+  };
+}
+
 function deleteCookieFromEveryScope(event: H3Event, name: string): void {
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
@@ -549,8 +579,9 @@ async function getLegacyCookieSession(
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
     const email = await getSessionEmail(value);
     if (email) {
+      let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
-        await ensureCanonicalUserForLegacySession(email);
+        canonicalUser = await resolveCanonicalUserForLegacySession(email);
       } catch (error) {
         console.warn(
           "[auth] legacy session canonical-user backfill failed:",
@@ -558,7 +589,10 @@ async function getLegacyCookieSession(
         );
       }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
-      return mapLegacySession(email, value);
+      return enrichLegacySessionIdentity(
+        await mapLegacySession(email, value),
+        canonicalUser,
+      );
     }
   }
   return null;
@@ -880,7 +914,9 @@ async function getBearerLegacySession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
   const email = await getSessionEmail(bearerToken);
-  return email ? mapLegacySession(email, bearerToken) : null;
+  return email
+    ? enrichLegacySessionIdentity(await mapLegacySession(email, bearerToken))
+    : null;
 }
 
 /**
@@ -4547,6 +4583,7 @@ async function mountBetterAuthRoutes(
             email,
             accountId: googleAccountId,
             name: typeof user.name === "string" ? user.name : undefined,
+            image: typeof user.picture === "string" ? user.picture : undefined,
           });
           if (isNewGoogleUser === true) {
             setFirstRunOnboardingCookie(event);

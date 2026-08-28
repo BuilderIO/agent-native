@@ -264,7 +264,7 @@ export default function ExplorerDashboardPage() {
   const { session } = useSession();
   const currentUser: CollabUser | undefined = session?.email
     ? {
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
       }

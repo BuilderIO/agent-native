@@ -26,6 +26,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
+  useEagerFileUploads: () => ({
+    commitFiles: vi.fn(),
+    discardFiles: vi.fn(),
+    retainFiles: vi.fn(),
+    syncFiles: vi.fn(),
+    uploadFiles: vi.fn(() => Promise.resolve([])),
+    uploading: false,
+    reset: vi.fn(),
+  }),
   PromptComposer: ({
     onSubmit,
   }: {
