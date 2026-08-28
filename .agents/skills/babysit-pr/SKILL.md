@@ -55,7 +55,10 @@ merging, except when the user explicitly invokes `/ship-now`.
 **Step 0 — always do this first, before anything else:**
 
 ```bash
-git fetch origin --quiet
+if ! git fetch origin --quiet; then
+  echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
+  exit 1
+fi
 git status --short
 git diff --name-only
 if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
@@ -81,8 +84,22 @@ can change within minutes, so re-check before every actionable push.
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
 2. If `CONFLICTING`: bring `main` in and resolve. First inspect the worktree
-   and unpushed commits; do not run the merge until both `git status --short`
-   and the branch-specific unpublished-commit check in Step 0 are empty.
+   and unpushed commits; do not run the merge until the publishable-path check
+   `git status --short -- . ':(exclude)learnings.md' ':(exclude)bridge/**'
+   ':(exclude)data/**'` and the branch-specific unpublished-commit check in
+   Step 0 are empty. Preserve and report excluded paths; they do not block
+   recovery unless the merge itself touches them.
+   Before merging, compare the local checkout with the live PR head:
+
+   ```bash
+   pr_head=$(gh pr view $ARGUMENTS --json headRefOid --jq '.headRefOid')
+   if [ "$(git rev-parse HEAD)" != "$pr_head" ]; then
+     echo "Local HEAD is not the live PR head; stop and let the branch owner reconcile it." >&2
+     exit 1
+   fi
+   ```
+
+   Do not merge an obsolete local head.
    **Publish any intentional actionable fix first (Step 0)**, after verifying
    every dirty path and unpushed commit belongs to that fix; then prefer a
    **merge** over a rebase —

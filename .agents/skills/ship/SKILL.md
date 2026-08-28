@@ -235,7 +235,10 @@ branch, stay on it.
    fallback:
 
    ```bash
-   git fetch origin --quiet
+   if ! git fetch origin --quiet; then
+     echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
+     exit 1
+   fi
    if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
      git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD
    else
@@ -255,7 +258,10 @@ branch, stay on it.
    confidently-wrong clean answer this check exists to catch.
 
    ```bash
-   git fetch origin main --quiet
+   if ! git fetch origin main --quiet; then
+     echo "Cannot refresh origin/main; stop before checking branch freshness." >&2
+     exit 1
+   fi
    git rev-list --count HEAD..origin/main
    ```
 
@@ -266,8 +272,11 @@ branch, stay on it.
    current `origin/main` only when GitHub reports `CONFLICTING` (or a local
    merge proves a real conflict blocks shipment). In that case, merge
    `origin/main` once, resolve it, push, and wait for the new checks. Before
-   that merge, both `git status --short` and the branch-specific
-   unpublished-commit check above must be empty. If either is not empty,
+   that merge, both `git status --short -- . ':(exclude)learnings.md'
+   ':(exclude)bridge/**' ':(exclude)data/**'` and the branch-specific
+   unpublished-commit check above must be empty. The excluded paths remain
+   preserved and reported, but do not block conflict recovery unless the
+   merge itself touches them. If either publishable-path check is not empty,
    inspect every dirty path and unpushed commit; publish them first only when
    all of them belong to the same
    actionable fix. If any unrelated or incomplete concurrent work overlaps the
