@@ -57,6 +57,18 @@ const DESIGN_SKILL_UI_TARGET_PHRASES = new Set([
   "hero section",
   "nav item",
 ]);
+const DESIGN_SKILL_DOMAIN_PREPOSITIONS = new Set([
+  "about",
+  "across",
+  "for",
+  "in",
+  "on",
+  "through",
+  "toward",
+  "within",
+  "with",
+]);
+const DESIGN_SKILL_CLAUSE_BOUNDARIES = new Set(["also", "and", "but", "then"]);
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -167,7 +179,11 @@ function hasSuccessfulMutation(
     }
 
     if (name === "update-design") {
-      return parsed.updated === true && parsed.stale !== true;
+      return (
+        parsed.updated === true &&
+        parsed.changed === true &&
+        parsed.stale !== true
+      );
     }
 
     if (name === "update-file") {
@@ -203,18 +219,25 @@ function hasSuccessfulMutation(
 }
 
 function removeAdvisorySkillsClauses(text: string): string {
-  const words = Array.from(text.matchAll(DESIGN_WORD_PATTERN)).map((match) => {
+  const words: Array<{
+    end: number;
+    start: number;
+    value: string;
+    whitespaceBefore: boolean;
+  }> = [];
+  let previousEnd = 0;
+  for (const match of text.matchAll(DESIGN_WORD_PATTERN)) {
     const start = match.index ?? 0;
-    return {
-      end: start + match[0].length,
+    const end = start + match[0].length;
+    words.push({
+      end,
       start,
       value: match[0].toLowerCase(),
-    };
-  });
+      whitespaceBefore: text.slice(previousEnd, start).trim() === "",
+    });
+    previousEnd = end;
+  }
   const removals: Array<[number, number]> = [];
-
-  const isWhitespaceBetween = (left: number, right: number) =>
-    text.slice(left, right).trim() === "";
 
   let index = 0;
   while (index < words.length - 2) {
@@ -223,7 +246,7 @@ function removeAdvisorySkillsClauses(text: string): string {
     if (
       !DESIGN_ADVISORY_SKILL_VERBS.has(verb.value) ||
       !DESIGN_ADVISORY_SKILL_PRONOUNS.has(pronoun.value) ||
-      !isWhitespaceBetween(verb.end, pronoun.start)
+      !pronoun.whitespaceBefore
     ) {
       index += 1;
       continue;
@@ -232,18 +255,14 @@ function removeAdvisorySkillsClauses(text: string): string {
     let skillIndex = index + 2;
     while (
       skillIndex < words.length &&
-      isWhitespaceBetween(words[skillIndex - 1].end, words[skillIndex].start) &&
+      words[skillIndex].whitespaceBefore &&
       !/^skills?$/.test(words[skillIndex].value)
     ) {
       skillIndex += 1;
     }
 
     const skill = words[skillIndex];
-    if (
-      !skill ||
-      !/^skills?$/.test(skill.value) ||
-      !isWhitespaceBetween(words[skillIndex - 1].end, skill.start)
-    ) {
+    if (!skill || !/^skills?$/.test(skill.value) || !skill.whitespaceBefore) {
       index = skillIndex;
       continue;
     }
@@ -253,16 +272,33 @@ function removeAdvisorySkillsClauses(text: string): string {
     const nextTargetPhrase =
       nextWord &&
       nextNextWord &&
-      isWhitespaceBetween(skill.end, nextWord.start) &&
-      isWhitespaceBetween(nextWord.end, nextNextWord.start)
+      nextWord.whitespaceBefore &&
+      nextNextWord.whitespaceBefore
         ? `${nextWord.value} ${nextNextWord.value}`
         : "";
     const targetsUiContent =
       nextWord &&
-      isWhitespaceBetween(skill.end, nextWord.start) &&
+      nextWord.whitespaceBefore &&
       (DESIGN_SKILL_UI_TARGETS.has(nextWord.value) ||
         DESIGN_SKILL_UI_TARGET_PHRASES.has(nextTargetPhrase));
-    if (!targetsUiContent) removals.push([verb.start, skill.end]);
+    let removalEnd = skill.end;
+    if (
+      !targetsUiContent &&
+      nextWord &&
+      nextWord.whitespaceBefore &&
+      DESIGN_SKILL_DOMAIN_PREPOSITIONS.has(nextWord.value)
+    ) {
+      let domainIndex = skillIndex + 1;
+      while (
+        domainIndex < words.length &&
+        words[domainIndex].whitespaceBefore &&
+        !DESIGN_SKILL_CLAUSE_BOUNDARIES.has(words[domainIndex].value)
+      ) {
+        removalEnd = words[domainIndex].end;
+        domainIndex += 1;
+      }
+    }
+    if (!targetsUiContent) removals.push([verb.start, removalEnd]);
     index = skillIndex + 1;
   }
 

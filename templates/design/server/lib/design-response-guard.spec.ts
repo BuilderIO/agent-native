@@ -96,6 +96,11 @@ describe("Design final response guard", () => {
     ).toBe(false);
     expect(
       looksLikeDesignMutationRequest(
+        `improve my ${"web ".repeat(2_000)}portfolio`,
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
         "improve my design skills and update the color palette",
       ),
     ).toBe(true);
@@ -126,6 +131,11 @@ describe("Design final response guard", () => {
     expect(
       looksLikeDesignMutationRequest("improve my Design Skills hero section"),
     ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "I want to improve my design skills in card layout and improve my portfolio",
+      ),
+    ).toBe(false);
     expect(
       looksLikeDesignMutationRequest(
         "please give feedback to improve this design",
@@ -246,7 +256,13 @@ describe("Design final response guard", () => {
       ],
       [toolResult("create-design-system", { id: "design-system-1" })],
       [toolResult("update-file", { id: "file-1", updated: true })],
-      [toolResult("update-design", { id: "design-1", updated: true })],
+      [
+        toolResult("update-design", {
+          id: "design-1",
+          updated: true,
+          changed: true,
+        }),
+      ],
       [
         toolResult("import-figma-clipboard", {
           designId: "design-1",
@@ -315,6 +331,7 @@ describe("Design final response guard", () => {
           stale: true,
         }),
       ],
+      [toolResult("update-design", { id: "design-1", updated: true })],
       [
         toolResult("apply-motion-edit", {
           designId: "design-1",
