@@ -278,8 +278,6 @@ function headersWithSignupAttribution(
 
 export interface AuthSession {
   email: string;
-  /** Better Auth's email-ownership state, when the provider exposes it. */
-  emailVerified?: boolean;
   userId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
