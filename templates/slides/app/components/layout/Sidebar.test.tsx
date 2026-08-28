@@ -112,7 +112,7 @@ describe("<Sidebar collapsed>", () => {
 });
 
 describe("<Sidebar expanded>", () => {
-  it("reserves fixed dimensions for the brand marks", () => {
+  it("uses compact dimensions for the brand mark", () => {
     const { container } = renderAt(
       "/",
       <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
@@ -123,12 +123,11 @@ describe("<Sidebar expanded>", () => {
     );
 
     expect(brandMark).not.toBeNull();
-    expect(brandMark?.getAttribute("width")).toBe("28");
-    expect(brandMark?.getAttribute("height")).toBe("28");
-    expect(brandMark?.className).toContain("w-7");
-    expect(brandMark?.className).toContain("h-4");
-    expect(brandMark?.className).toContain("text-black");
-    expect(brandMark?.className).toContain("dark:text-white");
+    expect(brandMark?.getAttribute("width")).toBe("24");
+    expect(brandMark?.getAttribute("height")).toBe("24");
+    expect(brandMark?.className).toContain("w-6");
+    expect(brandMark?.className).toContain("h-3.5");
+    expect(brandMark?.className).toContain("text-sidebar-foreground");
   });
 
   it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
