@@ -1087,6 +1087,10 @@ const messages = {
       "Esta acción no se puede deshacer. Tu grabación hasta ahora se eliminará permanentemente.",
     resume: "Reanudar",
     discardRecording: "Descartar grabación",
+    restart: "Reiniciar grabación",
+    restartShortcut: "Reiniciar (⌥⇧R)",
+    restartQuestion: "¿Iniciar una nueva grabación?",
+    restartConfirm: "Reiniciar",
   },
   countdownOverlay: {
     startsIn: "La grabación empieza en {{count}}",
