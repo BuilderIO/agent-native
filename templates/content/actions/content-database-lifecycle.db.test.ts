@@ -1745,6 +1745,7 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(contextualDocument).toMatchObject({
       id: sharedDocumentId,
+      parentId: null,
       title: "Shared Personal row",
       content: "Keep this nonempty Personal body.",
       accessRole: "editor",
@@ -1762,6 +1763,7 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(contextFreeDocument).toMatchObject({
       id: sharedDocumentId,
+      parentId: null,
       content: "Keep this nonempty Personal body.",
       accessRole: "editor",
       databaseMembership: {
@@ -1780,6 +1782,7 @@ describe("content database soft-delete actions and reads", () => {
     expect(
       listed.documents.find((document) => document.id === sharedDocumentId),
     ).toMatchObject({
+      parentId: null,
       databaseMembership: {
         databaseId: null,
         databaseDocumentId: null,

@@ -171,7 +171,8 @@ export default defineAction({
         view: "editor",
         params: { documentId: doc.id },
       }),
-      parentId: doc.parentId,
+      parentId:
+        databaseMembership && !propertyDatabaseAccess ? null : doc.parentId,
       title: doc.title,
       content: doc.content,
       description: doc.description,

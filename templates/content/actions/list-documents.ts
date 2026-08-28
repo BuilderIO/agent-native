@@ -311,7 +311,8 @@ export default defineAction({
 
       return {
         id: d.id,
-        parentId: d.parentId,
+        parentId:
+          d.parentId && visibleDocumentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
         contentPreview: contentPreview(d.contentSnippet),
