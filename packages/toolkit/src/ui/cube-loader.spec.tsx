@@ -1,4 +1,5 @@
-import type { ReactElement } from "react";
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { CubeLoader } from "./cube-loader.js";
@@ -24,5 +25,11 @@ describe("CubeLoader", () => {
     expect(loader.props.role).toBe("status");
     expect(loader.props["aria-label"]).toBe("Loading");
     expect(loader.props.className).toContain("size-4");
+  });
+
+  it("anchors its cells to the page timeline when mounted again", () => {
+    expect(renderToStaticMarkup(createElement(CubeLoader))).toContain(
+      "calc(90ms - var(--an-cube-loader-phase, 0ms))",
+    );
   });
 });

@@ -57,6 +57,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { LOADING_LABELS } from "../shared/loading-labels.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -1969,9 +1970,9 @@ const STATIC_SHELL_LOADING_MARKUP = [
       </style>`,
   ...STATIC_SHELL_CUBE_DELAYS.map(
     (delay, index) =>
-      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:${delay}ms"></rect>`,
+      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
   ),
-  '</svg><span class="agent-running-shimmer" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  '</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
   `<\/div><style>
         html {
           background: hsl(var(--background, 0 0% 100%));
@@ -1985,6 +1986,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
         }
       </style></div>`,
 ].join("");
+const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var index=Math.floor(Math.random()*labels.length);window.__agentNativeLoadingLabelIndex=index;var label=document.querySelector('[data-agent-native-loading-label]');if(label)label.textContent=labels[index];})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
@@ -2021,7 +2023,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}${STATIC_SHELL_LOADING_LABEL_SCRIPT}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({

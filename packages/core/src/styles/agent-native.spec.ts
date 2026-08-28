@@ -112,6 +112,8 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain(".agent-loading-label");
+    expect(css).toContain("transition: width 220ms var(--ease-out-strong);");
     expect(css).toContain("background-clip: text;");
     expect(css).not.toContain(
       '.agent-tool-call[data-active-tail="true"]::after',

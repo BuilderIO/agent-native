@@ -1,6 +1,15 @@
 import { cn } from "../utils.js";
 
 const CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
+const CUBE_ANIMATION_DURATION_MS = 650;
+
+function setCubeAnimationPhase(svg: SVGSVGElement | null) {
+  if (!svg || typeof window === "undefined") return;
+  svg.style.setProperty(
+    "--an-cube-loader-phase",
+    `${window.performance.now() % CUBE_ANIMATION_DURATION_MS}ms`,
+  );
+}
 
 export type CubeLoaderProps = Omit<
   React.SVGProps<SVGSVGElement>,
@@ -23,6 +32,7 @@ export function CubeLoader({
 
   return (
     <svg
+      ref={setCubeAnimationPhase}
       {...props}
       role={hasRole ? props.role : "status"}
       aria-label={ariaLabel}
@@ -56,7 +66,9 @@ export function CubeLoader({
           width={5}
           height={5}
           rx={1}
-          style={{ animationDelay: `${delay}ms` }}
+          style={{
+            animationDelay: `calc(${delay}ms - var(--an-cube-loader-phase, 0ms))`,
+          }}
         />
       ))}
     </svg>
