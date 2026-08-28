@@ -9,7 +9,13 @@ import {
   IconLoader2,
   IconSearch,
 } from "@tabler/icons-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   OnboardingAppProfile,
@@ -44,7 +50,7 @@ import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { saveFirstRunOnboardingRole } from "./first-run-status.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FirstRunScreen =
@@ -56,6 +62,31 @@ type FirstRunScreen =
   | "connecting"
   | "ready"
   | "extension";
+
+const FIRST_RUN_SCREEN_ORDER: readonly Exclude<FirstRunScreen, "extension">[] =
+  ["intro", "choice", "manual", "tools", "role", "connecting", "ready"];
+
+function firstRunStepProperties(
+  screen: FirstRunScreen,
+  extensions: readonly { id: string }[],
+  extensionIndex: number,
+): Record<string, unknown> {
+  if (screen === "extension") {
+    return {
+      flow: "first_run",
+      step_id: `extension:${extensions[extensionIndex]?.id ?? "unknown"}`,
+      step_index: FIRST_RUN_SCREEN_ORDER.length + extensionIndex,
+      ...(extensions[extensionIndex]
+        ? { extension_id: extensions[extensionIndex].id }
+        : {}),
+    };
+  }
+  return {
+    flow: "first_run",
+    step_id: screen,
+    step_index: FIRST_RUN_SCREEN_ORDER.indexOf(screen),
+  };
+}
 
 const FIRST_RUN_ROLE_OPTIONS = [
   { value: "product", labelKey: "agentChat.onboarding.roleProduct" },
@@ -103,13 +134,6 @@ export function FirstRunOnboarding({
     completeFirstRun,
     completeFirstRunError,
   } = useOnboarding({ preview: previewMode, initialFirstRun });
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
-  const finishOnboarding = useCallback(() => {
-    completeFirstRun().catch(() => {});
-  }, [completeFirstRun]);
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -131,6 +155,62 @@ export function FirstRunOnboarding({
     () => filterMcpIntegrations(integrationQuery, mcpCatalog),
     [integrationQuery, mcpCatalog],
   );
+  // completeFirstRun() rejects on failure — swallow it here so a Skip/
+  // Continue click never becomes an unhandled rejection; completeFirstRunError
+  // (rendered below) is the real signal, and the user stays on this screen
+  // to retry instead of being bounced to an unrelated error screen.
+  const trackFirstRunStepCompleted = useCallback(
+    (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
+      if (previewMode) return;
+      trackOnboardingEvent(
+        "onboarding_step_completed",
+        firstRunStepProperties(stepScreen, extensions, stepExtensionIndex),
+      );
+    },
+    [extensionIndex, extensions, previewMode],
+  );
+  const completionAttemptRef = useRef<{
+    screen: FirstRunScreen | null;
+    extensionIndex: number;
+  } | null>(null);
+  const finishOnboarding = useCallback(
+    async (
+      completedScreen: FirstRunScreen | null,
+      completedExtensionIndex = extensionIndex,
+    ) => {
+      completionAttemptRef.current = completedScreen
+        ? { screen: completedScreen, extensionIndex: completedExtensionIndex }
+        : { screen: null, extensionIndex: completedExtensionIndex };
+      try {
+        await completeFirstRun();
+        if (completedScreen) {
+          trackFirstRunStepCompleted(completedScreen, completedExtensionIndex);
+        }
+        completionAttemptRef.current = null;
+      } catch {
+        // coercion-ok: completeFirstRun exposes this failure as the inline retry state.
+      }
+    },
+    [completeFirstRun, extensionIndex, trackFirstRunStepCompleted],
+  );
+  useEffect(() => {
+    if (!previewMode && firstRun && !loading && profile) {
+      trackOnboardingEvent("onboarding_started", { flow: "first_run" });
+    }
+  }, [firstRun, loading, previewMode, profile]);
+  useEffect(() => {
+    if (previewMode || !firstRun || loading || !profile) return;
+    const step = firstRunStepProperties(screen, extensions, extensionIndex);
+    trackOnboardingEvent("onboarding_step_viewed", step);
+  }, [
+    extensionIndex,
+    extensions,
+    firstRun,
+    loading,
+    previewMode,
+    profile,
+    screen,
+  ]);
   const connectedUrls = useMemo(() => {
     if (previewMode) return new Set<string>();
     const servers = [
@@ -150,14 +230,22 @@ export function FirstRunOnboarding({
       mcpServersQuery.data?.role === "admin"),
   );
 
-  const showTools = () => setScreen(skipIntegrations ? "role" : "tools");
+  const showTools = useCallback(
+    () => setScreen(skipIntegrations ? "role" : "tools"),
+    [skipIntegrations],
+  );
+  const handleBuilderConnected = useCallback(() => {
+    trackFirstRunStepCompleted("choice");
+    trackFirstRunStepCompleted("connecting");
+    showTools();
+  }, [showTools, trackFirstRunStepCompleted]);
   const roleBackScreen = skipIntegrations ? "manual" : "tools";
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
     provisionAccount: true,
     trackingSource: "first_run_onboarding",
     trackingFlow: "connect_llm",
-    onConnected: showTools,
+    onConnected: handleBuilderConnected,
   });
   const canActivateBuilderFreeCredits =
     connectFlow.agentNativeProvisioningEnabled;
@@ -200,6 +288,7 @@ export function FirstRunOnboarding({
       return;
     }
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
+      trackFirstRunStepCompleted("choice");
       showTools();
       return;
     }
@@ -216,14 +305,15 @@ export function FirstRunOnboarding({
         detail: { section: "integrations" },
       }),
     );
-    finishOnboarding();
+    void finishOnboarding("manual");
   };
 
-  const handleFinish = () => {
+  const handleFinish = (completeStep = true) => {
     if (extensions.length === 0) {
-      finishOnboarding();
+      void finishOnboarding(completeStep ? "role" : null);
       return;
     }
+    if (completeStep) trackFirstRunStepCompleted("role");
     setExtensionIndex(0);
     setScreen("extension");
   };
@@ -323,24 +413,34 @@ export function FirstRunOnboarding({
   if (screen === "extension") {
     const extension = extensions[extensionIndex];
     if (!extension) {
-      finishOnboarding();
+      void finishOnboarding(null);
       return null;
     }
     const Extension = extension.component;
     const advanceExtension = () => {
       if (extensionIndex < extensions.length - 1) {
+        trackFirstRunStepCompleted("extension", extensionIndex);
         setExtensionIndex((current) => current + 1);
         return;
       }
-      finishOnboarding();
+      void finishOnboarding("extension", extensionIndex);
     };
     return (
       <>
-        <Extension onComplete={advanceExtension} onSkip={finishOnboarding} />
+        <Extension
+          onComplete={advanceExtension}
+          onSkip={() => void finishOnboarding(null)}
+        />
         {completeFirstRunError && (
           <FirstRunCompletionError
             message={completeFirstRunError}
-            onRetry={finishOnboarding}
+            onRetry={() => {
+              const attempt = completionAttemptRef.current;
+              void finishOnboarding(
+                attempt?.screen ?? null,
+                attempt?.extensionIndex ?? extensionIndex,
+              );
+            }}
           />
         )}
       </>
@@ -379,7 +479,10 @@ export function FirstRunOnboarding({
           <button
             type="button"
             className={cn(primaryButtonClass, "mt-6")}
-            onClick={() => setScreen("choice")}
+            onClick={() => {
+              trackFirstRunStepCompleted("intro");
+              setScreen("choice");
+            }}
           >
             Continue
             <IconArrowRight size={15} />
@@ -541,10 +644,14 @@ export function FirstRunOnboarding({
               aria-label="Use my own keys"
               data-testid="first-run-use-own-keys"
               className="rounded-xl bg-muted/35 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => setScreen("manual")}
+              onClick={() => {
+                trackFirstRunStepCompleted("choice");
+                setScreen("manual");
+              }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
+                trackFirstRunStepCompleted("choice");
                 setScreen("manual");
               }}
             >
@@ -627,7 +734,10 @@ export function FirstRunOnboarding({
               <button
                 type="button"
                 className={secondaryButtonClass}
-                onClick={() => setScreen(skipIntegrations ? "role" : "tools")}
+                onClick={() => {
+                  trackFirstRunStepCompleted("manual");
+                  setScreen(skipIntegrations ? "role" : "tools");
+                }}
               >
                 {skipIntegrations ? "Continue" : "Continue to tools"}
               </button>
@@ -658,7 +768,10 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={primaryButtonClass}
-              onClick={() => setScreen("role")}
+              onClick={() => {
+                trackFirstRunStepCompleted("tools");
+                setScreen("role");
+              }}
             >
               {t("agentChat.common.continue")}
               <IconArrowRight size={15} />
@@ -826,7 +939,7 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => handleFinish(false)}
               disabled={savingRole}
             >
               {t("agentChat.onboarding.skipForNow")}
@@ -847,7 +960,7 @@ export function FirstRunOnboarding({
         {completeFirstRunError && (
           <FirstRunCompletionError
             message={completeFirstRunError}
-            onRetry={finishOnboarding}
+            onRetry={() => void finishOnboarding("role")}
           />
         )}
       </OnboardingShell>
@@ -958,7 +1071,7 @@ export function FirstRunOnboarding({
           type="button"
           data-testid="first-run-open-app"
           className={cn(primaryButtonClass, "mt-7")}
-          onClick={handleFinish}
+          onClick={() => void finishOnboarding("ready")}
         >
           Open app
           <IconArrowRight size={15} />
@@ -967,7 +1080,7 @@ export function FirstRunOnboarding({
       {completeFirstRunError && (
         <FirstRunCompletionError
           message={completeFirstRunError}
-          onRetry={finishOnboarding}
+          onRetry={() => void finishOnboarding("ready")}
         />
       )}
     </OnboardingShell>

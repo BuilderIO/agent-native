@@ -6854,6 +6854,7 @@ describe("server/auth", () => {
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",
@@ -6921,6 +6922,7 @@ describe("server/auth", () => {
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",

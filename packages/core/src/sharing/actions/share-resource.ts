@@ -2,6 +2,7 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import {
@@ -12,6 +13,7 @@ import {
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
 import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "../access.js";
@@ -348,12 +350,13 @@ export default defineAction({
       beforeExtensionTargets,
     );
 
-    if (
+    const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
       (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId)
-    ) {
+      !isSyntheticQaEmail(principalId);
+    let notified = false;
+    if (shouldNotify) {
       try {
         const titleCol = reg.titleColumn ?? "title";
         const [resource] = await db
@@ -488,12 +491,30 @@ export default defineAction({
           fromName,
           replyTo,
         });
+        notified = true;
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",
           err,
         );
       }
+    }
+
+    if (args.principalType === "user") {
+      const app = getAppConfig().app.slug ?? "unknown";
+      track(
+        "share_invite_sent",
+        {
+          app,
+          template: app,
+          resource_type: args.resourceType,
+          resource_id: args.resourceId,
+          principal_type: args.principalType,
+          role: args.role,
+          notified,
+        },
+        { userId: actor },
+      );
     }
 
     return { id, updated: false };
