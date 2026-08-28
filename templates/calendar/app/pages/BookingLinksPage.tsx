@@ -27,6 +27,7 @@ import {
   IconCircleCheck,
   IconCopy,
   IconExternalLink,
+  IconInfoCircle,
   IconLink,
   IconDotsVertical,
   IconPlus,
@@ -662,6 +663,20 @@ function BookingHostsEditor({
         <Label className="flex items-center gap-1.5">
           <IconUsers className="h-4 w-4" />
           {t("bookingLinks.requiredHosts")}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={t("bookingLinks.overlayHostsHint")}
+              >
+                <IconInfoCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-64">
+              {t("bookingLinks.overlayHostsHint")}
+            </TooltipContent>
+          </Tooltip>
         </Label>
         <p className="text-xs text-muted-foreground">
           {t("bookingLinks.requiredHostsDescription")}
@@ -746,11 +761,11 @@ function BookingHostsEditor({
           </Command>
         </PopoverContent>
       </Popover>
-      <p className="text-xs text-muted-foreground">
-        {overlayPeople.length > 0
-          ? t("bookingLinks.overlayHostsHint")
-          : t("bookingLinks.noOverlayPeopleYet")}
-      </p>
+      {overlayPeople.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          {t("bookingLinks.noOverlayPeopleYet")}
+        </p>
+      )}
 
       {calendarHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
