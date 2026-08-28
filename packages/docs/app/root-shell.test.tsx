@@ -87,5 +87,4 @@ describe("RootShell tree stability", () => {
     expect(screen.queryByTestId("real-sidebar")).toBeNull();
     expect(screen.getByTestId("settled").textContent).toBe("false");
   });
-
 });

@@ -80,13 +80,21 @@ function Settled({ children }: { children: React.ReactNode }) {
 describe("HeroBackground", () => {
   it("renders the ocean when an adapter is available", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     expect(await screen.findByTestId("ocean")).toBeDefined();
   });
 
   it("never flashes the halftone before the ocean", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
 
     // The halftone is the fallback, not a placeholder. Painting it for the
     // few hundred ms before the ocean arrives reads as a different background
@@ -98,14 +106,22 @@ describe("HeroBackground", () => {
 
   it("renders the halftone fallback when WebGPU is absent", async () => {
     removeGpu();
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
   it("treats a null adapter as unsupported rather than as a device", async () => {
     stubGpu(async () => null);
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
@@ -114,14 +130,22 @@ describe("HeroBackground", () => {
     stubGpu(async () => {
       throw new Error("adapter exploded");
     });
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
   it("renders no background at all while the probe is in flight", () => {
     stubGpu(() => new Promise(() => {}));
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     expect(screen.queryByTestId("halftone")).toBeNull();
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
@@ -130,7 +154,11 @@ describe("HeroBackground", () => {
     stubReducedMotion(true);
     const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
     stubGpu(requestAdapter);
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(requestAdapter).not.toHaveBeenCalled();
   });
@@ -138,7 +166,11 @@ describe("HeroBackground", () => {
   it("demotes to the fallback when reduced motion turns on mid-session", async () => {
     const motion = stubReducedMotion(false);
     stubGpu(async () => ({ name: "adapter" }));
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await screen.findByTestId("ocean");
 
     motion.fire(true);
@@ -147,7 +179,11 @@ describe("HeroBackground", () => {
 
   it("demotes to the fallback when the renderer fails after a good probe", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    render(<Settled><HeroBackground /></Settled>);
+    render(
+      <Settled>
+        <HeroBackground />
+      </Settled>,
+    );
     await screen.findByTestId("ocean");
 
     const { onError } = oceanMount.mock.calls.at(-1)![0];
