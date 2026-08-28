@@ -248,7 +248,15 @@ interface DeckContextType {
     updates: Partial<Omit<Slide, "id">>,
     options?: UpdateSlideOptions,
   ) => void;
+  updateSlides: (
+    deckId: string,
+    slideUpdates: {
+      slideId: string;
+      updates: Partial<Omit<Slide, "id">>;
+    }[],
+  ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
+  deleteSlides: (deckId: string, slideIds: string[]) => void;
   duplicateSlide: (deckId: string, slideId: string) => string | undefined;
   /** Inserts a copy of arbitrary slide data after `afterSlideId`. Used for
    *  slide cut/paste, where the original may already be deleted so there is
@@ -258,10 +266,16 @@ interface DeckContextType {
     afterSlideId: string,
     slideFields: Omit<Slide, "id">,
   ) => string | undefined;
+  pasteSlides: (
+    deckId: string,
+    afterSlideId: string,
+    slideFields: Omit<Slide, "id">[],
+  ) => string[];
   reorderSlides: (
     deckId: string,
     activeSlideId: string,
     overSlideId: string,
+    selectedSlideIds?: string[],
   ) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -869,19 +883,30 @@ type PatchDeckFields = Extract<
 >["fields"];
 
 /** Reorders the current slide list by stable IDs, or returns null for a no-op. */
-function reorderSlidesById(
+export function reorderSlidesById(
   slides: Slide[],
   activeSlideId: string,
   overSlideId: string,
+  selectedSlideIds?: readonly string[],
 ): Slide[] | null {
   const oldIndex = slides.findIndex((slide) => slide.id === activeSlideId);
   const newIndex = slides.findIndex((slide) => slide.id === overSlideId);
   if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return null;
 
-  const reordered = [...slides];
-  const [moved] = reordered.splice(oldIndex, 1);
-  if (!moved) return null;
-  reordered.splice(newIndex, 0, moved);
+  const movingIds = new Set(
+    selectedSlideIds?.includes(activeSlideId)
+      ? selectedSlideIds
+      : [activeSlideId],
+  );
+  if (movingIds.has(overSlideId)) return null;
+
+  const moving = slides.filter((slide) => movingIds.has(slide.id));
+  const remaining = slides.filter((slide) => !movingIds.has(slide.id));
+  const targetIndex = remaining.findIndex((slide) => slide.id === overSlideId);
+  if (moving.length === 0 || targetIndex === -1) return null;
+
+  remaining.splice(targetIndex + (oldIndex < newIndex ? 1 : 0), 0, ...moving);
+  const reordered = remaining;
   return reordered;
 }
 
@@ -1933,6 +1958,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const recordUndoBatch = useCallback(
+    (before: Deck, redoOps: PatchDeckOp[], label: string) => {
+      let state = before;
+      const undoOps: PatchDeckOp[] = [];
+      for (const redoOp of redoOps) {
+        const inverseOps = deriveInverseOp(state, redoOp);
+        if (!inverseOps) continue;
+        undoOps.unshift(...inverseOps);
+        state = applyOpToDeck(state, redoOp);
+      }
+      if (undoOps.length === 0) return;
+      undoControllerRef.current?.push({
+        undo: undoOps.map((op) => ({ deckId: before.id, ...op })),
+        redo: redoOps.map((op) => ({ deckId: before.id, ...op })),
+        label,
+      });
+    },
+    [],
+  );
+
   /**
    * Apply a remote deck snapshot (agent / collaborator via SSE or poll) and
    * record a replace-deck undo entry when content actually changed. Without
@@ -2957,6 +3002,47 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, setDecksLocal],
   );
 
+  const updateSlides = useCallback(
+    (
+      deckId: string,
+      slideUpdates: {
+        slideId: string;
+        updates: Partial<Omit<Slide, "id">>;
+      }[],
+    ) => {
+      const before = decksRef.current.find((d) => d.id === deckId);
+      if (!before) return;
+      const validUpdates = slideUpdates.filter(({ slideId }) =>
+        before.slides.some((slide) => slide.id === slideId),
+      );
+      if (validUpdates.length === 0) return;
+      const ops: PatchDeckOp[] = validUpdates.map(({ slideId, updates }) => ({
+        op: "patch-slide",
+        slideId,
+        fields: updates,
+      }));
+      const applyUpdates = (d: Deck) => {
+        if (d.id !== deckId) return d;
+        return {
+          ...d,
+          slides: d.slides.map((slide) => {
+            const update = validUpdates.find(
+              ({ slideId }) => slideId === slide.id,
+            );
+            return update ? { ...slide, ...update.updates } : slide;
+          }),
+          updatedAt: new Date().toISOString(),
+        };
+      };
+      markDeckDirty(deckId);
+      decksRef.current = decksRef.current.map(applyUpdates);
+      setDecksLocal((prev) => prev.map(applyUpdates));
+      for (const op of ops) enqueueDeckOp(deckId, op);
+      recordUndoBatch(before, ops, "Update slides");
+    },
+    [markDeckDirty, recordUndoBatch, setDecksLocal],
+  );
+
   const deleteSlide = useCallback(
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
@@ -2964,21 +3050,23 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (before?.slides.some((slide) => slide.id === slideId)) {
         markSlideDeleteTombstone(deckId, slideId);
       }
-      setDecksLocal((prev) =>
-        prev.map((d) => {
-          if (d.id !== deckId) return d;
-          const slides = d.slides.filter((s) => s.id !== slideId);
-          if (slides.length === 0) {
-            slides.push({
-              id: nanoid(8),
-              content: defaultSlideContent.blank,
-              notes: "",
-              layout: "blank",
-            });
-          }
-          return { ...d, slides, updatedAt: new Date().toISOString() };
-        }),
-      );
+      const removeSlide = (d: Deck) => {
+        if (d.id !== deckId) return d;
+        const slides = d.slides.filter((s) => s.id !== slideId);
+        if (slides.length === 0) {
+          slides.push({
+            id: nanoid(8),
+            content: defaultSlideContent.blank,
+            notes: "",
+            layout: "blank",
+          });
+        }
+        return { ...d, slides, updatedAt: new Date().toISOString() };
+      };
+      // Keep same-event bulk deletes' undo snapshots anchored to the result of
+      // the previous delete, before React applies the queued state updater.
+      decksRef.current = decksRef.current.map(removeSlide);
+      setDecksLocal((prev) => prev.map(removeSlide));
       // Granular op — server deletes only this slide from the blob.
       const op: PatchDeckOp = { op: "delete-slide", slideId };
       enqueueDeckOp(deckId, op);
@@ -2988,6 +3076,43 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (before) recordUndo(before, op, { label: "Delete slide" });
     },
     [markDeckDirty, markSlideDeleteTombstone, recordUndo, setDecksLocal],
+  );
+
+  const deleteSlides = useCallback(
+    (deckId: string, slideIds: string[]) => {
+      const before = decksRef.current.find((d) => d.id === deckId);
+      if (!before) return;
+      const ids = new Set(slideIds);
+      const slides = before.slides.filter((slide) => ids.has(slide.id));
+      if (slides.length === 0) return;
+      const deletedIds = new Set(slides.map((slide) => slide.id));
+      const ops: PatchDeckOp[] = slides.map((slide) => ({
+        op: "delete-slide",
+        slideId: slide.id,
+      }));
+      markDeckDirty(deckId);
+      for (const slide of slides) {
+        markSlideDeleteTombstone(deckId, slide.id);
+      }
+      const removeSlides = (d: Deck) => {
+        if (d.id !== deckId) return d;
+        const remaining = d.slides.filter((slide) => !deletedIds.has(slide.id));
+        if (remaining.length === 0) {
+          remaining.push({
+            id: nanoid(8),
+            content: defaultSlideContent.blank,
+            notes: "",
+            layout: "blank",
+          });
+        }
+        return { ...d, slides: remaining, updatedAt: new Date().toISOString() };
+      };
+      decksRef.current = decksRef.current.map(removeSlides);
+      setDecksLocal((prev) => prev.map(removeSlides));
+      for (const op of ops) enqueueDeckOp(deckId, op);
+      recordUndoBatch(before, ops, "Delete slides");
+    },
+    [markDeckDirty, markSlideDeleteTombstone, recordUndoBatch, setDecksLocal],
   );
 
   const duplicateSlide = useCallback(
@@ -3056,8 +3181,57 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, setDecksLocal],
   );
 
+  const pasteSlides = useCallback(
+    (
+      deckId: string,
+      afterSlideId: string,
+      slideFields: Omit<Slide, "id">[],
+    ) => {
+      const before = decksRef.current.find((d) => d.id === deckId);
+      if (!before || slideFields.length === 0) return [];
+
+      markDeckDirty(deckId);
+      let insertAfter = afterSlideId;
+      const newSlides: Slide[] = [];
+      const ops: PatchDeckOp[] = [];
+      for (const fields of slideFields) {
+        const newSlide: Slide = { ...fields, id: nanoid(8) };
+        newSlides.push(newSlide);
+        ops.push({
+          op: "add-slide",
+          slideId: newSlide.id,
+          afterSlideId: insertAfter,
+          fields: addSlideFields(newSlide),
+        });
+        insertAfter = newSlide.id;
+      }
+      const addSlides = (d: Deck) => {
+        if (d.id !== deckId) return d;
+        const index = d.slides.findIndex((slide) => slide.id === afterSlideId);
+        const slides = [...d.slides];
+        slides.splice(
+          index === -1 ? slides.length : index + 1,
+          0,
+          ...newSlides,
+        );
+        return { ...d, slides, updatedAt: new Date().toISOString() };
+      };
+      decksRef.current = decksRef.current.map(addSlides);
+      setDecksLocal((prev) => prev.map(addSlides));
+      for (const op of ops) enqueueDeckOp(deckId, op);
+      recordUndoBatch(before, ops, "Paste slides");
+      return newSlides.map((slide) => slide.id);
+    },
+    [markDeckDirty, recordUndoBatch, setDecksLocal],
+  );
+
   const reorderSlides = useCallback(
-    (deckId: string, activeSlideId: string, overSlideId: string) => {
+    (
+      deckId: string,
+      activeSlideId: string,
+      overSlideId: string,
+      selectedSlideIds?: string[],
+    ) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       if (!before) return;
 
@@ -3068,6 +3242,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         currentSlides,
         activeSlideId,
         overSlideId,
+        selectedSlideIds,
       );
       if (!orderedSlides) return;
       const orderedIds = orderedSlides.map((slide) => slide.id);
@@ -3086,6 +3261,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ),
             activeSlideId,
             overSlideId,
+            selectedSlideIds,
           );
           return slides ? { ...d, slides, updatedAt } : d;
         }),
@@ -3173,9 +3349,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         addSlide,
         flushDeckSave,
         updateSlide,
+        updateSlides,
         deleteSlide,
+        deleteSlides,
         duplicateSlide,
         pasteSlide,
+        pasteSlides,
         reorderSlides,
         setDeckSlides,
         markDeckDirty,

@@ -534,6 +534,7 @@ const messages = {
     duplicateSlide: "Duplicate slide",
     duplicate: "Duplicate",
     deleteSlide: "Delete slide",
+    slideDeleted: "Slide deleted",
     delete: "Delete",
     generatingSlide: "Generating slide",
     uploadFailed: "Upload failed",

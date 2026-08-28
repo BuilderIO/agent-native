@@ -523,6 +523,7 @@ const messages = {
     duplicateSlide: "复制幻灯片",
     duplicate: "复制",
     deleteSlide: "删除幻灯片",
+    slideDeleted: "幻灯片已删除",
     delete: "删除",
     generatingSlide: "正在生成幻灯片",
     uploadFailed: "上传失败",
