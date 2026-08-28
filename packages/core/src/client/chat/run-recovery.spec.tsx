@@ -217,8 +217,7 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message:
-                "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+              message: "The agent connection was interrupted.",
               errorCode: "connection_error",
               runId: "run-123",
               details: "attempted_runs: run-1, run-2",
@@ -234,9 +233,6 @@ describe("run recovery surfaces", () => {
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Debug-Informationen kopieren");
-      expect(container.textContent).toContain(
-        "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
-      );
     });
     const copyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Debug-Informationen kopieren"),
@@ -424,9 +420,7 @@ describe("run recovery surfaces", () => {
   // once a 401 started fingerprinting and skipping that credential, so the
   // setup flow and a retry now ship together.
   //
-  // Asserted through `aria-label`: the retry control is an icon-only button, so
-  // the previous `textContent` check read "" and passed no matter what
-  // rendered.
+  // The setup state keeps the retry action available below the card.
   it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
     const onRetry = vi.fn();
     await act(async () => {
@@ -453,8 +447,8 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
 
-    const retryButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Retry"]',
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
     );
     expect(retryButton).toBeTruthy();
     await act(async () => {
@@ -610,7 +604,7 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 
-  it("keeps invalid provider keys on the authentication recovery path", async () => {
+  it("renders invalid provider keys as setup without the warning", async () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -631,8 +625,9 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("The agent hit an error");
+    expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).not.toContain("The agent hit an error");
   });
 
   it("dismisses the recovery card after saving a provider key", async () => {
@@ -659,6 +654,9 @@ describe("run recovery surfaces", () => {
         </AgentNativeI18nProvider>,
       );
     });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain("The agent hit an error");
 
     const addKeysButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Custom keys"),

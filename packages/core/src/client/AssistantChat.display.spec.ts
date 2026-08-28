@@ -1552,7 +1552,8 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("modelCatalogConfirmsMissing");
     expect(source).toContain('agentEngineConfigured.state === "missing" &&');
     expect(source).toContain("isProviderAuthenticationError(");
-    expect(source).toContain("showRunningInUI || !shouldShowRunError");
+    expect(source).toContain("!showProviderAuthSetup");
+    expect(source).toContain("retryAfterRunError();");
     expect(source).toContain("onConnected={handleProviderSetupConnected}");
     expect(source).toMatch(
       /willQueue=\{\s*engineSetupRequired \|\| isRunning\s*\}/,

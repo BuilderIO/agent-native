@@ -511,12 +511,14 @@ export function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
-  const shouldShowProviderSetup =
-    isMissingLlmProviderRunError(info) || isDesktopChatRelayRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
   );
+  const shouldShowProviderSetup =
+    isMissingLlmProviderRunError(info) ||
+    isDesktopChatRelayRunError(info) ||
+    isProviderAuthError;
   // Blocked on something the reader goes and fixes elsewhere, then comes back
   // to. Recoverable runs and email verification keep a retry path; rejected
   // provider credentials use the setup flow below so the same bad key is not
@@ -612,7 +614,11 @@ export function RunErrorRecoveryCard({
         <BuilderSetupCard
           fullWidth
           layout="sidebar"
-          onConnected={handleMissingProviderConnected}
+          onConnected={
+            isProviderAuthError
+              ? handleProviderConnected
+              : handleMissingProviderConnected
+          }
         />
         {/*
           Deliberately not gated on `providerConnected`. That gate assumed
@@ -658,14 +664,6 @@ export function RunErrorRecoveryCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {localizeKnownChatErrorText(info.message, t)}
           </p>
-          {isProviderAuthError && (
-            <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
-              <BuilderSetupContent
-                layout="sidebar"
-                onConnected={handleProviderConnected}
-              />
-            </div>
-          )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {t("agentChat.recovery.credentialRejected")}
