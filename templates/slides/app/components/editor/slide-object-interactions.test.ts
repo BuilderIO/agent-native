@@ -94,6 +94,68 @@ describe("slide object interactions", () => {
     expect(result.get("a")).toEqual({ x: 6, y: 20, width: 24, height: 30 });
   });
 
+  it("keeps every non-uniform member above the minimum while preserving placement", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "small",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 30 },
+        },
+        {
+          objectId: "large",
+          element: document.createElement("div"),
+          start: { x: 50, y: 60, width: 100, height: 80 },
+        },
+      ],
+      { handle: "se", dx: -90, dy: -70, minSize: 24 },
+    );
+
+    expect(result.get("small")).toEqual({
+      x: 10,
+      y: 20,
+      width: 24,
+      height: 24,
+    });
+    expect(result.get("large")).toEqual({
+      x: 58,
+      y: 52,
+      width: 120,
+      height: 64,
+    });
+  });
+
+  it("keeps the minimum member size while preserving aspect-locked scaling", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "wide",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 40 },
+        },
+        {
+          objectId: "square",
+          element: document.createElement("div"),
+          start: { x: 50, y: 60, width: 40, height: 40 },
+        },
+      ],
+      { handle: "se", dx: -80, dy: -80, preserveAspectRatio: true },
+    );
+
+    expect(result.get("wide")).toEqual({
+      x: 10,
+      y: 20,
+      width: 24,
+      height: 48,
+    });
+    expect(result.get("square")).toEqual({
+      x: 58,
+      y: 68,
+      width: 48,
+      height: 48,
+    });
+  });
+
   it("normalizes drag placement from either direction with a minimum size", () => {
     expect(
       createSlideObjectPlacementGeometry({ x: 160, y: 120 }, { x: 40, y: 30 }),

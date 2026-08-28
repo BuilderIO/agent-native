@@ -116,9 +116,13 @@ import {
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
+  applyOptimisticImagePreview,
+  hasOptimisticImagePreview,
   imageFileLooksSupported,
-  type SlideImageDropPosition,
   replaceOptimisticImagePreview,
+  stripOptimisticImagePreviews,
+  type OptimisticImagePreview,
+  type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import {
   insertDroppedImageIntoSlideHtml,
@@ -132,11 +136,13 @@ import {
 
 type EditorSidePanel = "comments" | null;
 
-type PendingImagePreview = {
+type PendingImagePreview = OptimisticImagePreview & {
   slideId: string;
-  previewSrc: string;
-  previewContent: string;
 };
+
+type PendingImagePreviewUpdate =
+  | PendingImagePreview[]
+  | ((current: PendingImagePreview[]) => PendingImagePreview[]);
 
 type AccessRequestCapability =
   | { available: true; token: string }
@@ -404,15 +410,35 @@ export default function DeckEditor() {
   } | null>(null);
   // Track which image src to replace
   const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
-  const [pendingImagePreview, setPendingImagePreview] =
-    useState<PendingImagePreview | null>(null);
+  const [pendingImagePreviews, setPendingImagePreviews] = useState<
+    PendingImagePreview[]
+  >([]);
+  const pendingImagePreviewsRef = useRef<PendingImagePreview[]>([]);
+
+  const updatePendingImagePreviews = useCallback(
+    (update: PendingImagePreviewUpdate) => {
+      const current = pendingImagePreviewsRef.current;
+      const next = typeof update === "function" ? update(current) : update;
+      const nextSources = new Set(next.map((preview) => preview.previewSrc));
+      for (const preview of current) {
+        if (!nextSources.has(preview.previewSrc)) {
+          URL.revokeObjectURL(preview.previewSrc);
+        }
+      }
+      pendingImagePreviewsRef.current = next;
+      setPendingImagePreviews(next);
+    },
+    [],
+  );
 
   useEffect(() => {
     return () => {
-      if (pendingImagePreview)
-        URL.revokeObjectURL(pendingImagePreview.previewSrc);
+      for (const preview of pendingImagePreviewsRef.current) {
+        URL.revokeObjectURL(preview.previewSrc);
+      }
+      pendingImagePreviewsRef.current = [];
     };
-  }, [pendingImagePreview]);
+  }, []);
 
   // Hidden file input for direct upload
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -851,31 +877,30 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       const targetSlideId = currentSlideRef.current.id;
       const previewSrc = URL.createObjectURL(file);
-      const previewContent = replaceSrc
-        ? replaceImageTargetInSlideHtml(
-            currentSlideRef.current.content,
-            replaceSrc,
-            previewSrc,
-            { alt: file.name },
-          )
-        : insertDroppedImageIntoSlideHtml(
-            currentSlideRef.current.content,
-            previewSrc,
-            { alt: file.name, position },
-          );
-      setPendingImagePreview({
+      const pendingPreview: PendingImagePreview = {
         slideId: targetSlideId,
         previewSrc,
-        previewContent,
-      });
+        replaceSrc,
+        alt: file.name,
+        position,
+        objectId: replaceSrc ? undefined : nanoid(8),
+      };
+      updatePendingImagePreviews((current) => [...current, pendingPreview]);
       const clearPreview = () => {
-        setPendingImagePreview((current) =>
-          current?.previewSrc === previewSrc ? null : current,
+        updatePendingImagePreviews((current) =>
+          current.filter((preview) => preview.previewSrc !== previewSrc),
         );
       };
 
       try {
         const newUrl = await uploadImageAsset(file);
+        if (
+          !pendingImagePreviewsRef.current.some(
+            (preview) => preview.previewSrc === previewSrc,
+          )
+        ) {
+          return;
+        }
         const targetSlide =
           currentSlideRef.current?.id === targetSlideId
             ? currentSlideRef.current
@@ -884,22 +909,26 @@ export default function DeckEditor() {
           clearPreview();
           return;
         }
-        let updatedContent = replaceSrc
-          ? replaceImageTargetInSlideHtml(
-              targetSlide.content,
-              replaceSrc,
-              newUrl,
-              { alt: file.name },
-            )
-          : insertDroppedImageIntoSlideHtml(targetSlide.content, newUrl, {
-              alt: file.name,
-              position,
-            });
-        updatedContent = replaceOptimisticImagePreview(
-          updatedContent,
+        const pendingForSlide = pendingImagePreviewsRef.current.filter(
+          (preview) => preview.slideId === targetSlideId,
+        );
+        const cleanTargetContent = stripOptimisticImagePreviews(
+          targetSlide.content,
+          pendingForSlide,
+        );
+        const previewContent = applyOptimisticImagePreview(
+          cleanTargetContent,
+          pendingPreview,
+        );
+        const updatedContent = replaceOptimisticImagePreview(
+          previewContent,
           previewSrc,
           newUrl,
         );
+        if (!hasOptimisticImagePreview(previewContent, previewSrc)) {
+          clearPreview();
+          return;
+        }
         if (updatedContent !== targetSlide.content) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
@@ -914,7 +943,7 @@ export default function DeckEditor() {
         });
       }
     },
-    [getDeck, id, t, updateSlide, uploadImageAsset],
+    [getDeck, id, t, updatePendingImagePreviews, updateSlide, uploadImageAsset],
   );
 
   // Drag an already-hosted image (e.g. dragged out of a generated-image
@@ -1624,9 +1653,18 @@ export default function DeckEditor() {
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
+  const pendingForCurrentSlide = currentSlide
+    ? pendingImagePreviews.filter(
+        (preview) => preview.slideId === currentSlide.id,
+      )
+    : [];
+  const previewContent = pendingForCurrentSlide.reduce(
+    (content, preview) => applyOptimisticImagePreview(content, preview),
+    currentSlide?.content ?? "",
+  );
   const editorSlide =
-    currentSlide && pendingImagePreview?.slideId === currentSlide.id
-      ? { ...currentSlide, content: pendingImagePreview.previewContent }
+    currentSlide && previewContent !== currentSlide.content
+      ? { ...currentSlide, content: previewContent }
       : currentSlide;
 
   const finishPresent = async (
@@ -2009,16 +2047,36 @@ export default function DeckEditor() {
             }
             onUpdateSlide={(updates, slideIdOverride, options) => {
               const targetSlideId = slideIdOverride ?? currentSlide.id;
-              const pending = pendingImagePreview;
+              const pendingForSlide = pendingImagePreviewsRef.current.filter(
+                (preview) => preview.slideId === targetSlideId,
+              );
+              const activePreviews =
+                updates.content === undefined
+                  ? pendingForSlide
+                  : pendingForSlide.filter((preview) =>
+                      hasOptimisticImagePreview(
+                        updates.content as string,
+                        preview.previewSrc,
+                      ),
+                    );
+              if (updates.content !== undefined) {
+                updatePendingImagePreviews((current) =>
+                  current.filter(
+                    (preview) =>
+                      preview.slideId !== targetSlideId ||
+                      activePreviews.some(
+                        (active) => active.previewSrc === preview.previewSrc,
+                      ),
+                  ),
+                );
+              }
               const safeUpdates =
-                pending?.slideId === targetSlideId &&
-                updates.content !== undefined
+                updates.content !== undefined && activePreviews.length > 0
                   ? {
                       ...updates,
-                      content: replaceOptimisticImagePreview(
+                      content: stripOptimisticImagePreviews(
                         updates.content,
-                        pending.previewSrc,
-                        null,
+                        activePreviews,
                       ),
                     }
                   : updates;

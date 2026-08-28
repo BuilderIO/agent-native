@@ -66,13 +66,27 @@ describe("sanitizeSlideUrl", () => {
     expect(sanitizeSlideUrl("javascript:alert(1)", "image")).toBeNull();
   });
 
-  it("allows blob urls for optimistic image previews only", () => {
-    expect(sanitizeSlideUrl("blob:https://example.com/preview", "image")).toBe(
-      "blob:https://example.com/preview",
-    );
+  it("allows blob urls only for explicitly enabled client previews", () => {
+    expect(
+      sanitizeSlideUrl("blob:https://example.com/preview", "image"),
+    ).toBeNull();
+    expect(
+      sanitizeSlideUrl("blob:https://example.com/preview", "image", {
+        allowBlob: true,
+      }),
+    ).toBe("blob:https://example.com/preview");
     expect(
       sanitizeSlideUrl("blob:https://example.com/preview", "link"),
     ).toBeNull();
+  });
+
+  it("does not persist blob image sources without the client preview opt-in", () => {
+    const html = '<div class="fmd-slide"><img src="blob:preview"></div>';
+
+    expect(sanitizeSlideHtml(html)).not.toContain("blob:preview");
+    expect(sanitizeSlideHtml(html, { allowBlobImages: true })).toContain(
+      "blob:preview",
+    );
   });
 });
 

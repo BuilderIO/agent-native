@@ -124,6 +124,7 @@ function decodeHtmlEntities(value: string): string {
 export function sanitizeSlideUrl(
   rawUrl: string | undefined,
   kind: "link" | "image" = "link",
+  options?: { allowBlob?: boolean },
 ): string | null {
   const value = String(rawUrl ?? "").trim();
   if (!value) return null;
@@ -148,10 +149,11 @@ export function sanitizeSlideUrl(
       : null;
   }
 
-  // Local object URLs power optimistic image previews while their durable
-  // upload finishes. They are safe as image sources and are stripped before
-  // slide content is persisted.
-  if (lower.startsWith("blob:")) return kind === "image" ? value : null;
+  // Local object URLs are only a client-side rendering affordance. They must
+  // be explicitly enabled so the default sanitizer cannot persist them.
+  if (lower.startsWith("blob:")) {
+    return kind === "image" && options?.allowBlob ? value : null;
+  }
 
   if (value.startsWith("/") || value.startsWith("#")) return value;
   if (value.startsWith("./") || value.startsWith("../")) return value;
@@ -235,6 +237,7 @@ function cleanNode(
   node: Node,
   doc: Document,
   scopeSelector?: string,
+  allowBlobImages = false,
 ): Node | null {
   if (node.nodeType === Node.TEXT_NODE) {
     return doc.createTextNode(node.textContent ?? "");
@@ -257,7 +260,7 @@ function cleanNode(
   if (!ALLOWED_TAGS.has(tag)) {
     const fragment = doc.createDocumentFragment();
     for (const child of Array.from(el.childNodes)) {
-      const cleaned = cleanNode(child, doc);
+      const cleaned = cleanNode(child, doc, undefined, allowBlobImages);
       if (cleaned) fragment.appendChild(cleaned);
     }
     return fragment;
@@ -277,7 +280,11 @@ function cleanNode(
       continue;
     }
     if (URL_ATTRS.has(name)) {
-      const safeUrl = sanitizeSlideUrl(value, tag === "img" ? "image" : "link");
+      const safeUrl = sanitizeSlideUrl(
+        value,
+        tag === "img" ? "image" : "link",
+        { allowBlob: allowBlobImages },
+      );
       if (!safeUrl) continue;
       out.setAttribute(name, safeUrl);
       continue;
@@ -297,14 +304,18 @@ function cleanNode(
   }
 
   for (const child of Array.from(el.childNodes)) {
-    const cleaned = cleanNode(child, doc, scopeSelector);
+    const cleaned = cleanNode(child, doc, scopeSelector, allowBlobImages);
     if (cleaned) out.appendChild(cleaned);
   }
 
   return out;
 }
 
-function sanitizeHtmlString(html: string, scopeSelector?: string): string {
+function sanitizeHtmlString(
+  html: string,
+  scopeSelector?: string,
+  allowBlobImages = false,
+): string {
   return (
     html
       .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
@@ -342,6 +353,7 @@ function sanitizeHtmlString(html: string, scopeSelector?: string): string {
           const safe = sanitizeSlideUrl(
             value,
             String(attr).toLowerCase() === "src" ? "image" : "link",
+            { allowBlob: allowBlobImages },
           );
           return safe ? ` ${attr}="${escapeHtml(safe)}"` : "";
         },
@@ -358,21 +370,22 @@ function sanitizeHtmlString(html: string, scopeSelector?: string): string {
 
 export function sanitizeSlideHtml(
   html: string,
-  options?: { scopeSelector?: string },
+  options?: { scopeSelector?: string; allowBlobImages?: boolean },
 ): string {
   const scopeSelector = options?.scopeSelector;
+  const allowBlobImages = options?.allowBlobImages ?? false;
   if (typeof DOMParser === "undefined") {
-    return sanitizeHtmlString(html, scopeSelector);
+    return sanitizeHtmlString(html, scopeSelector, allowBlobImages);
   }
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const fragment = doc.createDocumentFragment();
   for (const style of Array.from(doc.head.querySelectorAll("style"))) {
-    const cleaned = cleanNode(style, doc, scopeSelector);
+    const cleaned = cleanNode(style, doc, scopeSelector, allowBlobImages);
     if (cleaned) fragment.appendChild(cleaned);
   }
   for (const child of Array.from(doc.body.childNodes)) {
-    const cleaned = cleanNode(child, doc, scopeSelector);
+    const cleaned = cleanNode(child, doc, scopeSelector, allowBlobImages);
     if (cleaned) fragment.appendChild(cleaned);
   }
 

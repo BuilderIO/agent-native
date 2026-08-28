@@ -763,16 +763,45 @@ export function resizeSlideObjectMembers(
     dx,
     dy,
     preserveAspectRatio,
-    minSize,
+    minSize: 0,
   });
+  const minimumScaleX = Math.max(
+    ...members.map((member) => minSize / member.start.width),
+  );
+  const minimumScaleY = Math.max(
+    ...members.map((member) => minSize / member.start.height),
+  );
+  const scaleX = Math.max(resized.width / bounds.width, minimumScaleX);
+  const scaleY = Math.max(resized.height / bounds.height, minimumScaleY);
+  const scale = preserveAspectRatio ? Math.max(scaleX, scaleY) : undefined;
+  const width = bounds.width * (scale ?? scaleX);
+  const height = bounds.height * (scale ?? scaleY);
+  const resizesFromWest = handle === "nw" || handle === "w" || handle === "sw";
+  const resizesFromEast = handle === "ne" || handle === "e" || handle === "se";
+  const resizesFromNorth = handle === "nw" || handle === "n" || handle === "ne";
+  const resizesFromSouth = handle === "sw" || handle === "s" || handle === "se";
+  const group = {
+    x: resizesFromWest
+      ? bounds.x + bounds.width - width
+      : resizesFromEast
+        ? bounds.x
+        : bounds.x + (bounds.width - width) / 2,
+    y: resizesFromNorth
+      ? bounds.y + bounds.height - height
+      : resizesFromSouth
+        ? bounds.y
+        : bounds.y + (bounds.height - height) / 2,
+    width,
+    height,
+  };
   const plan = new Map<string, SlideObjectGeometry>();
   for (const member of members) {
     const { start } = member;
     plan.set(member.objectId, {
-      x: resized.x + ((start.x - bounds.x) / bounds.width) * resized.width,
-      y: resized.y + ((start.y - bounds.y) / bounds.height) * resized.height,
-      width: (start.width / bounds.width) * resized.width,
-      height: (start.height / bounds.height) * resized.height,
+      x: group.x + ((start.x - bounds.x) / bounds.width) * group.width,
+      y: group.y + ((start.y - bounds.y) / bounds.height) * group.height,
+      width: (start.width / bounds.width) * group.width,
+      height: (start.height / bounds.height) * group.height,
     });
   }
   return plan;
