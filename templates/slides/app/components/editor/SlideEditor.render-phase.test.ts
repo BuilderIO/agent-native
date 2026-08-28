@@ -137,6 +137,19 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("lets HTML-only native paste beat a stale object clipboard", () => {
+    const pasteStart = source.indexOf("// Object paste waits");
+    const pasteEnd = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+
+    expect(pasteBody).toContain('type.startsWith("text/")');
+    expect(pasteBody).toContain("e.clipboardData?.getData(type)?.trim()");
+    expect(pasteBody).toContain("if (hasNativeText) return;");
+  });
+
   it("re-measures portaled selection chrome after the editor layout moves", () => {
     const start = source.indexOf("const refreshMultiSelectionRects");
     const end = source.indexOf("// Keep cached rects fresh", start);

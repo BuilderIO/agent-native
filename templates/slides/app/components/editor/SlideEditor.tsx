@@ -4048,7 +4048,12 @@ export default function SlideEditor({
       ) {
         return;
       }
-      if (e.clipboardData?.getData("text/plain")?.trim()) return;
+      const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
+        (type) =>
+          type.startsWith("text/") &&
+          Boolean(e.clipboardData?.getData(type)?.trim()),
+      );
+      if (hasNativeText) return;
       const clipboard = copiedObjectClipboardRef.current;
       if (!clipboard || clipboard.deckId !== deckId) return;
       e.preventDefault();
