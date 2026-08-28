@@ -4,8 +4,9 @@ struct ParticleUniforms {
   viewport: vec4f,
   world: vec4f,
   fade: vec4f,
-  // Cursor deformation. pointer is (world x, world z, strength, unused) and
-  // changes every frame; pointerShape is (sigma, push, depth, rim).
+  // Cursor deformation. pointer is (world x, world z, strength, sigma) and
+  // changes every frame -- sigma included, because it scales with how far the
+  // cursor is from the camera. pointerShape is (steepness, push, rim, unused).
   pointer: vec4f,
   pointerShape: vec4f,
   // Adaptive thinning: (continuous level, max level, unused, unused).
@@ -76,10 +77,13 @@ fn quadCorner(vertexIndex: u32) -> vec2f {
   // the field instead of a hand pressing into water.
   let pointerStrength = u.pointer.z;
   if (pointerStrength > 0.0) {
-    let sigma = max(0.001, u.pointerShape.x);
+    // Sigma arrives already scaled by camera distance, and the depth is a fixed
+    // fraction of it, so the well is the same shape on screen wherever the
+    // cursor is rather than flattening out toward the horizon.
+    let sigma = max(0.001, u.pointer.w);
     let invSigma2 = 1.0 / (sigma * sigma);
-    let rim = u.pointerShape.w;
-    let depth = u.pointerShape.z * pointerStrength;
+    let rim = u.pointerShape.z;
+    let depth = sigma * u.pointerShape.x * pointerStrength;
 
     // Outward from the cursor, and a Gaussian rather than an inverse-square
     // falloff: the long tail of an inverse square touches the whole field at

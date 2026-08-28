@@ -41,8 +41,9 @@ import {
 import { createParticleBudget } from "./particle-budget";
 import particlesWgsl from "./particles.wgsl";
 import {
-  POINTER_POSITION_EASING,
-  POINTER_STRENGTH_EASING,
+  easingAlpha,
+  POINTER_POSITION_TAU_MS,
+  POINTER_STRENGTH_TAU_MS,
   projectPointerToOcean,
 } from "./pointer";
 import presentWgsl from "./present.wgsl";
@@ -243,10 +244,15 @@ export function createRenderer({
         if (disposed || paused || !graph || !output) return;
         try {
           const now = performance.now();
-          if (lastFrameAt) budget.record(now - lastFrameAt);
+          // Falls back to the nominal budget on the first frame, where there is
+          // no previous timestamp to difference against.
+          const dtMs = lastFrameAt
+            ? now - lastFrameAt
+            : OCEAN_TUNING.adaptive.frameBudgetMs;
+          if (lastFrameAt) budget.record(dtMs);
           lastFrameAt = now;
           easeParticleLevel(graph);
-          easePointer();
+          easePointer(dtMs);
           setPointerUniform(
             graph,
             output.size,
@@ -303,11 +309,13 @@ export function createRenderer({
     setParticleLevel(current, liveLevel);
   }
 
-  function easePointer(): void {
-    pointerX += (targetPointerX - pointerX) * POINTER_POSITION_EASING;
-    pointerY += (targetPointerY - pointerY) * POINTER_POSITION_EASING;
+  function easePointer(dtMs: number): void {
+    const positionAlpha = easingAlpha(dtMs, POINTER_POSITION_TAU_MS);
+    const strengthAlpha = easingAlpha(dtMs, POINTER_STRENGTH_TAU_MS);
+    pointerX += (targetPointerX - pointerX) * positionAlpha;
+    pointerY += (targetPointerY - pointerY) * positionAlpha;
     pointerStrength +=
-      (targetPointerStrength - pointerStrength) * POINTER_STRENGTH_EASING;
+      (targetPointerStrength - pointerStrength) * strengthAlpha;
     // Snap the tail to zero so an off-screen cursor stops writing a uniform
     // whose effect has already fallen below a pixel.
     if (targetPointerStrength === 0 && pointerStrength < 0.001) {
@@ -694,16 +702,21 @@ function setPointerUniform(
   ndcY: number,
   strength: number,
 ): void {
-  const world =
-    strength > 0 ? projectPointerToOcean(ndcX, ndcY, size) : undefined;
-  if (!world) {
+  if (strength <= 0) {
     if (!graph.pointerActive) return;
     graph.pointerActive = false;
     graph.particles.set({ u: { pointer: [0, 0, 0, 0] } });
     return;
   }
+  // Every cursor position maps to a point, so there is no "off the water" case
+  // to gate on here -- that gate is what made the interaction stop dead above
+  // the visible band of particles.
+  const aim = projectPointerToOcean(ndcX, ndcY, size);
+  const sigma = aim.distance * OCEAN_TUNING.particles.pointerAngularRadius;
   graph.pointerActive = true;
-  graph.particles.set({ u: { pointer: [world[0], world[1], strength, 0] } });
+  graph.particles.set({
+    u: { pointer: [aim.worldX, aim.worldZ, strength, sigma] },
+  });
 }
 
 function setDynamics(graph: OceanGraph, timeSeconds: number): void {
@@ -733,10 +746,10 @@ function setParticleConstants(
       ],
       pointer: [0, 0, 0, 0],
       pointerShape: [
-        tuning.particles.pointerRadius,
+        tuning.particles.pointerSteepness,
         tuning.particles.pointerPush,
-        tuning.particles.pointerDepth,
         tuning.particles.pointerRim,
+        0,
       ],
       density: [level, tuning.adaptive.maxLevel, 0, 0],
       oceanColor: tuning.particles.oceanColor,

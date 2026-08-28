@@ -25,26 +25,27 @@ export interface OceanTuning {
     readonly fadeFar: number;
     readonly fadePower: number;
     /**
-     * Gaussian sigma of the cursor's well, in world units. The deformation is
-     * effectively gone by about three times this, which is the point: a long
-     * falloff tail touches the whole field at once and reads as an overlay.
+     * Gaussian sigma of the cursor's well, as a fraction of the camera distance
+     * to the point it acts on rather than a fixed world size. An absolute radius
+     * covers half the frame up close and a few pixels near the horizon, which
+     * reads as the cursor working inconsistently across the hero. Scaling with
+     * distance keeps it about the same size on screen everywhere.
      */
-    readonly pointerRadius: number;
+    readonly pointerAngularRadius: number;
     /**
-     * Lateral parting, as a fraction of the distance from the cursor. Wave
-     * features here are about one world unit tall, so much above this smears
-     * the pattern sideways instead of displacing water.
+     * Relief of the well as a fraction of its own sigma, so the shape stays
+     * self-similar at every distance. This is the slope the tilted normals
+     * shade, so it is the knob that controls how strongly the interaction reads.
      */
-    readonly pointerPush: number;
-    /**
-     * World-space depth of the well under the cursor. Sized against the wave
-     * amplitude the crest shading is calibrated for -- particles.wgsl ramps
-     * `crest` over a height of -0.5 to 1.5 -- so far above that reads as a
-     * crater rather than a dent.
-     */
-    readonly pointerDepth: number;
+    readonly pointerSteepness: number;
     /** Height of the ring thrown up around the well, relative to its depth. */
     readonly pointerRim: number;
+    /**
+     * Lateral parting, as a fraction of the distance from the cursor. Small on
+     * purpose: past roughly the wave amplitude it smears the pattern sideways
+     * instead of displacing water.
+     */
+    readonly pointerPush: number;
     readonly oceanColor: readonly [number, number, number, number];
     readonly neonColor: readonly [number, number, number, number];
     readonly foamColor: readonly [number, number, number, number];
@@ -124,14 +125,14 @@ const UPSTREAM_TUNING: OceanTuning = {
     fadeNear: 60,
     fadeFar: 250,
     fadePower: 3.2,
-    // Ours, not upstream's: the example has no pointer interaction at all.
-    // Sized so the rim clears the wave band the crest shading ramps over and
-    // the wall of the well is steep enough for the tilted normals to show:
-    // ~3.3 world units of relief across 22, against ~1-unit waves.
-    pointerRadius: 22,
-    pointerPush: 0.05,
-    pointerDepth: 2.5,
+    // Ours, not upstream's: the example has no pointer interaction at all. At a
+    // typical 120-unit distance this is a sigma of ~36 carrying ~7.5 units of
+    // relief, against waves about one unit tall -- deliberately several times
+    // the wave height, because a well the size of the waves reads as more waves.
+    pointerAngularRadius: 0.3,
+    pointerSteepness: 0.16,
     pointerRim: 1.5,
+    pointerPush: 0.08,
     oceanColor: [
       0.003035269835488375, 0.003035269835488375, 0.003035269835488375, 0,
     ],
