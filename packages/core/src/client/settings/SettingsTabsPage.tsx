@@ -260,6 +260,7 @@ function updateRouteForTab(tabId: string, section?: string) {
     "",
     `${appPath(route)}${window.location.search}`,
   );
+  window.dispatchEvent(new Event("popstate"));
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -564,7 +565,6 @@ function SettingsTabsPageContent({
     if (section) {
       updateRouteForTab(entry.tabId, section);
       // Let the inner panels open + scroll to their section.
-      window.dispatchEvent(new Event("popstate"));
       window.dispatchEvent(new Event("hashchange"));
       window.requestAnimationFrame(() => {
         document

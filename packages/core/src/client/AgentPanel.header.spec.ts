@@ -222,6 +222,46 @@ describe("AgentPanel settings navigation", () => {
       container.remove();
     }
   });
+
+  it("preserves the app base path when opening settings", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let pathname = "";
+
+    function LocationProbe() {
+      pathname = useLocation().pathname;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "voice" },
+          }),
+        );
+      });
+
+      expect(pathname).toBe("/dispatch/settings");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+    }
+  });
 });
 
 describe("AgentPanel mode and full-view visibility", () => {
@@ -466,7 +506,7 @@ describe("AgentChatSurface chrome defaults", () => {
     expect(source).not.toContain("SettingsPanel");
     expect(source).not.toContain("allowSettingsMode");
     expect(source).not.toContain('mode === "settings"');
-    expect(source).toContain('pathname: "/settings"');
+    expect(source).toContain('pathname: appPath("/settings")');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

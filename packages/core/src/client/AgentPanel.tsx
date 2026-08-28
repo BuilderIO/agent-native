@@ -231,7 +231,7 @@ export function AgentPanelSettingsNavigation() {
       const section = (event as CustomEvent<{ section?: string }>).detail
         ?.section;
       void navigate({
-        pathname: "/settings",
+        pathname: appPath("/settings"),
         hash: settingsRouteHashForSection(section, window.location.hash),
       });
     }

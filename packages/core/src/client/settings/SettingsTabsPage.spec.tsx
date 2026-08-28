@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useNavigate } from "react-router";
+import { BrowserRouter, MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
@@ -64,6 +64,7 @@ describe("SettingsTabsPage", () => {
     container.remove();
     document.body.innerHTML = "";
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("focuses the settings search on desktop entry", () => {
@@ -501,6 +502,44 @@ describe("SettingsTabsPage", () => {
 
     act(() => navigateButton!.click());
 
+    expect(container.textContent).toContain("Workspace content");
+    expect(container.textContent).not.toContain("Agent content");
+  });
+
+  it("keeps BrowserRouter in sync when a tab updates native history", () => {
+    window.history.replaceState(null, "", "/settings/agent");
+
+    act(() => {
+      root.render(
+        <BrowserRouter>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <div>Agent content</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                content: <div>Workspace content</div>,
+              },
+            ]}
+          />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent content");
+    const workspaceTab = container.querySelector<HTMLButtonElement>(
+      "#settings-tab-workspace",
+    );
+    expect(workspaceTab).not.toBeNull();
+
+    act(() => workspaceTab!.click());
+
+    expect(window.location.pathname).toBe("/settings/workspace");
     expect(container.textContent).toContain("Workspace content");
     expect(container.textContent).not.toContain("Agent content");
   });
