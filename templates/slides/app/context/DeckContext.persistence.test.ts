@@ -1,5 +1,6 @@
 import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
+import { hashSlideContent } from "@shared/slide-fit";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -19,6 +20,8 @@ const requestString = (value: unknown) =>
       : value instanceof Request
         ? value.url
         : testString(value);
+
+import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 const orgQueryState = vi.hoisted(() => ({
   data: undefined as unknown,
@@ -102,6 +105,8 @@ function setupFetch(options?: {
   deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
+  patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
+  putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
 }) {
   let resolveCreate: (response: Response) => void = () => {};
   let resolveDeferredPut: (() => void) | null = null;
@@ -164,8 +169,12 @@ function setupFetch(options?: {
       ) {
         return Promise.reject(new Error("save-deck failed"));
       }
+      const response =
+        typeof options?.putResponse === "function"
+          ? options.putResponse(actionCallBody(init))
+          : (options?.putResponse ?? { ok: true });
       return Promise.resolve(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        new Response(JSON.stringify(response), { status: 200 }),
       );
     }
 
@@ -250,8 +259,12 @@ function setupFetch(options?: {
       ) {
         return Promise.reject(new Error("patch-deck failed"));
       }
+      const response =
+        typeof options?.patchResponse === "function"
+          ? options.patchResponse(actionCallBody(init))
+          : (options?.patchResponse ?? { ok: true });
       return Promise.resolve(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        new Response(JSON.stringify(response), { status: 200 }),
       );
     }
 
@@ -406,6 +419,7 @@ describe("DeckContext deck creation persistence", () => {
           content: "<h1>Before</h1>",
           notes: "",
           layout: "title",
+          layoutFitRevision: "initial-revision",
         },
       ],
     });
@@ -522,6 +536,246 @@ describe("DeckContext deck creation persistence", () => {
           init?.keepalive === true,
       ),
     ).toBe(true);
+  });
+
+  it("merges server layout-fit revisions into optimistic slide writes", async () => {
+    window.history.pushState({}, "", "/deck/fit-revision-deck");
+    const initial: Deck = {
+      id: "fit-revision-deck",
+      title: "Fit revision deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: (body: Record<string, unknown>) => {
+        const operation = (
+          body.operations as Array<{
+            slideId: string;
+            fields?: { content?: string };
+          }>
+        )[0];
+        const content = normalizeSlidePadding(operation.fields?.content ?? "");
+        return {
+          ok: true,
+          layoutFit: {
+            status: "pending",
+            slides: [
+              {
+                slideId: operation.slideId,
+                contentHash: hashSlideContent(content),
+                layoutFitRevision: "server-patch-revision",
+              },
+            ],
+          },
+        };
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: '<div class="fmd-slide"><h1>After</h1></div>' },
+        { persistence: "immediate" },
+      );
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).not.toBe("initial-revision");
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).toBe("server-patch-revision");
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      normalizeSlidePadding('<div class="fmd-slide"><h1>After</h1></div>'),
+    );
+  });
+
+  it("merges revisions returned by add-slide and save-deck", async () => {
+    window.history.pushState({}, "", "/deck/fit-revision-add-deck");
+    const initial: Deck = {
+      id: "fit-revision-add-deck",
+      title: "Fit revision add deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: (body: Record<string, unknown>) => {
+        const operation = (
+          body.operations as Array<{
+            slideId: string;
+            fields?: { content?: string };
+          }>
+        )[0];
+        return {
+          ok: true,
+          layoutFit: {
+            status: "pending",
+            slides: [
+              {
+                slideId: operation.slideId,
+                contentHash: hashSlideContent(operation.fields?.content ?? ""),
+                layoutFitRevision: "server-add-revision",
+              },
+            ],
+          },
+        };
+      },
+      putResponse: (body: Record<string, unknown>) => {
+        const deck = body.deck as { slides: Array<Record<string, unknown>> };
+        return {
+          ...deck,
+          slides: deck.slides.map((slide) => ({
+            ...slide,
+            layoutFitRevision: "server-full-revision",
+          })),
+        };
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    act(() => {
+      addedSlideId = result.current.addSlide(initial.id, "content", undefined, {
+        persistence: "immediate",
+      });
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.find((slide) => slide.id === addedSlideId)?.layoutFitRevision,
+    ).toBe("server-add-revision");
+
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[0]!, content: "<h1>Replaced</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).toBe("server-full-revision");
+  });
+
+  it("merges deck-wide fit revisions for aspect-ratio and design-system writes", async () => {
+    window.history.pushState({}, "", "/deck/deck-fit-fields");
+    const initial: Deck = {
+      id: "deck-fit-fields",
+      title: "Deck fit fields",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      designSystemId: "ds-old",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "initial-revision-1",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "initial-revision-2",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: () => ({
+        ok: true,
+        layoutFit: {
+          status: "pending",
+          slides: initial.slides.map((slide, index) => ({
+            slideId: slide.id,
+            contentHash: hashSlideContent(slide.content),
+            layoutFitRevision: `server-deck-revision-${index}`,
+          })),
+        },
+      }),
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const beforeAspectRevisions = result.current
+      .getDeck(initial.id)
+      ?.slides.map((slide) => slide.layoutFitRevision);
+    act(() => {
+      result.current.updateDeck(initial.id, { aspectRatio: "4:3" });
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).not.toEqual(beforeAspectRevisions);
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
+
+    const beforeDesignSystemRevisions = result.current
+      .getDeck(initial.id)
+      ?.slides.map((slide) => slide.layoutFitRevision);
+    act(() => {
+      result.current.updateDeck(initial.id, { designSystemId: "ds-new" });
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).not.toEqual(beforeDesignSystemRevisions);
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -1452,6 +1706,8 @@ describe("DeckContext deck creation persistence", () => {
     const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
     const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
     const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
+    const normalizedMovedContent = normalizeSlidePadding(movedContent);
+    const normalizedResizedContent = normalizeSlidePadding(resizedContent);
     setAccessibleDeck({
       id: "gesture-deck",
       title: "Gesture deck",
@@ -1508,12 +1764,12 @@ describe("DeckContext deck creation persistence", () => {
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
-            movedContent,
+            normalizedMovedContent,
         ) &&
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
-            resizedContent,
+            normalizedResizedContent,
         )
       );
     });
@@ -1523,17 +1779,17 @@ describe("DeckContext deck creation persistence", () => {
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: movedContent },
+          fields: { content: normalizedMovedContent },
         },
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: resizedContent },
+          fields: { content: normalizedResizedContent },
         },
       ],
     });
     expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
-      resizedContent,
+      normalizeSlidePadding(resizedContent),
     );
 
     act(() => result.current.undo());

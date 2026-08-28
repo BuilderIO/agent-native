@@ -31,7 +31,10 @@ import {
 import { createPortal } from "react-dom";
 
 import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
-import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
+import {
+  ExcalidrawSlide,
+  parseExcalidrawData,
+} from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
@@ -690,9 +693,7 @@ interface SlideEditorProps {
   ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
-  /** Owning deck id — surfaced in the slide-fit-check app-state payload so
-   *  `_await-fit-check` can build correct `update-slide --deckId=<id>`
-   *  agent retry commands. */
+  /** Owning deck id, included in fit measurements for later hash-keyed checks. */
   deckId?: string;
   /**
    * Called the moment the user enters contentEditable inline edit mode.
@@ -1060,12 +1061,10 @@ function rectsIntersect(
 /**
  * Push the current slide's vertical-fit measurement to application_state.
  * Browser-tab requests read the tab-scoped key; the legacy global key stays
- * available for CLI/headless runs. Always written, even when the slide fits —
- * the `add-slide` / `update-slide` actions poll this key and use the
- * `measuredAt` timestamp + matching `slideId` to confirm the slide they
- * just wrote has actually been re-rendered and re-measured. If
- * `verticalOverflow > 0`, the action returns an "overflow" message so the
- * agent can patch the slide; if it's 0, the action knows the slide fits.
+ * available for CLI/headless runs. Always written, even when the slide fits,
+ * so a later `get-layout-overflows` call can match the `contentHash` after an
+ * asynchronous write. The warning stays local to the editor and does not
+ * block persistence.
  *
  * `view-screen` and the editor badge also read this key so the agent can
  * see fit status without browser access of its own.
@@ -1075,6 +1074,7 @@ function syncOverflowToAppState(
     slideId: string;
     deckId?: string;
     contentHash: string;
+    layoutFitRevision?: string;
     contentHeight: number;
     contentWidth: number;
     viewportHeight: number;
@@ -1457,7 +1457,7 @@ export default function SlideEditor({
     setOverflowInfo(null);
     setIsAskingAgentToFix(false);
     syncOverflowToAppState(null);
-  }, [slide.id, slide.content]);
+  }, [slide.id, slide.content, slide.layoutFitRevision]);
 
   // Clear the app-state overflow key when this editor unmounts, so a stale
   // measurement never leaks into a different deck/slide context.
@@ -1495,6 +1495,9 @@ export default function SlideEditor({
         slideId: slide.id,
         deckId,
         contentHash: hashSlideContent(slide.content),
+        ...(slide.layoutFitRevision
+          ? { layoutFitRevision: slide.layoutFitRevision }
+          : {}),
         contentHeight: info.contentHeight,
         contentWidth: info.contentWidth,
         viewportHeight: info.viewportHeight,
@@ -1503,8 +1506,36 @@ export default function SlideEditor({
         horizontalOverflow: info.horizontalOverflow,
       });
     },
-    [slide.id, slide.content, deckId],
+    [slide.id, slide.content, slide.layoutFitRevision, deckId],
   );
+
+  useEffect(() => {
+    const hasRenderedExcalidraw = Boolean(
+      slide.excalidrawData &&
+      parseExcalidrawData(slide.excalidrawData)?.elements?.length,
+    );
+    if (!hasRenderedExcalidraw) return;
+    // Excalidraw is a fixed-size canvas rather than flow content, so it has no
+    // AutoFitContent measurement callback of its own. Publish its finite canvas
+    // geometry so changed drawings can complete the async fit check.
+    handleOverflowChange({
+      contentHeight: dims.height,
+      contentWidth: dims.width,
+      viewportHeight: dims.height,
+      viewportWidth: dims.width,
+      verticalOverflow: 0,
+      horizontalOverflow: 0,
+    });
+    handleAutofitSettled();
+  }, [
+    dims.height,
+    dims.width,
+    handleAutofitSettled,
+    handleOverflowChange,
+    slide.excalidrawData,
+    slide.id,
+    slide.layoutFitRevision,
+  ]);
 
   const handleAskAgentToFixLayout = useCallback(() => {
     if (

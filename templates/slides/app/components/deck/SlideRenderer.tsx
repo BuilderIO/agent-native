@@ -492,11 +492,10 @@ function useSlideAutofit(
       // Fire the callback on EVERY measurement (not just when the overflow
       // value changes). The editor uses this to refresh its
       // `application_state.slide-fit-check` record with a new `measuredAt`
-      // timestamp so the add-slide / update-slide actions can confirm the
-      // slide has been re-measured AFTER their write — even when an agent
-      // patch keeps the overflow at the same value (e.g. dropped one bullet
-      // and added another). The editor dedups React state changes on its
-      // own end if needed.
+      // timestamp so a later `get-layout-overflows` call can confirm the
+      // slide has been re-measured after a write — even when an agent patch
+      // keeps the overflow at the same value (e.g. dropped one bullet and
+      // added another). The editor dedups React state changes on its own end.
       if (!isEditing) {
         overflowCallbackRef.current?.(
           worstInfo ?? {
@@ -998,13 +997,40 @@ export function SlideInner({
 
   useEffect(() => {
     overflowByTargetRef.current.clear();
-  }, [slide.id, slide.content, aspectRatio]);
+  }, [slide.id, slide.content, slide.layoutFitRevision, aspectRatio]);
+
+  const parsedExcalidrawData = slide.excalidrawData
+    ? parseExcalidrawData(slide.excalidrawData)
+    : null;
+  const hasExcalidraw = Boolean(parsedExcalidrawData?.elements?.length);
+
+  // Excalidraw is a fixed-size canvas and intentionally bypasses AutoFitContent.
+  // Report that finite canvas geometry so a drawing does not remain unknown to
+  // get-layout-overflows forever after its revision changes.
+  useEffect(() => {
+    if (!hasExcalidraw) return;
+    onOverflowChange?.({
+      contentHeight: dims.height,
+      contentWidth: dims.width,
+      viewportHeight: dims.height,
+      viewportWidth: dims.width,
+      verticalOverflow: 0,
+      horizontalOverflow: 0,
+    });
+    onAutofitSettled?.();
+  }, [
+    dims.height,
+    dims.width,
+    hasExcalidraw,
+    onAutofitSettled,
+    onOverflowChange,
+    slide.excalidrawData,
+    slide.id,
+    slide.layoutFitRevision,
+  ]);
 
   // If slide has excalidraw data, render it as a static SVG thumbnail
-  if (
-    slide.excalidrawData &&
-    parseExcalidrawData(slide.excalidrawData)?.elements?.length
-  ) {
+  if (slide.excalidrawData && parsedExcalidrawData?.elements?.length) {
     return (
       <div
         className={`relative ${bgClass}`}
@@ -1052,7 +1078,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={left}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${left}`}
           className="slide-content text-white/90"
           onOverflowChange={(info) => reportTargetOverflow("left", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1067,7 +1093,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={right}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${right}`}
           className="slide-content text-white/90"
           onOverflowChange={(info) => reportTargetOverflow("right", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1093,7 +1119,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={content}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
           className="h-full w-full"
           onOverflowChange={(info) => reportTargetOverflow("raw", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1119,7 +1145,7 @@ export function SlideInner({
       <AutoFitContent
         canvasWidth={dims.width}
         canvasHeight={dims.height}
-        fitKey={content}
+        fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
         className="slide-content text-white/90 w-full"
         onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
         onAutofitSettled={onAutofitSettled}

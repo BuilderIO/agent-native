@@ -592,7 +592,12 @@ export default function EditorSidebar({
   const measurementsRef = useRef(
     new Map<
       string,
-      { contentHash: string; info: SlideOverflowInfo; measuredAt: number }
+      {
+        contentHash: string;
+        layoutFitRevision?: string;
+        info: SlideOverflowInfo;
+        measuredAt: number;
+      }
     >(),
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -613,6 +618,9 @@ export default function EditorSidebar({
           slideId,
           {
             contentHash: measurement.contentHash,
+            ...(measurement.layoutFitRevision
+              ? { layoutFitRevision: measurement.layoutFitRevision }
+              : {}),
             contentHeight: measurement.info.contentHeight,
             contentWidth: measurement.info.contentWidth,
             viewportHeight: measurement.info.viewportHeight,
@@ -647,6 +655,9 @@ export default function EditorSidebar({
       const contentHash = hashSlideContent(slide.content);
       measurementsRef.current.set(slide.id, {
         contentHash,
+        ...(slide.layoutFitRevision
+          ? { layoutFitRevision: slide.layoutFitRevision }
+          : {}),
         info,
         measuredAt: Date.now(),
       });
