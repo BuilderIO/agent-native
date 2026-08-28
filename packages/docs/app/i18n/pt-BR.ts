@@ -516,7 +516,7 @@ const ptBR = {
       community: "Comunidade",
       legal: "Legal",
       docs: "Documentação",
-      actions: "Actions",
+      download: "Baixar",
       apps: "Apps",
       privacyPolicy: "Política de Privacidade",
       saasTerms: "Termos de SaaS",
