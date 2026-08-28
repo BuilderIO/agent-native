@@ -44,9 +44,11 @@ skip or dispatch is recorded.`;
 const PR_ALIGNMENT = `## Current review-prs contract
 
 The repository's \`.agents/skills/review-prs/SKILL.md\` is authoritative.
-Before selecting work, ignore drafts and pull requests with a current,
-non-dismissed APPROVED review, including bot approvals; do not inspect or
-recap those excluded items. For every remaining PR, read the complete title,
+Before selecting work, ignore drafts and ordinary pull requests with a
+current-head, non-dismissed APPROVED review, including bot approvals; do not
+inspect or recap those excluded items. Eligible Liam PRs with only older-head
+approvals remain candidates so the current head can be approved. For every
+remaining PR, read the complete title,
 body, links, changed-file diff (including generated and migration files), all
 review summaries/comments/replies, actual check conclusions, and ownership
 boundary. Verify current BuilderIO organization membership through GitHub's

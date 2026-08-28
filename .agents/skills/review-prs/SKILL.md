@@ -1,7 +1,7 @@
 ---
 name: review-prs
 description: >-
-  Review recent BuilderIO/agent-native pull requests, always approve PRs from
+  Review recent BuilderIO/agent-native pull requests, approve eligible PRs from
   liamdebeasi, approve other safe internal fixes under the internal-author and
   owner exceptions, merge safe Dependabot updates, skip drafts, and recap
   every disposition. Use for scheduled or manual PR review sweeps.
@@ -41,8 +41,9 @@ draft state and current review summary:
    approval; do not submit a duplicate approval.
 
 Only the remaining non-draft, unapproved PRs enter the ordinary evidence
-sweep below; non-draft Dependabot candidates also enter the merge evidence
-sweep even when they already have an approval.
+sweep below. Eligible Liam PRs with only older-head approvals also enter the
+sweep so the current head can be approved; non-draft Dependabot candidates
+also enter the merge evidence sweep even when they already have an approval.
 
 For every PR you inspect, read:
 

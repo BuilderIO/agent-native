@@ -221,6 +221,33 @@ export default defineAction({
       baseUrl: requiredAiServicesEnv("BUILDER_AI_SERVICES_URL"),
       authorization: `Bearer ${privateKey.startsWith("bpk-") ? privateKey : `bpk-${privateKey}`}`,
     });
+    const reconcileClaim = async (headSha: string, reason: string) => {
+      if (!itemId) return;
+      await getDb().transaction(async (tx) => {
+        await tx
+          .update(triageDecisions)
+          .set({ outcome: "needs_manual", reason })
+          .where(
+            and(
+              eq(
+                triageDecisions.id,
+                stableId("pr-governance", orgId, itemId, headSha),
+              ),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          );
+        await tx
+          .update(triageItems)
+          .set({
+            status: "reconciliation_required",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      });
+    };
     const snapshot = await aiServicesGit.fetchPullRequest({
       projectId,
       repo,
@@ -589,22 +616,105 @@ export default defineAction({
     }
 
     if (itemId) {
-      const postClaimSnapshot = await aiServicesGit.fetchPullRequest({
-        projectId,
-        repo,
-        pullRequestNumber,
-      });
-      if (postClaimSnapshot.headSha !== snapshot.headSha) {
-        throw new Error(
-          `PR evidence changed after approval claim: expected ${snapshot.headSha}, received ${postClaimSnapshot.headSha}.`,
+      let postClaimSnapshot: Awaited<
+        ReturnType<typeof aiServicesGit.fetchPullRequest>
+      >;
+      try {
+        postClaimSnapshot = await aiServicesGit.fetchPullRequest({
+          projectId,
+          repo,
+          pullRequestNumber,
+        });
+        if (postClaimSnapshot.headSha !== snapshot.headSha) {
+          throw new Error(
+            `PR evidence changed after approval claim: expected ${snapshot.headSha}, received ${postClaimSnapshot.headSha}.`,
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "unknown evidence error";
+        await reconcileClaim(
+          snapshot.headSha,
+          `Post-claim PR evidence could not be verified: ${message}. Reconciliation is required before approval.`,
         );
+        throw error;
       }
-      if (
-        currentPullRequestApprovals(
+      const postClaimBlockingReviewStatesClean =
+        !hasCurrentBlockingPullRequestReview(postClaimSnapshot.reviews);
+      const postClaimSafetyFindingsClean =
+        !postClaimSnapshot.commentsTruncated &&
+        !hasActiveCredibleSafetyFinding(
+          postClaimSnapshot.reviews,
+          postClaimSnapshot.comments,
+        );
+      const postClaimChecksPassed =
+        postClaimSnapshot.coverage === "complete" &&
+        postClaimSnapshot.checks.length > 0 &&
+        postClaimSnapshot.checks.every((check) => check.state === "passed");
+      const postClaimReviewFeedback = reconcileBabysitState({
+        comments: postClaimSnapshot.comments,
+        checks: postClaimSnapshot.checks,
+        commentsTruncated: postClaimSnapshot.commentsTruncated,
+        botAuthors: [
+          "github-actions",
+          "github-actions[bot]",
+          "dependabot[bot]",
+          "builderio[bot]",
+        ],
+      });
+      const postClaimReviewFeedbackHandled =
+        postClaimBlockingReviewStatesClean && postClaimReviewFeedback.isClean;
+      const postClaimInternalMember = await github.checkOrganizationMember(
+        "BuilderIO",
+        pullRequest.userLogin,
+      );
+      const postClaimGovernance = decidePullRequestGovernance({
+        author: pullRequest.userLogin,
+        authorId: pullRequest.userId,
+        repository: repo,
+        title: postClaimSnapshot.title,
+        summary: postClaimSnapshot.summary,
+        changedFiles: postClaimSnapshot.changedFiles,
+        clearBug,
+        productUxImplications,
+        checksPassed: postClaimChecksPassed,
+        reviewFeedbackHandled: postClaimReviewFeedbackHandled,
+        blockingReviewStatesClean: postClaimBlockingReviewStatesClean,
+        safetyFindingsClean: postClaimSafetyFindingsClean,
+        openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
+        internalBuilderMember: postClaimInternalMember.isMember,
+        factoryTriggered,
+      });
+      if (!postClaimGovernance.autoApprove) {
+        await reconcileClaim(
+          snapshot.headSha,
+          `Post-claim PR evidence no longer satisfies the approval gates: ${postClaimGovernance.reason}`,
+        );
+        return {
+          ok: true,
+          action: "needs_manual",
+          reason:
+            "Post-claim PR evidence no longer satisfies the approval gates; reconciliation is required.",
+        };
+      }
+      let postClaimApprovals;
+      try {
+        postClaimApprovals = currentPullRequestApprovals(
           postClaimSnapshot.reviews,
           postClaimSnapshot.headSha,
-        ).length > 0
-      ) {
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "unknown approval evidence error";
+        await reconcileClaim(
+          snapshot.headSha,
+          `Post-claim approval evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+        );
+        throw error;
+      }
+      if (postClaimApprovals.length > 0) {
         await getDb().transaction(async (tx) => {
           await tx
             .update(triageDecisions)

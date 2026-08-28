@@ -160,6 +160,18 @@ describe("pull-request governance", () => {
     ).toBe(true);
     expect(
       hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "This change enables XSS." }],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [{ state: "approved", body: "No XSS or CSRF vulnerabilities found." }],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
         [
           {
             author: "reviewer",
