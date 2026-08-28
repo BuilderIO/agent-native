@@ -61,6 +61,18 @@ describe("slide image replacement", () => {
     expect(img?.style.objectPosition).toBe("right bottom");
   });
 
+  it("keeps HTML image ranges intact when quoted attributes contain greater-than text", () => {
+    const src = "https://cdn.example.com/chart.png";
+    const html = `<div class="fmd-slide"><img src="${src}" alt="Revenue &gt; target > margin" style="object-fit: contain;"></div>`;
+    const img = firstImage(
+      updateImageFitInSlideHtml(html, src, { objectFit: "cover" }),
+    );
+
+    expect(img?.getAttribute("alt")).toBe("Revenue > target > margin");
+    expect(img?.style.objectFit).toBe("cover");
+    expect(img?.parentElement?.tagName).toBe("DIV");
+  });
+
   it("updates the selected duplicate image", () => {
     const src = "https://cdn.example.com/shared.png";
     const html = `<div class="fmd-slide"><img src="${src}" style="object-fit: contain;"><img src="${src}" style="object-fit: contain;"></div>`;
@@ -126,6 +138,20 @@ describe("slide image replacement", () => {
 
     expect(entityImage?.getAttribute("src")).toBe(entitySrc);
     expect(escapedImage?.getAttribute("src")).toBe(escapedSrc);
+  });
+
+  it("matches Markdown images with escaped brackets in their alt text", () => {
+    const src = "https://cdn.example.com/chart.png";
+    const img = firstImage(
+      updateImageFitInSlideHtml(
+        String.raw`![Quarterly \[draft\]](${src})`,
+        src,
+        { objectFit: "cover" },
+      ),
+    );
+
+    expect(img?.getAttribute("src")).toBe(src);
+    expect(img?.style.objectFit).toBe("cover");
   });
 
   it("keeps Markdown and HTML duplicate occurrences in rendered order", () => {

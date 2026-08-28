@@ -243,8 +243,8 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 const MARKDOWN_IMAGE_PATTERN =
-  /!\[([^\]]*)\]\(\s*(<[^>]+>|(?:\\.|[^)\s])+)(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
-const HTML_IMAGE_PATTERN = /<img\b[^>]*>/gi;
+  /!\[((?:\\.|[^\\\]])*)\]\(\s*(<[^>]+>|(?:\\.|[^)\s])+)(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+const HTML_IMAGE_START_PATTERN = /<img\b/gi;
 
 interface ImageSourceToken {
   end: number;
@@ -262,22 +262,44 @@ function decodeMarkdownImageDestination(rawSource: string): string {
   return (decoded ?? destination).replace(/\\([\\()])/g, "$1");
 }
 
-function imageSourceTokens(content: string): ImageSourceToken[] {
+function htmlImageSourceTokens(content: string): ImageSourceToken[] {
   const tokens: ImageSourceToken[] = [];
-  for (const match of content.matchAll(HTML_IMAGE_PATTERN)) {
-    const rawImage = match[0];
+  for (const match of content.matchAll(HTML_IMAGE_START_PATTERN)) {
+    const start = match.index ?? 0;
+    let quote: '"' | "'" | null = null;
+    let end = start + match[0].length;
+
+    for (; end < content.length; end += 1) {
+      const character = content[end];
+      if (quote) {
+        if (character === quote) quote = null;
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === ">") {
+        end += 1;
+        break;
+      }
+    }
+
+    if (content[end - 1] !== ">") continue;
+
+    const rawImage = content.slice(start, end);
     const image = parseFragment(rawImage).body.querySelector("img");
     const source = image?.getAttribute("src");
     if (source) {
-      const start = match.index ?? 0;
       tokens.push({
-        end: start + rawImage.length,
+        end,
         kind: "html",
         source,
         start,
       });
     }
   }
+  return tokens;
+}
+
+function imageSourceTokens(content: string): ImageSourceToken[] {
+  const tokens = htmlImageSourceTokens(content);
   for (const match of content.matchAll(MARKDOWN_IMAGE_PATTERN)) {
     const rawSource = match[2] as string;
     const start = match.index ?? 0;
