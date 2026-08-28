@@ -116,6 +116,13 @@ import {
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
+  getSlideClipboardStorageKey,
+  normalizeSlideClipboard,
+  readSlideClipboard,
+  resolveSlideClipboardForPaste,
+  writeSlideClipboard,
+} from "@/lib/slide-clipboard";
+import {
   applyOptimisticImagePreview,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
@@ -124,13 +131,6 @@ import {
   type OptimisticImagePreview,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
-import {
-  getSlideClipboardStorageKey,
-  normalizeSlideClipboard,
-  readSlideClipboard,
-  resolveSlideClipboardForPaste,
-  writeSlideClipboard,
-} from "@/lib/slide-clipboard";
 import {
   insertDroppedImageIntoSlideHtml,
   replaceImageTargetInSlideHtml,
