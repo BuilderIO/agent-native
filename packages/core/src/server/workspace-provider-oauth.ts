@@ -35,6 +35,7 @@ import { resolveSecret } from "./credential-provider.js";
 import {
   decodeOAuthState,
   encodeOAuthState,
+  getAppBasePath,
   getAppUrl,
   oauthErrorPage,
   resolveOAuthRedirectUri,
@@ -97,6 +98,15 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
     provider === "google_drive" ||
     provider === "google_sheets" ||
     provider === "google_slides"
+  );
+}
+
+export function shouldUseRootGoogleOAuthCallback(
+  provider: GenericWorkspaceOAuthProvider,
+): boolean {
+  return (
+    isGoogleWorkspaceOAuthProvider(provider) &&
+    (isWorkspaceOAuthCallbackRelayEnabled() || getAppBasePath() === "")
   );
 }
 
@@ -208,9 +218,7 @@ export async function handleWorkspaceProviderOAuthStart(
       "Salesforce environment must be production or sandbox.",
     );
   }
-  const useRootGoogleCallback =
-    isWorkspaceOAuthCallbackRelayEnabled() &&
-    isGoogleWorkspaceOAuthProvider(providerId);
+  const useRootGoogleCallback = shouldUseRootGoogleOAuthCallback(providerId);
   const redirectUri = resolveOAuthRedirectUri(
     event,
     useRootGoogleCallback
