@@ -1,3 +1,4 @@
+import { renderEmail } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/server", () => ({
@@ -31,7 +32,7 @@ describe("booking email time formatting", () => {
 
 describe("event guest note links", () => {
   it("links update notes to Agent-Native Calendar", () => {
-    const rendered = renderEventGuestNote({
+    renderEventGuestNote({
       title: "Design review",
       organizer: "Dana Hill",
       message: "Moving this an hour later.",
@@ -40,9 +41,13 @@ describe("event guest note links", () => {
       htmlLink: "https://calendar.example.com/event/sample",
     });
 
-    expect(rendered.cta).toEqual({
-      label: "Open in AN Calendar",
-      url: "https://calendar.example.com/event/sample",
-    });
+    expect(vi.mocked(renderEmail)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cta: {
+          label: "Open in AN Calendar",
+          url: "https://calendar.example.com/event/sample",
+        },
+      }),
+    );
   });
 });
