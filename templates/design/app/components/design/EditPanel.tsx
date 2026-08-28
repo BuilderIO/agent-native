@@ -1328,7 +1328,9 @@ function InspectorTabsHeader({
         </InspectorGridCell>
         <InspectorGridCell span={4}>
           <InspectorActionRail>
-            {activeTab === "design" && onInspectorGridDebugChange ? (
+            {import.meta.env.DEV &&
+            activeTab === "design" &&
+            onInspectorGridDebugChange ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -2477,7 +2479,9 @@ export const EditPanel = memo(function EditPanel({
         ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
-        {resolvedActiveTab === "design" && inspectorGridDebug ? (
+        {import.meta.env.DEV &&
+        resolvedActiveTab === "design" &&
+        inspectorGridDebug ? (
           <div
             className="design-inspector-grid-debug-overlay"
             data-inspector-grid-debug-overlay

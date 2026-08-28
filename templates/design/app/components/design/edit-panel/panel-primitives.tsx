@@ -713,7 +713,7 @@ export function PanelSection({
     <section className="design-sidebar-section shrink-0">
       <div className="px-2">
         <InspectorGrid
-          className="min-h-8 items-center"
+          className="min-h-[var(--design-section-height)] items-center"
           layout={actions ? "header-actions" : "columns"}
         >
           <InspectorGridCell span={actions ? 20 : 28}>
@@ -748,7 +748,7 @@ export function PanelSection({
           style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
         >
           <div className="overflow-hidden">
-            <div className="design-sidebar-control-text flex flex-col gap-2 px-2 pb-2 pt-0">
+            <div className="design-sidebar-control-text design-sidebar-section-content">
               {children}
             </div>
           </div>
