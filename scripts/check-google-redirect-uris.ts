@@ -4,10 +4,9 @@
  * active Google client each deployed host advertises. This public probe sees
  * redirect_uri_mismatch without reading or sending a client secret.
  *
- * The default target is the active sign-in client from health/google. That is
- * the correct deploy gate for the shared root callback. Other paths can be
- * requested for diagnostics, but provider-scoped credentials are not inferred
- * from the sign-in health response.
+ * The target is the deployment-level managed OAuth client from
+ * health/google?client=managed. The endpoint fails closed when that client is
+ * unavailable; provider-scoped credentials are never inferred from sign-in.
  */
 import { createHash } from "node:crypto";
 import { setDefaultResultOrder } from "node:dns";
@@ -18,8 +17,8 @@ import { fileURLToPath } from "node:url";
 const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const REQUEST_TIMEOUT_MS = 20_000;
 const HOST_TIMEOUT_MS = 90_000;
-const RUN_TIMEOUT_MS = 15 * 60_000;
-const HOST_CONCURRENCY = 6;
+const DEFAULT_RUN_TIMEOUT_MS = 15 * 60_000;
+const HOST_CONCURRENCY = 12;
 const MAX_HEALTH_BYTES = 64 * 1024;
 const CALLBACK_PATHS = {
   root: "/_agent-native/google/callback",
@@ -33,7 +32,7 @@ const HEALTH_STATUSES = [
   "unknown",
 ] as const;
 const SAFE_HEALTH_REASONS = new Set(["invalid_client", "invalid_grant"]);
-const SAFE_CREDENTIAL_SOURCES = new Set(["active", "preferred"]);
+const SAFE_CREDENTIAL_SOURCES = new Set(["active", "preferred", "managed"]);
 
 setDefaultResultOrder("ipv4first");
 
@@ -71,6 +70,7 @@ type Options = {
   host?: string;
   paths: string[];
   skip: Set<string>;
+  budgetMs: number;
 };
 
 type Target = { lane: string; host: string };
@@ -164,7 +164,7 @@ function parsePaths(value: string): string[] {
 function parseOptions(argv: string[]): Options | null {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
-      "Usage: pnpm check:google-redirect-uris -- [--env production|beta|workspace|all] [--host HOST] [--paths root,google_drive,google_docs] [--skip HOST,...]",
+      "Usage: pnpm check:google-redirect-uris -- [--env production|beta|workspace|all] [--host HOST] [--paths root,google_drive,google_docs] [--skip HOST,...] [--budget-seconds N]",
     );
     return null;
   }
@@ -197,6 +197,10 @@ function parseOptions(argv: string[]): Options | null {
       .filter(Boolean)
       .map(parseHost),
   );
+  const budgetSeconds = Number(getValue("--budget-seconds") ?? "900");
+  if (!Number.isInteger(budgetSeconds) || budgetSeconds <= 0) {
+    throw new Error("--budget-seconds must be a positive integer");
+  }
   return {
     env,
     host: hostValue ? parseHost(hostValue) : undefined,
@@ -204,6 +208,7 @@ function parseOptions(argv: string[]): Options | null {
       getValue("--paths") ?? Object.keys(CALLBACK_PATHS).join(","),
     ),
     skip,
+    budgetMs: budgetSeconds * 1_000,
   };
 }
 
@@ -212,6 +217,7 @@ function decodeGoogleAuthError(value: string): string {
   try {
     return Buffer.from(value, "base64url").toString("utf8");
   } catch {
+    // coercion-ok: malformed provider error text is unclassifiable and remains unknown.
     return "";
   }
 }
@@ -430,17 +436,20 @@ async function healthOf(
   }
   try {
     const response = await fetch(
-      `https://${host}/_agent-native/health/google`,
-      {
-        redirect: "manual",
-        signal: requestSignal(deadline),
-      },
+      `https://${host}/_agent-native/health/google?client=managed`,
+      { redirect: "manual", signal: requestSignal(deadline) },
     );
     const bodyText = await readBoundedText(response, MAX_HEALTH_BYTES);
     if (bodyText === null) {
       return emptyHealth("unknown", "health response exceeded 64 KiB");
     }
-    return classifyGoogleHealthResponse(response, bodyText);
+    const health = classifyGoogleHealthResponse(response, bodyText);
+    return health.credentialSource === "managed"
+      ? health
+      : emptyHealth(
+          "unknown",
+          "health endpoint did not advertise managed OAuth",
+        );
   } catch (error) {
     return emptyHealth("unknown", safeTransportReason(error));
   }
@@ -518,7 +527,7 @@ async function run(argv: string[]): Promise<number> {
     );
   }
 
-  const runDeadline = Date.now() + RUN_TIMEOUT_MS;
+  const runDeadline = Date.now() + options.budgetMs;
   const rows = await mapWithLimit(
     selected,
     HOST_CONCURRENCY,

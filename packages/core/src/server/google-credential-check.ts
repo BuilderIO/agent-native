@@ -1,3 +1,4 @@
+import { resolveSecretPair } from "./credential-provider.js";
 import {
   describeGoogleSignInCredentialPairs,
   getActiveGoogleSignInCredentials,
@@ -23,7 +24,7 @@ export type GoogleCredentialStatus =
   | "valid"
   /** Google rejected the client id or secret — sign-in is broken. */
   | "invalid"
-  /** No sign-in credentials are configured on this deploy. */
+  /** No credentials are configured for the requested Google client. */
   | "unconfigured"
   /** Google could not be reached, or answered something unrecognised. */
   | "unknown";
@@ -36,9 +37,10 @@ export interface GoogleCredentialCheck {
   /**
    * Where the probed pair came from. `active` is the pair Better Auth wired to
    * the provider; `preferred` means auth had not initialised yet and this fell
-   * back to the preferred pair, which a scoped template may not use.
+   * back to the preferred pair; `managed` is the deployment-level pair used by
+   * the unauthenticated workspace OAuth health contract.
    */
-  credentialSource: "active" | "preferred";
+  credentialSource: "active" | "preferred" | "managed";
   /** Google's `error` field, or the transport failure, when there was one. */
   reason: string | null;
   checkedAt: number;
@@ -161,4 +163,47 @@ export async function checkGoogleSignInCredential(options?: {
     };
   }
   return value;
+}
+
+/**
+ * Ask Google about the deployment-level client used by managed workspace OAuth.
+ * This is separate from Better Auth sign-in because a deploy may intentionally
+ * use GOOGLE_SIGN_IN_* and GOOGLE_* as different clients.
+ */
+export async function checkGoogleManagedCredential(): Promise<GoogleCredentialCheck> {
+  const checkedAt = Date.now();
+  let credentials: [string, string] | null;
+  try {
+    credentials = await resolveSecretPair([
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+    ]);
+  } catch {
+    return {
+      status: "unknown",
+      clientId: null,
+      mismatchedPairs: false,
+      credentialSource: "managed",
+      reason: "credential lookup failed",
+      checkedAt,
+    };
+  }
+  if (!credentials) {
+    return {
+      status: "unconfigured",
+      clientId: null,
+      mismatchedPairs: false,
+      credentialSource: "managed",
+      reason: null,
+      checkedAt,
+    };
+  }
+  const [clientId, clientSecret] = credentials;
+  return {
+    ...(await probeGoogle(clientId, clientSecret)),
+    clientId,
+    mismatchedPairs: false,
+    credentialSource: "managed",
+    checkedAt,
+  };
 }

@@ -82,7 +82,7 @@ test("keeps a client fingerprint alongside the id needed for the probe", () => {
       status: "valid",
       clientId: "client-id.apps.googleusercontent.com",
       reason: "invalid_grant",
-      credentialSource: "active",
+      credentialSource: "managed",
     }),
   );
   assert.equal(result.status, "valid");

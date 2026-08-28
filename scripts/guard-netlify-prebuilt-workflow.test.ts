@@ -174,7 +174,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 7);
+    assert.equal(nodeHeredocs.length, 9);
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
     );

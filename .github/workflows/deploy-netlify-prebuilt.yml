@@ -658,6 +658,42 @@ jobs:
           });
           NODE
 
+      - name: Capture the current published deploy for callback rollback
+        id: previous
+        if: >-
+          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template != '@agent-native/docs' &&
+          steps.target.outputs.source_template != 'macros'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          (async () => {
+            const fs = require("node:fs");
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+              headers: {
+                Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+              },
+              signal: AbortSignal.timeout(30_000),
+            });
+            const text = await response.text();
+            const site = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`Netlify published deploy lookup failed with HTTP ${response.status}.`);
+            }
+            const deployId = site?.published_deploy?.id;
+            if (!deployId) throw new Error("Netlify site has no published deploy to protect.");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
+            console.log(`Captured current published deploy ${deployId} for callback rollback.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: inputs.deploy
@@ -785,12 +821,13 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
           echo "Health check passed: ${url%/}/_agent-native/health"
 
-      # Google reports redirect_uri_mismatch only after the browser leaves the
-      # app. Probe the exact live client/path pair here so a deploy cannot
-      # publish a callback that the Google Console does not accept. Draft
-      # deploy URLs are intentionally excluded because they are not registered
-      # OAuth origins; production and beta publish through this same path.
+      # The active managed client is observable only from the live host, so this
+      # is a post-publish verification. If Google rejects the callback, the
+      # immediately following step restores the deploy captured above before
+      # leaving the job failed. Draft deploy URLs are intentionally excluded
+      # because they are not registered OAuth origins.
       - name: Verify Google OAuth redirect registration
+        id: google_redirect
         if: >-
           inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template != '@agent-native/docs' &&
@@ -798,6 +835,75 @@ jobs:
         env:
           HOST: ${{ steps.target.outputs.host }}
         run: pnpm check:google-redirect-uris -- --host "$HOST" --paths root
+
+      - name: Roll back after Google callback verification failure
+        if: ${{ failure() && steps.google_redirect.outcome == 'failure' }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          NEW_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          (async () => {
+            const api = "https://api.netlify.com/api/v1";
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            };
+            const request = (url, options = {}) => fetch(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+              signal: AbortSignal.timeout(30_000),
+            });
+            const readJson = async (response, label) => {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}.`);
+              }
+              return body;
+            };
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const previousId = process.env.PREVIOUS_DEPLOY_ID;
+            const newId = process.env.NEW_DEPLOY_ID;
+            if (!siteId || !previousId || !newId || previousId === newId) {
+              throw new Error("Callback rollback is missing a distinct previous and new deploy id.");
+            }
+            const current = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify current deploy lookup",
+            );
+            if (current?.published_deploy?.id !== newId) {
+              throw new Error(
+                `Refusing callback rollback because Netlify now serves ${current?.published_deploy?.id || "an unknown deploy"}, expected ${newId}.`,
+              );
+            }
+            await readJson(
+              await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, {
+                method: "POST",
+              }),
+              `Netlify callback rollback to ${previousId}`,
+            );
+            const deadline = Date.now() + 5 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const site = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                "Netlify callback rollback verification",
+              );
+              if (site?.published_deploy?.id === previousId) {
+                console.log(`Restored previous published deploy ${previousId}.`);
+                process.exitCode = 1;
+                return;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 10_000));
+            }
+            throw new Error(`Netlify did not publish rollback deploy ${previousId} within five minutes.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
 
       # An unknown URL must still be storable. When it is not, every dead link
       # and crawler miss re-invokes the render function, and Netlify runs one

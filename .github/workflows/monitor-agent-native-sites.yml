@@ -22,7 +22,7 @@ jobs:
   monitor:
     name: Probe production and beta hosts
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
@@ -35,6 +35,10 @@ jobs:
             scripts/check-google-redirect-uris.ts
             scripts/google-oauth-site-capabilities.json
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
 
       - name: Probe every public host
         id: probe
@@ -524,12 +528,13 @@ jobs:
         # The credential probe above cannot see redirect_uri_mismatch because
         # its deliberately invalid code is rejected before redirect handling.
         # Keep this root-only check in the recurring monitor so Console drift
-        # is caught even when no application deploy has occurred.
+        # is caught even when no application deploy has occurred. The explicit
+        # five-minute budget leaves the expanded job time for incident paging.
         if: always()
         run: |
           set -o pipefail
           node --experimental-strip-types scripts/check-google-redirect-uris.ts \
-            --env all --paths root | tee /tmp/agent-native-google-redirects.log
+            --env all --paths root --budget-seconds 300 | tee /tmp/agent-native-google-redirects.log
 
       - name: Page and open a rolling incident
         if: failure()

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  checkGoogleManagedCredential,
   checkGoogleSignInCredential,
   resetGoogleCredentialCheckCache,
 } from "./google-credential-check.js";
@@ -207,5 +208,28 @@ describe("checkGoogleSignInCredential", () => {
 
     expect(result.status).toBe("unconfigured");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("probes the managed workspace OAuth client separately from sign-in", async () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "managed-client";
+    process.env.GOOGLE_CLIENT_SECRET = "managed-secret";
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkGoogleManagedCredential();
+
+    expect(result).toMatchObject({
+      status: "valid",
+      clientId: "managed-client",
+      credentialSource: "managed",
+    });
+    const sent = String(
+      (fetchMock.mock.calls[0] as unknown[])[1] &&
+        ((fetchMock.mock.calls[0] as unknown[])[1] as { body: unknown }).body,
+    );
+    expect(sent).toContain("managed-secret");
+    expect(sent).not.toContain("sign-in-secret");
   });
 });
