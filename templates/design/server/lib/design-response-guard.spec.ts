@@ -124,6 +124,19 @@ describe("Design final response guard", () => {
       looksLikeDesignMutationRequest("improve your Design Skills section"),
     ).toBe(true);
     expect(
+      looksLikeDesignMutationRequest("improve my Design Skills hero section"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please give feedback to improve this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please share your thoughts on this design",
+      ),
+    ).toBe(false);
+    expect(
       looksLikeDesignMutationRequest("review this card. fix the button"),
     ).toBe(true);
     expect(
@@ -197,6 +210,13 @@ describe("Design final response guard", () => {
       ],
       [toolResult("edit-design", { fileId: "file-1", changed: true })],
       [toolResult("insert-asset", { fileId: "file-1", inserted: true })],
+      [
+        toolResult("apply-motion-edit", {
+          designId: "design-1",
+          timelineId: "timeline-1",
+          persisted: true,
+        }),
+      ],
       [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
       [
         toolResult("apply-component-prop-edit", {

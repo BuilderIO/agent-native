@@ -6,6 +6,7 @@ import type {
 const DESIGN_MUTATION_ACTIONS = new Set([
   "apply-a11y-fix",
   "apply-component-prop-edit",
+  "apply-motion-edit",
   "apply-source-edit",
   "apply-tweaks",
   "apply-visual-edit",
@@ -34,7 +35,7 @@ const DESIGN_MUTATION_VERBS =
 const DESIGN_MUTATION_OBJECTS =
   /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|width|wireframe)\b/i;
 const DESIGN_ADVISORY_WORDS =
-  /\b(?:advise|advice|analy[sz]e|audit|critique|recommend(?:ation)?s?|review|suggest(?:ion)?s?)\b/i;
+  /\b(?:advise|advice|analy[sz]e|audit|critique|feedback|recommend(?:ation)?s?|review|suggest(?:ion)?s?|thoughts?)\b/i;
 const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
 const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
 const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
@@ -49,6 +50,12 @@ const DESIGN_SKILL_UI_TARGETS = new Set([
   "screen",
   "section",
   "text",
+]);
+const DESIGN_SKILL_UI_TARGET_PHRASES = new Set([
+  "footer row",
+  "header row",
+  "hero section",
+  "nav item",
 ]);
 
 function normalizeToolName(name: unknown): string {
@@ -146,6 +153,14 @@ function hasSuccessfulMutation(
       );
     }
 
+    if (name === "apply-motion-edit") {
+      return (
+        parsed.persisted === true &&
+        typeof parsed.designId === "string" &&
+        typeof parsed.timelineId === "string"
+      );
+    }
+
     if (name === "create-design-system") {
       return typeof parsed.id === "string";
     }
@@ -233,10 +248,19 @@ function removeAdvisorySkillsClauses(text: string): string {
     }
 
     const nextWord = words[skillIndex + 1];
+    const nextNextWord = words[skillIndex + 2];
+    const nextTargetPhrase =
+      nextWord &&
+      nextNextWord &&
+      isWhitespaceBetween(skill.end, nextWord.start) &&
+      isWhitespaceBetween(nextWord.end, nextNextWord.start)
+        ? `${nextWord.value} ${nextNextWord.value}`
+        : "";
     const targetsUiContent =
       nextWord &&
       isWhitespaceBetween(skill.end, nextWord.start) &&
-      DESIGN_SKILL_UI_TARGETS.has(nextWord.value);
+      (DESIGN_SKILL_UI_TARGETS.has(nextWord.value) ||
+        DESIGN_SKILL_UI_TARGET_PHRASES.has(nextTargetPhrase));
     if (!targetsUiContent) removals.push([verb.start, skill.end]);
     index = skillIndex + 1;
   }
