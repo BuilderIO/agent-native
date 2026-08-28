@@ -230,9 +230,11 @@ branch, stay on it.
    worktree.
 
 2. **Check local changes**: run `git status --short`, `git diff --stat`, and
-   `git log --oneline origin/$(git branch --show-current)..HEAD` to establish
-   the branch snapshot. Multiple agents may have added work; include a path or
-   unpushed commit only after confirming it belongs to this requested fix.
+   `git log --oneline --decorate HEAD --not --remotes=origin` to establish the
+   branch snapshot. This works even before the first push, when
+   `origin/<branch>` does not exist. Multiple agents may have added work;
+   include a path or unpushed commit only after confirming it belongs to this
+   requested fix.
 
    Then confirm the base is current, before validating or pushing anything. A
    worktree can be created from a stale ref, and its local `main` ref is stale

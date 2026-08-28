@@ -57,7 +57,7 @@ merging, except when the user explicitly invokes `/ship-now`.
 ```bash
 git status --short
 git diff --name-only
-git log --oneline origin/$(git branch --show-current)..HEAD
+git log --oneline --decorate HEAD --not --remotes=origin
 ```
 
 After the status check, run `corepack pnpm ship:push` only when the dirty or
@@ -77,7 +77,7 @@ can change within minutes, so re-check before every actionable push.
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
 2. If `CONFLICTING`: bring `main` in and resolve. First inspect the worktree
    and unpushed commits; do not run the merge until both `git status --short`
-   and `git log --oneline origin/$(git branch --show-current)..HEAD` are empty.
+   and `git log --oneline --decorate HEAD --not --remotes=origin` are empty.
    **Publish any intentional actionable fix first (Step 0)**, after verifying
    every dirty path and unpushed commit belongs to that fix; then prefer a
    **merge** over a rebase —
