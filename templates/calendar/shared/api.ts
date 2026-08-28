@@ -323,6 +323,12 @@ export interface BookingLink {
    * read response, for display in a multi-time-zone grid.
    */
   ownerTimezone?: string;
+  /**
+   * The owner's email. Only populated on the public booking-link read
+   * response — the owner is sharing this link so visitors can identify who
+   * they're booking with.
+   */
+  ownerEmail?: string;
   /** Effective management role for the current caller, when loaded from a list. */
   accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   createdAt: string;

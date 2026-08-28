@@ -250,7 +250,10 @@ export const getPublicBookingLink = defineEventHandler(
         ),
       ]);
 
-      return withHostTimezones(bookingLink, ownerTimezone, eligibleHosts);
+      return {
+        ...withHostTimezones(bookingLink, ownerTimezone, eligibleHosts),
+        ownerEmail: rows[0].ownerEmail,
+      };
     } catch (error: any) {
       setResponseStatus(event, 500);
       return { error: error.message };
