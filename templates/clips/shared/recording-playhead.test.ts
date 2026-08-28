@@ -111,7 +111,7 @@ describe("the recording playhead has a shared visual source", () => {
       root?.render(render(false));
       await Promise.resolve();
     });
-    expect(changes.at(-1)).toEqual({
+    expect(changes[changes.length - 1]).toEqual({
       type: "close",
       intent: "delete",
       enteredPaused: false,
