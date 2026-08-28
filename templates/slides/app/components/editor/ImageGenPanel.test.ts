@@ -32,6 +32,9 @@ describe("buildImageGenerationContext", () => {
     expect(context).toContain(
       "Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.",
     );
+    expect(context).toContain(
+      "call `import-from-url` for each URL before generating",
+    );
   });
 });
 

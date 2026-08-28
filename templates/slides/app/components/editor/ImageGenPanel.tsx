@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { WEBSITE_STYLE_REFERENCE_DIRECTIVE } from "@/lib/create-deck-generation";
 
 interface ImageGenPanelProps {
   open: boolean;
@@ -58,6 +59,7 @@ export function buildImageGenerationContext({
   contextParts.push(
     'Do not browse, search, or inspect brand assets for style phrases like "Builder.io" unless the user explicitly asks to set up, import, save, or apply a brand/design system.',
   );
+  contextParts.push(WEBSITE_STYLE_REFERENCE_DIRECTIVE);
 
   const styleReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
   if (styleReferenceUrls.length > 0) {
