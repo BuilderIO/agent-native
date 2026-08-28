@@ -101,6 +101,32 @@ describe("get-layout-overflows", () => {
     );
   });
 
+  it("keeps stale measurements unknown while an async write is settling", async () => {
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": measurement("<p>Old A</p>", 225),
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      measuredSlideCount: 1,
+      unknownSlideIds: ["slide-a"],
+      overflows: [],
+      canClaimDeckFits: false,
+    });
+  });
+
   it("tells the agent to stop re-checking after repeated unresolved overflow", async () => {
     let history: { deckId: string; count: number; lastCheckAt: number } | null =
       null;

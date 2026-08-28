@@ -492,11 +492,10 @@ function useSlideAutofit(
       // Fire the callback on EVERY measurement (not just when the overflow
       // value changes). The editor uses this to refresh its
       // `application_state.slide-fit-check` record with a new `measuredAt`
-      // timestamp so the add-slide / update-slide actions can confirm the
-      // slide has been re-measured AFTER their write — even when an agent
-      // patch keeps the overflow at the same value (e.g. dropped one bullet
-      // and added another). The editor dedups React state changes on its
-      // own end if needed.
+      // timestamp so a later `get-layout-overflows` call can confirm the
+      // slide has been re-measured after a write — even when an agent patch
+      // keeps the overflow at the same value (e.g. dropped one bullet and
+      // added another). The editor dedups React state changes on its own end.
       if (!isEditing) {
         overflowCallbackRef.current?.(
           worstInfo ?? {

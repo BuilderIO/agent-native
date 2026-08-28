@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
+import { hashSlideContent } from "../shared/slide-fit";
 import {
   applyOperation,
   assertPatchedSlideAnimationsResolve,
@@ -23,20 +24,10 @@ vi.mock("../app/lib/normalize-slide-padding.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// run() integration mocks — DB, access, notify, and fit-check. Mirrors the
-// mock shape in update-slide.test.ts so the two suites stay comparable.
+// run() integration mocks — DB, access, and notify.
 // ---------------------------------------------------------------------------
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
-// Keyed by slideId so a multi-slide patch-deck batch can drive a different
-// fit result per slide, unlike update-slide/add-slide's single shared value.
-let mockFitCheckResults: Record<
-  string,
-  { status: "fits" | "overflows" | "timeout"; measurement?: any }
-> = {};
-const mockAwaitLayoutFitCheck = vi.fn(async (slideId: string) => {
-  return mockFitCheckResults[slideId] ?? { status: "timeout" };
-});
 
 let mockDeckRow: Record<string, unknown> | undefined;
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
@@ -122,15 +113,6 @@ vi.mock("@agent-native/creative-context/server", () => ({
 
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
-}));
-
-vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: (...args: [string, ...unknown[]]) =>
-    mockAwaitLayoutFitCheck(...args),
-  formatOverflowForTool: (
-    deckId: string,
-    m: { slideId: string; verticalOverflow: number },
-  ) => `MOCK_OVERFLOW_MESSAGE deck=${deckId} slide=${m.slideId}`,
 }));
 
 // ---------------------------------------------------------------------------
@@ -970,19 +952,11 @@ describe("resolveDeckColumnUpdates", () => {
 });
 
 // ---------------------------------------------------------------------------
-// run() — layout fit re-check after a patch-deck write.
-//
-// update-slide and add-slide both re-measure the slide they just wrote and
-// surface `layoutOverflow` when the new HTML still overflows (see
-// update-slide.test.ts's "returns layoutOverflow + auto-fix message" test).
-// patch-deck committed and returned `{ ok: true }` unconditionally, with no
-// fit signal at all — a caller following the multi-slide repair path had no
-// way to tell a persisted write from an actual repair.
+// run() — asynchronous layout fit metadata after a patch-deck write.
 // ---------------------------------------------------------------------------
-describe("run() — layout fit re-check", () => {
+describe("run() — asynchronous layout fit metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFitCheckResults = {};
     mockDeckRow = {
       id: "deck-1",
       title: "Deck",
@@ -998,18 +972,7 @@ describe("run() — layout fit re-check", () => {
     };
   });
 
-  it("returns layoutOverflow + message when a patched slide still overflows", async () => {
-    mockFitCheckResults["slide-1"] = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 700,
-        viewportHeight: 420,
-        verticalOverflow: 280,
-        measuredAt: Date.now(),
-      },
-    };
-
+  it("returns pending hashes for every content-changed slide", async () => {
     const result = (await patchDeckAction.run(
       {
         deckId: "deck-1",
@@ -1018,113 +981,37 @@ describe("run() — layout fit re-check", () => {
           {
             op: "patch-slide",
             slideId: "slide-1",
-            fields: { content: "<div>Still too tall</div>" },
-          },
-        ],
-      },
-      {},
-    )) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toMatchObject({
-      overflows: [
-        expect.objectContaining({
-          slideId: "slide-1",
-          verticalOverflow: 280,
-        }),
-      ],
-    });
-    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE.*slide-1/);
-  });
-
-  it("checks every content-changed slide in parallel, not serially", async () => {
-    mockFitCheckResults["slide-1"] = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 700,
-        viewportHeight: 420,
-        verticalOverflow: 280,
-        measuredAt: Date.now(),
-      },
-    };
-    mockFitCheckResults["slide-2"] = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-2",
-        contentHeight: 600,
-        viewportHeight: 420,
-        verticalOverflow: 180,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await patchDeckAction.run(
-      {
-        deckId: "deck-1",
-        requireAllSourceSlides: false,
-        operations: [
-          {
-            op: "patch-slide",
-            slideId: "slide-1",
-            fields: { content: "<div>Still too tall</div>" },
+            fields: { content: "<div>Updated one</div>" },
           },
           {
             op: "patch-slide",
             slideId: "slide-2",
-            fields: { content: "<div>Also too tall</div>" },
+            fields: { content: "<div>Updated two</div>" },
           },
         ],
       },
       {},
     )) as Record<string, unknown>;
 
-    // Both slides were checked, and neither call awaited the other: the
-    // mock is synchronous, so serial awaiting vs. Promise.all is only
-    // observable through the call count / result shape, not timing here.
-    expect(mockAwaitLayoutFitCheck).toHaveBeenCalledTimes(2);
-    expect(
-      (
-        result.layoutOverflow as { overflows: Array<{ slideId: string }> }
-      ).overflows.map((o) => o.slideId),
-    ).toEqual(["slide-1", "slide-2"]);
-  });
-
-  it("omits layoutOverflow when every changed slide fits", async () => {
-    mockFitCheckResults["slide-1"] = {
-      status: "fits",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 380,
-        viewportHeight: 420,
-        verticalOverflow: 0,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await patchDeckAction.run(
-      {
-        deckId: "deck-1",
-        requireAllSourceSlides: false,
-        operations: [
-          {
-            op: "patch-slide",
-            slideId: "slide-1",
-            fields: { content: "<div>Now fits</div>" },
-          },
-        ],
-      },
-      {},
-    )) as Record<string, unknown>;
-
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: true,
       deckId: "deck-1",
-      updatedAt: expect.any(String),
-      updatedSlideIds: ["slide-1"],
+      updatedSlideIds: ["slide-1", "slide-2"],
+      layoutFit: {
+        status: "pending",
+        slides: [
+          {
+            slideId: "slide-1",
+            contentHash: hashSlideContent("<div>Updated one</div>"),
+          },
+          {
+            slideId: "slide-2",
+            contentHash: hashSlideContent("<div>Updated two</div>"),
+          },
+        ],
+      },
     });
     expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
   });
 
   it("broadcasts the changed slide for a single-slide agent patch", async () => {
@@ -1189,9 +1076,7 @@ describe("run() — layout fit re-check", () => {
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
   });
 
-  it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
-    mockFitCheckResults = {};
-
+  it("omits layout fit metadata when content was not patched", async () => {
     const result = (await patchDeckAction.run(
       {
         deckId: "deck-1",
@@ -1200,7 +1085,7 @@ describe("run() — layout fit re-check", () => {
           {
             op: "patch-slide",
             slideId: "slide-1",
-            fields: { content: "<div>Headless</div>" },
+            fields: { notes: "Updated notes" },
           },
         ],
       },
@@ -1208,33 +1093,6 @@ describe("run() — layout fit re-check", () => {
     )) as Record<string, unknown>;
 
     expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-  });
-
-  it("does not fit-check a slide whose patch didn't touch content", async () => {
-    mockFitCheckResults["slide-1"] = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 700,
-        viewportHeight: 420,
-        verticalOverflow: 280,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await patchDeckAction.run(
-      {
-        deckId: "deck-1",
-        requireAllSourceSlides: false,
-        operations: [
-          { op: "patch-slide", slideId: "slide-1", fields: { notes: "n" } },
-        ],
-      },
-      {},
-    )) as Record<string, unknown>;
-
-    expect(mockAwaitLayoutFitCheck).not.toHaveBeenCalled();
-    expect(result.layoutOverflow).toBeUndefined();
+    expect(result.layoutFit).toBeUndefined();
   });
 });
