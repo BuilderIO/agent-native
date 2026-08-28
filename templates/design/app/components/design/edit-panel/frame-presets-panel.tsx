@@ -40,7 +40,7 @@ function FramePresetCategoryGroup({
         ) : (
           <IconChevronRight className="size-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
         )}
-        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
+        <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
           {title}
         </h3>
       </button>
@@ -100,7 +100,7 @@ export function FramePresetsPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex h-10 shrink-0 items-center border-b border-border/90 px-3">
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+        <h3 className="design-sidebar-context-title min-w-0 flex-1 truncate text-foreground">
           {t("editPanel.framePresets.title")}
         </h3>
       </div>

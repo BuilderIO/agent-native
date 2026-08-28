@@ -15,6 +15,18 @@ vi.mock("./MermaidRenderer", () => ({
   MermaidRenderer: () => <div data-mermaid-diagram="true" />,
 }));
 
+vi.mock("./ExcalidrawSlide", () => ({
+  ExcalidrawThumbnail: () => <div data-excalidraw-thumbnail="true" />,
+  parseExcalidrawData: (json?: string) => {
+    if (!json) return null;
+    try {
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  },
+}));
+
 function rect(left: number, top: number, width: number, height: number) {
   return {
     x: left,
@@ -499,6 +511,36 @@ describe("SlideInner autofit", () => {
       expect(onOverflowChange).toHaveBeenCalledWith(
         expect.objectContaining({ horizontalOverflow: 46 }),
       );
+    });
+  });
+
+  it("reports finite fit geometry for Excalidraw slides", async () => {
+    const onOverflowChange = vi.fn();
+    const onAutofitSettled = vi.fn();
+    render(
+      <SlideInner
+        slide={{
+          id: "excalidraw-fit",
+          layout: "blank",
+          notes: "",
+          content: "",
+          excalidrawData: '{"elements":[{"type":"rectangle"}]}',
+        }}
+        onOverflowChange={onOverflowChange}
+        onAutofitSettled={onAutofitSettled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenCalledWith({
+        contentHeight: 540,
+        contentWidth: 960,
+        viewportHeight: 540,
+        viewportWidth: 960,
+        verticalOverflow: 0,
+        horizontalOverflow: 0,
+      });
+      expect(onAutofitSettled).toHaveBeenCalled();
     });
   });
 

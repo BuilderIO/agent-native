@@ -1462,7 +1462,10 @@ function formatRenderedDesignEvidence(style: StyleBrief): string {
       ["shadow", component.boxShadow],
       ["padding", component.padding],
     ]
-      .filter(([, value]) => typeof value === "string" && value.trim())
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && Boolean(entry[1].trim()),
+      )
       .map(([name, value]) => `${name} ${value}`);
     if (fields.length > 0)
       lines.push(`${role} component: ${fields.join("; ")}.`);

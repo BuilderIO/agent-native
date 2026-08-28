@@ -40,19 +40,18 @@ export async function loadDrizzleMigrations(
     );
   }
 
-  const [{ readdir, readFile }, { join }, { fileURLToPath }] =
-    await Promise.all([
-      import("node:fs/promises"),
-      import("node:path"),
-      import("node:url"),
-    ]);
+  const [fs, path, url] = await Promise.all([
+    import("node:fs/promises"),
+    import("node:path"),
+    import("node:url"),
+  ]);
   const root =
     typeof migrationsFolder === "string"
       ? migrationsFolder
-      : fileURLToPath(migrationsFolder);
+      : url.fileURLToPath(migrationsFolder);
   let folders;
   try {
-    folders = await readdir(root, { withFileTypes: true });
+    folders = await fs.readdir(root, { withFileTypes: true });
   } catch (error) {
     if (isMissingPath(error)) {
       throw new Error(`Drizzle migrations folder "${root}" does not exist`, {
@@ -68,10 +67,10 @@ export async function loadDrizzleMigrations(
 
   const migrations: Array<MigrationEntry> = [];
   for (const [index, file] of migrationFiles.entries()) {
-    const sqlPath = join(root, file.name);
+    const sqlPath = path.join(root, file.name);
     let sql: string;
     try {
-      sql = await readFile(sqlPath, "utf8");
+      sql = await fs.readFile(sqlPath, "utf8");
     } catch (error) {
       if (isMissingPath(error)) {
         throw new Error(

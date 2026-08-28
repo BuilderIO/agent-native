@@ -701,7 +701,7 @@ async function runSqlite(opts: RunOpts): Promise<void> {
       await client.execute(stmt).catch(() => {});
     }
   } finally {
-    client.close();
+    void client.close();
   }
 }
 

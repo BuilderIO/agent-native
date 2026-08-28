@@ -216,7 +216,7 @@ function ThreadListSidebar({
                     accountEmail: email.accountEmail,
                   });
                 onNavigateThread(threadKey);
-                navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
+                void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
               }}
               className={cn(
                 "w-full text-start px-3 h-[38px] flex items-center border-b border-border/10 transition-colors",
@@ -558,25 +558,25 @@ export function InboxPage() {
           detail: { id: navCommand.composeDraftId },
         }),
       );
-      if (view !== "inbox") navigate("/inbox");
+      if (view !== "inbox") void navigate("/inbox");
     } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
         : "/draft-queue";
-      navigate(target);
+      void navigate(target);
     } else if (targetView === "settings") {
       const target = navCommand.settingsSection
         ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
         : "/settings";
-      navigate(target);
+      void navigate(target);
     } else if (targetThread) {
-      navigate(`/${targetView}/${targetThread}`);
+      void navigate(`/${targetView}/${targetThread}`);
     } else if (targetView !== view) {
-      navigate(`/${targetView}`);
+      void navigate(`/${targetView}`);
     }
 
     // Delete the command file so it doesn't re-trigger
-    navState.clearCommand();
+    void navState.clearCommand();
   }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stable-identity pattern: keep the previous array reference when the
   // content hasn't meaningfully changed. Without this, markThreadRead's

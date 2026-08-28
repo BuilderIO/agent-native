@@ -207,6 +207,9 @@ describe("getOnboardingHtml", () => {
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
+      expect(html).toContain(
+        "surface: __anAuthView === 'login' ? 'login' : 'signup'",
+      );
       expect(html).not.toContain('class="google-error show"');
     });
   });
@@ -583,6 +586,8 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain("function __anSyncAnalyticsAnonymousId()");
     expect(html).toContain("localStorage.getItem('agent-native.anonymous_id')");
     expect(html).toContain("document.cookie = 'an_aid='");
+    expect(html).toContain("auth.signup_viewed");
+    expect(html).toContain("auth.signup_clicked");
   });
 
   it("omits hosted terms and privacy links on unhosted email signup", () => {

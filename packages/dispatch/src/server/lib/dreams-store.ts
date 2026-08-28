@@ -263,7 +263,7 @@ function normalizeDreamSettings(
   raw: Record<string, unknown> | null | undefined,
 ): Omit<DreamSettings, "scope" | "scopeId"> {
   const sourceIds = normalizeSourceIds(raw?.sourceIds);
-  const sourceId = String(raw?.sourceId ?? "").trim() || "all";
+  const sourceId = compactText(raw?.sourceId).trim() || "all";
   return {
     enabled: raw?.enabled === true,
     schedule:
@@ -458,7 +458,9 @@ function safeJson(value: unknown): string {
 function safeJsonParse<T>(value: unknown, fallback: T): T {
   if (value == null || value === "") return fallback;
   try {
-    return JSON.parse(String(value)) as T;
+    return JSON.parse(
+      typeof value === "string" ? value : JSON.stringify(value),
+    ) as T;
   } catch {
     return fallback;
   }
@@ -497,7 +499,7 @@ function objectText(value: unknown): string {
 }
 
 function isFailureStatus(status: unknown): boolean {
-  const value = String(status ?? "").toLowerCase();
+  const value = lowerString(status);
   return (
     value.includes("fail") ||
     value.includes("error") ||
@@ -508,7 +510,7 @@ function isFailureStatus(status: unknown): boolean {
 }
 
 function isSuccessStatus(status: unknown): boolean {
-  const value = String(status ?? "").toLowerCase();
+  const value = lowerString(status);
   return (
     value === "success" ||
     value === "succeeded" ||
@@ -534,16 +536,16 @@ function isNegativeFeedback(row: Record<string, unknown>): boolean {
 }
 
 function lowerString(value: unknown): string {
-  return String(value ?? "").toLowerCase();
+  return typeof value === "string"
+    ? value.toLowerCase()
+    : typeof value === "number"
+      ? String(value).toLowerCase()
+      : compactText(value).toLowerCase();
 }
 
 function sameOwnerEmail(a: unknown, b: unknown): boolean {
-  const left = String(a ?? "")
-    .trim()
-    .toLowerCase();
-  const right = String(b ?? "")
-    .trim()
-    .toLowerCase();
+  const left = compactText(a).trim().toLowerCase();
+  const right = compactText(b).trim().toLowerCase();
   return Boolean(left && right && left === right);
 }
 
@@ -1311,8 +1313,8 @@ async function scanDreamSource(
     const completedAt = now();
     const durationMs = completedAt - startedAt;
     const sourceInfo = result.source ?? {};
-    const sourceId = String(sourceInfo.id ?? source.id);
-    const label = String(sourceInfo.label ?? source.label ?? source.id);
+    const sourceId = compactText(sourceInfo.id ?? source.id);
+    const label = compactText(sourceInfo.label ?? source.label ?? source.id);
     return {
       ...result,
       sources: [

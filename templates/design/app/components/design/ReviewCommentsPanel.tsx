@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 export interface ReviewCommentsPanelProps {
   designId: string;
   activeFileId?: string | null;
-  commentAnchor?: unknown | null;
+  commentAnchor?: unknown;
   commentMetadata?: Record<string, unknown>;
   commentContextLabel?: string;
   canComment: boolean;
@@ -42,7 +42,7 @@ export function resolveReviewComposerTargetId({
 }: {
   scope: ReviewCommentsScope;
   activeFileId?: string | null;
-  commentAnchor?: unknown | null;
+  commentAnchor?: unknown;
 }): string | null | undefined {
   if (commentAnchor != null) return activeFileId;
   return scope === "screen" ? activeFileId : undefined;
@@ -78,19 +78,28 @@ export function ReviewCommentsPanel({
   return (
     <div
       data-review-comments-panel
-      className={cn("flex min-h-0 flex-1 flex-col", className)}
+      className={cn(
+        "design-sidebar-comments flex min-h-0 flex-1 flex-col",
+        className,
+      )}
     >
-      <div className="shrink-0 border-b border-border px-3 py-2">
+      <div className="shrink-0 px-2 py-2 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
         <Tabs
           value={scope}
           onValueChange={(value) => setScope(value as "screen" | "all")}
           className="w-full"
         >
           <TabsList className="grid h-8 w-full grid-cols-2 rounded-md bg-muted p-0.5">
-            <TabsTrigger value="screen" className="h-7 px-2 text-xs">
+            <TabsTrigger
+              value="screen"
+              className="design-sidebar-section-title h-7 px-2"
+            >
               {t("review.thisScreen")}
             </TabsTrigger>
-            <TabsTrigger value="all" className="h-7 px-2 text-xs">
+            <TabsTrigger
+              value="all"
+              className="design-sidebar-section-title h-7 px-2"
+            >
               {t("review.allScreens")}
             </TabsTrigger>
           </TabsList>
@@ -132,6 +141,7 @@ export function ReviewCommentsPanel({
           includeResolved
           showHeader={false}
           variant="plain"
+          className="design-sidebar-comments"
           showComposer={canComment && showComposer}
           canReply={canComment}
           canResolve={canResolve ?? false}
@@ -162,7 +172,7 @@ export function ReviewCommentsPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-7 gap-1.5 px-2 text-xs"
+                      className="design-sidebar-control-text h-7 gap-1.5 px-2"
                       disabled={dispatchPending}
                       aria-busy={sending}
                       aria-label={t("review.sendToAgent")}

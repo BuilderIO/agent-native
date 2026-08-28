@@ -428,7 +428,7 @@ export interface ExtensionHistoryEntry {
   id: string;
   extensionId: string;
   version: number;
-  operation: ExtensionHistoryOperation | string;
+  operation: string;
   summary: string;
   name: string;
   description: string;

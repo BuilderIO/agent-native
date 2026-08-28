@@ -895,9 +895,9 @@ export async function listContextMemberships(input: {
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit) as Array<{
     membership: any;
-    pendingSubmission: any | null;
+    pendingSubmission: any;
   }>;
-  const canViewPendingSubmission = (submission: any | null) =>
+  const canViewPendingSubmission = (submission: any) =>
     Boolean(
       submission && (canReview || submission.submittedBy === actor.ownerEmail),
     );

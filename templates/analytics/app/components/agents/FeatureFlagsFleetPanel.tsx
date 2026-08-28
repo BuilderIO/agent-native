@@ -121,7 +121,7 @@ export function FeatureFlagsFleetPanel() {
     { retry: false },
   );
   const mutation = useActionMutation<
-    VerifiedFlagMutation | unknown,
+    unknown,
     { appId: string } & SetFeatureFlagInput
   >("set-workspace-feature-flag", {
     skipActionQueryInvalidation: true,

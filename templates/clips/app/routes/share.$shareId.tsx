@@ -1,5 +1,5 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -407,7 +407,7 @@ export default function ShareRoute() {
   const fireShareCtaClick = useCallback(
     (cta: "signup" | "download" | "try_clips" | "signin") => {
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: "clip",
           recording_id: recordingId,
           cta,
@@ -433,7 +433,7 @@ export default function ShareRoute() {
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: "clip",
         recording_id: recordingId,
         ref: attribution.ref,
@@ -750,7 +750,7 @@ export default function ShareRoute() {
       canOpenDashboard: viewerCanOpenDashboard,
       search: searchParams.toString(),
     });
-    if (target) navigate(target, { replace: true });
+    if (target) void navigate(target, { replace: true });
   }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
 
   // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
@@ -835,7 +835,7 @@ export default function ShareRoute() {
         sessionStorage.removeItem(STORAGE_KEY_PREFIX + shareId);
       } catch {}
     }
-  }, [needsPassword, password, shareId]);
+  }, [needsPassword, password, shareId, t]);
 
   function onSubmitPassword(pw: string) {
     setPwError(null);
@@ -1161,7 +1161,7 @@ export default function ShareRoute() {
             )}
           </div>
 
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1 sm:w-auto sm:justify-end">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={viewCount}

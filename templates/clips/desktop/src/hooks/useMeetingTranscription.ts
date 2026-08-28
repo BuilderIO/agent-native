@@ -27,7 +27,7 @@ import { normalizeServerUrl } from "../lib/url";
 export interface MeetingTranscriptionPayload {
   meetingId: string;
   joinUrl?: string | null;
-  reason?: "user" | "calendar-auto" | string;
+  reason?: "user" | "calendar-auto" | (string & {});
   scheduledStart?: string | null;
   includeFromMeetingStart?: boolean;
 }

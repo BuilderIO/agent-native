@@ -590,7 +590,9 @@ function EmbeddedToolMenu({
         { method: "DELETE" },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["slot-installs", slotId],
+      });
     }
   };
 
@@ -600,7 +602,9 @@ function EmbeddedToolMenu({
       await deleteOrHideExtension({ id: extensionId, canDelete });
       invalidateExtensionRemoval(queryClient, extensionId);
     } catch {
-      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["extension", extensionId],
+      });
     }
   };
 

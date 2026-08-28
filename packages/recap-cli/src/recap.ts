@@ -2197,14 +2197,15 @@ async function githubRequest<T>(
   init: RequestInit = {},
   fetchFn: typeof fetch = fetch,
 ): Promise<T> {
+  const headers = new Headers({
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${token}`,
+    "x-github-api-version": "2022-11-28",
+  });
+  new Headers(init.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetchFn(`https://api.github.com${apiPath}`, {
     ...init,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "x-github-api-version": "2022-11-28",
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -3524,15 +3525,21 @@ const RECAP_SYSTEM_CHROME_EXECUTABLES = [
   "/usr/bin/chromium",
 ];
 
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  return JSON.stringify(err) ?? "";
+}
+
 function shouldTrySystemChromeFallback(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
     message,
   );
 }
 
 function shouldRetryRecapDocumentLoad(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   return (
     /waitForSelector:\s*Timeout/i.test(message) &&
     message.includes(RECAP_DOCUMENT_SELECTOR)

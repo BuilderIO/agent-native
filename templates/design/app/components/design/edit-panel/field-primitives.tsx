@@ -20,6 +20,12 @@ import {
   type ScrubInputChangeMeta,
 } from "../inspector";
 import type { ElementInfo } from "../types";
+import {
+  INSPECTOR_GRID_PAIR_GUTTER_SPAN,
+  INSPECTOR_GRID_PAIR_SPAN,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import {
@@ -86,7 +92,7 @@ export function DesignSpacingControl({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
-        <Label className="!text-[11px] font-medium text-muted-foreground">
+        <Label className="design-sidebar-field-label text-muted-foreground">
           {label}
         </Label>
         <Tooltip>
@@ -121,44 +127,60 @@ export function DesignSpacingControl({
           inputClassName="h-6"
         />
       ) : (
-        <div className="grid grid-cols-2 gap-1.5">
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.top")}
-            value={numeric.top}
-            onChange={(value) => setSide("Top", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
+        <InspectorGrid className="items-center" layout="pair">
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.top")}
+              value={numeric.top}
+              onChange={(value) => setSide("Top", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+            ariaHidden
           />
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.right")}
-            value={numeric.right}
-            onChange={(value) => setSide("Right", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.right")}
+              value={numeric.right}
+              onChange={(value) => setSide("Right", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.bottom")}
+              value={numeric.bottom}
+              onChange={(value) => setSide("Bottom", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+          <InspectorGridCell
+            span={INSPECTOR_GRID_PAIR_GUTTER_SPAN}
+            ariaHidden
           />
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.bottom")}
-            value={numeric.bottom}
-            onChange={(value) => setSide("Bottom", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
-          />
-          <ScrubInput
-            label={t("editPanel.sidePlaceholders.left")}
-            value={numeric.left}
-            onChange={(value) => setSide("Left", value)}
-            unit="px"
-            min={0}
-            precision={1}
-            inputClassName="h-6"
-          />
-        </div>
+          <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
+            <ScrubInput
+              label={t("editPanel.sidePlaceholders.left")}
+              value={numeric.left}
+              onChange={(value) => setSide("Left", value)}
+              unit="px"
+              min={0}
+              precision={1}
+              inputClassName="h-6"
+            />
+          </InspectorGridCell>
+        </InspectorGrid>
       )}
     </div>
   );
@@ -312,7 +334,7 @@ export function ScrubStyleInput({
         labelClassName,
       )}
       inputClassName={cn(
-        "h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+        "h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
         inputClassName,
       )}
     />

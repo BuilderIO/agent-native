@@ -16,13 +16,12 @@ import { agentNativePath } from "../api-path.js";
 const ORG_BASE = agentNativePath("/_agent-native/org");
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetch(path, {
     ...init,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
   if (!res.ok) {
     // Prefer a JSON `error` / `message` field when the server returns one,

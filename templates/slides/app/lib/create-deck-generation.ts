@@ -17,6 +17,9 @@ import {
 } from "@/lib/import-uploaded-deck";
 import { TAB_ID } from "@/lib/tab-id";
 
+export const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
+  "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
+
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
 }
@@ -233,7 +236,7 @@ type SubmitAgent = (
 ) => void;
 
 export interface StartDeckGenerationOptions {
-  session: unknown | null;
+  session: unknown;
   prompt: string;
   files: UploadedFile[];
   retryFiles?: UploadedFile[];
@@ -468,6 +471,7 @@ export async function startDeckGeneration({
     referenceDeckContext,
     designSystemContext,
     referenceSourceContext,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     sourceDeckContext,
     "",
     "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references, like Claude's design-question flow; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
@@ -521,7 +525,7 @@ export async function startDeckGeneration({
     replace: true,
     flushSync: true,
   });
-  agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
+  agentSubmit(createDeckAgentMessage(prompt), context, {
     newTab: true,
     reuseEmptyTab: true,
     openSidebar: true,

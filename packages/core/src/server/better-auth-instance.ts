@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Internal Better Auth instance — lazily created, not exported to templates.
  *
@@ -167,6 +177,16 @@ export interface BetterAuthUserCreateContext {
   request?: { headers?: Headers | null; url?: string } | null;
 }
 
+function signupMethodFromRequestUrl(
+  url: string | undefined,
+): "magic_link" | "password" {
+  const normalized = url?.toLowerCase() ?? "";
+  return normalized.includes("newusercallbackurl") ||
+    normalized.includes("/magic-link")
+    ? "magic_link"
+    : "password";
+}
+
 /**
  * Emit the `signup` event for a freshly created Better Auth `user` row — but
  * only when that row is an actual person signing up.
@@ -225,6 +245,7 @@ export async function emitSignupEventForCreatedUser(
   await trackSignupEvent({
     authProvider: "better-auth",
     origin: scoped?.signupOrigin ?? "browser_signup",
+    signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
     name: user.name,
@@ -251,6 +272,7 @@ export async function hasGoogleAuthIdentity(
 export async function trackSignupEvent({
   authProvider,
   origin,
+  signupMethod,
   authUserId,
   email,
   name,
@@ -259,6 +281,7 @@ export async function trackSignupEvent({
 }: {
   authProvider: string;
   origin: SignupOrigin;
+  signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
   name?: string | null;
@@ -293,6 +316,7 @@ export async function trackSignupEvent({
       ...resolveSignupTrackingProperties(),
       auth_provider: authProvider,
       signup_origin: origin,
+      ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
@@ -1821,7 +1845,7 @@ async function createBetterAuthInstance(
               return;
             }
 
-            const path = String(context?.path ?? "").toLowerCase();
+            const path = stringifyValue(context?.path ?? "").toLowerCase();
             const requestUrl = context?.request?.url ?? "";
             const providerValues = [
               path,

@@ -375,6 +375,7 @@ export interface PromptAttachmentActions {
   commit: () => void;
   discard: () => void;
   attachments: ReadonlyArray<PromptChatAttachment>;
+  context?: string;
 }
 
 export type PromptSubmitResult = "commit" | "retain" | "discard";
@@ -398,7 +399,12 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
-  onBeforeUpload?: (prompt: string, files: File[]) => boolean | void;
+  onBeforeUpload?: (
+    prompt: string,
+    files: File[],
+    context?: string,
+    attachments?: ReadonlyArray<PromptChatAttachment>,
+  ) => boolean | void;
   onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
     selection: PromptImportSelection,
@@ -542,10 +548,11 @@ export default function PromptPopover({
       if (files.length === 0 && retainingAttachmentsRef.current) return;
       syncFiles(files);
       if (files.length === 0) return;
-      const enrichedText = [promptText.trim(), googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      if (onBeforeUpload?.(enrichedText, files) === false) return;
+      if (
+        onBeforeUpload?.(promptText, files, googleDocContext || undefined) ===
+        false
+      )
+        return;
       void uploadFiles(files).catch((error) => {
         toast.error(t("raw.uploadFailed"), {
           description:
@@ -565,10 +572,17 @@ export default function PromptPopover({
       _references: unknown[],
       options?: PromptComposerSubmitOptions,
     ) => {
-      const enrichedText = [text.trim(), googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
+      const preUploadChatAttachments = options?.attachments?.length
+        ? await createPromptChatAttachments(options.attachments, [])
+        : [];
+      if (
+        onBeforeUpload?.(
+          text,
+          files,
+          googleDocContext || undefined,
+          preUploadChatAttachments,
+        ) === false
+      ) {
         return;
       }
       submittingRef.current = true;
@@ -580,7 +594,7 @@ export default function PromptPopover({
           uploaded,
         );
         retainFiles(files);
-        const result = await onSubmit(enrichedText, uploaded, {
+        const result = await onSubmit(text, uploaded, {
           commit: () => {
             commitFiles(files);
             retainingAttachmentsRef.current = false;
@@ -592,6 +606,7 @@ export default function PromptPopover({
             setRetainingAttachments(false);
           },
           attachments: chatAttachments,
+          context: googleDocContext || undefined,
         });
         if (result === "retain") {
           retainingAttachmentsRef.current = true;

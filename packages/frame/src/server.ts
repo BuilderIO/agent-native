@@ -204,6 +204,6 @@ router.all(
 app.use(router);
 
 // Start the server
-listen(toNodeListener(app), { port: PORT }).then(() => {
+void listen(toNodeListener(app), { port: PORT }).then(() => {
   console.log(`Frame server listening on http://localhost:${PORT}`);
 });

@@ -66,6 +66,42 @@ export type SlideStylePatch = Partial<{
   zIndex: string;
 }>;
 
+const MULTI_STYLE_KEYS = [
+  "color",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "textDecoration",
+] as const satisfies readonly InlineTextStyleKey[];
+
+/** Keep the first item's controls while marking values that disagree. */
+export function mergeSlideStyleSnapshots(
+  snapshots: readonly SlideStyleSnapshot[],
+): SlideStyleSnapshot | null {
+  const first = snapshots[0];
+  if (
+    !first ||
+    snapshots.some(
+      (snapshot) =>
+        snapshot.isText !== first.isText || snapshot.isImage !== first.isImage,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    ...first,
+    // Group position controls would write one object's coordinates to every
+    // member, so group snapshots expose appearance controls only.
+    isAbsolute: false,
+    mixedTextStyles: first.isText
+      ? MULTI_STYLE_KEYS.filter((key) =>
+          snapshots.some((snapshot) => snapshot[key] !== first[key]),
+        )
+      : [],
+  };
+}
+
 export function tokenPalette(
   designSystem: DesignSystemData | undefined,
   t: (key: string) => string,

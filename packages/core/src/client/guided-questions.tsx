@@ -1153,8 +1153,8 @@ export function useGuidedQuestionFlow({
     const del = (key: string) => deleteClientAppState(key).catch(() => {});
     // Clear whichever key actually held the payload (scoped or bare) so the
     // card doesn't reappear on the next poll.
-    del(scopedKey);
-    if (scopedKey !== stateKey) del(stateKey);
+    void del(scopedKey);
+    if (scopedKey !== stateKey) void del(stateKey);
   }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
   const handleSubmit = useCallback(

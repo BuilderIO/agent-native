@@ -278,14 +278,14 @@ function headersWithSignupAttribution(
 
 export interface AuthSession {
   email: string;
-  /** Better Auth's email-ownership state, when the provider exposes it. */
-  emailVerified?: boolean;
   userId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
   /** Profile image from the auth provider, when available. */
   image?: string;
+  /** Whether the auth provider has verified this session's email address. */
+  emailVerified?: boolean;
   /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -712,7 +712,7 @@ export function safeReturnPath(raw: string | null | undefined): string {
 // invalid as a Better Auth relative callback. Promote those paths to the
 // canonical app origin so the callback remains same-origin and valid there.
 const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
-  /^\/(?!\/|\\|%2f|%5c)[\w\-.\+/@]*(?:\?[\w\-.\+/=&%@]*)?$/i;
+  /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/i;
 
 function betterAuthCallbackURL(
   raw: string | null | undefined,
@@ -3813,6 +3813,9 @@ function mapBetterAuthSession(baSession: {
     userId: baSession.user.id,
     name: baSession.user.name,
     ...(baSession.user.image ? { image: baSession.user.image } : {}),
+    ...(typeof baSession.user.emailVerified === "boolean"
+      ? { emailVerified: baSession.user.emailVerified }
+      : {}),
     token: baSession.session?.token,
   };
 }

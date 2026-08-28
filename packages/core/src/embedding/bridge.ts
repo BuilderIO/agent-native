@@ -25,7 +25,7 @@ export type EmbeddedAppMessageHandler = (
 
 export type EmbeddedAppRequestHandler = (
   message: EmbeddedAppMessageEvent,
-) => unknown | Promise<unknown>;
+) => unknown;
 
 export interface EmbeddedAppBridgeOptions {
   /**

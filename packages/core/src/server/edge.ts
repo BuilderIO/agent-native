@@ -1,3 +1,4 @@
+export { getAppConfig } from "../app-config/index.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   getDisabledDefaultPlugins,

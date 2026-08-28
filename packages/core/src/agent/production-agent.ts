@@ -721,10 +721,7 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
-  run: (
-    args: any,
-    context?: import("../action.js").ActionRunContext,
-  ) => Promise<any> | any;
+  run: (args: any, context?: import("../action.js").ActionRunContext) => any;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
@@ -5270,7 +5267,7 @@ export async function runAgentLoop(opts: {
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointNoProgress();
-            requestEventIteratorReturn(iterator, false);
+            void requestEventIteratorReturn(iterator, false);
             return { done: true, value: undefined };
           }
           let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -5283,7 +5280,7 @@ export async function runAgentLoop(opts: {
             const result = await Promise.race([next, timeout]);
             if (result === "timeout") {
               checkpointNoProgress();
-              requestEventIteratorReturn(iterator, false);
+              void requestEventIteratorReturn(iterator, false);
               return { done: true, value: undefined };
             }
             return result;

@@ -124,6 +124,7 @@ function startContentHeightReporting(): void {
     scheduled = true;
     window.requestAnimationFrame(() => {
       scheduled = false;
+      if (typeof window === "undefined") return;
       reportContentHeight();
     });
   };

@@ -64,6 +64,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   describeDeckPersistenceFailure,
   type Deck,
 } from "@/context/DeckContext";
@@ -78,6 +83,7 @@ import {
   isSourceImprovementRequest,
   persistDeckGenerationContext,
   requestedSlideCount,
+  WEBSITE_STYLE_REFERENCE_DIRECTIVE,
 } from "@/lib/create-deck-generation";
 import {
   readStoredDeckFilter,
@@ -101,23 +107,30 @@ import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
+const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 
 /** Router-state payload for recovering the new-deck prompt after a failed
  *  generation kickoff forces a navigate away from and back to this route. */
 interface DeckGenerationRetryState {
   retryPrompt?: string;
   retryFiles?: UploadedFile[];
+  retryContext?: string;
   retryAttachments?: ReadonlyArray<PromptChatAttachment>;
 }
 
 function savePromptForRetry(
   prompt: string,
-  options: { persistAcrossSignIn?: boolean } = {},
+  options: { context?: string; persistAcrossSignIn?: boolean } = {},
 ) {
   let signInHandoffSaved = !options.persistAcrossSignIn;
   if (options.persistAcrossSignIn) {
     try {
       sessionStorage.setItem(PENDING_PROMPT_KEY, prompt);
+      if (options.context) {
+        sessionStorage.setItem(PENDING_PROMPT_CONTEXT_KEY, options.context);
+      } else {
+        sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
+      }
       signInHandoffSaved = true;
     } catch {}
   }
@@ -128,6 +141,7 @@ function savePromptForRetry(
 function clearPendingPromptForRetry() {
   try {
     sessionStorage.removeItem(PENDING_PROMPT_KEY);
+    sessionStorage.removeItem(PENDING_PROMPT_CONTEXT_KEY);
   } catch {}
 }
 
@@ -291,12 +305,19 @@ export default function Index() {
   const [newDeckRetryFiles, setNewDeckRetryFiles] = useState<UploadedFile[]>(
     [],
   );
+  const [newDeckRetryContext, setNewDeckRetryContext] = useState<
+    string | undefined
+  >();
+  const [newDeckRetryPrompt, setNewDeckRetryPrompt] = useState<
+    string | undefined
+  >();
   const [newDeckRetryAttachments, setNewDeckRetryAttachments] = useState<
     ReadonlyArray<PromptChatAttachment>
   >([]);
   const [pendingDeck, setPendingDeck] = useState<{
     prompt: string;
     files: UploadedFile[];
+    context?: string;
     attachments: ReadonlyArray<PromptChatAttachment>;
   } | null>(null);
   const pendingDeckAttachmentActionsRef =
@@ -489,6 +510,8 @@ export default function Index() {
         if (options.clearInitialPrompt !== false) {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
+          setNewDeckRetryContext(undefined);
+          setNewDeckRetryPrompt(undefined);
           setNewDeckRetryAttachments([]);
         }
       }
@@ -497,12 +520,26 @@ export default function Index() {
   );
 
   const preservePromptForSignIn = useCallback(
-    (prompt: string, options: { hadFiles?: boolean } = {}) => {
-      if (!savePromptForRetry(prompt, { persistAcrossSignIn: true })) {
+    (
+      prompt: string,
+      options: {
+        context?: string;
+        attachments?: ReadonlyArray<PromptChatAttachment>;
+        hadFiles?: boolean;
+      } = {},
+    ) => {
+      if (
+        !savePromptForRetry(prompt, {
+          context: options.context,
+          persistAcrossSignIn: true,
+        })
+      ) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
+      setNewDeckRetryContext(options.context);
+      setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles([]);
-      setNewDeckRetryAttachments([]);
+      setNewDeckRetryAttachments(options.attachments ?? []);
       setSignInPromptHadFiles(Boolean(options.hadFiles));
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       setShowSignInDialog(true);
@@ -550,10 +587,15 @@ export default function Index() {
   useEffect(() => {
     if (!session) return;
     let saved: string | null = null;
+    let savedContext: string | undefined;
     try {
       saved = sessionStorage.getItem(PENDING_PROMPT_KEY);
+      savedContext =
+        sessionStorage.getItem(PENDING_PROMPT_CONTEXT_KEY) ?? undefined;
     } catch {}
     if (!saved) return;
+    setNewDeckRetryContext(savedContext);
+    setNewDeckRetryPrompt(saved);
     if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, saved)) {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt(null);
@@ -583,9 +625,11 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
     }
     setNewDeckRetryFiles(state.retryFiles ?? []);
+    setNewDeckRetryContext(state.retryContext);
+    setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
     setShowNewDeckPrompt(true);
-    navigate(".", { replace: true, state: null });
+    void navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
 
   const handleCreateDeckBlank = () => {
@@ -603,7 +647,7 @@ export default function Index() {
       setIsStartingNewDeck(false);
       return;
     }
-    navigate(`/deck/${deck.id}`);
+    void navigate(`/deck/${deck.id}`);
   };
 
   const settlePendingDeckAttachments = useCallback(
@@ -625,6 +669,7 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
     referenceSelection: NewDeckReferenceSelection = {},
+    additionalContext = "",
     attachments: ReadonlyArray<PromptChatAttachment> = [],
   ) => {
     // Pre-flight auth check. The add-deck action returns 403 silently
@@ -634,7 +679,11 @@ export default function Index() {
     // and the typed prompt isn't lost when they come back.
     if (!session) {
       settlePendingDeckAttachments("discard");
-      preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
+      preservePromptForSignIn(prompt, {
+        context: additionalContext,
+        attachments,
+        hadFiles: files.length > 0,
+      });
       return;
     }
 
@@ -684,16 +733,18 @@ export default function Index() {
     // Leave the grid as soon as the optimistic deck exists. Persistence and
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
-    navigate(`/deck/${deck.id}?generating=1`, {
+    void navigate(`/deck/${deck.id}?generating=1`, {
       replace: true,
       flushSync: true,
     });
 
     const recoverFromGenerationSetupFailure = (description: string) => {
       settlePendingDeckAttachments("discard");
-      if (!savePromptForRetry(prompt)) {
+      if (!savePromptForRetry(prompt, { context: additionalContext })) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
+      setNewDeckRetryContext(additionalContext || undefined);
+      setNewDeckRetryPrompt(prompt);
       setNewDeckRetryFiles(filesForGeneration);
       setNewDeckRetryAttachments(attachmentsForGeneration);
       deleteDeck(deckId);
@@ -702,11 +753,12 @@ export default function Index() {
         typeof window !== "undefined" &&
         deckIdFromPathname(window.location.pathname) === deckId
       ) {
-        navigate("/", {
+        void navigate("/", {
           replace: true,
           state: {
             retryPrompt: prompt,
             retryFiles: filesForGeneration,
+            retryContext: additionalContext || undefined,
             retryAttachments: attachmentsForGeneration,
           } satisfies DeckGenerationRetryState,
           flushSync: true,
@@ -745,9 +797,13 @@ export default function Index() {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
+    setNewDeckRetryContext(undefined);
+    setNewDeckRetryPrompt(undefined);
     setNewDeckRetryAttachments([]);
     const trimmedPrompt = prompt.trim();
-    const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
+    const hasImportedGoogleDocContext = [additionalContext, trimmedPrompt].some(
+      (value) => value.includes("<google-doc "),
+    );
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
       : extractGoogleDocUrls(trimmedPrompt);
@@ -756,16 +812,19 @@ export default function Index() {
       deckId,
       importedSourceDeck,
     );
-    const googleDocContext =
+    const googleDocContext = [
+      additionalContext,
       googleDocUrls.length > 0
         ? [
-            "",
             "The request includes Google Docs URL(s):",
             ...googleDocUrls.map((url) => `- ${url}`),
             "Before adding slides, call `import-google-doc` for each URL and use the returned text as source material.",
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
-        : "";
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     const [referenceDeckContext, hydratedDesignSystemContext] =
       await Promise.all([
         loadReferenceDeckGenerationContext(referenceDeckId),
@@ -843,6 +902,7 @@ export default function Index() {
       referenceDeckContext,
       designSystemContext,
       referenceSourceContext,
+      WEBSITE_STYLE_REFERENCE_DIRECTIVE,
       sourceDeckContext,
       "",
       "Before generating, if the request or selected references leave a meaningful choice unresolved, use the `ask-question` tool to ask one concise, prompt-specific question in the inline guided-question flow. Generate the question wording and 2 to 4 options from the user's request and selected references, like Claude's design-question flow; do not use a fixed generic questionnaire. Ask only a choice that materially affects the deck, such as audience, tone, structure, or length. If the prompt already makes the choice clear, do not ask it again. Wait for the user's answer or skip before adding slides.",
@@ -890,7 +950,7 @@ export default function Index() {
     ).catch(() => {});
     deleteClientAppState("guided-questions").catch(() => {});
 
-    agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
+    agentSubmit(createDeckAgentMessage(prompt), context, {
       newTab: true,
       reuseEmptyTab: true,
       openSidebar: true,
@@ -905,6 +965,7 @@ export default function Index() {
       prompt: string,
       files: UploadedFile[],
       referenceSelection: NewDeckReferenceSelection,
+      context?: string,
       attachments: ReadonlyArray<PromptChatAttachment> = [],
     ) => {
       const generation = Promise.resolve().then(() =>
@@ -912,6 +973,7 @@ export default function Index() {
           prompt,
           files,
           referenceSelection,
+          context,
           attachments,
         ),
       );
@@ -949,20 +1011,38 @@ export default function Index() {
     ) => {
       pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+      const retryContext =
+        attachments.context ??
+        (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       setPendingDeck({
         prompt,
         files,
-        attachments: attachments.attachments,
+        context: retryContext,
+        attachments: [
+          ...(prompt === newDeckRetryPrompt ? newDeckRetryAttachments : []),
+          ...attachments.attachments,
+        ],
       });
+      setNewDeckRetryPrompt(undefined);
+      setNewDeckRetryContext(undefined);
+      setNewDeckRetryAttachments([]);
       setShowNewDeckReferenceStep(true);
       return "retain" as const;
     },
-    [setNewDeckPromptOpen],
+    [
+      newDeckRetryAttachments,
+      newDeckRetryContext,
+      newDeckRetryPrompt,
+      setNewDeckPromptOpen,
+    ],
   );
 
   const handlePromptSkip = useCallback(() => {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
+    setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryContext(undefined);
+    setNewDeckRetryAttachments([]);
     setPendingDeck({ prompt: "", files: [], attachments: [] });
     setShowNewDeckReferenceStep(true);
   }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
@@ -995,7 +1075,7 @@ export default function Index() {
           );
         }
         await reloadDecks();
-        navigate(`/deck/${imported.id}`, { flushSync: true });
+        void navigate(`/deck/${imported.id}`, { flushSync: true });
         return true;
       }
 
@@ -1022,7 +1102,7 @@ export default function Index() {
           throw new Error("The PowerPoint presentation did not create a deck.");
         }
         await reloadDecks();
-        navigate(`/deck/${imported.id}`, { flushSync: true });
+        void navigate(`/deck/${imported.id}`, { flushSync: true });
         return true;
       }
 
@@ -1066,7 +1146,7 @@ export default function Index() {
           throw new Error("The PDF could not be imported into the new deck.");
         }
         await reloadDecks();
-        navigate(`/deck/${deck.id}`, { flushSync: true });
+        void navigate(`/deck/${deck.id}`, { flushSync: true });
         return true;
       } catch (error) {
         deleteDeck(deck.id);
@@ -1074,7 +1154,6 @@ export default function Index() {
       }
     },
     [
-      callAction,
       createDeck,
       deleteDeck,
       ensureDeckPersisted,
@@ -1110,6 +1189,7 @@ export default function Index() {
         pending.prompt,
         pending.files,
         selection,
+        pending.context,
         pending.attachments,
       );
       setShowNewDeckReferenceStep(false);
@@ -1237,15 +1317,7 @@ export default function Index() {
         setReferenceImporting(false);
       }
     },
-    [
-      callAction,
-      createDeck,
-      deleteDeck,
-      ensureDeckPersisted,
-      pendingDeck,
-      reloadDecks,
-      t,
-    ],
+    [createDeck, deleteDeck, ensureDeckPersisted, pendingDeck, reloadDecks, t],
   );
 
   const handleReferenceSourceImport = useCallback(
@@ -1297,7 +1369,7 @@ export default function Index() {
         setReferenceImporting(false);
       }
     },
-    [callAction, reloadDecks, t],
+    [reloadDecks, t],
   );
 
   const handleReferenceSkip = useCallback(async () => {
@@ -1321,6 +1393,7 @@ export default function Index() {
         designSystemId: null,
         referenceDeckId: null,
       },
+      pending.context,
       pending.attachments,
     );
     setShowNewDeckReferenceStep(false);
@@ -1436,7 +1509,7 @@ export default function Index() {
         // there, send them back to the deck list instead of stranding them
         // on a "Deck unavailable" screen for a deck that no longer exists.
         if (deckIdFromPathname(window.location.pathname) === newId) {
-          navigate("/");
+          void navigate("/");
         }
         toast.error(t("home.duplicateFailed"));
       });
@@ -1446,7 +1519,7 @@ export default function Index() {
         toast.error(t("home.duplicateFailed"));
         return;
       }
-      navigate(`/deck/${copy.id}`);
+      void navigate(`/deck/${copy.id}`);
     },
     [duplicateDeck, navigate, t],
   );
@@ -1460,8 +1533,8 @@ export default function Index() {
     useMemo(
       () => (
         <>
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
+          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           <Button onClick={openNewDeck} size="sm" className="cursor-pointer">
             <IconPlus className="w-3.5 h-3.5" />
             {t("home.newDeck")}
@@ -1529,12 +1602,12 @@ export default function Index() {
       ) : (
         <>
           <div className="mb-4 flex items-center gap-2 md:hidden">
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
             <DeckSearchInput
               value={deckSearch}
               onChange={setDeckSearch}
               className="flex-1"
             />
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -1639,9 +1712,13 @@ export default function Index() {
         onImport={handleDirectImport}
         importFromLabel={t("home.importFrom")}
         importingLabel={t("editorToolbar.importing")}
-        onBeforeUpload={(prompt, files) => {
+        onBeforeUpload={(prompt, files, context, attachments) => {
           if (session) return true;
-          preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
+          preservePromptForSignIn(prompt, {
+            context,
+            attachments,
+            hadFiles: files.length > 0,
+          });
           return false;
         }}
         loading={generating}
@@ -1725,23 +1802,30 @@ function DeckFilterMenu({
   onChange: (value: DeckFilter) => void;
 }) {
   const t = useT();
-  const currentLabel = value === "mine" ? t("home.mine") : t("home.all");
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label={
-            value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")
-          }
-          className="shrink-0 gap-1.5"
-        >
-          <IconFilter className="size-3.5" />
-          {currentLabel}
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={
+                value === "mine"
+                  ? t("home.showMineDecks")
+                  : t("home.showAllDecks")
+              }
+              className="size-9 shrink-0 p-0"
+            >
+              <IconFilter className="size-3.5" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")}
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup
           value={value}

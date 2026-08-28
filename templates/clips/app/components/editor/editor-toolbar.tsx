@@ -252,7 +252,7 @@ export function EditorToolbar({
       setLongWarnOpen(true);
       return;
     }
-    runExport();
+    void runExport();
   };
 
   const handleDownloadOriginal = () => {
@@ -576,7 +576,7 @@ export function EditorToolbar({
             <AlertDialogAction
               onClick={() => {
                 setLongWarnOpen(false);
-                runExport();
+                void runExport();
               }}
             >
               {t("editorToolbar.exportAnyway")}
@@ -600,7 +600,7 @@ export function EditorToolbar({
             <AlertDialogAction
               onClick={() => {
                 setClearOpen(false);
-                handleClear();
+                void handleClear();
               }}
             >
               {t("editorToolbar.clearEdits")}

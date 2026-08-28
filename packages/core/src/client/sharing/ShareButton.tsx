@@ -24,6 +24,7 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
+import { trackEvent } from "../analytics.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -410,6 +411,9 @@ function SharePanel(
           value={props.shareUrl}
           label={props.shareUrlLabel}
           description={props.shareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="share"
         />
       ) : props.shareUrlPlaceholder ? (
         <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
@@ -427,6 +431,9 @@ function SharePanel(
           value={props.secondaryShareUrl}
           label={props.secondaryShareUrlLabel}
           description={props.secondaryShareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="secondary"
         />
       ) : null}
     </>
@@ -1186,12 +1193,29 @@ function CopyLinkField({
   value,
   label,
   description,
+  resourceType,
+  resourceId,
+  linkType,
 }: {
   value: string;
   label?: string;
   description?: ReactNode;
+  resourceType: string;
+  resourceId: string;
+  linkType: "share" | "secondary";
 }) {
   const t = useT();
+  const copy = async (nextValue: string) => {
+    const copied = await writeClipboardText(nextValue);
+    if (copied) {
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: linkType,
+      });
+    }
+    return copied;
+  };
   return (
     <ShareCopyRow
       value={value}
@@ -1201,7 +1225,7 @@ function CopyLinkField({
       description={description}
       copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
       copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
-      onCopy={writeClipboardText}
+      onCopy={copy}
       className="mb-4"
     />
   );

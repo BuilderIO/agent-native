@@ -23,6 +23,14 @@ export const IMAGE_OBJECT_POSITION_VALUES = [
 
 export type ImageObjectPosition = (typeof IMAGE_OBJECT_POSITION_VALUES)[number];
 
+export interface OptimisticImagePreview {
+  previewSrc: string;
+  replaceSrc: string | null;
+  alt?: string;
+  position?: SlideImageDropPosition;
+  objectId?: string;
+}
+
 const DROPPED_IMAGE_WIDTH = 320;
 const DROPPED_IMAGE_HEIGHT = 180;
 
@@ -106,6 +114,13 @@ export function normalizeImageObjectPosition(
     return normalized as ImageObjectPosition;
   }
   return "center center";
+}
+
+function hasImageSource(content: string, src: string): boolean {
+  const doc = parseFragment(content);
+  return Array.from(doc.body.querySelectorAll<HTMLImageElement>("img")).some(
+    (image) => image.getAttribute("src") === src,
+  );
 }
 
 function cleanAlt(value: string | undefined): string {
@@ -637,11 +652,71 @@ export function updateImageFitInSlideHtml(
   for (const token of imageSourceTokens(content)) {
     if (token.source !== src) continue;
     if (matchingImage++ !== Math.max(0, imageOccurrence)) continue;
-    return token.kind === "html"
+  return token.kind === "html"
       ? updateHtmlImageAt(content, token, updates)
       : updateMarkdownImageAt(content, token, updates);
   }
   return content;
+}
+
+/** Replace one optimistic preview, or remove it when its upload failed. */
+export function replaceOptimisticImagePreview(
+  content: string,
+  previewSrc: string,
+  finalSrc: string | null,
+): string {
+  const doc = parseFragment(content);
+  const image = Array.from(
+    doc.body.querySelectorAll<HTMLImageElement>("img"),
+  ).find((img) => img.getAttribute("src") === previewSrc);
+  if (!image) return content;
+
+  if (finalSrc) image.setAttribute("src", finalSrc);
+  else image.remove();
+  return serializeFragment(doc);
+}
+
+export function applyOptimisticImagePreview(
+  content: string,
+  preview: OptimisticImagePreview,
+): string {
+  if (hasImageSource(content, preview.previewSrc)) return content;
+  return preview.replaceSrc
+    ? replaceImageTargetInSlideHtml(
+        content,
+        preview.replaceSrc,
+        preview.previewSrc,
+        {
+          alt: preview.alt,
+        },
+      )
+    : insertDroppedImageIntoSlideHtml(content, preview.previewSrc, {
+        alt: preview.alt,
+        position: preview.position,
+        objectId: preview.objectId,
+      });
+}
+
+export function hasOptimisticImagePreview(
+  content: string,
+  previewSrc: string,
+): boolean {
+  return hasImageSource(content, previewSrc);
+}
+
+export function stripOptimisticImagePreviews(
+  content: string,
+  previews: readonly OptimisticImagePreview[],
+): string {
+  return previews.reduce(
+    (current, preview) =>
+      replaceOptimisticImagePreview(
+        current,
+        preview.previewSrc,
+        preview.replaceSrc,
+      ),
+    content,
+  );
 }
 
 export function insertImageIntoSlideHtml(
@@ -700,7 +775,10 @@ export function insertImageIntoSlideHtml(
 export function insertDroppedImageIntoSlideHtml(
   content: string,
   newSrc: string,
-  options: ReplaceOptions & { position?: SlideImageDropPosition } = {},
+  options: ReplaceOptions & {
+    position?: SlideImageDropPosition;
+    objectId?: string;
+  } = {},
 ): string {
   const doc = parseFragment(content);
   const img = doc.createElement("img");
@@ -713,7 +791,10 @@ export function insertDroppedImageIntoSlideHtml(
 
   img.setAttribute("src", newSrc);
   img.setAttribute("alt", cleanAlt(options.alt));
-  img.setAttribute("data-slide-object-id", createSlideObjectId());
+  img.setAttribute(
+    "data-slide-object-id",
+    options.objectId ?? createSlideObjectId(),
+  );
   img.className = "fmd-img-uploaded";
   img.setAttribute(
     "style",

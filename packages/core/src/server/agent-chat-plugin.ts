@@ -6420,7 +6420,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const waitUntil = event.req?.waitUntil;
             const runPromise = runAutomation().catch(() => {});
             if (typeof waitUntil === "function") {
-              waitUntil(runPromise);
+              void waitUntil(runPromise);
             }
             setResponseStatus(event, 202);
             return { ok: true, accepted: true, automationRunId };

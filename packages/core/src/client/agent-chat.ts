@@ -9,6 +9,7 @@
 
 import type { AgentChatAttachment, MentionItemMedia } from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
 import {
@@ -656,7 +657,7 @@ export function appendAgentChatContextToMessage(
 ): string {
   const trimmedContext = context.trim();
   if (!trimmedContext) return message;
-  return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
+  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {
@@ -1110,6 +1111,15 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
+  if (opts.submit !== false && opts.message.trim()) {
+    trackEvent("app.first_action", {
+      action: "chat_submit",
+      surface: opts.preset ?? "chat",
+      request_mode: requestMode ?? "default",
+      chat_target: opts.chatTarget ?? "auto",
+      background: opts.background === true,
+    });
+  }
   if (isCodeRequest && isInBuilderFrame()) {
     sendToBuilderChat({
       message: opts.message,

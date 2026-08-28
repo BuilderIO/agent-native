@@ -108,18 +108,20 @@ export class MultiFrontierManager {
   constructor(options: MultiFrontierManagerOptions) {
     this.#options = {
       ...options,
-      readRepositoryEvidence:
-        options.readRepositoryEvidence ??
-        (async () => "Repository evidence was not supplied for this run."),
-      createId: options.createId ?? randomUUID,
-      now: options.now ?? (() => new Date().toISOString()),
-      snapshotWorkspace:
-        options.snapshotWorkspace ??
-        (async ({ workspaceId }) => ({
-          contentRef: `workspace:${workspaceId}`,
-          contentHash: "0".repeat(64),
-          testOutput: "Workspace checkpoint captured without a test command.",
-        })),
+      readRepositoryEvidence: options.readRepositoryEvidence
+        ? (cwd) => options.readRepositoryEvidence!(cwd)
+        : async () => "Repository evidence was not supplied for this run.",
+      createId: options.createId
+        ? () => options.createId!()
+        : () => randomUUID(),
+      now: options.now ? () => options.now!() : () => new Date().toISOString(),
+      snapshotWorkspace: options.snapshotWorkspace
+        ? (input) => options.snapshotWorkspace!(input)
+        : async ({ workspaceId }) => ({
+            contentRef: `workspace:${workspaceId}`,
+            contentHash: "0".repeat(64),
+            testOutput: "Workspace checkpoint captured without a test command.",
+          }),
     };
   }
 
@@ -641,7 +643,7 @@ export class MultiFrontierManager {
         participants[1].participantId,
       ],
       coordinator: bridge.coordinator,
-      captureTurnResult: bridge.captureTurnResult,
+      captureTurnResult: (result) => bridge.captureTurnResult(result),
       appendArtifact: async (artifact) =>
         this.#appendArtifact(session, artifact),
       onSnapshot: async () => this.#emitSnapshot(session),
