@@ -35,6 +35,7 @@ import type { PillMode } from "../lib/pill-session";
 // Within this distance of the right screen edge the pill anchors its RIGHT
 // edge and grows left instead, so growth never runs off-screen.
 const RIGHT_EDGE_ANCHOR_PX = 200;
+const NATIVE_LAYOUT_GUARD_MS = 1_500;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
 type RecorderSession = {
@@ -193,6 +194,9 @@ export function RecordingPill() {
   function resizeWindowTo(contentW: number, contentH: number) {
     if (!hasTauri) return;
     queueWindowOp(async () => {
+      // Tauri emits `moved` for these programmatic anchor corrections too;
+      // keep them out of the persisted user drag position.
+      animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS;
       const win = getCurrentWindow();
       const [pos, size, scale, monitor] = await Promise.all([
         win.outerPosition(),

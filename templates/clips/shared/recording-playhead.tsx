@@ -440,18 +440,13 @@ export function RecordingPlayhead({
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
     const target = event.target as Element | null;
-    if (
-      (event.pointerType !== "touch" && event.pointerType !== "pen") ||
-      confirmIntent ||
-      expanded ||
-      target?.closest("[data-recording-playhead-button]")
-    ) {
-      return;
-    }
-    // Touch and pen have no reliable hover state. Use the first tap to reveal
-    // the actions and keep it from becoming a drag on the recorder shell.
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    if (target?.closest("[data-recording-playhead-button]")) return;
     event.preventDefault();
     event.stopPropagation();
+    if (confirmIntent || expanded) return;
+    // Touch and pen have no reliable hover state. Use the first tap to reveal
+    // the actions and keep it from becoming a drag on the recorder shell.
     updateExpanded(true);
   }
 

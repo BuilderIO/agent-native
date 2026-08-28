@@ -182,6 +182,19 @@ describe("the recording playhead has a shared visual source", () => {
 
     expect(expanded).toBe(true);
     expect(event.defaultPrevented).toBe(true);
+
+    const expandedTouchEvent = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerType: "touch",
+    });
+    await act(async () => {
+      container
+        ?.querySelector<HTMLElement>(".recording-playhead__timer")
+        ?.dispatchEvent(expandedTouchEvent);
+      await Promise.resolve();
+    });
+    expect(expandedTouchEvent.defaultPrevented).toBe(true);
   });
 
   it("keeps visible stop and pause buttons one-tap actions on touch", async () => {
@@ -285,5 +298,16 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).toContain("onLayoutChange={handlePlayheadLayoutChange}");
     expect(source).toContain("toolbarLayoutRef.current");
     expect(source).toContain("nextLayout");
+  });
+
+  it("guards desktop layout moves from position persistence", () => {
+    const source = readFileSync(
+      resolve(clipsRoot, "desktop/src/overlays/record-pill.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("NATIVE_LAYOUT_GUARD_MS");
+    expect(source).toContain(
+      "animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS",
+    );
   });
 });
