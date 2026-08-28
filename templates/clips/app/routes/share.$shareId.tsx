@@ -1122,10 +1122,10 @@ export default function ShareRoute() {
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
-    <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
+    <div className="clips-recording-view flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
       {agentDiscovery}
-      <div className="clips-share-content flex w-full min-w-0 flex-col lg:flex-1">
-        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3 lg:flex-nowrap">
+      <div className="flex w-full min-w-0 flex-col xl:flex-1">
+        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 xl:flex-nowrap">
           {session ? (
             <Button
               asChild
@@ -1138,7 +1138,7 @@ export default function ShareRoute() {
               </Link>
             </Button>
           ) : null}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="hidden min-w-0 flex-1 items-center gap-2 sm:flex">
             {recording.visibility === "private" ? (
               <span
                 className="inline-flex shrink-0 text-muted-foreground"
@@ -1168,6 +1168,7 @@ export default function ShareRoute() {
               agentViewCount={agentViewCount}
               canViewDetails={viewerCanEdit}
               onOpenInsights={() => setPanel("insights")}
+              className="shrink-0 border-0 shadow-none"
             />
             {session ? null : (
               <SignedOutShareActions
@@ -1189,7 +1190,10 @@ export default function ShareRoute() {
                 hasPassword={Boolean(recording.hasPassword)}
                 viewerReshareOnly={viewerReshareOnly}
               >
-                <ClipsShareTrigger label={t("sharePage.share")} />
+                <ClipsShareTrigger
+                  label={t("sharePage.share")}
+                  className="border-0 shadow-none"
+                />
               </ShareRecordingPopover>
             ) : null}
             {!viewerCanEdit && canDownloadRecording ? (
@@ -1240,8 +1244,8 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex flex-col gap-4 overflow-hidden p-0 sm:p-4 lg:min-h-0 lg:flex-1">
-          <div className="relative aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
+        <div className="flex flex-col gap-0 overflow-hidden p-0 sm:gap-4 sm:p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+          <div className="relative aspect-video w-full xl:min-h-0 xl:flex-1 xl:aspect-auto">
             <VideoPlayer
               ref={playerRef}
               onVideoElementChange={setTrackedVideoEl}
@@ -1374,21 +1378,26 @@ export default function ShareRoute() {
               : null}
           </div>
 
-          <div className="clips-share-metadata flex shrink-0 flex-col gap-3 px-4 pb-4 sm:px-0 sm:pb-0">
-            <div className="clips-share-metadata-description min-w-0 flex-1">
-              {recording.description ? (
-                <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                  {recording.description}
-                </p>
-              ) : null}
-            </div>
-            <div className="clips-share-metadata-actions flex max-w-full flex-col items-stretch gap-2 sm:items-end">
-              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex shrink-0 flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:px-0 sm:py-0">
+            <div className="min-w-0 flex-1">
+              <div className="mb-3 sm:hidden">
+                {showTitleSkeleton ? (
+                  <Skeleton
+                    aria-label={t("sharePage.generatingTitle")}
+                    className="h-7 w-72 max-w-full"
+                  />
+                ) : (
+                  <h1 className="truncate text-2xl font-semibold leading-tight">
+                    {visibleTitle}
+                  </h1>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 {recording.enableComments ? (
                   <TimestampedCommentButton
                     enableComments={recording.enableComments}
                     canComment={!session || viewerCanComment}
-                    className="shrink-0"
+                    className="shrink-0 border-0 shadow-none"
                     onOpen={() => {
                       if (!session) {
                         requireSignIn("comment");
@@ -1405,6 +1414,7 @@ export default function ShareRoute() {
                   <ReactionsTray
                     reactions={reactions}
                     disabled={Boolean(session) && !viewerCanComment}
+                    className="border-0 shadow-none"
                     onReact={(emoji) => {
                       if (!session) {
                         requireSignIn("react");
@@ -1441,13 +1451,18 @@ export default function ShareRoute() {
                   />
                 ) : null}
               </div>
+              {recording.description ? (
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                  {recording.description}
+                </p>
+              ) : null}
               {viewerCanEdit && canDownloadRecording ? (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={downloadRecording}
                   disabled={downloading}
-                  className="gap-1.5"
+                  className="mt-3 gap-1.5 border-0 shadow-none"
                 >
                   <IconDownload className="h-4 w-4" />
                   {downloading
@@ -1460,7 +1475,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
+      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col bg-muted xl:min-h-0 xl:w-[380px] xl:flex">
         <Tabs
           value={panel}
           onValueChange={setPanel}
