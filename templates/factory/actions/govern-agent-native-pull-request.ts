@@ -51,6 +51,18 @@ function repositoryRef(value: string): { owner: string; repo: string } {
   return { owner: match[1], repo: match[2] };
 }
 
+function hasUsableChangedFiles(
+  changedFiles: readonly string[] | undefined,
+): changedFiles is readonly [string, ...string[]] {
+  return (
+    Array.isArray(changedFiles) &&
+    changedFiles.length > 0 &&
+    changedFiles.every(
+      (file) => typeof file === "string" && file.trim().length > 0,
+    )
+  );
+}
+
 function requiredAiServicesEnv(
   name: "BUILDER_AI_SERVICES_URL" | "BUILDER_PROJECT_ID",
 ): string {
@@ -284,6 +296,19 @@ export default defineAction({
       throw error;
     }
     const currentApproval = currentApprovals[0] ?? null;
+    if (!hasUsableChangedFiles(snapshot.changedFiles)) {
+      const missingFilesReason =
+        "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
+      await reconcileClaim(snapshot.headSha, missingFilesReason);
+      await getDb()
+        .update(triageItems)
+        .set({
+          status: "needs_manual",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      return { ok: true, action: "needs_manual", reason: missingFilesReason };
+    }
     if (currentApproval) {
       await recordFactoryAudit(
         context,
@@ -318,6 +343,37 @@ export default defineAction({
           throw new Error("Factory item disappeared during approval recovery.");
         }
         const existingMetadata = parseTriageMetadata(existingItem.metadataJson);
+        let livePullRequest;
+        try {
+          livePullRequest = await github.getPullRequestSummary(
+            repository,
+            pullRequestNumber,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "unknown GitHub error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Live GitHub state could not be revalidated during approval recovery: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        if (
+          livePullRequest.headSha !== snapshot.headSha ||
+          livePullRequest.state !== "open" ||
+          livePullRequest.draft
+        ) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "Live GitHub pull-request state changed during approval recovery; reconciliation is required before approval.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "Live GitHub pull-request state changed during approval recovery; no approval state was finalized.",
+          };
+        }
         previouslyFinalized =
           existingItem.status === "auto_approved" &&
           existingMetadata.autoApprovalHeadSha === snapshot.headSha &&
@@ -362,7 +418,8 @@ export default defineAction({
           currentAuthorMembership.isMember &&
           blockingReviewStatesClean &&
           safetyFindingsClean &&
-          !isUltraScaryChange(snapshot.changedFiles ?? [])
+          hasUsableChangedFiles(snapshot.changedFiles) &&
+          !isUltraScaryChange(snapshot.changedFiles)
         ) {
           recoveredApproval = await getDb().transaction(async (tx) => {
             const recovered = await tx
@@ -508,7 +565,7 @@ export default defineAction({
       repository: repo,
       title: pullRequest.title,
       summary: pullRequest.body,
-      changedFiles: snapshot.changedFiles ?? [],
+      changedFiles: snapshot.changedFiles,
       clearBug,
       productUxImplications,
       checksPassed,
@@ -591,6 +648,37 @@ export default defineAction({
           .onConflictDoNothing()
           .returning({ id: triageDecisions.id });
         if (governance.autoApprove && !inserted[0]) {
+          const staleFinalized = await tx
+            .update(triageDecisions)
+            .set({
+              outcome: "needs_manual",
+              reason:
+                "A previously posted Factory approval was dismissed; reconciliation is required before retrying.",
+            })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approve"),
+              ),
+            )
+            .returning({ id: triageDecisions.id });
+          if (staleFinalized[0]) {
+            await tx
+              .update(triageItems)
+              .set({
+                status: "reconciliation_required",
+                updatedAt: new Date().toISOString(),
+              })
+              .where(
+                and(
+                  orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                  eq(triageItems.status, "auto_approved"),
+                ),
+              );
+          }
           const reclaimed = await tx
             .update(triageDecisions)
             .set({
@@ -676,6 +764,18 @@ export default defineAction({
           postClaimSnapshot.reviews,
           postClaimSnapshot.comments,
         );
+      if (!hasUsableChangedFiles(postClaimSnapshot.changedFiles)) {
+        await reconcileClaim(
+          snapshot.headSha,
+          "Changed-file evidence disappeared after approval claim; reconciliation is required before approval.",
+        );
+        return {
+          ok: true,
+          action: "needs_manual",
+          reason:
+            "Changed-file evidence disappeared after approval claim; no approval was posted.",
+        };
+      }
       const postClaimChecksPassed =
         postClaimSnapshot.coverage === "complete" &&
         postClaimSnapshot.checks.length > 0 &&
@@ -703,7 +803,7 @@ export default defineAction({
         repository: repo,
         title: postClaimSnapshot.title,
         summary: postClaimSnapshot.summary,
-        changedFiles: postClaimSnapshot.changedFiles ?? [],
+        changedFiles: postClaimSnapshot.changedFiles,
         clearBug,
         productUxImplications,
         checksPassed: postClaimChecksPassed,
