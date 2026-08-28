@@ -1157,10 +1157,10 @@ export function CreateEventPopover({
                   </Select>
                 </div>
                 {eventType === "default" && (
-                  <div className="flex items-center justify-between gap-3 py-1">
+                  <div className="flex items-center justify-between gap-2 py-1 ps-[26px]">
                     <Label
                       htmlFor="event-availability"
-                      className=" text-muted-foreground"
+                      className="text-muted-foreground"
                     >
                       {t("eventForm.showAs")}
                     </Label>
@@ -1188,7 +1188,7 @@ export function CreateEventPopover({
                   </div>
                 )}
                 {videoProvider === "zoom" && !zoomStatus.data?.connected && (
-                  <div className="ml-7 rounded-md border border-border/60 bg-muted/20 p-2">
+                  <div className="ms-[26px] rounded-md border border-border/60 bg-muted/20 p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
                         {zoomStatus.data?.configured === false
