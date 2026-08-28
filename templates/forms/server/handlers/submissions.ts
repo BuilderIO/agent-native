@@ -28,12 +28,16 @@ import {
 } from "../../shared/submitter-email.js";
 import type {
   FormField,
-  FormIntegration,
   FormResponse,
   FormSettings,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import { fireIntegrations } from "../lib/integrations.js";
+import {
+  fireIntegrations,
+  integrationDeliveryKey,
+  type DeliveryStatus,
+  type DeliveryStatuses,
+} from "../lib/integrations.js";
 import { sendNewResponseEmail } from "../lib/response-email.js";
 import {
   isEmptySubmissionValue,
@@ -45,6 +49,72 @@ const MIN_FILL_TIME_MS = 500; // reject submits faster than this
 const MAX_META_TEXT_LENGTH = 500;
 const MAX_CHAT_SESSION_IDS = 5;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
+const APPLICATION_STATE_DESTINATION = "application-state";
+const RESPONSE_EMAIL_DESTINATION = "email";
+
+function parseDeliveryStatuses(
+  value: string | null | undefined,
+): DeliveryStatuses {
+  if (!value) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Unreadable response delivery status");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Invalid response delivery status");
+  }
+  const statuses: DeliveryStatuses = {};
+  for (const [destination, status] of Object.entries(parsed)) {
+    if (status !== "pending" && status !== "succeeded" && status !== "failed") {
+      throw new Error(`Invalid delivery status for ${destination}`);
+    }
+    statuses[destination] = status;
+  }
+  return statuses;
+}
+
+function configuredDeliveryStatuses(
+  ownerEmail: string | null | undefined,
+  settings: FormSettings,
+): DeliveryStatuses {
+  const statuses: DeliveryStatuses = {};
+  if (ownerEmail) statuses[APPLICATION_STATE_DESTINATION] = "pending";
+  if (settings.emailOnNewResponses === true && ownerEmail) {
+    statuses[RESPONSE_EMAIL_DESTINATION] = "pending";
+  }
+  for (const integration of settings.integrations ?? []) {
+    if (integration.enabled && integration.url) {
+      statuses[integrationDeliveryKey(integration.id)] = "pending";
+    }
+  }
+  return statuses;
+}
+
+function submissionMetadata(body: Record<string, unknown>, anonymous: boolean) {
+  const meta =
+    !anonymous && typeof body._meta === "object" && body._meta !== null
+      ? (body._meta as {
+          chatSessionId?: unknown;
+          chatSessionIds?: unknown;
+          activeRunId?: unknown;
+          pageUrl?: unknown;
+          clientSurface?: unknown;
+          submitterEmail?: unknown;
+        })
+      : null;
+  return {
+    submitterEmail: cleanSubmitterEmail(meta?.submitterEmail),
+    chatSessionIds: cleanChatSessionIds([
+      meta?.chatSessionId,
+      meta?.chatSessionIds,
+    ]),
+    activeRunId: cleanMetaText(meta?.activeRunId),
+    pageUrl: scrubPageUrl(meta?.pageUrl),
+    clientSurface: cleanClientSurface(meta?.clientSurface),
+  };
+}
 
 function cleanMetaText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -76,6 +146,145 @@ function cleanChatSessionIds(value: unknown): string[] {
   };
   visit(value);
   return ids;
+}
+
+async function deliverResponseSideEffects({
+  db,
+  form,
+  settings,
+  fields,
+  data,
+  responseId,
+  submittedAt,
+  submitterEmail,
+  pageUrl,
+  clientSurface,
+  chatSessionIds,
+  activeRunId,
+  trackDelivery,
+  deliveryStatus,
+}: {
+  db: ReturnType<typeof getDb>;
+  form: typeof schema.forms.$inferSelect;
+  settings: FormSettings;
+  fields: FormField[];
+  data: Record<string, unknown>;
+  responseId: string;
+  submittedAt: string;
+  submitterEmail: string | null;
+  pageUrl: string | null;
+  clientSurface: string | null;
+  chatSessionIds: string[];
+  activeRunId: string | null;
+  trackDelivery: boolean;
+  deliveryStatus: string | null | undefined;
+}): Promise<boolean> {
+  const tracked = trackDelivery;
+  const configured = configuredDeliveryStatuses(form.ownerEmail, settings);
+  const parsedStatuses = parseDeliveryStatuses(deliveryStatus);
+  const statuses: DeliveryStatuses = { ...parsedStatuses };
+  for (const destination of Object.keys(configured)) {
+    statuses[destination] ??= "pending";
+  }
+
+  let statusWrite: Promise<void> = Promise.resolve();
+  const persistStatuses = () => {
+    if (!tracked) return statusWrite;
+    const snapshot = JSON.stringify(statuses);
+    statusWrite = statusWrite.then(async () => {
+      await db
+        .update(schema.responses)
+        .set({ deliveryStatus: snapshot })
+        .where(eq(schema.responses.id, responseId));
+    });
+    return statusWrite;
+  };
+
+  if (tracked && deliveryStatus !== JSON.stringify(statuses)) {
+    await persistStatuses();
+  }
+
+  const mark = (destination: string, status: DeliveryStatus) => {
+    statuses[destination] = status;
+    return persistStatuses();
+  };
+
+  const run = async (
+    destination: string,
+    label: string,
+    effect: () => Promise<void>,
+  ) => {
+    if (tracked && statuses[destination] === "succeeded") return;
+    try {
+      await effect();
+      await mark(destination, "succeeded");
+    } catch (error) {
+      console.warn(`[forms] ${label} delivery failed:`, error);
+      await mark(destination, "failed");
+    }
+  };
+
+  if (form.ownerEmail) {
+    await run(APPLICATION_STATE_DESTINATION, "application state", async () => {
+      const { appStatePut } =
+        await import("@agent-native/core/application-state");
+      await appStatePut(form.ownerEmail!, "new-submission", {
+        formId: form.id,
+        responseId,
+        timestamp: submittedAt,
+      });
+    });
+  }
+
+  if (settings.emailOnNewResponses === true && form.ownerEmail) {
+    await run(RESPONSE_EMAIL_DESTINATION, "new response email", async () => {
+      await runWithRequestContext(
+        { userEmail: form.ownerEmail!, orgId: form.orgId ?? undefined },
+        () =>
+          sendNewResponseEmail({
+            to: form.ownerEmail!,
+            formTitle: form.title,
+            fields,
+            data,
+            submittedAt,
+          }),
+      );
+    });
+  }
+
+  const integrations = settings.integrations ?? [];
+  if (integrations.length > 0) {
+    await fireIntegrations(
+      integrations,
+      {
+        formId: form.id,
+        formTitle: form.title,
+        responseId,
+        fields,
+        data,
+        submittedAt,
+        submitterEmail,
+        chatSessionIds,
+        activeRunId,
+        pageUrl,
+        clientSurface,
+      },
+      tracked
+        ? {
+            deliveryStatus: statuses,
+            onStatusChange: mark,
+          }
+        : undefined,
+    );
+  }
+
+  await statusWrite;
+  return (
+    tracked &&
+    Object.keys(configured).some(
+      (destination) => statuses[destination] !== "succeeded",
+    )
+  );
 }
 
 export const submitForm = defineEventHandler(async (event: H3Event) => {
@@ -140,12 +349,82 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   }
   const idempotencyKey = rawIdempotencyKey?.trim() || null;
 
+  const finishResponse = async ({
+    responseId,
+    fields,
+    data,
+    submittedAt,
+    submitterEmail,
+    pageUrl,
+    clientSurface,
+    chatSessionIds,
+    activeRunId,
+    deliveryStatus,
+  }: {
+    responseId: string;
+    fields: FormField[];
+    data: Record<string, unknown>;
+    submittedAt: string;
+    submitterEmail: string | null;
+    pageUrl: string | null;
+    clientSurface: string | null;
+    chatSessionIds: string[];
+    activeRunId: string | null;
+    deliveryStatus: string | null | undefined;
+  }) => {
+    try {
+      const deliveryPending = await deliverResponseSideEffects({
+        db,
+        form,
+        settings,
+        fields,
+        data,
+        responseId,
+        submittedAt,
+        submitterEmail,
+        pageUrl,
+        clientSurface,
+        chatSessionIds,
+        activeRunId,
+        trackDelivery: idempotencyKey !== null,
+        deliveryStatus,
+      });
+      if (deliveryPending) {
+        setResponseStatus(event, 503);
+        return {
+          error: "Response delivery is still pending",
+          retryable: true,
+          id: responseId,
+        };
+      }
+    } catch (error) {
+      console.warn("[forms] response delivery status update failed:", error);
+      if (idempotencyKey) {
+        setResponseStatus(event, 503);
+        return {
+          error: "Response delivery is still pending",
+          retryable: true,
+          id: responseId,
+        };
+      }
+    }
+    return { success: true, id: responseId };
+  };
+
   // A retry may arrive after the original response was persisted but before
   // the client received its success response. Replay the original result
   // before applying any one-time submission checks or side effects.
   if (idempotencyKey) {
     const [existing] = await db
-      .select({ id: schema.responses.id })
+      .select({
+        id: schema.responses.id,
+        data: schema.responses.data,
+        submittedAt: schema.responses.submittedAt,
+        submitterEmail: schema.responses.submitterEmail,
+        pageUrl: schema.responses.pageUrl,
+        clientSurface: schema.responses.clientSurface,
+        deliveryStatus: schema.responses.deliveryStatus,
+      })
       .from(schema.responses)
       .where(
         and(
@@ -153,7 +432,24 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
           eq(schema.responses.idempotencyKey, idempotencyKey),
         ),
       );
-    if (existing) return { success: true, id: existing.id };
+    if (existing) {
+      const metadata = submissionMetadata(
+        body as Record<string, unknown>,
+        settings.anonymous === true,
+      );
+      return finishResponse({
+        responseId: existing.id,
+        fields: JSON.parse(form.fields),
+        data: JSON.parse(existing.data),
+        submittedAt: existing.submittedAt,
+        submitterEmail: existing.submitterEmail,
+        pageUrl: existing.pageUrl,
+        clientSurface: existing.clientSurface,
+        chatSessionIds: metadata.chatSessionIds,
+        activeRunId: metadata.activeRunId,
+        deliveryStatus: existing.deliveryStatus,
+      });
+    }
   }
 
   // Honeypot: silently accept-and-drop if filled. Bots that fire-and-forget
@@ -234,28 +530,14 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // who sent feedback in Slack). Never required. Prefer the Forms-host session
   // when present; cross-app feedback submissions fall back to the client hint,
   // which is useful context but not verified identity.
-  const meta =
-    !anonymous && typeof body._meta === "object" && body._meta !== null
-      ? (body._meta as {
-          submitterEmail?: unknown;
-          chatSessionId?: unknown;
-          chatSessionIds?: unknown;
-          activeRunId?: unknown;
-          pageUrl?: unknown;
-          clientSurface?: unknown;
-        })
-      : null;
+  const metadata = submissionMetadata(
+    body as Record<string, unknown>,
+    anonymous,
+  );
   const session = anonymous ? null : await getSession(event).catch(() => null);
   const submitterEmail =
-    cleanSubmitterEmail(session?.email) ??
-    cleanSubmitterEmail(meta?.submitterEmail);
-  const chatSessionIds = cleanChatSessionIds([
-    meta?.chatSessionId,
-    meta?.chatSessionIds,
-  ]);
-  const activeRunId = cleanMetaText(meta?.activeRunId);
-  const pageUrl = scrubPageUrl(meta?.pageUrl);
-  const clientSurface = cleanClientSurface(meta?.clientSurface);
+    cleanSubmitterEmail(session?.email) ?? metadata.submitterEmail;
+  const { chatSessionIds, activeRunId, pageUrl, clientSurface } = metadata;
 
   const responseValues = {
     id: responseId,
@@ -267,6 +549,9 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     pageUrl,
     clientSurface,
     idempotencyKey,
+    deliveryStatus: idempotencyKey
+      ? JSON.stringify(configuredDeliveryStatuses(form.ownerEmail, settings))
+      : null,
   };
 
   if (idempotencyKey) {
@@ -277,7 +562,15 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
       .returning({ id: schema.responses.id });
     if (!inserted) {
       const [existing] = await db
-        .select({ id: schema.responses.id })
+        .select({
+          id: schema.responses.id,
+          data: schema.responses.data,
+          submittedAt: schema.responses.submittedAt,
+          submitterEmail: schema.responses.submitterEmail,
+          pageUrl: schema.responses.pageUrl,
+          clientSurface: schema.responses.clientSurface,
+          deliveryStatus: schema.responses.deliveryStatus,
+        })
         .from(schema.responses)
         .where(
           and(
@@ -290,73 +583,39 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
           "Submission idempotency conflict could not be resolved",
         );
       }
-      return { success: true, id: existing.id };
+      const existingMetadata = submissionMetadata(
+        body as Record<string, unknown>,
+        anonymous,
+      );
+      return finishResponse({
+        responseId: existing.id,
+        fields,
+        data: JSON.parse(existing.data),
+        submittedAt: existing.submittedAt,
+        submitterEmail: existing.submitterEmail,
+        pageUrl: existing.pageUrl,
+        clientSurface: existing.clientSurface,
+        chatSessionIds: existingMetadata.chatSessionIds,
+        activeRunId: existingMetadata.activeRunId,
+        deliveryStatus: existing.deliveryStatus,
+      });
     }
   } else {
     await db.insert(schema.responses).values(responseValues);
   }
 
-  // Write submission notification to application state (SQL-backed)
-  try {
-    const { appStatePut } =
-      await import("@agent-native/core/application-state");
-    await appStatePut(form.ownerEmail, "new-submission", {
-      formId: id,
-      responseId,
-      timestamp: now,
-    });
-  } catch {
-    // Non-critical — don't fail the submission
-  }
-
-  if (settings.emailOnNewResponses === true && form.ownerEmail) {
-    try {
-      await runWithRequestContext(
-        { userEmail: form.ownerEmail, orgId: form.orgId ?? undefined },
-        () =>
-          sendNewResponseEmail({
-            to: form.ownerEmail!,
-            formTitle: form.title,
-            fields,
-            data,
-            submittedAt: now,
-          }),
-      );
-    } catch (error) {
-      // Email is best-effort — a provider outage must not reject a public
-      // submission that was already persisted successfully.
-      console.warn("[forms] new response email failed:", error);
-    }
-  }
-
-  // Fire integrations best-effort and never fail the submission. Keep this
-  // awaited: serverless hosts can freeze fire-and-forget work as soon as the
-  // HTTP response returns, which silently drops Slack/webhook delivery.
-  // pageUrl and clientSurface are persisted on the response (above) so owners
-  // can see which screen and which app feedback came from; chat session ids and
-  // run ids remain integration-only debug breadcrumbs we don't retain in SQL.
-  try {
-    const integrations: FormIntegration[] = settings.integrations ?? [];
-    if (integrations.length > 0) {
-      await fireIntegrations(integrations, {
-        formId: id,
-        formTitle: form.title,
-        responseId,
-        fields,
-        data,
-        submittedAt: now,
-        submitterEmail,
-        chatSessionIds,
-        activeRunId,
-        pageUrl,
-        clientSurface,
-      });
-    }
-  } catch {
-    // Non-critical
-  }
-
-  return { success: true, id: responseId };
+  return finishResponse({
+    responseId,
+    fields,
+    data,
+    submittedAt: now,
+    submitterEmail,
+    pageUrl,
+    clientSurface,
+    chatSessionIds,
+    activeRunId,
+    deliveryStatus: responseValues.deliveryStatus,
+  });
 });
 
 export const listResponses = defineEventHandler(async (event: H3Event) => {

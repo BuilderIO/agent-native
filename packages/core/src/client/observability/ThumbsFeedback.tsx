@@ -58,13 +58,19 @@ export function ThumbsFeedback({
     async (
       feedbackType: "thumbs_up" | "thumbs_down" | "text",
       value?: string,
+      idempotencyKey?: string,
     ): Promise<boolean> => {
       try {
         const response = await fetch(
           agentNativePath("/_agent-native/observability/feedback"),
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(feedbackType === "text" && idempotencyKey
+                ? { "Idempotency-Key": idempotencyKey }
+                : {}),
+            },
             body: JSON.stringify({
               threadId,
               runId,
@@ -129,9 +135,11 @@ export function ThumbsFeedback({
     const deliveries: Promise<void>[] = [];
     if (!delivery.observabilityDelivered) {
       deliveries.push(
-        sendFeedback("text", value).then((submitted) => {
-          delivery.observabilityDelivered = submitted;
-        }),
+        sendFeedback("text", value, delivery.idempotencyKey).then(
+          (submitted) => {
+            delivery.observabilityDelivered = submitted;
+          },
+        ),
       );
     }
     if (!delivery.sharedFormDelivered) {

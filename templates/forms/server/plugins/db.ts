@@ -160,6 +160,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON response
 CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON responses (form_id, idempotency_key)`,
       },
     },
+    {
+      version: 14,
+      name: "responses-delivery-status",
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_status TEXT`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_status TEXT`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

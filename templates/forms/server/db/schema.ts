@@ -44,6 +44,8 @@ export const responses = table(
     clientSurface: text("client_surface"),
     // Client-generated key used to make retried public submissions idempotent.
     idempotencyKey: text("idempotency_key"),
+    // JSON map of side-effect destination keys to pending/succeeded/failed.
+    deliveryStatus: text("delivery_status"),
   },
   (response) => ({
     idempotencyKeyUnique: uniqueIndex("responses_form_idempotency_key_idx").on(

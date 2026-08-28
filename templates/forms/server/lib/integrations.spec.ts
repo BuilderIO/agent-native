@@ -4,6 +4,7 @@ import type { FormField, FormIntegration } from "../../shared/types.js";
 
 const fetchMock = vi.hoisted(() => ({
   requests: [] as Array<{ url: string; payload: any }>,
+  results: [] as Array<{ ok: boolean; status?: number; error?: string }>,
 }));
 
 vi.mock("@agent-native/core/integrations", () => ({
@@ -21,7 +22,7 @@ vi.mock("@agent-native/core/integrations", () => ({
       url,
       payload,
     });
-    return { ok: true, status: 200 };
+    return fetchMock.results.shift() ?? { ok: true, status: 200 };
   },
 }));
 
@@ -71,6 +72,7 @@ function contextText(p: ReturnType<typeof buildSlackPayload>): string {
 describe("buildSlackPayload page context", () => {
   beforeEach(() => {
     fetchMock.requests.length = 0;
+    fetchMock.results.length = 0;
   });
 
   it("shows real submitter emails in the context line", () => {
@@ -175,6 +177,38 @@ describe("buildSlackPayload page context", () => {
     );
     expect(payloadByType.get("google-sheets").submitterEmail).toBe("");
     expect(payloadByType.get("webhook").submitterEmail).toBeNull();
+  });
+
+  it("skips succeeded destinations while retrying failed and pending ones", async () => {
+    const changes: Array<[string, string]> = [];
+    const result = await fireIntegrations(
+      [integration("slack"), integration("discord"), integration("webhook")],
+      payload(),
+      {
+        deliveryStatus: {
+          "integration:slack": "succeeded",
+          "integration:discord": "failed",
+          "integration:webhook": "pending",
+        },
+        onStatusChange: (destination, status) => {
+          changes.push([destination, status]);
+        },
+      },
+    );
+
+    expect(fetchMock.requests.map((request) => request.url)).toEqual([
+      "https://example.com/discord",
+      "https://example.com/webhook",
+    ]);
+    expect(changes).toEqual([
+      ["integration:discord", "succeeded"],
+      ["integration:webhook", "succeeded"],
+    ]);
+    expect(result).toMatchObject({
+      "integration:slack": "succeeded",
+      "integration:discord": "succeeded",
+      "integration:webhook": "succeeded",
+    });
   });
 });
 

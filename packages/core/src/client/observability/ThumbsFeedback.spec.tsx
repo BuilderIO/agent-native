@@ -127,6 +127,11 @@ describe("ThumbsFeedback localization", () => {
       feedbackType: "text",
       value: "The answer used the wrong source.",
     });
+    expect(
+      (fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>)[
+        "Idempotency-Key"
+      ],
+    ).toEqual(expect.any(String));
   });
 
   it("also sends chat text feedback to the shared form with request context", async () => {
@@ -315,6 +320,11 @@ describe("ThumbsFeedback localization", () => {
         JSON.parse(String(init?.body)).feedbackType === "text",
     );
     expect(observabilityTextCalls).toHaveLength(1);
+    expect(
+      (observabilityTextCalls[0]?.[1]?.headers as Record<string, string>)[
+        "Idempotency-Key"
+      ],
+    ).toEqual(expect.any(String));
     expect(JSON.parse(String(formSubmitCalls[0]?.[1]?.body))).toMatchObject({
       _meta: { submitterEmail: "user@example.com" },
     });
@@ -334,6 +344,20 @@ describe("ThumbsFeedback localization", () => {
         ),
       ).toHaveLength(2);
     });
+    const observabilityCallsAfterRetry = fetchMock.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/_agent-native/observability/feedback") &&
+        JSON.parse(String(init?.body)).feedbackType === "text",
+    );
+    expect(
+      (observabilityCallsAfterRetry[1]?.[1]?.headers as Record<string, string>)[
+        "Idempotency-Key"
+      ],
+    ).toBe(
+      (observabilityCallsAfterRetry[0]?.[1]?.headers as Record<string, string>)[
+        "Idempotency-Key"
+      ],
+    );
     await vi.waitFor(() => {
       expect(document.body.querySelector("textarea")).toBeNull();
     });

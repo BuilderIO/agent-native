@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   inserted: [] as Array<Record<string, unknown>>,
   responses: [] as Array<Record<string, unknown>>,
   headers: {} as Record<string, string | undefined>,
+  integrationOutcomes: [] as Array<Record<string, "succeeded" | "failed">>,
   requestContexts: [] as Array<Record<string, unknown>>,
   session: null as null | { email?: string; orgId?: string },
 }));
@@ -13,6 +14,7 @@ const state = vi.hoisted(() => ({
 const sendEmail = vi.hoisted(() =>
   vi.fn(async (_args: Record<string, unknown>) => {}),
 );
+const fireIntegrations = vi.hoisted(() => vi.fn());
 
 const publishedForm = {
   id: "form_1",
@@ -61,6 +63,11 @@ vi.mock("@agent-native/core/application-state", () => ({
   appStatePut: async () => {},
 }));
 
+vi.mock("../lib/integrations.js", () => ({
+  fireIntegrations,
+  integrationDeliveryKey: (id: string) => `integration:${id}`,
+}));
+
 vi.mock("../db/index.js", async () => {
   const schema =
     await vi.importActual<typeof import("../db/schema.js")>("../db/schema.js");
@@ -79,11 +86,7 @@ vi.mock("../db/index.js", async () => {
           const persist = () => {
             state.inserted.push(v);
             if (v.idempotencyKey) {
-              state.responses.push({
-                id: v.id,
-                formId: v.formId,
-                idempotencyKey: v.idempotencyKey,
-              });
+              state.responses.push({ ...v });
             }
           };
           return {
@@ -109,6 +112,15 @@ vi.mock("../db/index.js", async () => {
           };
         },
       }),
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: async () => {
+            for (const response of state.responses) {
+              Object.assign(response, values);
+            }
+          },
+        }),
+      }),
     }),
     schema,
   };
@@ -126,6 +138,7 @@ describe("submitForm pageUrl pass-through", () => {
     state.inserted.length = 0;
     state.responses.length = 0;
     state.headers = {};
+    state.integrationOutcomes = [];
     state.requestContexts.length = 0;
     state.session = null;
     publishedForm.fields = JSON.stringify([
@@ -133,6 +146,29 @@ describe("submitForm pageUrl pass-through", () => {
     ]);
     publishedForm.settings = JSON.stringify({});
     sendEmail.mockClear();
+    fireIntegrations.mockReset();
+    fireIntegrations.mockImplementation(
+      async (
+        integrations: Array<{ id: string; enabled: boolean; url: string }>,
+        _submission: unknown,
+        options?: {
+          deliveryStatus?: Record<string, string>;
+          onStatusChange?: (key: string, status: string) => Promise<void>;
+        },
+      ) => {
+        const outcomes = state.integrationOutcomes.shift() ?? {};
+        for (const integration of integrations) {
+          if (!integration.enabled || !integration.url) continue;
+          const key = `integration:${integration.id}`;
+          if (options?.deliveryStatus?.[key] === "succeeded") continue;
+          await options?.onStatusChange?.(
+            key,
+            outcomes[integration.id] ?? "succeeded",
+          );
+        }
+        return options?.deliveryStatus ?? {};
+      },
+    );
   });
 
   it("persists UTM context while scrubbing sensitive page URL metadata", async () => {
@@ -174,6 +210,59 @@ describe("submitForm pageUrl pass-through", () => {
     expect(second).toEqual(first);
     expect(state.inserted).toHaveLength(1);
     expect(state.responses).toHaveLength(1);
+  });
+
+  it("retries only incomplete destinations and reports partial delivery as retryable", async () => {
+    state.headers["idempotency-key"] = "feedback-request-2";
+    publishedForm.settings = JSON.stringify({
+      integrations: [
+        {
+          id: "slack",
+          type: "slack",
+          name: "Slack",
+          enabled: true,
+          url: "https://example.com/slack",
+        },
+        {
+          id: "discord",
+          type: "discord",
+          name: "Discord",
+          enabled: true,
+          url: "https://example.com/discord",
+        },
+      ],
+    });
+    state.integrationOutcomes = [
+      { slack: "succeeded", discord: "failed" },
+      { discord: "succeeded" },
+    ];
+
+    const first = await submit({ data: { msg: "partial delivery" } });
+    expect(first).toMatchObject({
+      error: "Response delivery is still pending",
+      retryable: true,
+    });
+    expect(state.inserted).toHaveLength(1);
+    expect(
+      JSON.parse(String(state.responses[0]!.deliveryStatus)),
+    ).toMatchObject({
+      "application-state": "succeeded",
+      "integration:slack": "succeeded",
+      "integration:discord": "failed",
+    });
+
+    const second = await submit({ data: { msg: "partial delivery" } });
+    expect(second).toMatchObject({ success: true });
+    expect(fireIntegrations).toHaveBeenCalledTimes(2);
+    expect(
+      fireIntegrations.mock.calls[1]?.[2].deliveryStatus["integration:slack"],
+    ).toBe("succeeded");
+    expect(
+      JSON.parse(String(state.responses[0]!.deliveryStatus)),
+    ).toMatchObject({
+      "integration:slack": "succeeded",
+      "integration:discord": "succeeded",
+    });
   });
 
   it("emails the form owner when new response emails are enabled", async () => {

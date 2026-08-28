@@ -312,16 +312,37 @@ const payloadBuilders: Record<
 // Fire integrations
 // ---------------------------------------------------------------------------
 
-/** Fire all enabled integrations for a submission. Never throws. */
+export type DeliveryStatus = "pending" | "succeeded" | "failed";
+export type DeliveryStatuses = Record<string, DeliveryStatus>;
+
+export function integrationDeliveryKey(integrationId: string): string {
+  return `integration:${integrationId}`;
+}
+
+interface FireIntegrationsOptions {
+  deliveryStatus?: Readonly<DeliveryStatuses>;
+  onStatusChange?: (
+    destination: string,
+    status: DeliveryStatus,
+  ) => Promise<void> | void;
+}
+
+/** Fire enabled integrations, skipping destinations already delivered. */
 export async function fireIntegrations(
   integrations: FormIntegration[],
   submission: SubmissionPayload,
-): Promise<void> {
+  options: FireIntegrationsOptions = {},
+): Promise<DeliveryStatuses> {
   const enabled = integrations.filter((i) => i.enabled && i.url);
-  if (enabled.length === 0) return;
+  const statuses: DeliveryStatuses = { ...(options.deliveryStatus ?? {}) };
+  if (enabled.length === 0) return statuses;
 
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     enabled.map(async (integration) => {
+      const destination = integrationDeliveryKey(integration.id);
+      if (options.deliveryStatus?.[destination] === "succeeded") return;
+
+      let status: DeliveryStatus = "failed";
       // SSRF guard — a form-author can persist any URL in their integration
       // config. Anonymous submissions then trigger a server-side POST. Block
       // private IPs, cloud-metadata endpoints, and non-http(s) schemes
@@ -330,38 +351,46 @@ export async function fireIntegrations(
         console.warn(
           `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
         );
-        return;
-      }
+      } else {
+        const buildPayload =
+          payloadBuilders[integration.type] ?? buildWebhookPayload;
+        const payload = buildPayload(submission);
 
-      const buildPayload =
-        payloadBuilders[integration.type] ?? buildWebhookPayload;
-      const payload = buildPayload(submission);
-
-      try {
-        const result = await deliverJsonWebhook({
-          url: integration.url,
-          payload,
-        });
-        if (!result.ok) {
-          if (result.blocked) {
+        try {
+          const result = await deliverJsonWebhook({
+            url: integration.url,
+            payload,
+          });
+          if (result.ok) {
+            status = "succeeded";
+          } else if (result.blocked) {
             console.warn(
               `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
             );
-            return;
+          } else {
+            console.warn(
+              result.status
+                ? `[integrations] ${integration.type} "${integration.name}" returned ${result.status}`
+                : `[integrations] ${integration.type} "${integration.name}" failed:`,
+              result.error,
+            );
           }
+        } catch (err) {
           console.warn(
-            result.status
-              ? `[integrations] ${integration.type} "${integration.name}" returned ${result.status}`
-              : `[integrations] ${integration.type} "${integration.name}" failed:`,
-            result.error,
+            `[integrations] ${integration.type} "${integration.name}" failed:`,
+            err,
           );
         }
-      } catch (err) {
-        console.warn(
-          `[integrations] ${integration.type} "${integration.name}" failed:`,
-          err,
-        );
       }
+
+      statuses[destination] = status;
+      await options.onStatusChange?.(destination, status);
     }),
   );
+
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (rejected) throw rejected.reason;
+  return statuses;
 }

@@ -272,7 +272,7 @@ export async function submitFeedbackForm(
       },
       body: JSON.stringify({
         data: { [resolvedSchema.fieldId]: value },
-        _t: options.openedAt ?? 0,
+        _t: options.openedAt ?? Date.now(),
         _hp: options.honeypot ?? "",
         _meta: {
           ...(submitterEmail ? { submitterEmail } : {}),
