@@ -110,6 +110,11 @@ describe("Design final response guard", () => {
     ).toBe(true);
     expect(
       looksLikeDesignMutationRequest(
+        "review this card, then polish the button",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
         "review this card and recommend changes, then improve the design",
       ),
     ).toBe(true);

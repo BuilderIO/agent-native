@@ -198,7 +198,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
       advisoryMatch.index + advisoryMatch[0].length,
     );
     const followsAdvisory =
-      /(?:\b(?:and|also|but|then)\s+|[.!?;:,]\s*)(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
+      /(?:\b(?:and|also|but|then)\s+|[.!?;:,]\s*)(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|polish|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
         afterAdvisory,
       );
     if (!DESIGN_MUTATION_VERBS.test(beforeAdvisory) && !followsAdvisory) {
