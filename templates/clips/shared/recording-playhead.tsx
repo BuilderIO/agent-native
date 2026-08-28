@@ -452,6 +452,7 @@ export function RecordingPlayhead({
 
   const timer = formatTimer(elapsedMs);
   const isConfirming = confirmIntent !== null;
+  const controlsDisabled = !enabled || isConfirming || pendingAction !== null;
   const classNames = ["recording-playhead", className]
     .filter(Boolean)
     .join(" ");
@@ -476,7 +477,7 @@ export function RecordingPlayhead({
         data-recording-playhead-button
         className="recording-playhead__button recording-playhead__stop"
         onClick={onStop}
-        disabled={!enabled || isConfirming}
+        disabled={controlsDisabled}
         aria-label={labels.stop}
         style={{
           color: paused ? "var(--playhead-ghost-ink)" : "var(--playhead-rec)",
@@ -506,7 +507,7 @@ export function RecordingPlayhead({
             type="button"
             data-recording-playhead-button
             onClick={onTogglePause}
-            disabled={!enabled || isConfirming}
+            disabled={controlsDisabled}
             aria-label={paused ? labels.resume : labels.pause}
             title={paused ? labels.resumeShortcut : labels.pauseShortcut}
             className="recording-playhead__button recording-playhead__pause"
@@ -587,7 +588,7 @@ export function RecordingPlayhead({
             data-recording-playhead-button
             onClick={() => openConfirm("restart")}
             disabled={!enabled || pendingAction !== null}
-            tabIndex={isConfirming ? -1 : 0}
+            tabIndex={isConfirming || !expanded ? -1 : 0}
             aria-label={labels.restart}
             title={labels.restartShortcut}
             className="recording-playhead__button recording-playhead__extras-restart"
@@ -601,7 +602,7 @@ export function RecordingPlayhead({
               enabled ? openConfirm("delete") : onDeleteRequest?.()
             }
             disabled={(!enabled && !onDeleteRequest) || pendingAction !== null}
-            tabIndex={isConfirming ? -1 : 0}
+            tabIndex={isConfirming || !expanded ? -1 : 0}
             aria-label={labels.delete}
             title={labels.deleteShortcut}
             className="recording-playhead__button recording-playhead__extras-delete"

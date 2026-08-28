@@ -75,8 +75,14 @@ export function RecordingToolbar({
     width: TOOLBAR_WIDTH,
     height: TOOLBAR_HEIGHT,
   });
+  const [pendingAction, setPendingAction] =
+    useState<RecordingPlayheadIntent | null>(null);
   const toolbarLayoutRef = useRef(toolbarLayout);
   toolbarLayoutRef.current = toolbarLayout;
+
+  useEffect(() => {
+    if (!active) setPendingAction(null);
+  }, [active]);
 
   function handlePlayheadLayoutChange(layout: RecordingPlayheadLayout) {
     const nextLayout = {
@@ -105,6 +111,11 @@ export function RecordingToolbar({
       }
       return { ...previous, left: clamped.left, top: clamped.top };
     });
+  }
+
+  function handlePlayheadConfirmAction(intent: RecordingPlayheadIntent) {
+    setPendingAction(intent);
+    onConfirmAction(intent);
   }
 
   useEffect(() => {
@@ -174,7 +185,8 @@ export function RecordingToolbar({
       style={{
         left: pos.left,
         top: pos.top,
-        width: toolbarLayout.width,
+        width: "max-content",
+        minWidth: TOOLBAR_WIDTH,
         minHeight: toolbarLayout.height,
         touchAction: "none",
       }}
@@ -183,6 +195,7 @@ export function RecordingToolbar({
         elapsedMs={elapsedMs}
         paused={isPaused}
         enabled={active}
+        pendingAction={pendingAction}
         meter={<LiveWaveform level={null} dimmed={!active || isPaused} />}
         labels={{
           controls: t("recordingToolbar.controls"),
@@ -203,7 +216,7 @@ export function RecordingToolbar({
         }}
         onStop={onStop}
         onTogglePause={onTogglePause}
-        onConfirmAction={onConfirmAction}
+        onConfirmAction={handlePlayheadConfirmAction}
         onDeleteRequest={onCancel}
         onConfirmChange={onConfirmChange}
         onLayoutChange={handlePlayheadLayoutChange}

@@ -248,6 +248,50 @@ describe("the recording playhead has a shared visual source", () => {
     expect(pauses).toBe(1);
   });
 
+  it("disables primary controls while an action is pending", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    const render = (pendingAction: "restart" | null) =>
+      createElement(RecordingPlayhead, {
+        elapsedMs: 1_000,
+        paused: false,
+        pendingAction,
+        meter: createElement("span"),
+        labels,
+        onStop: () => {},
+        onTogglePause: () => {},
+        onConfirmAction: () => {},
+      });
+
+    await act(async () => {
+      root?.render(render(null));
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector<HTMLButtonElement>(".recording-playhead__stop")
+        ?.disabled,
+    ).toBe(false);
+    expect(
+      container.querySelector<HTMLButtonElement>(".recording-playhead__pause")
+        ?.disabled,
+    ).toBe(false);
+
+    await act(async () => {
+      root?.render(render("restart"));
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector<HTMLButtonElement>(".recording-playhead__stop")
+        ?.disabled,
+    ).toBe(true);
+    expect(
+      container.querySelector<HTMLButtonElement>(".recording-playhead__pause")
+        ?.disabled,
+    ).toBe(true);
+  });
+
   it("keeps hidden confirmation actions out of tab navigation", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -278,6 +322,16 @@ describe("the recording playhead has a shared visual source", () => {
         ".recording-playhead__resume-action",
       )?.tabIndex,
     ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".recording-playhead__extras-restart",
+      )?.tabIndex,
+    ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".recording-playhead__extras-delete",
+      )?.tabIndex,
+    ).toBe(-1);
   });
 
   it("guards native layout reports while a playhead transition is pending", () => {
@@ -298,6 +352,10 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).toContain("onLayoutChange={handlePlayheadLayoutChange}");
     expect(source).toContain("toolbarLayoutRef.current");
     expect(source).toContain("nextLayout");
+    expect(source).toContain('width: "max-content"');
+    expect(source).not.toContain("width: toolbarLayout.width");
+    expect(source).toContain("pendingAction");
+    expect(source).toContain("setPendingAction(intent)");
   });
 
   it("guards desktop layout moves from position persistence", () => {
@@ -309,5 +367,7 @@ describe("the recording playhead has a shared visual source", () => {
     expect(source).toContain(
       "animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS",
     );
+    expect(source).toContain("userDragActiveRef");
+    expect(source).toContain("remainingGuardMs");
   });
 });

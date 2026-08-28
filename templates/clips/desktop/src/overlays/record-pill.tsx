@@ -150,6 +150,7 @@ export function RecordingPill() {
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animatingUntilRef = useRef(0);
+  const userDragActiveRef = useRef(false);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -622,23 +623,33 @@ export function RecordingPill() {
     if (!hasTauri) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let unlisten: (() => void) | null = null;
+
+    function saveDraggedPosition() {
+      if (!userDragActiveRef.current) return;
+      if (modeRef.current !== "recording") {
+        userDragActiveRef.current = false;
+        return;
+      }
+      const remainingGuardMs = animatingUntilRef.current - Date.now();
+      if (remainingGuardMs > 0) {
+        timer = setTimeout(saveDraggedPosition, remainingGuardMs + 1);
+        return;
+      }
+      void getCurrentWindow()
+        .outerPosition()
+        .then((pos) =>
+          safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
+        )
+        .finally(() => {
+          userDragActiveRef.current = false;
+        });
+    }
+
     void getCurrentWindow()
       .onMoved(() => {
+        if (!userDragActiveRef.current) return;
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (
-            modeRef.current !== "recording" ||
-            revealedRef.current ||
-            Date.now() < animatingUntilRef.current
-          ) {
-            return;
-          }
-          void getCurrentWindow()
-            .outerPosition()
-            .then((pos) =>
-              safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
-            );
-        }, 600);
+        timer = setTimeout(saveDraggedPosition, 600);
       })
       .then((u) => {
         unlisten = u;
@@ -743,6 +754,7 @@ export function RecordingPill() {
     const target = e.target as HTMLElement;
     if (target.closest("button")) return;
     if (hasTauri) {
+      userDragActiveRef.current = true;
       getCurrentWindow()
         .startDragging()
         .catch(() => {});
