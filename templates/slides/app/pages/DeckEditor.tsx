@@ -168,7 +168,6 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     deleteSlides,
-    pasteSlide,
     pasteSlides,
     duplicateDeck,
     addSlide,

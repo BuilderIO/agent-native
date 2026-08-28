@@ -3064,13 +3064,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       for (const op of ops) enqueueDeckOp(deckId, op);
       recordUndoBatch(before, ops, "Delete slides");
     },
-    [
-      enqueueDeckOp,
-      markDeckDirty,
-      markSlideDeleteTombstone,
-      recordUndoBatch,
-      setDecksLocal,
-    ],
+    [markDeckDirty, markSlideDeleteTombstone, recordUndoBatch, setDecksLocal],
   );
 
   const duplicateSlide = useCallback(
@@ -3180,7 +3174,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       recordUndoBatch(before, ops, "Paste slides");
       return newSlides.map((slide) => slide.id);
     },
-    [enqueueDeckOp, markDeckDirty, recordUndoBatch, setDecksLocal],
+    [markDeckDirty, recordUndoBatch, setDecksLocal],
   );
 
   const reorderSlides = useCallback(
