@@ -1,9 +1,9 @@
 import type { Slide, SlideLayout } from "@/context/DeckContext";
 
-export const SLIDE_CLIPBOARD_STORAGE_KEY = "slides:slide-clipboard";
+export const SLIDE_CLIPBOARD_STORAGE_PREFIX = "slides:slide-clipboard";
 
 export function getSlideClipboardStorageKey(email: string): string {
-  return `${SLIDE_CLIPBOARD_STORAGE_KEY}:${encodeURIComponent(email)}`;
+  return `${SLIDE_CLIPBOARD_STORAGE_PREFIX}:${encodeURIComponent(email)}`;
 }
 
 const SLIDE_CLIPBOARD_VERSION = 1;

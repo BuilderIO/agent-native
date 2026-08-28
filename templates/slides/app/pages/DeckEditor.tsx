@@ -1112,6 +1112,7 @@ export default function DeckEditor() {
   // (rather than just an id) so paste still works after Cut has already
   // removed the original slide from the deck.
   const slideClipboardRef = useRef<Slide | null>(null);
+  const slideClipboardScopeRef = useRef<string | null>(null);
   // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
   // rail's right-click "Paste" menu item is an explicit click with no
   // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
@@ -1125,6 +1126,7 @@ export default function DeckEditor() {
   const syncSlideClipboard = useCallback(() => {
     if (!slideClipboardStorageKey) {
       slideClipboardRef.current = null;
+      slideClipboardScopeRef.current = null;
       slideClipboardArmedAtRef.current = null;
       setHasSlideClipboard(false);
       return null;
@@ -1132,6 +1134,7 @@ export default function DeckEditor() {
     const result = readSlideClipboard(slideClipboardStorageKey);
     const slide = result.status === "ready" ? result.slide : null;
     slideClipboardRef.current = slide;
+    slideClipboardScopeRef.current = slideClipboardStorageKey;
     slideClipboardArmedAtRef.current =
       result.status === "ready" ? result.copiedAt : null;
     setHasSlideClipboard(slide !== null);
@@ -1153,6 +1156,7 @@ export default function DeckEditor() {
       const copiedAt = Date.now();
       const snapshot = { ...slide };
       slideClipboardRef.current = snapshot;
+      slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
@@ -1189,13 +1193,16 @@ export default function DeckEditor() {
 
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
-      const clipboard = slideClipboardRef.current ?? syncSlideClipboard();
+      const clipboard =
+        slideClipboardScopeRef.current === slideClipboardStorageKey
+          ? (slideClipboardRef.current ?? syncSlideClipboard())
+          : syncSlideClipboard();
       if (!clipboard || !id) return;
       const { id: _clipboardId, ...fields } = clipboard;
       const newId = pasteSlide(id, targetSlideId, fields);
       if (newId) setActiveSlideId(newId);
     },
-    [id, pasteSlide, syncSlideClipboard],
+    [id, pasteSlide, slideClipboardStorageKey, syncSlideClipboard],
   );
 
   // Handlers backing the slide rail's right-click menu.
