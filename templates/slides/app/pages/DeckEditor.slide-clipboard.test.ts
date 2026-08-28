@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  readSlideClipboard,
+  writeSlideClipboard,
+} from "../lib/slide-clipboard";
+import {
   isSlideClipboardStillArmed,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
 } from "./DeckEditor";
+
+function createStorage(initial?: Record<string, string>) {
+  const values = new Map(Object.entries(initial ?? {}));
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+  };
+}
 
 // Reproduces the Andrew Rohman Slack thread (C0ATH3CCZT4 / 1786711059459639):
 // a slide copied once early in the session kept silently re-duplicating on
@@ -30,5 +42,45 @@ describe("isSlideClipboardStillArmed", () => {
 
   it("is never armed when nothing has been copied", () => {
     expect(isSlideClipboardStillArmed(null, Date.now())).toBe(false);
+  });
+});
+
+describe("slide clipboard storage", () => {
+  const slide = {
+    id: "slide-1",
+    content: "<div>Copied</div>",
+    notes: "Speaker note",
+    layout: "content" as const,
+    skipped: true,
+  };
+
+  it("round-trips a slide snapshot and copy timestamp", () => {
+    const storage = createStorage();
+
+    expect(writeSlideClipboard(slide, 1_000, storage)).toBe(true);
+    expect(readSlideClipboard(storage)).toEqual({
+      status: "ready",
+      slide,
+      copiedAt: 1_000,
+    });
+  });
+
+  it("distinguishes an empty or malformed clipboard", () => {
+    expect(readSlideClipboard(createStorage())).toEqual({
+      status: "empty",
+      slide: null,
+      copiedAt: null,
+    });
+    expect(
+      readSlideClipboard(
+        createStorage({
+          "slides:slide-clipboard": JSON.stringify({ version: 1 }),
+        }),
+      ),
+    ).toEqual({
+      status: "unreadable",
+      slide: null,
+      copiedAt: null,
+    });
   });
 });

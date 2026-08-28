@@ -115,6 +115,11 @@ import {
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
+import {
+  readSlideClipboard,
+  SLIDE_CLIPBOARD_STORAGE_KEY,
+  writeSlideClipboard,
+} from "@/lib/slide-clipboard";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import {
   insertDroppedImageIntoSlideHtml,
@@ -1114,15 +1119,41 @@ export default function DeckEditor() {
   const slideClipboardArmedAtRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
 
+  const syncSlideClipboard = useCallback(() => {
+    const result = readSlideClipboard();
+    const slide = result.status === "ready" ? result.slide : null;
+    slideClipboardRef.current = slide;
+    slideClipboardArmedAtRef.current =
+      result.status === "ready" ? result.copiedAt : null;
+    setHasSlideClipboard(slide !== null);
+    return slide;
+  }, []);
+
+  useEffect(() => {
+    syncSlideClipboard();
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === SLIDE_CLIPBOARD_STORAGE_KEY) syncSlideClipboard();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [syncSlideClipboard]);
+
+  const saveSlideToClipboard = useCallback((slide: Slide) => {
+    const copiedAt = Date.now();
+    const snapshot = { ...slide };
+    slideClipboardRef.current = snapshot;
+    slideClipboardArmedAtRef.current = copiedAt;
+    setHasSlideClipboard(true);
+    writeSlideClipboard(snapshot, copiedAt);
+  }, []);
+
   const copySlide = useCallback(
     (slideId: string) => {
       const slide = deck?.slides.find((s) => s.id === slideId);
       if (!slide) return;
-      slideClipboardRef.current = slide;
-      slideClipboardArmedAtRef.current = Date.now();
-      setHasSlideClipboard(true);
+      saveSlideToClipboard(slide);
     },
-    [deck],
+    [deck, saveSlideToClipboard],
   );
 
   const cutSlide = useCallback(
@@ -1130,9 +1161,7 @@ export default function DeckEditor() {
       if (!deck || !id || deck.slides.length <= 1) return; // don't cut the last slide
       const slide = deck.slides.find((s) => s.id === slideId);
       if (!slide) return;
-      slideClipboardRef.current = slide;
-      slideClipboardArmedAtRef.current = Date.now();
-      setHasSlideClipboard(true);
+      saveSlideToClipboard(slide);
       const idx = deck.slides.findIndex((s) => s.id === slideId);
       const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
       deleteSlideWithUndo(id, slideId);
@@ -1140,18 +1169,18 @@ export default function DeckEditor() {
         setActiveSlideId(nextSlide.id);
       }
     },
-    [deck, id, activeSlideId, deleteSlideWithUndo],
+    [deck, id, activeSlideId, deleteSlideWithUndo, saveSlideToClipboard],
   );
 
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
-      const clipboard = slideClipboardRef.current;
+      const clipboard = slideClipboardRef.current ?? syncSlideClipboard();
       if (!clipboard || !id) return;
       const { id: _clipboardId, ...fields } = clipboard;
       const newId = pasteSlide(id, targetSlideId, fields);
       if (newId) setActiveSlideId(newId);
     },
-    [id, pasteSlide],
+    [id, pasteSlide, syncSlideClipboard],
   );
 
   // Handlers backing the slide rail's right-click menu.
