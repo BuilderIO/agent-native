@@ -179,13 +179,23 @@ function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   }
 }
 
-export function settingsRouteHashForSection(section?: string | null): string {
+export function settingsRouteHashForSection(
+  section?: string | null,
+  currentHash?: string | null,
+): string {
   const raw = section?.replace(/^#/, "").trim() ?? "";
   const normalized = raw.toLowerCase();
   if (normalized === "voice") return "#voice";
   if (normalized.startsWith("secrets:")) {
     return `#secrets:${raw.slice("secrets:".length)}`;
   }
+  if (normalized === "secrets") {
+    const existing = currentHash?.replace(/^#/, "").trim() ?? "";
+    if (existing.toLowerCase().startsWith("secrets:") && existing.length > 8) {
+      return `#secrets:${existing.slice("secrets:".length)}`;
+    }
+  }
+  if (normalized === "automations") return "#agent:automations";
   if (
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
@@ -222,7 +232,7 @@ export function AgentPanelSettingsNavigation() {
         ?.section;
       void navigate({
         pathname: "/settings",
-        hash: settingsRouteHashForSection(section),
+        hash: settingsRouteHashForSection(section, window.location.hash),
       });
     }
     window.addEventListener(

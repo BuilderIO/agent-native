@@ -169,12 +169,18 @@ describe("AgentPanel header tab visibility", () => {
     expect(settingsRouteHashForSection("secrets:FIGMA_ACCESS_TOKEN")).toBe(
       "#secrets:FIGMA_ACCESS_TOKEN",
     );
+    expect(
+      settingsRouteHashForSection("secrets", "#secrets:OPENAI_API_KEY"),
+    ).toBe("#secrets:OPENAI_API_KEY");
+    expect(settingsRouteHashForSection("automations")).toBe(
+      "#agent:automations",
+    );
     expect(settingsRouteHashForSection("voice")).toBe("#voice");
   });
 });
 
 describe("AgentPanel settings navigation", () => {
-  it("routes a mounted settings request to a secret-specific canonical hash", () => {
+  it("routes a mounted settings request to an existing secret-specific hash", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root: Root = createRoot(container);
@@ -190,6 +196,7 @@ describe("AgentPanel settings navigation", () => {
 
     try {
       act(() => {
+        window.history.replaceState(null, "", "/#secrets:OPENAI_API_KEY");
         root.render(
           React.createElement(
             MemoryRouter,
@@ -203,13 +210,13 @@ describe("AgentPanel settings navigation", () => {
       act(() => {
         window.dispatchEvent(
           new CustomEvent("agent-panel:open-settings", {
-            detail: { section: "secrets:FIGMA_ACCESS_TOKEN" },
+            detail: { section: "secrets" },
           }),
         );
       });
 
       expect(pathname).toBe("/settings");
-      expect(hash).toBe("#secrets:FIGMA_ACCESS_TOKEN");
+      expect(hash).toBe("#secrets:OPENAI_API_KEY");
     } finally {
       act(() => root.unmount());
       container.remove();

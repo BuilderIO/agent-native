@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
@@ -457,6 +457,52 @@ describe("SettingsTabsPage", () => {
     expect(
       workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
+  });
+
+  it("syncs the active tab after router-only settings navigation", () => {
+    function NavigationProbe() {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => void navigate("/settings#workspace")}
+        >
+          Navigate
+        </button>
+      );
+    }
+
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings#agent"]}>
+          <NavigationProbe />
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <div>Agent content</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                content: <div>Workspace content</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent content");
+    const navigateButton = container.querySelector("button");
+    expect(navigateButton).not.toBeNull();
+
+    act(() => navigateButton!.click());
+
+    expect(container.textContent).toContain("Workspace content");
+    expect(container.textContent).not.toContain("Agent content");
   });
 
   it("honors the controlled value and reports changes without touching the hash", () => {
