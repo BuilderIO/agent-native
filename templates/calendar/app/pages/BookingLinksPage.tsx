@@ -1293,7 +1293,7 @@ export default function BookingLinksPage({
           {/* Left — Edit form */}
           <div
             className={cn(
-              "space-y-8",
+              "space-y-10",
               isPreviewCollapsed && "mx-auto w-full max-w-4xl",
             )}
           >
@@ -1325,7 +1325,7 @@ export default function BookingLinksPage({
             ) : selectedLink ? (
               <fieldset disabled={!canEditSelectedLink} className="contents">
                 {/* Title */}
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <Label htmlFor="booking-link-title">
                     {t("bookingLinks.meetingName")}
                   </Label>
@@ -1347,7 +1347,7 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Description */}
-                <div className="space-y-2">
+                <div className="space-y-2.5 border-t border-border pt-8">
                   <Label htmlFor="booking-link-description">
                     {t("eventForm.description")}{" "}
                     <span className="text-muted-foreground font-normal">
@@ -1369,7 +1369,7 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Duration options — multi-select */}
-                <div className="space-y-3">
+                <div className="space-y-3 border-t border-border pt-8">
                   <Label>{t("bookingLinks.durationOptions")}</Label>
                   <p className="text-xs text-muted-foreground">
                     {t("bookingLinks.durationOptionsDescription")}
@@ -1503,7 +1503,7 @@ export default function BookingLinksPage({
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2.5 border-t border-border pt-8">
                   <div className="flex items-center justify-between gap-3">
                     <Label>{t("bookingLinks.url")}</Label>
                     <Tooltip>
@@ -1584,49 +1584,59 @@ export default function BookingLinksPage({
                 </div>
 
                 {/* Conferencing — Zoom uses real OAuth */}
-                <BookingConferencingSelect
-                  value={draft.conferencing}
-                  onChange={(conferencing) =>
-                    setDraft((prev) => ({ ...prev, conferencing }))
-                  }
-                  zoomStatus={
-                    zoomStatus.data?.connected
-                      ? "connected"
-                      : zoomStatus.data?.configured === false
-                        ? "not-configured"
+                <div className="border-t border-border pt-8">
+                  <BookingConferencingSelect
+                    value={draft.conferencing}
+                    onChange={(conferencing) =>
+                      setDraft((prev) => ({ ...prev, conferencing }))
+                    }
+                    zoomStatus={
+                      zoomStatus.data?.connected
+                        ? "connected"
+                        : zoomStatus.data?.configured === false
+                          ? "not-configured"
+                          : "disconnected"
+                    }
+                    googleStatus={
+                      googleStatus.data?.connected
+                        ? "connected"
                         : "disconnected"
-                  }
-                  googleStatus={
-                    googleStatus.data?.connected ? "connected" : "disconnected"
-                  }
-                  onConnectZoom={() =>
-                    connectZoom.mutate(undefined, {
-                      onError: (error) =>
-                        toast.error(
-                          error instanceof Error
-                            ? error.message
-                            : t("bookingLinks.zoomStartFailed"),
-                        ),
-                    })
-                  }
-                  zoomPending={connectZoom.isPending}
-                />
+                    }
+                    onConnectZoom={() =>
+                      connectZoom.mutate(undefined, {
+                        onError: (error) =>
+                          toast.error(
+                            error instanceof Error
+                              ? error.message
+                              : t("bookingLinks.zoomStartFailed"),
+                          ),
+                      })
+                    }
+                    zoomPending={connectZoom.isPending}
+                  />
+                </div>
 
-                <BookingHostsEditor
-                  hosts={draft.hosts}
-                  onChange={(hosts) => setDraft((prev) => ({ ...prev, hosts }))}
-                />
+                <div className="border-t border-border pt-8">
+                  <BookingHostsEditor
+                    hosts={draft.hosts}
+                    onChange={(hosts) =>
+                      setDraft((prev) => ({ ...prev, hosts }))
+                    }
+                  />
+                </div>
 
                 {/* Custom fields editor — shared package component */}
-                <SharedCustomFieldsEditor
-                  fields={draft.customFields}
-                  onChange={(fields) =>
-                    setDraft((prev) => ({ ...prev, customFields: fields }))
-                  }
-                />
+                <div className="border-t border-border pt-8">
+                  <SharedCustomFieldsEditor
+                    fields={draft.customFields}
+                    onChange={(fields) =>
+                      setDraft((prev) => ({ ...prev, customFields: fields }))
+                    }
+                  />
+                </div>
 
                 {/* Lower-risk settings */}
-                <div className="space-y-5 border-t border-border pt-5">
+                <div className="space-y-5 border-t border-border pt-8">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-sm font-medium">
