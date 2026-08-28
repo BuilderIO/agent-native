@@ -54,4 +54,36 @@ describe("stampChangedSlideRevisions", () => {
     expect(next.slides[2].layoutFitRevision).toEqual(expect.any(String));
     expect(next.slides[2].layoutFitRevision).not.toBe("old-drawing-revision");
   });
+
+  it("invalidates every slide when deck geometry or typography changes", () => {
+    const previous = {
+      aspectRatio: "16:9",
+      designSystemId: null,
+      slides: [
+        {
+          id: "one",
+          content: "<p>One</p>",
+          layoutFitRevision: "old-one",
+        },
+        {
+          id: "two",
+          content: "<p>Two</p>",
+          layoutFitRevision: "old-two",
+        },
+      ],
+    };
+    const next = {
+      ...previous,
+      aspectRatio: "4:3",
+      designSystemId: "ds-1",
+      slides: previous.slides.map((slide) => ({ ...slide })),
+    };
+
+    stampChangedSlideRevisions(JSON.stringify(previous), next);
+
+    expect(next.slides[0].layoutFitRevision).toEqual(expect.any(String));
+    expect(next.slides[0].layoutFitRevision).not.toBe("old-one");
+    expect(next.slides[1].layoutFitRevision).toEqual(expect.any(String));
+    expect(next.slides[1].layoutFitRevision).not.toBe("old-two");
+  });
 });

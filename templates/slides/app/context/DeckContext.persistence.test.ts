@@ -7,6 +7,8 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
+
 const orgQueryState = vi.hoisted(() => ({
   data: undefined as unknown,
   isLoading: false,
@@ -542,7 +544,7 @@ describe("DeckContext deck creation persistence", () => {
             fields?: { content?: string };
           }>
         )[0];
-        const content = operation.fields?.content ?? "";
+        const content = normalizeSlidePadding(operation.fields?.content ?? "");
         return {
           ok: true,
           layoutFit: {
@@ -569,7 +571,7 @@ describe("DeckContext deck creation persistence", () => {
       result.current.updateSlide(
         initial.id,
         "slide-1",
-        { content: "<h1>After</h1>" },
+        { content: '<div class="fmd-slide"><h1>After</h1></div>' },
         { persistence: "immediate" },
       );
     });
@@ -580,6 +582,9 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
     ).toBe("server-patch-revision");
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      normalizeSlidePadding('<div class="fmd-slide"><h1>After</h1></div>'),
+    );
   });
 
   it("merges revisions returned by add-slide and save-deck", async () => {
@@ -664,6 +669,64 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
     ).toBe("server-full-revision");
+  });
+
+  it("merges deck-wide fit revisions for aspect-ratio and design-system writes", async () => {
+    window.history.pushState({}, "", "/deck/deck-fit-fields");
+    const initial: Deck = {
+      id: "deck-fit-fields",
+      title: "Deck fit fields",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      designSystemId: "ds-old",
+      slides: [
+        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
+        { id: "slide-2", content: "<h1>Two</h1>", notes: "", layout: "title" },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: () => ({
+        ok: true,
+        layoutFit: {
+          status: "pending",
+          slides: initial.slides.map((slide, index) => ({
+            slideId: slide.id,
+            contentHash: hashSlideContent(slide.content),
+            layoutFitRevision: `server-deck-revision-${index}`,
+          })),
+        },
+      }),
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateDeck(initial.id, { aspectRatio: "4:3" });
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
+
+    act(() => {
+      result.current.updateDeck(initial.id, { designSystemId: "ds-new" });
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -1675,7 +1738,7 @@ describe("DeckContext deck creation persistence", () => {
       ],
     });
     expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
-      resizedContent,
+      normalizeSlidePadding(resizedContent),
     );
 
     act(() => result.current.undo());

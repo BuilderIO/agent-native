@@ -25,6 +25,7 @@ import {
 } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
 import {
@@ -196,8 +197,13 @@ export function stampChangedSlideRevisions(
   nextDeck: DeckPayload,
 ): void {
   const previous = previousData
-    ? (JSON.parse(previousData) as { slides?: unknown })
+    ? (JSON.parse(previousData) as {
+        aspectRatio?: unknown;
+        designSystemId?: unknown;
+        slides?: unknown;
+      })
     : {};
+  const deckFitFieldsChanged = deckFitRenderFieldsChanged(previous, nextDeck);
   const previousSlides = (
     Array.isArray(previous.slides) ? previous.slides : []
   ) as Array<Record<string, unknown>>;
@@ -207,7 +213,11 @@ export function stampChangedSlideRevisions(
 
   for (const slide of nextSlides) {
     const prior = previousSlides.find((candidate) => candidate.id === slide.id);
-    if (!prior || slideFitRenderFieldsChanged(prior, slide)) {
+    if (
+      deckFitFieldsChanged ||
+      !prior ||
+      slideFitRenderFieldsChanged(prior, slide)
+    ) {
       slide.layoutFitRevision = createLayoutFitRevision();
     } else if (typeof prior.layoutFitRevision === "string") {
       slide.layoutFitRevision = prior.layoutFitRevision;

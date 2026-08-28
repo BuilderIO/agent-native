@@ -39,6 +39,7 @@ import {
 } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
@@ -661,6 +662,10 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
       const existingContext = storedCreativeContext(deck.creativeContext);
+      const previousDeckFitFields = {
+        aspectRatio: deck.aspectRatio,
+        designSystemId: deck.designSystemId,
+      };
 
       const existingSlideIds = new Set(
         (Array.isArray(deck.slides) ? deck.slides : []).map(
@@ -744,6 +749,15 @@ export default defineAction({
           ) {
             layoutFitSlideIds.add(op.slideId);
           }
+        }
+      }
+      if (deckFitRenderFieldsChanged(previousDeckFitFields, deck)) {
+        for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+          if (typeof slide.id !== "string") continue;
+          if (!layoutFitSlideIds.has(slide.id)) {
+            slide.layoutFitRevision = createLayoutFitRevision();
+          }
+          layoutFitSlideIds.add(slide.id);
         }
       }
       if (isAgentCaller) {

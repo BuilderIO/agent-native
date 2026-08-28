@@ -60,6 +60,17 @@ export function slideFitRenderFieldsChanged(
   );
 }
 
+/** Return whether a deck mutation changes the canvas or its typography. */
+export function deckFitRenderFieldsChanged(
+  previous: { aspectRatio?: unknown; designSystemId?: unknown },
+  next: { aspectRatio?: unknown; designSystemId?: unknown },
+): boolean {
+  return (
+    (previous.aspectRatio ?? "16:9") !== (next.aspectRatio ?? "16:9") ||
+    (previous.designSystemId ?? null) !== (next.designSystemId ?? null)
+  );
+}
+
 /** Match both the source HTML and the write that produced it. */
 export function slideFitMeasurementMatchesSlide(
   measurement:

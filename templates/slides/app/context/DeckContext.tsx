@@ -9,7 +9,10 @@ import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
-import { hashSlideContent } from "@shared/slide-fit";
+import {
+  deckFitRenderFieldsChanged,
+  hashSlideContent,
+} from "@shared/slide-fit";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -23,6 +26,8 @@ import {
 } from "react";
 
 import type { AspectRatio } from "@/lib/aspect-ratios";
+
+import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 // ---------------------------------------------------------------------------
 // Granular persistence types
@@ -78,7 +83,10 @@ function addSlideFields(
   slide: Slide,
 ): Extract<GranularOp, { op: "add-slide" }>["fields"] {
   const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
-  return fields;
+  return {
+    ...fields,
+    content: normalizeSlidePadding(fields.content),
+  };
 }
 export type DeckReloadStatus = "loaded" | "failed" | "stale";
 export interface UpdateSlideOptions {
@@ -656,6 +664,16 @@ function layoutFitSlideIdsForOp(op: GranularOp): string[] {
   return [];
 }
 
+function layoutFitSlideIdsForDeckFields(
+  deck: Deck | undefined,
+  op: GranularOp,
+): string[] {
+  if (!deck || op.op !== "patch-deck-fields") return [];
+  return deckFitRenderFieldsChanged(deck, { ...deck, ...op.fields })
+    ? deck.slides.map((slide) => slide.id)
+    : [];
+}
+
 function nextSlideWriteSequence(deckId: string, slideId: string): number {
   const sequences = slideLocalWriteSequences.get(deckId) ?? new Map();
   const next = (sequences.get(slideId) ?? 0) + 1;
@@ -889,11 +907,16 @@ function enqueueDeckOp(
     coalesceContent?: boolean;
     onSaveSuccess?: (ops: GranularOp[]) => void;
     onPersisted?: PersistedResultHandler;
+    layoutFitSlideIds?: readonly string[];
   },
 ) {
   deckLocalWriteSeq.set(deckId, (deckLocalWriteSeq.get(deckId) ?? 0) + 1);
   const slideWriteSequences = new Map<string, number>();
-  for (const slideId of layoutFitSlideIdsForOp(op)) {
+  const layoutFitSlideIds = new Set([
+    ...layoutFitSlideIdsForOp(op),
+    ...(options?.layoutFitSlideIds ?? []),
+  ]);
+  for (const slideId of layoutFitSlideIds) {
     slideWriteSequences.set(slideId, nextSlideWriteSequence(deckId, slideId));
   }
   const existing = pendingSaves.get(deckId);
@@ -2107,7 +2130,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             } else if (granular.op === "add-slide") {
               clearSlideDeleteTombstone(deckId, granular.slideId);
             }
+            const currentDeck = decksRef.current.find(
+              (deck) => deck.id === deckId,
+            );
             enqueueDeckOp(deckId, granular, {
+              layoutFitSlideIds: layoutFitSlideIdsForDeckFields(
+                currentDeck,
+                granular,
+              ),
               onPersisted: (results, slideWriteSequences) =>
                 reconcilePersistedLayoutFit(
                   deckId,
@@ -3046,7 +3076,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ),
       );
       if (op) {
-        enqueueDeckOp(id, op);
+        enqueueDeckOp(id, op, {
+          layoutFitSlideIds: layoutFitSlideIdsForDeckFields(before, op),
+          onPersisted: (results, slideWriteSequences) =>
+            reconcilePersistedLayoutFit(id, results, slideWriteSequences),
+        });
         if (before) {
           // Coalesce rapid deck-field edits (e.g. title typing, tweak sliders)
           // per field-set so a burst becomes one undo step.
@@ -3059,7 +3093,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [markDeckDirty, recordUndo],
+    [markDeckDirty, recordUndo, reconcilePersistedLayoutFit],
   );
 
   const getDeck = useCallback(
@@ -3077,7 +3111,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       markDeckDirty(deckId);
       const newSlide: Slide = {
         id: nanoid(8),
-        content: defaultSlideContent[layout],
+        content: normalizeSlidePadding(defaultSlideContent[layout]),
         notes: "",
         layout,
         background: "bg-[#000000]",
@@ -3125,6 +3159,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       updates: Partial<Omit<Slide, "id">>,
       options?: UpdateSlideOptions,
     ) => {
+      const normalizedUpdates =
+        typeof updates.content === "string"
+          ? { ...updates, content: normalizeSlidePadding(updates.content) }
+          : updates;
       const label = updates.layout
         ? "Change layout"
         : updates.background
@@ -3133,7 +3171,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ? "Update content"
             : "Edit slide";
       const before = decksRef.current.find((d) => d.id === deckId);
-      const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
+      const op: PatchDeckOp = {
+        op: "patch-slide",
+        slideId,
+        fields: updates,
+      };
       if (
         before &&
         !deriveInverseOp(before, op) &&
@@ -3149,7 +3191,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               return {
                 ...d,
                 slides: d.slides.map((s) =>
-                  s.id === slideId ? { ...s, ...updates } : s,
+                  s.id === slideId ? { ...s, ...normalizedUpdates } : s,
                 ),
                 updatedAt: new Date().toISOString(),
               };
@@ -3172,7 +3214,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             return {
               ...d,
               slides: d.slides.map((s) =>
-                s.id === slideId ? { ...s, ...updates } : s,
+                s.id === slideId ? { ...s, ...normalizedUpdates } : s,
               ),
               updatedAt: new Date().toISOString(),
             };
@@ -3241,7 +3283,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (!before || !original) return undefined;
 
       markDeckDirty(deckId);
-      const copiedSlide: Slide = { ...original, id: nanoid(8) };
+      const copiedSlide: Slide = {
+        ...original,
+        id: nanoid(8),
+        content: normalizeSlidePadding(original.content),
+      };
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -3277,7 +3323,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (!before) return undefined;
 
       markDeckDirty(deckId);
-      const newSlide: Slide = { ...slideFields, id: nanoid(8) };
+      const newSlide: Slide = {
+        ...slideFields,
+        id: nanoid(8),
+        content: normalizeSlidePadding(slideFields.content),
+      };
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;

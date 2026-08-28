@@ -1114,6 +1114,38 @@ describe("run() — asynchronous layout fit metadata", () => {
     });
   });
 
+  it("returns pending fit metadata for deck-wide geometry changes", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { aspectRatio: "4:3", designSystemId: "ds-1" },
+          },
+        ],
+      },
+      {},
+    )) as Record<string, unknown>;
+
+    expect(result.layoutFit).toMatchObject({
+      status: "pending",
+      slides: [
+        {
+          slideId: "slide-1",
+          contentHash: hashSlideContent("<div>One</div>"),
+          layoutFitRevision: expect.any(String),
+        },
+        {
+          slideId: "slide-2",
+          contentHash: hashSlideContent("<div>Two</div>"),
+          layoutFitRevision: expect.any(String),
+        },
+      ],
+    });
+  });
+
   it("does not target a mixed structural batch at one slide", async () => {
     await patchDeckAction.run(
       {
