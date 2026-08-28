@@ -676,6 +676,7 @@ const STATIC_WEIGHT_GOOGLE_FONTS = [
   "Inconsolata",
   "Instrument Sans",
   "Josefin Sans",
+  "JetBrains Mono",
   "Kanit",
   "Karla",
   "Lato",
@@ -768,12 +769,12 @@ export function prepareImportedFonts(html: string): {
 } {
   const hrefs = new Set<string>();
   const rewritten = html.replace(
-    /(font-family:\s*)'([^']*)'/gi,
-    (match, prefix: string, name: string) => {
+    /(font-family:\s*)(["'])(.*?)\2/gi,
+    (match, prefix: string, quote: string, name: string) => {
       const font = resolveImportedFont(name);
       if (!font) return match;
       hrefs.add(font.href);
-      return `${prefix}'${font.family}'`;
+      return `${prefix}${quote}${font.family}${quote}`;
     },
   );
   return { html: rewritten, hrefs: [...hrefs] };
@@ -1063,9 +1064,14 @@ export function SlideInner({
   // Slides with fmd-slide markup carry their layout in the raw HTML contract;
   // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
+  const trimmedContent = content.trimStart();
+  const isConvertedMarkdownImage =
+    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
+      trimmedContent,
+    );
   const isRawHtml =
     content.includes('class="fmd-slide"') ||
-    content.trimStart().startsWith("<") ||
+    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   if (!isRawHtml && slide.layout === "two-column") {

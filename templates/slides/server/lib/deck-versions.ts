@@ -14,13 +14,17 @@ export interface DeckSnapshotSource {
 
 export async function createDeckVersionSnapshot(
   source: DeckSnapshotSource,
-  options: { force?: boolean; label?: string } = {},
+  options: {
+    force?: boolean;
+    label?: string;
+    db?: ReturnType<typeof getDb>;
+  } = {},
 ): Promise<{ created: boolean; id?: string; reason?: string }> {
   if (!source.ownerEmail) {
     throw new Error("Cannot snapshot deck version without an owner email");
   }
 
-  const db = getDb();
+  const db = options.db ?? getDb();
   const [latestVersion] = await db
     .select({
       title: schema.deckVersions.title,

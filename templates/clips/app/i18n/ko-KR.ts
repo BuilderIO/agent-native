@@ -635,6 +635,8 @@ const messages = {
     macSublabel: "범용(Apple Silicon + Intel)",
     windowsSublabel: "64비트 MSI 설치 프로그램",
     downloadFor: "{{platform}}용 다운로드",
+    downloadStarted: "다운로드가 시작되었습니다",
+    downloadAgain: "작동하지 않았나요? 다시 다운로드",
     alsoFor: "{{platform}}에도 사용 가능",
     backToLibrary: "라이브러리로 돌아가기",
     clipsDesktop: "Clips Desktop",
