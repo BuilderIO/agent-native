@@ -291,6 +291,10 @@ export default defineAction({
         return enqueueWebhookEvent(
           "deck.updated",
           { id: deckId, ...data },
+          {
+            ownerEmail: existing[0].ownerEmail,
+            orgId: existing[0].orgId ?? null,
+          },
           { db: tx },
         );
       });
@@ -340,6 +344,7 @@ export default defineAction({
     if (aspectRatio) data.aspectRatio = aspectRatio;
     if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
     data.creativeContext = creativeContextProvenance;
+    const orgId = getRequestOrgId() ?? null;
     const deliveryIds = await db.transaction(async (tx) => {
       await tx.insert(schema.decks).values({
         id,
@@ -347,11 +352,16 @@ export default defineAction({
         data: JSON.stringify(data),
         designSystemId: resolvedDesignSystemId ?? null,
         ownerEmail,
-        orgId: getRequestOrgId(),
+        orgId,
         createdAt: now,
         updatedAt: now,
       });
-      return enqueueWebhookEvent("deck.created", { id, ...data }, { db: tx });
+      return enqueueWebhookEvent(
+        "deck.created",
+        { id, ...data },
+        { ownerEmail, orgId },
+        { db: tx },
+      );
     });
 
     notifyClients(id);

@@ -35,15 +35,17 @@ export default defineAction({
     // Resolving or reopening changes state for the whole thread (every
     // author's comments), not just the caller's own row, so it always
     // requires editor access — matching content's update-comment action.
-    if (
+    const access =
       args.resolved === true ||
       args.resolved === false ||
       comment.authorEmail !== userEmail
-    ) {
-      await assertAccess("deck", comment.deckId, "editor");
-    } else {
-      await assertAccess("deck", comment.deckId, "commenter");
-    }
+        ? await assertAccess("deck", comment.deckId, "editor")
+        : await assertAccess("deck", comment.deckId, "commenter");
+    const scope = {
+      ownerEmail: access.resource.ownerEmail as string,
+      orgId:
+        typeof access.resource.orgId === "string" ? access.resource.orgId : null,
+    };
 
     const updatedAt = new Date().toISOString();
 
@@ -62,6 +64,7 @@ export default defineAction({
         return enqueueWebhookEvent(
           "comment.updated",
           { ...comment, resolved, updatedAt },
+          scope,
           { db: tx },
         );
       });
@@ -87,6 +90,7 @@ export default defineAction({
       return enqueueWebhookEvent(
         "comment.updated",
         { ...comment, content: args.content, updatedAt },
+        scope,
         { db: tx },
       );
     });

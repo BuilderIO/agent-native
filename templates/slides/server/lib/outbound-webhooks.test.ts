@@ -210,10 +210,11 @@ describe("Slides outbound webhooks", () => {
   it("delivers the exact signed raw event payload", async () => {
     state.subscriptions.push(subscription(["deck.created"]));
 
-    await enqueueWebhookEvent("deck.created", {
-      id: "deck-1",
-      title: "Quarterly review",
-    });
+    await enqueueWebhookEvent(
+      "deck.created",
+      { id: "deck-1", title: "Quarterly review" },
+      { ownerEmail: "owner@example.com", orgId: null },
+    );
     await processDueWebhookDeliveries();
 
     expect(state.delivered).toHaveLength(1);
@@ -234,15 +235,54 @@ describe("Slides outbound webhooks", () => {
       subscription(["comment.updated"]),
     );
 
-    await enqueueWebhookEvent("deck.created", { id: "deck-1" });
+    await enqueueWebhookEvent(
+      "deck.created",
+      { id: "deck-1" },
+      { ownerEmail: "owner@example.com", orgId: null },
+    );
 
     expect(state.deliveries).toHaveLength(1);
     expect(state.deliveries[0]?.subscriptionId).toBe("wh-1");
   });
 
+  it("never fans out to a webhook owned by a different tenant", async () => {
+    state.subscriptions.push(
+      subscription(["deck.created"], {
+        id: "wh-tenant-a",
+        ownerEmail: "tenant-a@example.com",
+      }),
+      subscription(["deck.created"], {
+        id: "wh-tenant-b",
+        ownerEmail: "tenant-b@example.com",
+      }),
+    );
+
+    await enqueueWebhookEvent(
+      "deck.created",
+      { id: "deck-a" },
+      { ownerEmail: "tenant-a@example.com", orgId: null },
+    );
+
+    expect(state.deliveries).toHaveLength(1);
+    expect(state.deliveries[0]?.subscriptionId).toBe("wh-tenant-a");
+
+    await enqueueWebhookEvent(
+      "deck.created",
+      { id: "deck-b" },
+      { ownerEmail: "tenant-b@example.com", orgId: null },
+    );
+
+    expect(state.deliveries).toHaveLength(2);
+    expect(state.deliveries[1]?.subscriptionId).toBe("wh-tenant-b");
+  });
+
   it("cancels queued deliveries when a subscription is deleted", async () => {
     state.subscriptions.push(subscription(["deck.created"]));
-    await enqueueWebhookEvent("deck.created", { id: "deck-1" });
+    await enqueueWebhookEvent(
+      "deck.created",
+      { id: "deck-1" },
+      { ownerEmail: "owner@example.com", orgId: null },
+    );
 
     await expect(
       deleteWebhookSubscription("wh-1", "owner@example.com", null),
@@ -254,7 +294,11 @@ describe("Slides outbound webhooks", () => {
   it("retries 500s and disables a repeatedly failing subscription", async () => {
     state.subscriptions.push(subscription(["deck.created"]));
     state.response = { ok: false, status: 500, blocked: false };
-    await enqueueWebhookEvent("deck.created", { id: "deck-1" });
+    await enqueueWebhookEvent(
+      "deck.created",
+      { id: "deck-1" },
+      { ownerEmail: "owner@example.com", orgId: null },
+    );
 
     for (let attempt = 0; attempt < 5; attempt++) {
       state.deliveries[0]!.nextAttemptAt = new Date().toISOString();

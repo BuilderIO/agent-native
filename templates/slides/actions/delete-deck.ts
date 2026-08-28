@@ -83,7 +83,12 @@ export default defineAction({
         if (result.length === 0) {
           throw deckHttpError(404, "Deck not found");
         }
-        return enqueueWebhookEvent("deck.deleted", access.resource, { db: tx });
+        return enqueueWebhookEvent(
+          "deck.deleted",
+          access.resource,
+          { ownerEmail: owner, orgId: orgId ?? null },
+          { db: tx },
+        );
       });
       await dispatchWebhookDeliveries(deliveryIds);
       if (access.resource.visibility === "public") {

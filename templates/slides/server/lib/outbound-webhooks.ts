@@ -179,9 +179,13 @@ export async function updateWebhookSubscription(input: {
   return updated[0] ?? null;
 }
 
+// `scope` must be the deck/comment's own owner+org, never the caller's or an
+// unrelated tenant's — fan-out only reaches subscriptions registered under
+// that exact tenant, so one tenant's events can never dispatch to another's.
 export async function enqueueWebhookEvent(
   event: SlidesWebhookEvent,
   data: unknown,
+  scope: { ownerEmail: string; orgId: string | null },
   options?: { db?: any },
 ) {
   const db = options?.db ?? getDb();
@@ -189,7 +193,15 @@ export async function enqueueWebhookEvent(
     await db
       .select()
       .from(schema.webhookSubscriptions)
-      .where(eq(schema.webhookSubscriptions.enabled, true));
+      .where(
+        and(
+          eq(schema.webhookSubscriptions.enabled, true),
+          eq(schema.webhookSubscriptions.ownerEmail, scope.ownerEmail),
+          scope.orgId === null
+            ? isNull(schema.webhookSubscriptions.orgId)
+            : eq(schema.webhookSubscriptions.orgId, scope.orgId),
+        ),
+      );
   const createdAt = now();
   const payload = JSON.stringify({
     id: `evt_${nanoid()}`,
@@ -292,8 +304,9 @@ export async function dispatchWebhookDeliveries(ids: string[]) {
 export async function emitWebhookEvent(
   event: SlidesWebhookEvent,
   data: unknown,
+  scope: { ownerEmail: string; orgId: string | null },
 ) {
-  const ids = await enqueueWebhookEvent(event, data);
+  const ids = await enqueueWebhookEvent(event, data, scope);
   await dispatchWebhookDeliveries(ids);
   return ids;
 }

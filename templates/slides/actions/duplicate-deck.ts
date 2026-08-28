@@ -68,6 +68,10 @@ export default defineAction({
     deckData.updatedAt = now;
     deckData.designSystemId = source.designSystemId ?? deckData.designSystemId;
 
+    const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId() || null;
+
     const deliveryIds = await db.transaction(async (tx) => {
       await tx.insert(schema.decks).values({
         id: newId,
@@ -76,16 +80,13 @@ export default defineAction({
         designSystemId: source.designSystemId ?? null,
         createdAt: now,
         updatedAt: now,
-        ownerEmail: (() => {
-          const e = getRequestUserEmail();
-          if (!e) throw new Error("no authenticated user");
-          return e;
-        })(),
-        orgId: getRequestOrgId() || null,
+        ownerEmail,
+        orgId,
       });
       return enqueueWebhookEvent(
         "deck.created",
         { id: newId, ...deckData },
+        { ownerEmail, orgId },
         { db: tx },
       );
     });

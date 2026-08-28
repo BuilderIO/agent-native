@@ -129,6 +129,7 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(nextDesignSystemId);
+        const orgId = getRequestOrgId() ?? null;
         let deliveryIds: string[];
         try {
           deliveryIds = await db.transaction(async (tx) => {
@@ -138,11 +139,11 @@ export default defineAction({
               data: JSON.stringify(deck),
               designSystemId: nextDesignSystemId,
               ownerEmail,
-              orgId: getRequestOrgId() ?? null,
+              orgId,
               createdAt: now,
               updatedAt: now,
             });
-            return enqueueWebhookEvent("deck.created", deck, { db: tx });
+            return enqueueWebhookEvent("deck.created", deck, { ownerEmail, orgId }, { db: tx });
           });
         } catch {
           // Some adapters wrap duplicate-key failures in a generic query error
@@ -188,7 +189,18 @@ export default defineAction({
               updatedAt: now,
             })
             .where(eq(schema.decks.id, deckId));
-          return enqueueWebhookEvent("deck.updated", deck, { db: tx });
+          return enqueueWebhookEvent(
+            "deck.updated",
+            deck,
+            {
+              ownerEmail: access.resource.ownerEmail as string,
+              orgId:
+                typeof access.resource.orgId === "string"
+                  ? access.resource.orgId
+                  : null,
+            },
+            { db: tx },
+          );
         });
         notifyClients(deckId);
         await dispatchWebhookDeliveries(deliveryIds);

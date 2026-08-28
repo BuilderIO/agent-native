@@ -72,6 +72,7 @@ export default defineAction({
       throw deckHttpError(403, "Sign in to create a deck");
     }
 
+    const orgId = getRequestOrgId() ?? null;
     const now = new Date().toISOString();
     deck.createdAt = deck.createdAt || now;
     deck.updatedAt = now;
@@ -87,11 +88,16 @@ export default defineAction({
         data: JSON.stringify(deck),
         designSystemId,
         ownerEmail,
-        orgId: getRequestOrgId() ?? null,
+        orgId,
         createdAt: now,
         updatedAt: now,
       });
-      return enqueueWebhookEvent("deck.created", deck, { db: tx });
+      return enqueueWebhookEvent(
+        "deck.created",
+        deck,
+        { ownerEmail, orgId },
+        { db: tx },
+      );
     });
 
     notifyClients(id);
