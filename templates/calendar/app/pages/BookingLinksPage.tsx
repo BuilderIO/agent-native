@@ -742,25 +742,37 @@ function BookingHostsEditor({
 
       {hosts.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {hosts.map((host) => (
-            <Badge
-              key={host.email}
-              variant="secondary"
-              className="gap-1.5 pr-1"
-            >
-              {host.displayName || host.email}
-              <button
-                type="button"
-                onClick={() => removeHost(host.email)}
-                className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                aria-label={t("bookingLinks.removeHost", {
-                  email: host.email,
-                })}
+          {hosts.map((host) => {
+            const normalized = normalizeHostEmail(host.email);
+            const overlayColor = overlayPeople.find(
+              (person) => normalizeHostEmail(person.email) === normalized,
+            )?.color;
+            return (
+              <Badge
+                key={host.email}
+                variant="secondary"
+                className="gap-1.5 pr-1"
               >
-                <IconX className="h-3 w-3" />
-              </button>
-            </Badge>
-          ))}
+                {overlayColor && (
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: overlayColor }}
+                  />
+                )}
+                {host.displayName || host.email}
+                <button
+                  type="button"
+                  onClick={() => removeHost(host.email)}
+                  className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                  aria-label={t("bookingLinks.removeHost", {
+                    email: host.email,
+                  })}
+                >
+                  <IconX className="h-3 w-3" />
+                </button>
+              </Badge>
+            );
+          })}
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
