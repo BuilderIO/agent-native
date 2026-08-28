@@ -8,6 +8,7 @@ import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   buildPastedSlideObjects,
+  canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
   clientPointToSlideCoordinates,
   cloneSlideObject,
@@ -59,6 +60,25 @@ describe("slide object interactions", () => {
     expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("h2"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
+  });
+
+  it("rejects adjacent drops that would violate structural parent rules", () => {
+    const paragraph = document.createElement("p");
+    const span = document.createElement("span");
+    paragraph.append(span);
+    expect(canDropSlideLayerAdjacent(document.createElement("div"), span)).toBe(
+      false,
+    );
+
+    const list = document.createElement("ul");
+    const listItem = document.createElement("li");
+    list.append(listItem);
+    expect(
+      canDropSlideLayerAdjacent(document.createElement("div"), listItem),
+    ).toBe(false);
+    expect(
+      canDropSlideLayerAdjacent(document.createElement("li"), listItem),
+    ).toBe(true);
   });
 
   it("rejects structural children as direct clipboard roots", () => {

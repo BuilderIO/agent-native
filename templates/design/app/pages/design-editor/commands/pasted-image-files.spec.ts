@@ -19,6 +19,8 @@ function args(
   replacePreviewContent: PastedImageFilesArgs["replacePreviewContent"],
   uploadImageFileForHtml: PastedImageFilesArgs["uploadImageFileForHtml"],
   getFreshActiveContent: () => string = () => "<main></main>",
+  getFreshActivePreviewContent: PastedImageFilesArgs["getFreshActivePreviewContent"] = () =>
+    null,
 ): PastedImageFilesArgs {
   return {
     activeFile: { id: "screen-1" } as DesignFile,
@@ -29,6 +31,7 @@ function args(
     canvasContainerRef: ref(null),
     canvasFrameGeometryById: {},
     getFreshActiveContent,
+    getFreshActivePreviewContent,
     getScreenContent: () => "<main></main>",
     overviewScreens: [],
     overviewSelectedScreenIds: [],
@@ -120,13 +123,54 @@ describe("runPastedImageFiles", () => {
     );
   });
 
+  it("commits the hosted URL when the live preview is not in durable content", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:live");
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    let livePreviewContent: string | null = null;
+    const replacePreviewContent = vi.fn((content: string) => {
+      livePreviewContent = content;
+    });
+    const applyLocalContentUpdate = vi.fn();
+
+    runPastedImageFiles(
+      args(
+        applyLocalContentUpdate,
+        replacePreviewContent,
+        upload,
+        () => "<main></main>",
+        () => livePreviewContent,
+      ),
+      [file],
+      { fileId: "screen-1", point: { x: 0, y: 0 } },
+    );
+
+    resolveUpload("https://cdn.example/live.png");
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain(
+      "https://cdn.example/live.png",
+    );
+  });
+
   it("does not resurrect a preview deleted while its upload is pending", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:deleted");
     const applyLocalContentUpdate = vi.fn();
-    const upload = vi.fn(async () => "https://cdn.example/deleted.png");
-    let currentContent = "<main></main>";
-    const replacePreviewContent = vi.fn(() => {
-      currentContent = "<main></main>";
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    let previewContent: string | null = null;
+    const replacePreviewContent = vi.fn((content: string) => {
+      previewContent = content;
     });
 
     runPastedImageFiles(
@@ -134,7 +178,8 @@ describe("runPastedImageFiles", () => {
         applyLocalContentUpdate,
         replacePreviewContent,
         upload,
-        () => currentContent,
+        () => "<main></main>",
+        () => previewContent,
       ),
       [file],
       { fileId: "screen-1", point: { x: 0, y: 0 } },
@@ -144,9 +189,12 @@ describe("runPastedImageFiles", () => {
     await vi.waitFor(() =>
       expect(replacePreviewContent).toHaveBeenCalledOnce(),
     );
+    previewContent = "<main></main>";
+    resolveUpload("https://cdn.example/deleted.png");
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
-    expect(currentContent).toBe("<main></main>");
+    expect(previewContent).toBe("<main></main>");
   });
 });
 

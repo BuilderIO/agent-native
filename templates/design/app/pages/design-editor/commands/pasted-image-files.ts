@@ -67,6 +67,7 @@ export interface PastedImageFilesArgs {
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   getFreshActiveContent: () => string;
+  getFreshActivePreviewContent?: () => string | null;
   getScreenContent: (screenId: string) => string;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
@@ -97,6 +98,7 @@ export function runPastedImageFiles(
     canvasContainerRef,
     canvasFrameGeometryById,
     getFreshActiveContent,
+    getFreshActivePreviewContent,
     getScreenContent,
     overviewScreens,
     overviewSelectedScreenIds,
@@ -133,7 +135,7 @@ export function runPastedImageFiles(
       for (const file of files) {
         const baseContent =
           targetFileId === activeFile?.id
-            ? getFreshActiveContent()
+            ? (getFreshActivePreviewContent?.() ?? getFreshActiveContent())
             : (getScreenContent(targetFileId) ?? "");
         const resolvedPoint =
           typeof localPoint === "function" ? localPoint() : localPoint;
@@ -169,16 +171,19 @@ export function runPastedImageFiles(
             forceFullDocument: true,
           });
         }
-        const previewWasMounted =
-          previewUrl !== null && targetFileId === activeFile?.id;
         selectInsertedLayers(targetFileId, previewContent, [insertedNodeId]);
 
         try {
           const imageUrl = await uploadImageFileForHtml(file);
-          const currentContent =
+          const durableContent =
             targetFileId === activeFile?.id
               ? getFreshActiveContent()
               : (getScreenContent(targetFileId) ?? "");
+          const activePreviewContent =
+            targetFileId === activeFile?.id
+              ? (getFreshActivePreviewContent?.() ?? null)
+              : null;
+          const currentContent = activePreviewContent ?? durableContent;
           const durableImageUrl =
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
           const replacedContent = replacePastedImageSource(
@@ -189,10 +194,10 @@ export function runPastedImageFiles(
           const nextContent =
             replacedContent !== currentContent ||
             !durableImageUrl ||
-            previewWasMounted
+            activePreviewContent !== null
               ? replacedContent
               : (cloneHtmlLayerAtPosition(
-                  currentContent,
+                  durableContent,
                   `<img src="${escapeHtmlAttributeValue(durableImageUrl)}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`,
                   {
                     x: resolvedPoint.x + cascadeOffset,

@@ -138,6 +138,7 @@ import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   buildPastedSlideObjects,
+  canDropSlideLayerAdjacent,
   canDropSlideLayerInside,
   clientPointToSlideCoordinates,
   cloneSlideObject,
@@ -2654,12 +2655,16 @@ export default function SlideEditor({
       const element = slideContent?.querySelector<HTMLElement>(
         `[data-builder-id="${id}"]`,
       );
-      if (!element) return;
+      if (!slideContent || !element) return;
 
       if (additive) {
         const next = new Set(multiSelection);
         if (next.size === 0) {
-          const selected = resolveSelectedElement() ?? selectedImg;
+          const selected = resolveSlideClipboardElement(
+            resolveSelectedElement(),
+            selectedImg,
+            slideContent,
+          );
           const selectedId = selected?.getAttribute("data-builder-id");
           if (selectedId && selectedId !== id) next.add(selectedId);
         }
@@ -2699,6 +2704,12 @@ export default function SlideEditor({
       );
       if (!source || !target || source.contains(target)) return;
       if (placement === "inside" && !canDropSlideLayerInside(target)) return;
+      if (
+        placement !== "inside" &&
+        !canDropSlideLayerAdjacent(source, target)
+      ) {
+        return;
+      }
 
       const originalParent = source.parentElement;
       const sourceWasFreeform = isPersistedFreeformObject(source);
@@ -5942,10 +5953,11 @@ export default function SlideEditor({
         e.stopPropagation();
         const next = new Set(multiSelection);
         if (next.size === 0) {
-          const selectedElement = resolveSelectedElement();
-          const selectedId =
-            selectedElement?.getAttribute("data-builder-id") ??
-            selectedImg?.getAttribute("data-builder-id");
+          const selectedId = resolveSlideClipboardElement(
+            resolveSelectedElement(),
+            selectedImg,
+            slideContent,
+          )?.getAttribute("data-builder-id");
           if (selectedId && selectedId !== id) next.add(selectedId);
         }
         if (next.has(id)) next.delete(id);

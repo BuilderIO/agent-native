@@ -78,11 +78,35 @@ const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
   "TR",
 ]);
 
+const SLIDE_LAYER_REQUIRED_CHILDREN = new Map<string, Set<string>>([
+  ["COLGROUP", new Set(["COL"])],
+  ["DL", new Set(["DD", "DT"])],
+  ["OL", new Set(["LI"])],
+  ["OPTGROUP", new Set(["OPTION"])],
+  ["SELECT", new Set(["OPTION", "OPTGROUP"])],
+  ["TABLE", new Set(["CAPTION", "COLGROUP", "THEAD", "TBODY", "TFOOT"])],
+  ["TBODY", new Set(["TR"])],
+  ["TFOOT", new Set(["TR"])],
+  ["THEAD", new Set(["TR"])],
+  ["TR", new Set(["TD", "TH"])],
+  ["UL", new Set(["LI"])],
+]);
+
 export function canDropSlideLayerInside(target: Element): boolean {
   return (
     !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
     !SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
   );
+}
+
+export function canDropSlideLayerAdjacent(
+  source: Element,
+  target: Element,
+): boolean {
+  const parent = target.parentElement;
+  if (!parent || !canDropSlideLayerInside(parent)) return false;
+  const requiredChildren = SLIDE_LAYER_REQUIRED_CHILDREN.get(parent.tagName);
+  return !requiredChildren || requiredChildren.has(source.tagName);
 }
 
 export type ResizeHandle = CanvasResizeHandle;
