@@ -45,6 +45,33 @@ function formatInTimeZone(iso: string, timeZone: string): string {
   }
 }
 
+// Sortable/comparable calendar-day key in a given time zone, used to detect
+// when a slot lands on a different day than the reference (browser) time zone.
+function dateKeyInTimeZone(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+
+function formatShortDate(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      month: "short",
+      day: "numeric",
+    }).format(new Date(iso));
+  } catch {
+    return "";
+  }
+}
+
 export function TimeZoneGrid({
   slots,
   selectedSlot,
@@ -181,6 +208,10 @@ export function TimeZoneGrid({
                 {slots.map((slot) => {
                   const isSelected = selectedSlot === slot.start;
                   const isHovered = hoveredSlot === slot.start;
+                  const crossesDate =
+                    !!browserTimezone &&
+                    dateKeyInTimeZone(slot.start, row.timezone) !==
+                      dateKeyInTimeZone(slot.start, browserTimezone);
                   return (
                     <button
                       key={slot.start}
@@ -201,7 +232,14 @@ export function TimeZoneGrid({
                             : "text-muted-foreground hover:bg-muted/60",
                       )}
                     >
-                      {formatInTimeZone(slot.start, row.timezone)}
+                      <span className="block">
+                        {formatInTimeZone(slot.start, row.timezone)}
+                      </span>
+                      {crossesDate && (
+                        <span className="block text-[10px] font-normal leading-tight opacity-70">
+                          {formatShortDate(slot.start, row.timezone)}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
