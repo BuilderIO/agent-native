@@ -3,11 +3,10 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -387,21 +386,10 @@ export function Sidebar({
                 : undefined
           }
         >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
+          <AgentNativeIcon
+            size={28}
             aria-hidden="true"
-            width={28}
-            height={16}
-            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={28}
-            height={16}
-            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            className="h-4 w-7 shrink-0 text-black dark:text-white"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
