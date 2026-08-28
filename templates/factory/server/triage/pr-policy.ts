@@ -418,9 +418,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 }
 
 const SAFETY_FINDING_PATTERN =
-  /\b(auth|authentication|credential|secret|permission|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss)\b/i;
+  /\b(auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss)\b/i;
 const NON_FINDING_PATTERN =
-  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:auth|authentication|credential|secret|permission|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|credential|secret|permission|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|credential|secret|permission|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
+  /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
 export function hasActiveCredibleSafetyFinding(
   reviews: readonly { state: string; body?: string | null }[],

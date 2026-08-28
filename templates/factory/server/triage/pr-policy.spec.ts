@@ -148,6 +148,17 @@ describe("pull-request governance", () => {
       ),
     ).toBe(true);
     expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "Authorization is not enforced on this endpoint.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
       isUltraScaryChange(["templates/factory/server/triage/github-client.ts"]),
     ).toBe(true);
     expect(
