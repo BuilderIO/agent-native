@@ -21,6 +21,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadRoute.clipsDesktop": "Clips Desktop",
       "downloadRoute.heroDescription": "Record your screen.",
       "downloadRoute.downloadFor": "Download for {{platform}}",
+      "downloadRoute.downloadStarted": "Download started",
+      "downloadRoute.downloadAgain": "Didn't work? Try downloading again",
       "downloadRoute.retry": "Try again",
       "downloadRoute.stable": "Stable",
       "downloadRoute.nightly": "Nightly",
@@ -96,6 +98,7 @@ describe("Clips download page", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.localStorage.clear();
     fetchMock.mockImplementation(async (input: string) => ({
       ok: true,
       json: async () =>
@@ -115,6 +118,7 @@ describe("Clips download page", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -167,5 +171,22 @@ describe("Clips download page", () => {
         .querySelector('button[role="switch"]')
         ?.getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  it("confirms the download and offers a retry link after clicking", () => {
+    const download = container.querySelector<HTMLAnchorElement>("a[download]");
+    expect(download).toBeTruthy();
+
+    act(() => {
+      download?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(markDownloaded).toHaveBeenCalledTimes(1);
+    expect(download?.textContent).toContain("Download started");
+    expect(container.textContent).toContain(
+      "Didn't work? Try downloading again",
+    );
   });
 });

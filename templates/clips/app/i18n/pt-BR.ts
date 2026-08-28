@@ -646,6 +646,8 @@ const messages = {
     macSublabel: "Universais (Apple Silicon + Intel)",
     windowsSublabel: "Instalador MSI de 64 bits",
     downloadFor: "Baixar para {{platform}}",
+    downloadStarted: "Download iniciado",
+    downloadAgain: "Não funcionou? Tente baixar novamente",
     alsoFor: "Também disponível para {{platform}}",
     backToLibrary: "Voltar à biblioteca",
     clipsDesktop: "Clips Desktop",
