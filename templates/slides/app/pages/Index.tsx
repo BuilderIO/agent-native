@@ -64,6 +64,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   describeDeckPersistenceFailure,
   type Deck,
 } from "@/context/DeckContext";
@@ -1451,8 +1456,8 @@ export default function Index() {
     useMemo(
       () => (
         <>
-          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           <DeckSearchInput value={deckSearch} onChange={setDeckSearch} />
+          <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           <Button onClick={openNewDeck} size="sm" className="cursor-pointer">
             <IconPlus className="w-3.5 h-3.5" />
             {t("home.newDeck")}
@@ -1520,12 +1525,12 @@ export default function Index() {
       ) : (
         <>
           <div className="mb-4 flex items-center gap-2 md:hidden">
-            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
             <DeckSearchInput
               value={deckSearch}
               onChange={setDeckSearch}
               className="flex-1"
             />
+            <DeckFilterMenu value={deckFilter} onChange={setDeckFilter} />
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -1716,23 +1721,30 @@ function DeckFilterMenu({
   onChange: (value: DeckFilter) => void;
 }) {
   const t = useT();
-  const currentLabel = value === "mine" ? t("home.mine") : t("home.all");
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label={
-            value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")
-          }
-          className="shrink-0 gap-1.5"
-        >
-          <IconFilter className="size-3.5" />
-          {currentLabel}
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              aria-label={
+                value === "mine"
+                  ? t("home.showMineDecks")
+                  : t("home.showAllDecks")
+              }
+              className="size-9 shrink-0 p-0"
+            >
+              <IconFilter className="size-3.5" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {value === "mine" ? t("home.showMineDecks") : t("home.showAllDecks")}
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="start">
         <DropdownMenuRadioGroup
           value={value}

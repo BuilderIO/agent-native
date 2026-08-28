@@ -236,6 +236,7 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const canArchive = canEdit || canManage;
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -406,7 +407,7 @@ export default function ExplorerDashboardPage() {
   }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
 
   const handleArchive = useCallback(async () => {
-    if (!dashboardId || !canEdit) return;
+    if (!dashboardId || !canArchive) return;
     if (archivedAt) return;
     try {
       await callAction("archive-dashboard", {
@@ -434,11 +435,12 @@ export default function ExplorerDashboardPage() {
     }
   }, [
     dashboardId,
-    canEdit,
+    canArchive,
     archivedAt,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
@@ -735,10 +737,10 @@ export default function ExplorerDashboardPage() {
                     </DropdownMenuItem>
                   </>
                 ) : null}
-                {dashboardId && canEdit && !archivedAt ? (
+                {dashboardId && canArchive && !archivedAt ? (
                   <DropdownMenuSeparator />
                 ) : null}
-                {canEdit && !archivedAt ? (
+                {canArchive && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -747,10 +749,10 @@ export default function ExplorerDashboardPage() {
                     }}
                   >
                     <IconArchive className="mr-2 h-3.5 w-3.5" />
-                    Archive
+                    {t("sidebar.archive")}
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit && !archivedAt && canManage ? (
+                {canArchive && !archivedAt && canManage ? (
                   <DropdownMenuSeparator />
                 ) : null}
                 {canManage ? (

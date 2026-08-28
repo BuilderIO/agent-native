@@ -648,6 +648,7 @@ function SqlDashboardPageContent({
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  const canArchive = canEdit || canManage;
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -1668,7 +1669,7 @@ function SqlDashboardPageContent({
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
-    if (!canEdit) return;
+    if (!canArchive) return;
     if (archivedAt) return;
     try {
       await archiveDashboardAction({ id: dashboardId, archived: true });
@@ -1681,22 +1682,27 @@ function SqlDashboardPageContent({
       void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
-      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
+      toast.success(
+        t("sqlDashboard.archived", {
+          name: dashboard?.name ?? t("sqlDashboard.dashboardFallback"),
+        }),
+      );
       void navigate("/");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't archive dashboard",
+        err instanceof Error ? err.message : t("sqlDashboard.archiveFailed"),
       );
     }
   }, [
     dashboardId,
     dashboardScope,
-    canEdit,
+    canArchive,
     archivedAt,
     archiveDashboardAction,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
@@ -1936,7 +1942,7 @@ function SqlDashboardPageContent({
                 </DropdownMenuItem>
               </>
             ) : null}
-            {canEdit && !archivedAt ? (
+            {canArchive && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
@@ -1948,7 +1954,7 @@ function SqlDashboardPageContent({
                 {t("sidebar.archive")}
               </DropdownMenuItem>
             ) : null}
-            {canEdit && !archivedAt && canManage ? (
+            {canArchive && !archivedAt && canManage ? (
               <DropdownMenuSeparator />
             ) : null}
             {canManage ? (
@@ -1963,7 +1969,7 @@ function SqlDashboardPageContent({
                 {t("sqlDashboard.deletePermanently")}
               </DropdownMenuItem>
             ) : null}
-            {dashboardId || (canEdit && !archivedAt) || canManage ? (
+            {dashboardId || (canArchive && !archivedAt) || canManage ? (
               <DropdownMenuSeparator />
             ) : null}
             <DropdownMenuLabel className="font-normal">
