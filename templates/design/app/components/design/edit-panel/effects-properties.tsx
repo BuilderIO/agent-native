@@ -50,7 +50,11 @@ import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
 import { splitCssLayers } from "./fill-gradient-helpers";
-import { SectionIconButton } from "./inspector-controls";
+import {
+  RowDragHandle,
+  SectionIconButton,
+  useRowDragReorder,
+} from "./inspector-controls";
 import { InspectorGridCell, InspectorPaintRow } from "./inspector-grid";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
@@ -293,6 +297,10 @@ function EffectPopoverRow({
   visible,
   onToggleVisibility,
   onRemove,
+  dragHandleLabel,
+  dropIndicator,
+  rowProps,
+  handleProps,
   trailer,
   titleAccessory,
   headerActions,
@@ -304,6 +312,12 @@ function EffectPopoverRow({
   visible: boolean;
   onToggleVisibility: () => void;
   onRemove: () => void;
+  dragHandleLabel?: string;
+  dropIndicator?: "before" | "after" | null;
+  rowProps?: ReturnType<ReturnType<typeof useRowDragReorder>["getRowProps"]>;
+  handleProps?: ReturnType<
+    ReturnType<typeof useRowDragReorder>["getHandleProps"]
+  >;
   trailer?: ReactNode;
   titleAccessory?: ReactNode;
   headerActions?: ReactNode;
@@ -314,8 +328,15 @@ function EffectPopoverRow({
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <InspectorPaintRow>
+      <InspectorPaintRow {...rowProps}>
         <InspectorGridCell span={20}>
+          {dragHandleLabel && handleProps ? (
+            <RowDragHandle
+              label={dragHandleLabel}
+              dropIndicator={dropIndicator}
+              {...handleProps}
+            />
+          ) : null}
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -451,6 +472,10 @@ function ShadowEffectRow({
   onChange,
   onRemove,
   onToggleVisibility,
+  dragHandleLabel,
+  dropIndicator,
+  rowProps,
+  handleProps,
   element,
   motionKeyframeContext,
 }: {
@@ -459,6 +484,12 @@ function ShadowEffectRow({
   onChange: (patch: Partial<ShadowLayer>, meta?: StyleChangeMeta) => void;
   onRemove: () => void;
   onToggleVisibility: () => void;
+  dragHandleLabel: string;
+  dropIndicator?: "before" | "after" | null;
+  rowProps: ReturnType<ReturnType<typeof useRowDragReorder>["getRowProps"]>;
+  handleProps: ReturnType<
+    ReturnType<typeof useRowDragReorder>["getHandleProps"]
+  >;
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
 }) {
@@ -475,6 +506,10 @@ function ShadowEffectRow({
       }
       visible={colorHasVisibleAlpha(layer.color)}
       onToggleVisibility={onToggleVisibility}
+      dragHandleLabel={dragHandleLabel}
+      dropIndicator={dropIndicator}
+      rowProps={rowProps}
+      handleProps={handleProps}
       onRemove={onRemove}
       titleAccessory={
         <DropdownMenu>
@@ -646,6 +681,17 @@ export function EffectsProperties({
     onStyleChange("filter", setBlurFilterValue(styles.filter, 4));
   const addBackgroundBlur = () =>
     onStyleChange("backdropFilter", setBlurFilterValue(backdropFilterValue, 8));
+  const reorderShadowLayers = (from: number, to: number) => {
+    const next = [...shadowLayers];
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    next.splice(to, 0, moved);
+    setShadowLayers(next);
+  };
+  const shadowDrag = useRowDragReorder(
+    shadowLayers.length,
+    reorderShadowLayers,
+  );
   // `glslShaderContext?.nodeId` is the SELECTION target's node id — it is set
   // whenever the selected element is a valid shader-effect host, regardless
   // of whether a shader effect actually exists on it yet (it also describes
@@ -765,6 +811,17 @@ export function EffectsProperties({
                       key={layer.id}
                       layer={layer}
                       index={index}
+                      dragHandleLabel={t("editPanel.labels.reorderLayer")}
+                      dropIndicator={
+                        shadowDrag.dragIndex != null &&
+                        shadowDrag.overIndex === index
+                          ? shadowDrag.overIndex > shadowDrag.dragIndex
+                            ? "after"
+                            : "before"
+                          : null
+                      }
+                      rowProps={shadowDrag.getRowProps(index)}
+                      handleProps={shadowDrag.getHandleProps(index)}
                       onChange={(patch, meta) => {
                         const next = shadowLayers.map((candidate) =>
                           candidate.id === layer.id

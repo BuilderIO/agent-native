@@ -51,6 +51,11 @@ export function runStartSidebarResize(
   const previousTransition = target?.style.transition ?? "";
   if (target) target.style.transition = "none";
   let latestWidth = startWidth;
+  let pendingFrame: number | null = null;
+  const syncWidthState = () => {
+    pendingFrame = null;
+    setWidth(latestWidth);
+  };
   const previousCursor = document.body.style.cursor;
   const previousUserSelect = document.body.style.userSelect;
   const dragShield = document.createElement("div");
@@ -74,7 +79,10 @@ export function runStartSidebarResize(
     // Width-dependent Inspector grids need the live state during the gesture;
     // the imperative write keeps the panel edge pinned to the pointer between
     // React renders.
-    setWidth(next);
+    if (pendingFrame !== null) {
+      window.cancelAnimationFrame(pendingFrame);
+    }
+    pendingFrame = window.requestAnimationFrame(syncWidthState);
   };
   const cleanup = () => {
     dragShield.removeEventListener("pointermove", handleMove);
@@ -83,6 +91,10 @@ export function runStartSidebarResize(
     window.removeEventListener("pointermove", handleMove);
     window.removeEventListener("pointerup", cleanup);
     window.removeEventListener("pointercancel", cleanup);
+    if (pendingFrame !== null) {
+      window.cancelAnimationFrame(pendingFrame);
+      pendingFrame = null;
+    }
     dragShield.remove();
     document.body.style.cursor = previousCursor;
     document.body.style.userSelect = previousUserSelect;

@@ -840,17 +840,6 @@ export function GlslShaderPanel({
 
   // ── Detail view — knobs for the applied shader ────────────────────────────
   if (activeDef) {
-    if (roomy) {
-      return (
-        <GlslShaderKnobs
-          def={activeDef}
-          values={values}
-          disabled={disabled || busy}
-          presentation="popover"
-          onValuesChange={handleValuesChange}
-        />
-      );
-    }
     return (
       <div className="flex flex-col">
         <div

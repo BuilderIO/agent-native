@@ -8730,6 +8730,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
+          var restoredComputed = window.getComputedStyle(resizeEl);
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              phase: "preview",
+              selector: getSelector(resizeEl),
+              styles: {
+                position: restoredComputed.position,
+                left: restoredComputed.left,
+                top: restoredComputed.top,
+                width: restoredComputed.width,
+                height: restoredComputed.height,
+                borderWidth: restoredComputed.borderWidth,
+                fontSize: restoredComputed.fontSize
+              },
+              payload: getElementInfo(resizeEl)
+            },
+            "*"
+          );
         }
         suppressNextShieldClickBriefly();
         refreshOverlays();

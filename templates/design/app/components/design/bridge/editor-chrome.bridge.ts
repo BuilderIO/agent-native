@@ -12582,6 +12582,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         });
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
+        // Cancellation restores the iframe DOM without a commit packet. Send
+        // the restored snapshot back so the host Inspector does not keep
+        // displaying the last previewed dimensions.
+        var restoredComputed = window.getComputedStyle(resizeEl);
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: {
+              position: restoredComputed.position,
+              left: restoredComputed.left,
+              top: restoredComputed.top,
+              width: restoredComputed.width,
+              height: restoredComputed.height,
+              borderWidth: restoredComputed.borderWidth,
+              fontSize: restoredComputed.fontSize,
+            },
+            payload: getElementInfo(resizeEl),
+          },
+          "*",
+        );
       }
       suppressNextShieldClickBriefly();
       refreshOverlays();
