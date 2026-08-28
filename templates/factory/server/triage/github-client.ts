@@ -27,6 +27,7 @@ export interface GitHubPullRequest {
   state: string;
   draft: boolean;
   htmlUrl: string;
+  userId: number;
   userLogin: string;
   headSha: string;
   headRef: string;
@@ -76,6 +77,18 @@ export interface GitHubMergeResult {
 export interface GitHubComment {
   id: number;
   htmlUrl: string;
+}
+
+export class GitHubRequestError extends Error {
+  constructor(
+    message: string,
+    readonly requestAttempted: boolean,
+    readonly status: number | null = null,
+    readonly rateLimited = false,
+  ) {
+    super(message);
+    this.name = "GitHubRequestError";
+  }
 }
 
 interface JsonResponse {
@@ -145,6 +158,7 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
     state: requiredString(item.state, "pull request state"),
     draft: requiredBoolean(item.draft, "pull request draft state"),
     htmlUrl: requiredString(item.html_url, "pull request URL"),
+    userId: requiredNumber(user.id, "pull request author ID"),
     userLogin: requiredString(user.login, "pull request author"),
     headSha: requiredString(head.sha, "pull request head SHA"),
     headRef: requiredString(head.ref, "pull request head branch"),
@@ -198,23 +212,43 @@ export function createGitHubClient(options: GitHubClientOptions) {
     init: RequestInit = {},
     options: { allowEmpty?: boolean } = {},
   ): Promise<T> {
-    const response = (await fetchImpl(`${baseUrl}${path}`, {
-      ...init,
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${await token()}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...Object.fromEntries(new Headers(init.headers).entries()),
-      },
-    })) as JsonResponse;
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 500);
-      throw new Error(
-        `GitHub API request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
+    let requestAttempted = false;
+    try {
+      const authorization = `Bearer ${await token()}`;
+      requestAttempted = true;
+      const response = (await fetchImpl(`${baseUrl}${path}`, {
+        ...init,
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: authorization,
+          "X-GitHub-Api-Version": "2022-11-28",
+          ...Object.fromEntries(new Headers(init.headers).entries()),
+        },
+      })) as JsonResponse;
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 500);
+        const rateLimited =
+          response.status === 429 ||
+          (response.status === 403 &&
+            /rate limit|secondary rate|abuse detection|retry after/i.test(
+              detail,
+            ));
+        throw new GitHubRequestError(
+          `GitHub API request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
+          true,
+          response.status,
+          rateLimited,
+        );
+      }
+      if (response.status === 204 && options.allowEmpty) return undefined as T;
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof GitHubRequestError) throw error;
+      throw new GitHubRequestError(
+        error instanceof Error ? error.message : "GitHub request failed",
+        requestAttempted,
       );
     }
-    if (response.status === 204 && options.allowEmpty) return undefined as T;
-    return (await response.json()) as T;
   }
 
   return {
@@ -279,6 +313,14 @@ export function createGitHubClient(options: GitHubClientOptions) {
       } satisfies GitHubPullRequestSummary;
     },
 
+    async getAuthenticatedUser() {
+      const item = record(await request<unknown>("/user"));
+      return {
+        login: requiredString(item.login, "authenticated GitHub user login"),
+        id: requiredNumber(item.id, "authenticated GitHub user id"),
+      };
+    },
+
     async checkMember(
       repository: GitHubRepositoryRef,
       username: string,
@@ -337,10 +379,45 @@ export function createGitHubClient(options: GitHubClientOptions) {
       }
     },
 
+    async checkOrganizationMemberById(
+      organization: string,
+      userId: number,
+      username: string,
+    ): Promise<GitHubMemberCheck> {
+      const member = username.trim();
+      if (!organization.trim() || !member || !Number.isInteger(userId)) {
+        throw new Error(
+          "GitHub organization, member username, and user ID are required",
+        );
+      }
+      try {
+        const user = record(
+          await request<unknown>(`/users/${encodeURIComponent(member)}`),
+        );
+        const resolvedId = requiredNumber(user.id, "GitHub user ID");
+        const resolvedLogin = requiredString(user.login, "GitHub user login");
+        if (resolvedId !== userId || resolvedLogin !== member) {
+          return { username: member, isMember: false, permission: null };
+        }
+        await request<undefined>(
+          `/orgs/${encodeURIComponent(organization.trim())}/members/${encodeURIComponent(resolvedLogin)}`,
+          {},
+          { allowEmpty: true },
+        );
+        return { username: member, isMember: true, permission: null };
+      } catch (error) {
+        if (error instanceof GitHubRequestError && error.status === 404) {
+          return { username: member, isMember: false, permission: null };
+        }
+        throw error;
+      }
+    },
+
     async approvePullRequest(
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
       body?: string,
+      commitSha?: string,
     ): Promise<GitHubApproval> {
       if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1)
         throw new Error(
@@ -355,6 +432,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
             body: JSON.stringify({
               event: "APPROVE",
               ...(body ? { body: body.slice(0, 4_000) } : {}),
+              ...(commitSha ? { commit_id: commitSha } : {}),
             }),
           },
         ),
