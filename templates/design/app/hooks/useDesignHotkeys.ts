@@ -214,6 +214,7 @@ export interface UseDesignHotkeysProps {
    */
   canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
+  onToggleLayoutGrids?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
   /** Figma's Ctrl+Shift+? — open the keyboard-shortcuts reference panel. */
@@ -781,6 +782,19 @@ export function handleDesignHotkey(
   // comment-pin TOOL_SHORTCUTS entry, so shift+c can't shadow it.
   if (!primary && !event.altKey && event.shiftKey && key === "c") {
     return run(props.onToggleComments);
+  }
+
+  // Figma's "Show/hide layout grids" is one of the few shortcuts whose Mac and
+  // Windows forms differ outright: Control G on Mac, Ctrl Shift 4 on Windows.
+  // Literal Control on both, so never the remapped `primary` flag. Digit4 is
+  // matched by physical code because Shift+4 is "$" on US layouts.
+  if (event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (!event.shiftKey && key === "g") {
+      return run(props.onToggleLayoutGrids);
+    }
+    if (event.shiftKey && event.code === "Digit4") {
+      return run(props.onToggleLayoutGrids);
+    }
   }
 
   return false;

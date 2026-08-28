@@ -491,6 +491,9 @@ interface DesignCanvasProps {
   editMode: boolean;
   interactMode: boolean;
   readOnly?: boolean;
+  /** This screen's layout grid step in content px. 1 (or absent) means no grid,
+   *  which leaves the whole-pixel floor every gesture already lands on. */
+  layoutGridStep?: number;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
   onElementMarqueeSelect?: (
@@ -1132,6 +1135,7 @@ export function DesignCanvas({
   editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  layoutGridStep,
   readOnly = false,
   scaleMode = false,
   clearSelectionRequest,
@@ -3688,6 +3692,27 @@ export function DesignCanvas({
     iframe.addEventListener("load", applyOffset);
     return () => iframe.removeEventListener("load", applyOffset);
   }, [embeddedContentOffsetX, embeddedContentOffsetY]);
+
+  // The screen's own layout grid step, in this document's content px. Pushed
+  // in-place (never baked into srcdoc) so adding or resizing a grid does not
+  // reload the iframe and drop its Alpine state.
+  const layoutGridStepRef = useRef(layoutGridStep);
+  layoutGridStepRef.current = layoutGridStep;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    function sendLayoutGridStep() {
+      iframe!.contentWindow?.postMessage(
+        { type: "set-layout-grid-step", step: layoutGridStepRef.current ?? 1 },
+        "*",
+      );
+    }
+    sendLayoutGridStep();
+    iframe.addEventListener("load", sendLayoutGridStep);
+    return () => iframe.removeEventListener("load", sendLayoutGridStep);
+    // Only re-run when the step changes; iframe identity is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutGridStep]);
 
   // Sync readOnly to the bridge IN-PLACE via postMessage so switching the active
   // surface (board ↔ screen) does not rebuild srcdoc / reload the iframe.

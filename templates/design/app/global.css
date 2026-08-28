@@ -86,6 +86,10 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
+  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
+     derived from --foreground: this paints over the user's content, so an
+     editor-theme-light line would vanish on a white design. */
+  --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
   --design-editor-control-bg: hsl(var(--muted));
@@ -190,6 +194,10 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
+  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
+     derived from --foreground: this paints over the user's content, so an
+     editor-theme-light line would vanish on a white design. */
+  --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
   --design-editor-control-bg: hsl(0 0% 18%);

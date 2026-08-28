@@ -102,6 +102,7 @@ import {
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import type { LayoutGrid } from "@shared/layout-grid";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
@@ -560,6 +561,7 @@ import { runSendOverviewAnnotations } from "./design-editor/commands/send-overvi
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
 import { runSendRuntimeLayerSemanticHandoff } from "./design-editor/commands/send-runtime-layer-semantic-handoff";
 import { runSendRuntimeLayerStateSemanticHandoff } from "./design-editor/commands/send-runtime-layer-state-semantic-handoff";
+import { runSetLayoutGrid } from "./design-editor/commands/set-layout-grid";
 import { runStartRetryGeneration } from "./design-editor/commands/start-retry-generation";
 import { runStartSidebarResize } from "./design-editor/commands/start-sidebar-resize";
 import { runStyleChange } from "./design-editor/commands/style-change";
@@ -600,6 +602,7 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
   getDesignDataRecord,
+  getLayoutGrids,
   isDesignData,
   nextLocalhostScreenPosition,
   parseDesignDataJson,
@@ -675,7 +678,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "./design-editor/generation-prompt-directives";
-import { sanitizeCanvasFrameGeometryForPersist } from "./design-editor/geometry-persistence";
+import {
+  quantizeCanvasFrameGeometryForPersist,
+  sanitizeCanvasFrameGeometryForPersist,
+} from "./design-editor/geometry-persistence";
 import {
   type ContentHistoryChange,
   type ContentHistoryEntry,
@@ -3850,6 +3856,52 @@ function DesignEditor() {
     () => parseDesignDataJson(design?.data),
     [design?.data],
   );
+
+  // ── Layout grids ──────────────────────────────────────────────────────────
+  const layoutGrids = useMemo(
+    () => getLayoutGrids(designDataJson),
+    [designDataJson],
+  );
+  /** The grid step the ACTIVE screen's bridge quantizes in-iframe gestures to.
+   *  Content px, not board px: the bridge writes `style.left` directly. */
+  const activeScreenLayoutGridStep =
+    activeFileId && layoutGrids[activeFileId]
+      ? layoutGrids[activeFileId].size
+      : 1;
+  /** Flips visibility for every grid that exists; snapping is unaffected. */
+  const handleToggleLayoutGrids = useCallback(() => {
+    const frameIds = Object.keys(layoutGrids);
+    if (frameIds.length === 0) return;
+    const anyVisible = frameIds.some(
+      (frameId) => layoutGrids[frameId]!.visible,
+    );
+    for (const frameId of frameIds) {
+      handleLayoutGridChangeRef.current?.(frameId, {
+        ...layoutGrids[frameId]!,
+        visible: !anyVisible,
+      });
+    }
+  }, [layoutGrids]);
+  const handleLayoutGridChange = useCallback(
+    (frameId: string, next: Partial<LayoutGrid> | null) =>
+      runSetLayoutGrid(
+        {
+          id,
+          canEditDesign: canEditDesignRef.current,
+          designDataJsonRef,
+          queryClient,
+          updateDesignMutation,
+        },
+        frameId,
+        next,
+      ),
+    [id, queryClient, updateDesignMutation],
+  );
+  // The toggle above calls this from a callback, not during render, so a ref
+  // breaks the declaration-order cycle between them.
+  const handleLayoutGridChangeRef = useRef(handleLayoutGridChange);
+  handleLayoutGridChangeRef.current = handleLayoutGridChange;
+
   // Keep a ref in sync so debounced timer callbacks can read the freshest
   // designDataJson without closing over a stale snapshot from render time.
   const designDataJsonRef = useRef(designDataJson);
@@ -4106,7 +4158,9 @@ function DesignEditor() {
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
       pendingFrameGeometrySaveRef.current = {
-        geometryById: cloneCanvasFrameGeometry(geometryById),
+        geometryById: quantizeCanvasFrameGeometryForPersist(
+          cloneCanvasFrameGeometry(geometryById),
+        ),
         previousGeometry: cloneCanvasFrameGeometry(
           getCanvasFrameGeometry(designDataJsonRef.current),
         ),
@@ -8720,6 +8774,7 @@ function DesignEditor() {
         activeTool,
         design,
         designDataJson,
+        layoutGrids,
         designSelectionOwnerIdRef,
         files,
         hoveredElement,
@@ -13931,6 +13986,7 @@ function DesignEditor() {
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleComments: handleToggleComments,
+    onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
@@ -15872,6 +15928,9 @@ function DesignEditor() {
   /** Applies a typed or preset frame size/position from the inspector. Routed
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
+  const selectedScreenLayoutGrid = selectedScreenGeometry
+    ? (layoutGrids[selectedScreenGeometry.id] ?? null)
+    : null;
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
@@ -17553,6 +17612,7 @@ function DesignEditor() {
 
       return (
         <DesignCanvas
+          layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}
           runtimeReplacementContent={
@@ -17860,6 +17920,7 @@ function DesignEditor() {
       design?.title,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
+      layoutGrids,
       t,
     ],
   );
@@ -19184,6 +19245,8 @@ function DesignEditor() {
     readOnly: !canEditDesign,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
+    selectedScreenLayoutGrid,
+    onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
@@ -20178,6 +20241,8 @@ function DesignEditor() {
                         frameToolDraws={frameToolDraws}
                         onDeleteSelection={handleDeleteOverviewSelection}
                         onNudgeSelection={handleOverviewNudgeSelection}
+                        nudgeAmounts={editorPreferences.nudge}
+                        layoutGrids={layoutGrids}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
@@ -20234,6 +20299,7 @@ function DesignEditor() {
                       {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
                         screenId={activeFile.id}
+                        layoutGridStep={activeScreenLayoutGridStep}
                         content={activeContent}
                         contentKey={`${activeFile.id}:${contentRenderRevision}`}
                         styleRevertRequest={
