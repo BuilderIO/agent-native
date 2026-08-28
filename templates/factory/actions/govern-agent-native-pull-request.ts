@@ -34,6 +34,7 @@ import {
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
+  hasCurrentBlockingPullRequestReview,
   hasCurrentPullRequestApproval,
 } from "../server/triage/pr-policy.js";
 
@@ -237,6 +238,26 @@ export default defineAction({
         factoryId,
       );
       if (itemId) {
+        const decisionId = stableId(
+          "pr-governance",
+          orgId,
+          itemId,
+          snapshot.headSha,
+        );
+        await getDb()
+          .update(triageDecisions)
+          .set({ outcome: "auto_approve" })
+          .where(
+            and(
+              eq(triageDecisions.id, decisionId),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          );
+      }
+      if (itemId) {
         await getDb()
           .update(triageItems)
           .set({
@@ -257,9 +278,9 @@ export default defineAction({
       snapshot.coverage === "complete" &&
       snapshot.checks.length > 0 &&
       snapshot.checks.every((check) => check.state === "passed");
-    const blockingReviewStatesClean = snapshot.reviews.every(
-      (review) =>
-        review.state !== "changes_requested" && review.state !== "pending",
+    const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
+      snapshot.reviews,
+      snapshot.headSha,
     );
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
@@ -349,7 +370,7 @@ export default defineAction({
         snapshot.headSha,
       );
       await getDb().transaction(async (tx) => {
-        await tx
+        const inserted = await tx
           .insert(triageDecisions)
           .values({
             id: decisionId,
@@ -359,7 +380,7 @@ export default defineAction({
             outcome: governance.autoMerge
               ? "auto_merge"
               : governance.autoApprove
-                ? "auto_approve"
+                ? "auto_approval_claimed"
                 : "needs_manual",
             reason: `${reason} ${governance.reason}`.trim(),
             guardResultsJson: JSON.stringify(governance.guardResults),
@@ -370,7 +391,13 @@ export default defineAction({
             orgId,
             factoryId,
           })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ id: triageDecisions.id });
+        if (governance.autoApprove && !inserted[0]) {
+          throw new Error(
+            "A pull-request approval intent already exists; reconcile the provider result before retrying.",
+          );
+        }
         await requireExistingFactory(
           tx as unknown as ReturnType<typeof getDb>,
           orgId,
@@ -419,34 +446,6 @@ export default defineAction({
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
-        if (metadata.autoApprovalClaimHeadSha) {
-          throw new Error(
-            "A pull-request approval intent already exists; reconcile the provider result before retrying.",
-          );
-        }
-        const approvalClaim = serializeTriageMetadata({
-          ...metadata,
-          autoApprovalClaimHeadSha: snapshot.headSha,
-          autoApprovalClaimedAt: new Date().toISOString(),
-        });
-        const claimed = await getDb()
-          .update(triageItems)
-          .set({
-            metadataJson: approvalClaim,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(
-            and(
-              orgFactoryScopedItemWhere(itemId, orgId, factoryId),
-              eq(triageItems.metadataJson, item.metadataJson),
-            ),
-          )
-          .returning({ id: triageItems.id });
-        if (!claimed[0]) {
-          throw new Error(
-            "A concurrent pull-request approval changed the Factory item; reconcile before retrying.",
-          );
-        }
         const approval = await github.approvePullRequest(
           repository,
           pullRequestNumber,
@@ -457,19 +456,43 @@ export default defineAction({
               : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
         );
         approvalUrl = approval.htmlUrl;
-        metadata.autoApprovedAt = new Date().toISOString();
-        metadata.autoApprovalUrl = approval.htmlUrl;
-        metadata.autoApprovalHeadSha = snapshot.headSha;
-        delete metadata.autoApprovalClaimHeadSha;
-        delete metadata.autoApprovalClaimedAt;
+        const latestItem = (
+          await getDb()
+            .select({ metadataJson: triageItems.metadataJson })
+            .from(triageItems)
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+            .limit(1)
+        )[0];
+        if (!latestItem) {
+          throw new Error("Factory item disappeared after GitHub approval.");
+        }
+        const latestMetadata = parseTriageMetadata(latestItem.metadataJson);
+        latestMetadata.autoApprovedAt = new Date().toISOString();
+        latestMetadata.autoApprovalUrl = approval.htmlUrl;
+        latestMetadata.autoApprovalHeadSha = snapshot.headSha;
         await getDb()
           .update(triageItems)
           .set({
-            metadataJson: serializeTriageMetadata(metadata),
+            metadataJson: serializeTriageMetadata(latestMetadata),
             status: "auto_approved",
             updatedAt: new Date().toISOString(),
           })
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+        await getDb()
+          .update(triageDecisions)
+          .set({ outcome: "auto_approve" })
+          .where(
+            and(
+              eq(
+                triageDecisions.id,
+                stableId("pr-governance", orgId, itemId, snapshot.headSha),
+              ),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          );
       }
     } else {
       throw new Error(

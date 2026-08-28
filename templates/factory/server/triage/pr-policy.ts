@@ -274,6 +274,48 @@ export function hasCurrentPullRequestApproval(
   );
 }
 
+export function hasCurrentBlockingPullRequestReview(
+  reviews: readonly {
+    author: string;
+    state: string;
+    commitSha?: string | null;
+    observedAt: string;
+  }[],
+  headSha: string,
+): boolean {
+  const latestByAuthor = new Map<
+    string,
+    {
+      state: string;
+      commitSha?: string | null;
+      observedAt: string;
+      order: number;
+    }
+  >();
+  reviews.forEach((review, order) => {
+    const author = review.author.trim().toLowerCase();
+    if (!author) return;
+    const previous = latestByAuthor.get(author);
+    if (
+      !previous ||
+      Date.parse(review.observedAt) > Date.parse(previous.observedAt) ||
+      (review.observedAt === previous.observedAt && order > previous.order)
+    ) {
+      latestByAuthor.set(author, {
+        state: review.state,
+        commitSha: review.commitSha,
+        observedAt: review.observedAt,
+        order,
+      });
+    }
+  });
+  return [...latestByAuthor.values()].some(
+    (review) =>
+      (review.state === "changes_requested" || review.state === "pending") &&
+      (review.commitSha === headSha || review.commitSha == null),
+  );
+}
+
 export function isDocsOnly(changedFiles: readonly string[]): boolean {
   return (
     changedFiles.length > 0 &&

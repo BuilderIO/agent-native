@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decidePullRequestGovernance,
   detectOwnerOwnedArea,
+  hasCurrentBlockingPullRequestReview,
   hasCurrentPullRequestApproval,
   isDocsOnly,
   isUltraScaryChange,
@@ -324,5 +325,52 @@ describe("pull-request governance", () => {
         "head-1",
       ),
     ).toThrow("missing a commit SHA");
+  });
+
+  it("uses the latest reviewer state and current head for blocking reviews", () => {
+    expect(
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "changes_requested",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T11:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
+    ).toBe(false);
+    expect(
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "changes_requested",
+            commitSha: "old-head",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
+    ).toBe(false);
+    expect(
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "pending",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
+    ).toBe(true);
   });
 });
