@@ -45,6 +45,27 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "अन्य",
   "onboarding.skipForNow": "अभी छोड़ें",
   "onboarding.saveRoleError": "आपकी भूमिका सहेजी नहीं जा सकी।",
+  "onboarding.builderActivateCredits": "Builder.io के मुफ़्त क्रेडिट सक्रिय करें",
+  "onboarding.builderConnectCredits": "Builder.io के मुफ़्त क्रेडिट कनेक्ट करें",
+  "onboarding.builderActivateDescription":
+    "एक क्लिक में अपना Builder.io खाता बनाएँ या फिर से इस्तेमाल करें और उसके मुफ़्त क्रेडिट सक्रिय करें।",
+  "onboarding.builderActiveCredits": "सक्रिय Builder.io मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderCredits": "Builder.io के मुफ़्त क्रेडिट में शामिल",
+  "onboarding.builderActivateTitle": "मुफ़्त क्रेडिट सक्रिय करें",
+  "onboarding.builderActivationDescription":
+    "हम एक क्लिक में आपके लिए Builder.io खाता अपने-आप बनाएँगे।",
+  "onboarding.builderCreateAndActivate": "बनाएँ और सक्रिय करें",
+  "onboarding.builderConsentPrefix": "जारी रखकर, आप Builder.io की",
+  "onboarding.builderTerms": "शर्तों",
+  "onboarding.builderPrivacy": "गोपनीयता नीति",
+  "onboarding.builderConsentAnd": "और",
+  "onboarding.builderExistingAccount": "मेरे पास Builder.io खाता है",
+  "onboarding.builderActivating": "Builder.io के मुफ़्त क्रेडिट सक्रिय किए जा रहे हैं",
+  "onboarding.builderConnecting": "Builder.io के मुफ़्त क्रेडिट कनेक्ट किए जा रहे हैं",
+  "onboarding.builderProvisioningDescription":
+    "आपका Builder.io खाता बनाया या फिर से इस्तेमाल किया जा रहा है। इसमें आमतौर पर कुछ सेकंड लगते हैं।",
+  "onboarding.builderConnectionDescription":
+    "नई विंडो में एक क्लिक से कनेक्शन पूरा करें।",
   "aboutAgentNative.title": "Agent-Native के बारे में",
   "aboutAgentNative.version": "संस्करण",
   "aboutAgentNative.environment": "पर्यावरण",
