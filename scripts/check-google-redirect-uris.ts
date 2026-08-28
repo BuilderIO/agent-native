@@ -10,6 +10,7 @@
  * from the sign-in health response.
  */
 import { createHash } from "node:crypto";
+import { setDefaultResultOrder } from "node:dns";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +34,8 @@ const HEALTH_STATUSES = [
 ] as const;
 const SAFE_HEALTH_REASONS = new Set(["invalid_client", "invalid_grant"]);
 const SAFE_CREDENTIAL_SOURCES = new Set(["active", "preferred"]);
+
+setDefaultResultOrder("ipv4first");
 
 export type GoogleRedirectProbeState =
   | "registered"
