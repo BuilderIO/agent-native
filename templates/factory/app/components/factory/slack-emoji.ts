@@ -47,6 +47,7 @@ const SHORTCODES: Record<string, string> = {
   sparkles: "✨",
   zap: "⚡",
   rocket: "🚀",
+  snail: "🐌",
   bug: "🐛",
   hammer: "🔨",
   wrench: "🔧",

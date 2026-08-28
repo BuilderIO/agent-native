@@ -24,6 +24,7 @@ import {
   factoryConfigRowId,
   resolveUniqueFactoryId,
 } from "../server/lib/factory-scope.js";
+import { persistGitHubRepository } from "../server/lib/github-repository.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -31,7 +32,6 @@ import {
 import {
   ensureFactoryAutomations,
   removeFactoryAutomationResources,
-  syncFactoryAutomationEnabledStates,
 } from "../server/plugins/factory-scheduler-job.js";
 import { stableId } from "../server/triage/ids.js";
 
@@ -46,7 +46,7 @@ export default defineAction({
     slackChannelName: z.string().trim().max(200).optional(),
     builderSlackUserId: builderSlackUserIdSchema.optional(),
     observeSlack: z.boolean().optional(),
-    repository: z.string().trim().max(256).optional(),
+    repository: z.string().trim().max(512).optional(),
     observeGithub: z.boolean().optional(),
     sentryOrgSlug: z.string().trim().max(200).optional(),
     sentryProjectSlug: z.string().trim().max(200).optional(),
@@ -72,11 +72,12 @@ export default defineAction({
       minimalFactoryGraph(input.name, description),
     );
     const now = new Date().toISOString();
+    const repository = persistGitHubRepository(input.repository);
     const automationPlan = resolveEnabledAutomations({
       observeSlack: input.observeSlack === true,
       slackChannelId: input.slackChannelId,
       observeGithub: input.observeGithub === true,
-      repository: input.repository,
+      repository: repository ?? undefined,
       observeSentry: input.observeSentry === true,
       sentryOrgSlug: input.sentryOrgSlug,
       sentryProjectSlug: input.sentryProjectSlug,
@@ -145,7 +146,7 @@ export default defineAction({
               sentryOrgSlug: input.sentryOrgSlug?.trim() || null,
               sentryProjectSlug: input.sentryProjectSlug?.trim() || null,
               sentryEnvironment: input.sentryEnvironment?.trim() || null,
-              repository: input.repository?.trim() || null,
+              repository,
               automationFailureAlertsEnabled: 1,
               automationFailureAlertEmail: null,
               createdAt: now,
@@ -177,13 +178,8 @@ export default defineAction({
 
     try {
       await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-        enabledNames: automationPlan.enabledNames,
+        enabled: false,
       });
-      if (automationPlan.enabledNames.size > 0) {
-        await syncFactoryAutomationEnabledStates(userEmail, orgId, factoryId, [
-          ...automationPlan.enabledNames,
-        ]);
-      }
     } catch (error) {
       await removeFactoryAutomationResources(orgId, factoryId);
       await db
@@ -218,7 +214,7 @@ export default defineAction({
       factoryId,
       name: input.name,
       graphVersion: 1,
-      enabledAutomations: [...automationPlan.enabledNames],
+      enabledAutomations: [],
     };
   },
 });

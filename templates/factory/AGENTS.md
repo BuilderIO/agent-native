@@ -40,8 +40,9 @@ decisions, feedback, agent runs, and provider audit records.
 ## Application state
 
 - `navigation.view` is `factory` or `agents`. Runtime data is scoped by
-  `factoryId`; reusable agents stay workspace-wide. Read `view-screen` and
-  `factory-graphs` for tab and selection keys.
+  `factoryId`; reusable agents stay workspace-wide. Opening a factory
+  defaults to Inbox. Read `view-screen` and `factory-graphs` for tab and
+  selection keys.
 
 ## Action contract
 

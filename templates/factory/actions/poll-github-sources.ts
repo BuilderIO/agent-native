@@ -10,6 +10,7 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
+import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -23,14 +24,6 @@ import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
 } from "../server/triage/review-state.js";
-
-function parseRepository(value: string): { owner: string; repo: string } {
-  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(value.trim());
-  if (!match) {
-    throw new Error("Factory repository must use the owner/repository format.");
-  }
-  return { owner: match[1], repo: match[2] };
-}
 
 export default defineAction({
   description:
@@ -48,7 +41,7 @@ export default defineAction({
     await requireFactoryAutomation(
       context,
       { userEmail, orgId },
-      "sourcePolling",
+      "githubPolling",
       factoryId,
     );
     const db = getDb();
@@ -61,8 +54,8 @@ export default defineAction({
       throw new Error("Configure a GitHub repository before polling GitHub.");
     }
 
-    const repositoryName = config.repository;
-    const repository = parseRepository(repositoryName);
+    const repository = parseGitHubRepositoryRef(config.repository);
+    const repositoryName = `${repository.owner}/${repository.repo}`;
     const client = createGitHubClient({ ownerEmail: userEmail, orgId });
     const [issues, pullRequests] = await Promise.all([
       includeIssues

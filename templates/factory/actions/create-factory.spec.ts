@@ -105,12 +105,12 @@ describe("create-factory", () => {
       "owner@example.com",
       "org-1",
       "support-triage",
-      { enabledNames: new Set() },
+      { enabled: false },
     );
     expect(syncFactoryAutomationEnabledStatesMock).not.toHaveBeenCalled();
   });
 
-  it("persists source config and enables matching automations", async () => {
+  it("persists source config without enabling automations", async () => {
     const insertedConfig: unknown[] = [];
     getDbMock.mockReturnValue({
       transaction: vi.fn(async (callback: (tx: unknown) => Promise<void>) => {
@@ -138,13 +138,7 @@ describe("create-factory", () => {
       { userEmail: "owner@example.com" },
     );
 
-    expect(result.enabledAutomations).toEqual(
-      expect.arrayContaining([
-        "factory-slack-feedback",
-        "factory-pr-governance",
-        "factory-pr-babysit",
-      ]),
-    );
+    expect(result.enabledAutomations).toEqual([]);
     expect(insertedConfig).toHaveLength(1);
     expect(insertedConfig[0]).toMatchObject({
       slackWorkspace: "secondary",
@@ -153,16 +147,13 @@ describe("create-factory", () => {
       pollingEnabled: 1,
     });
     expect(assertUniqueSlackChannelForFactoryMock).toHaveBeenCalled();
-    expect(syncFactoryAutomationEnabledStatesMock).toHaveBeenCalledWith(
+    expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
       "owner@example.com",
       "org-1",
       "support-triage",
-      expect.arrayContaining([
-        "factory-slack-feedback",
-        "factory-pr-governance",
-        "factory-pr-babysit",
-      ]),
+      { enabled: false },
     );
+    expect(syncFactoryAutomationEnabledStatesMock).not.toHaveBeenCalled();
   });
 
   it("rejects Slack observation without a channel", async () => {

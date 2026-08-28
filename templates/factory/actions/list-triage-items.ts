@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -21,17 +21,20 @@ import {
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   triageItemStatusSchema,
+  triageRiskSchema,
   triageSourceSchema,
 } from "../server/triage/contracts.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
-    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Results are scoped to the active workspace and include the latest shadow decision summary. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
+    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Results are scoped to the active workspace and include the latest shadow decision summary. Optional status, source, risk, and updatedAfter (ISO timestamp) filters narrow the queue. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     status: triageItemStatusSchema.optional(),
     source: triageSourceSchema.optional(),
+    risk: triageRiskSchema.optional(),
+    updatedAfter: z.string().trim().min(1).max(40).optional(),
     needsReview: z.boolean().default(false),
     limit: z.coerce.number().int().min(1).max(100).default(50),
     cursor: z.string().trim().min(1).max(400).optional(),
@@ -39,13 +42,23 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (
-    { factoryId, status, source, needsReview, limit, cursor },
+    {
+      factoryId,
+      status,
+      source,
+      risk,
+      updatedAfter,
+      needsReview,
+      limit,
+      cursor,
+    },
     context,
   ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
+    const updatedAfterBound = parseUpdatedAfter(updatedAfter);
     const db = getDb();
     const reviewStatuses =
       source === "github"
@@ -65,6 +78,10 @@ export default defineAction({
               ? eq(triageItems.status, status)
               : undefined,
           source ? eq(triageItems.source, source) : undefined,
+          risk ? eq(triageItems.risk, risk) : undefined,
+          updatedAfterBound
+            ? gte(triageItems.updatedAt, updatedAfterBound)
+            : undefined,
           parsedCursor
             ? or(
                 lt(triageItems.updatedAt, parsedCursor.updatedAt),
@@ -154,7 +171,10 @@ export default defineAction({
           limit,
           count: listedItems.length,
           needsReview,
+          status: status ?? null,
           source: source ?? null,
+          risk: risk ?? null,
+          updatedAfter: updatedAfterBound ?? null,
           itemIds: listedItems.map((item) => item.itemId),
         },
       },
@@ -170,3 +190,12 @@ export default defineAction({
     };
   },
 });
+
+function parseUpdatedAfter(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("updatedAfter is unreadable.");
+  }
+  return new Date(parsed).toISOString();
+}

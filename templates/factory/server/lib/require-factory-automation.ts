@@ -17,15 +17,39 @@ const FACTORY_AUTOMATION_NAMES = {
   ]),
   governance: new Set(["factory-pr-governance"]),
   prBabysit: new Set(["factory-pr-babysit"]),
-  sourcePolling: new Set([
-    "factory-slack-feedback",
-    "factory-sentry-errors",
+  sourcePolling: new Set(["factory-slack-feedback", "factory-sentry-errors"]),
+  // Separate from sourcePolling so PR babysit/governance can refresh GitHub
+  // without inheriting Slack or Sentry poll access.
+  githubPolling: new Set([
     "factory-github-issues",
     "factory-pr-governance",
+    "factory-pr-babysit",
   ]),
 } as const;
 
 export type FactoryAutomationRole = keyof typeof FACTORY_AUTOMATION_NAMES;
+
+function governedAutomationError(
+  role: FactoryAutomationRole,
+  triggerName: string | undefined,
+  reason: "role" | "definition" | "factory",
+): Error {
+  const name = triggerName?.trim();
+  if (!name) {
+    return new Error(
+      `The action was not invoked by a governed Factory automation (${role}).`,
+    );
+  }
+  if (reason === "role") {
+    return new Error(`${name} is not allowed to call this action (${role}).`);
+  }
+  if (reason === "factory") {
+    return new Error(
+      `${name} is not the governed Factory automation for this factory (${role}).`,
+    );
+  }
+  return new Error(`${name} is not a governed Factory automation (${role}).`);
+}
 
 export async function requireFactoryAutomation(
   context: ActionRunContext | undefined,
@@ -42,9 +66,7 @@ export async function requireFactoryAutomation(
     !lineage ||
     !expectedNames.has(factoryAutomationLeafName(lineage.triggerName))
   ) {
-    throw new Error(
-      "The action was not invoked by a governed Factory automation.",
-    );
+    throw governedAutomationError(role, lineage?.triggerName, "role");
   }
 
   const definition = (
@@ -65,9 +87,7 @@ export async function requireFactoryAutomation(
     definition.meta.runAs !== "creator" ||
     !definition.meta.createdBy?.trim()
   ) {
-    throw new Error(
-      "The action was not invoked by a governed Factory automation.",
-    );
+    throw governedAutomationError(role, lineage.triggerName, "definition");
   }
   if (
     expectedFactoryId &&
@@ -77,9 +97,7 @@ export async function requireFactoryAutomation(
       definition.resource.path,
     ) !== expectedFactoryId
   ) {
-    throw new Error(
-      "The action was not invoked by a governed Factory automation.",
-    );
+    throw governedAutomationError(role, lineage.triggerName, "factory");
   }
   if (expectedFactoryId) {
     await requireExistingFactory(getDb(), identity.orgId, expectedFactoryId);

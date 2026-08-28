@@ -29,9 +29,11 @@ export function useNavigationState() {
         ...(pathname === "/factory" && searchParams.get("factoryId")
           ? { factoryId: searchParams.get("factoryId") ?? undefined }
           : {}),
-        ...(pathname === "/factory" && searchParams.get("tab")
-          ? { factoryTab: searchParams.get("tab") ?? undefined }
-          : {}),
+        ...(pathname === "/factory" && searchParams.get("factoryId")
+          ? { factoryTab: searchParams.get("tab") ?? "inbox" }
+          : pathname === "/factory" && searchParams.get("tab")
+            ? { factoryTab: searchParams.get("tab") ?? undefined }
+            : {}),
         ...(pathname === "/factory" && searchParams.get("automationId")
           ? {
               factoryAutomationId:

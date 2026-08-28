@@ -18,6 +18,10 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
+import {
+  gitHubRepositoriesEqual,
+  parseGitHubRepositoryRef,
+} from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -43,13 +47,6 @@ import {
   hasCurrentBlockingPullRequestReview,
   isUltraScaryChange,
 } from "../server/triage/pr-policy.js";
-
-function repositoryRef(value: string): { owner: string; repo: string } {
-  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(value.trim());
-  if (!match)
-    throw new Error("Repository must use the owner/repository format.");
-  return { owner: match[1], repo: match[2] };
-}
 
 function hasUsableChangedFiles(
   changedFiles: readonly string[] | undefined,
@@ -166,11 +163,14 @@ export default defineAction({
       "governance",
       factoryId,
     );
-    const repository = repositoryRef(repo);
+    const repository = parseGitHubRepositoryRef(repo);
     const configuredRepository = (
       await readTriageConfigRow(getDb(), orgId, factoryId)
     )?.repository;
-    if (!configuredRepository || configuredRepository.trim() !== repo.trim()) {
+    if (
+      !configuredRepository ||
+      !gitHubRepositoriesEqual(configuredRepository, repo)
+    ) {
       throw new Error(
         "PR governance is restricted to the configured Factory repository.",
       );
@@ -188,7 +188,8 @@ export default defineAction({
       )[0];
       if (
         !item ||
-        item.repository !== repo.trim() ||
+        !item.repository ||
+        !gitHubRepositoriesEqual(item.repository, repo) ||
         item.pullRequestNumber !== pullRequestNumber
       ) {
         throw new Error(

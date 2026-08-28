@@ -3,11 +3,7 @@ import {
   DEFAULT_FACTORY_ID,
   readFactoryDefinition,
 } from "../factory-graph/store.js";
-import {
-  ensureFactoryAutomations,
-  syncFactoryAutomationEnabledStates,
-} from "../plugins/factory-scheduler-job.js";
-import { resolveEnabledAutomationsFromSavedConfig } from "./factory-automation-plan.js";
+import { ensureFactoryAutomations } from "../plugins/factory-scheduler-job.js";
 import { readTriageConfigRow } from "./factory-scope.js";
 
 export async function repairFactoryAutomationsFromConfig(
@@ -19,19 +15,7 @@ export async function repairFactoryAutomationsFromConfig(
   if (!factory && factoryId !== DEFAULT_FACTORY_ID) return;
   const config = await readTriageConfigRow(getDb(), orgId, factoryId);
   if (!config) return;
-  const enabledNames = resolveEnabledAutomationsFromSavedConfig({
-    pollingEnabled: config.pollingEnabled,
-    githubPollingEnabled: config.githubPollingEnabled,
-    sentryPollingEnabled: config.sentryPollingEnabled,
-    slackChannelId: config.slackChannelId,
-    repository: config.repository,
-    sentryOrgSlug: config.sentryOrgSlug,
-    sentryProjectSlug: config.sentryProjectSlug,
-  });
   await ensureFactoryAutomations(ownerEmail, orgId, factoryId, {
-    enabledNames,
+    enabled: false,
   });
-  await syncFactoryAutomationEnabledStates(ownerEmail, orgId, factoryId, [
-    ...enabledNames,
-  ]);
 }

@@ -19,7 +19,9 @@ router.
 Runtime work — settings, inbox, rules, automations, and activity — is scoped by
 `factoryId`. Reusable agents stay workspace-wide; graph nodes may reference any
 workspace agent as blueprint only. Pass `factoryId` on triage, config, automation,
-and audit actions for the factory the user is viewing.
+and audit actions for the factory the user is viewing. Inbox filters
+(`status`, `source`, `risk`, `updatedAfter`) belong on `list-triage-items`, not
+on a client-side page of results.
 
 ## Workflow
 

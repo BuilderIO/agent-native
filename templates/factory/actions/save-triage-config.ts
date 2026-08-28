@@ -7,10 +7,7 @@ import {
   readFactoryDefinition,
   DEFAULT_FACTORY_ID,
 } from "../server/factory-graph/store.js";
-import {
-  isFactorySlackChannelConflict,
-  resolveEnabledAutomationsFromSavedConfig,
-} from "../server/lib/factory-automation-plan.js";
+import { isFactorySlackChannelConflict } from "../server/lib/factory-automation-plan.js";
 import {
   assertUniqueSlackChannelForFactory,
   builderSlackUserIdSchema,
@@ -18,14 +15,12 @@ import {
   factoryIdSchema,
   readTriageConfigRow,
 } from "../server/lib/factory-scope.js";
+import { persistGitHubRepository } from "../server/lib/github-repository.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import {
-  ensureFactoryAutomations,
-  syncFactoryAutomationEnabledStates,
-} from "../server/plugins/factory-scheduler-job.js";
+import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
 
 const workspaceSchema = z.enum(["primary", "secondary"]);
 
@@ -44,7 +39,7 @@ export default defineAction({
     sentryOrgSlug: z.string().trim().max(200).optional(),
     sentryProjectSlug: z.string().trim().max(200).optional(),
     sentryEnvironment: z.string().trim().max(200).optional(),
-    repository: z.string().trim().max(256).optional(),
+    repository: z.string().trim().max(512).optional(),
     automationFailureAlertsEnabled: z.boolean().optional(),
     automationFailureAlertEmail: z
       .union([z.string().trim().email(), z.literal("")])
@@ -106,7 +101,10 @@ export default defineAction({
         : builderSlackUserId.toUpperCase(),
       existing?.builderSlackUserId,
     );
-    const persistedRepository = persistText(repository, existing?.repository);
+    const persistedRepository =
+      repository === undefined
+        ? persistGitHubRepository(existing?.repository)
+        : persistGitHubRepository(repository);
     const persistedSentryOrgSlug = persistText(
       sentryOrgSlug,
       existing?.sentryOrgSlug,
@@ -204,21 +202,9 @@ export default defineAction({
       throw error;
     }
 
-    const enabledNames = resolveEnabledAutomationsFromSavedConfig({
-      pollingEnabled: persistedPollingEnabled,
-      githubPollingEnabled: persistedGithubPollingEnabled,
-      sentryPollingEnabled: persistedSentryPollingEnabled,
-      slackChannelId: persistedSlackChannelId,
-      repository: persistedRepository,
-      sentryOrgSlug: persistedSentryOrgSlug,
-      sentryProjectSlug: persistedSentryProjectSlug,
-    });
     await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-      enabledNames,
+      enabled: false,
     });
-    await syncFactoryAutomationEnabledStates(userEmail, orgId, factoryId, [
-      ...enabledNames,
-    ]);
 
     return {
       ok: true,

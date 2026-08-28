@@ -14,9 +14,8 @@ describe("Factory route factory switching", () => {
       "factoryName={graphData?.factory.name ?? graph.name}",
     );
     expect(source).toContain("onDeleted={goToFactoryList}");
-    expect(source).toContain(
-      "<FactoryInboxView key={factoryId} factoryId={factoryId} />",
-    );
+    expect(source).toContain("<FactoryInboxView");
+    expect(source).toContain("metrics={graphData?.metrics}");
     expect(source).toContain(
       "<AutomationsView key={factoryId} factoryId={factoryId} t={t} />",
     );
@@ -28,5 +27,23 @@ describe("Factory route factory switching", () => {
     expect(source).toMatch(
       /useEffect\(\(\) => \{\s*setQueuedRuns\(\{\}\);\s*\}, \[factoryId\]\);/,
     );
+  });
+});
+
+describe("Factory route tabs", () => {
+  it("opens a factory on Inbox and hides Overview, Flow, and History from the tab bar", () => {
+    const source = readSource();
+    expect(source).toContain('openFactory(factory.id, { tab: "inbox" })');
+    expect(source).toContain("retainFactoryTabParams");
+    expect(source).toContain("factorySearchParamsEqual");
+    expect(source).toContain('value === "overview"');
+    expect(source).toContain(': "inbox"');
+    expect(source).toContain('onClick={() => setActiveTab("inbox")}');
+    expect(source).not.toContain('onClick={() => setActiveTab("overview")}');
+    expect(source).not.toContain('onClick={() => setActiveTab("map")}');
+    expect(source).not.toContain('onClick={() => setActiveTab("history")}');
+    expect(source).toContain('activeTab === "overview"');
+    expect(source).toContain('activeTab === "map"');
+    expect(source).toContain("<FactoryHistoryView");
   });
 });

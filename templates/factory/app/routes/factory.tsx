@@ -39,6 +39,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  factorySearchParamsEqual,
+  retainFactoryTabParams,
+  type WorkspaceTab,
+} from "@/lib/factory-tab-params";
 
 type FactoryGraphResponse = {
   factory: {
@@ -78,17 +83,6 @@ type TriageRule = {
   enabled: boolean;
   promptVersion: number;
 };
-
-type WorkspaceTab =
-  | "overview"
-  | "map"
-  | "inbox"
-  | "rules"
-  | "settings"
-  | "automations"
-  | "agents"
-  | "audit"
-  | "history";
 
 type FactoryAutomationRun = {
   id?: string;
@@ -149,43 +143,24 @@ export default function FactoryRoute() {
   const draftRevisionRef = useRef(0);
 
   function setActiveTab(tab: WorkspaceTab) {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (tab === "overview") next.delete("tab");
-        else next.set("tab", tab);
-        if (tab === "history") {
-          next.delete("node");
-          next.delete("edge");
-        }
-        return next;
-      },
-      { replace: true },
-    );
+    setSearchParams((current) => retainFactoryTabParams(current, tab), {
+      replace: true,
+    });
   }
 
   function openFactory(
     nextFactoryId: string,
     options?: { tab?: WorkspaceTab; replace?: boolean },
   ) {
+    const tab = options?.tab ?? "inbox";
     setDraftGraph(null);
     setDirty(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
+      () => {
+        const next = retainFactoryTabParams(new URLSearchParams(), tab);
         next.set("factoryId", nextFactoryId);
-        next.delete("node");
-        next.delete("edge");
-        next.delete("itemId");
-        next.delete("automationId");
-        next.delete("auditRunId");
-        next.delete("new");
-        if (options?.tab) {
-          if (options.tab === "overview") next.delete("tab");
-          else next.set("tab", options.tab);
-        }
         return next;
       },
       { replace: options?.replace ?? true },
@@ -193,22 +168,18 @@ export default function FactoryRoute() {
   }
 
   function goToFactoryList() {
+    setSearchParams(new URLSearchParams(), { replace: true });
+  }
+
+  useEffect(() => {
     setSearchParams(
       (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("factoryId");
-        next.delete("tab");
-        next.delete("node");
-        next.delete("edge");
-        next.delete("itemId");
-        next.delete("automationId");
-        next.delete("auditRunId");
-        next.delete("new");
-        return next;
+        const next = retainFactoryTabParams(current, activeTab);
+        return factorySearchParamsEqual(current, next) ? current : next;
       },
       { replace: true },
     );
-  }
+  }, [activeTab, setSearchParams]);
 
   const factoryListQuery = useActionQuery("list-factories", {});
   const graphQuery = useActionQuery(
@@ -502,11 +473,11 @@ export default function FactoryRoute() {
                   className="group grid cursor-pointer gap-3 rounded-xl bg-card px-3 py-3 shadow-sm transition-colors hover:bg-accent/25 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
                   role="button"
                   tabIndex={0}
-                  onClick={() => openFactory(factory.id, { tab: "overview" })}
+                  onClick={() => openFactory(factory.id, { tab: "inbox" })}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
-                    openFactory(factory.id, { tab: "overview" });
+                    openFactory(factory.id, { tab: "inbox" });
                   }}
                 >
                   <div className="min-w-0">
@@ -529,7 +500,7 @@ export default function FactoryRoute() {
                       className="md:opacity-0 md:transition-opacity md:group-hover:opacity-100"
                       onClick={(event) => {
                         event.stopPropagation();
-                        openFactory(factory.id, { tab: "overview" });
+                        openFactory(factory.id, { tab: "inbox" });
                       }}
                     >
                       Open
@@ -618,18 +589,6 @@ export default function FactoryRoute() {
             aria-label={t("factoryRoute.factoryViews")}
           >
             <TabButton
-              active={activeTab === "overview"}
-              onClick={() => setActiveTab("overview")}
-            >
-              Overview
-            </TabButton>
-            <TabButton
-              active={activeTab === "map"}
-              onClick={() => setActiveTab("map")}
-            >
-              Flow
-            </TabButton>
-            <TabButton
               active={activeTab === "inbox"}
               onClick={() => setActiveTab("inbox")}
             >
@@ -652,12 +611,6 @@ export default function FactoryRoute() {
               onClick={() => setActiveTab("audit")}
             >
               {t("factoryRoute.auditTab")}
-            </TabButton>
-            <TabButton
-              active={activeTab === "history"}
-              onClick={() => setActiveTab("history")}
-            >
-              {t("factoryRoute.historyTab")}
             </TabButton>
             <TabButton
               active={activeTab === "settings"}
@@ -740,7 +693,11 @@ export default function FactoryRoute() {
             />
           </div>
         ) : activeTab === "inbox" ? (
-          <FactoryInboxView key={factoryId} factoryId={factoryId} />
+          <FactoryInboxView
+            key={factoryId}
+            factoryId={factoryId}
+            metrics={graphData?.metrics}
+          />
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (
@@ -792,7 +749,8 @@ function TabButton({
 }
 
 function parseWorkspaceTab(value: string | null): WorkspaceTab {
-  return value === "map" ||
+  return value === "overview" ||
+    value === "map" ||
     value === "inbox" ||
     value === "rules" ||
     value === "settings" ||
@@ -801,7 +759,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
     value === "audit" ||
     value === "history"
     ? value
-    : "overview";
+    : "inbox";
 }
 
 function OverviewView({
@@ -827,33 +785,6 @@ function OverviewView({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
-      <div className="grid gap-3 md:grid-cols-3">
-        <Card>
-          <CardContent className="space-y-1 p-4">
-            <p className="text-sm text-muted-foreground">Signals</p>
-            <p className="text-2xl font-semibold tracking-tight">
-              {(metrics?.totalItems ?? 0).toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="space-y-1 p-4">
-            <p className="text-sm text-muted-foreground">Decisions</p>
-            <p className="text-2xl font-semibold tracking-tight">
-              {(metrics?.decisions ?? 0).toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="space-y-1 p-4">
-            <p className="text-sm text-muted-foreground">Runs</p>
-            <p className="text-2xl font-semibold tracking-tight">
-              {(metrics?.runs ?? 0).toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       <Card className="border-0 bg-muted/20 shadow-none">
         <CardHeader className="flex-row items-center justify-between gap-3 px-4 pb-0 pt-4">
           <CardTitle className="text-base">Flow</CardTitle>

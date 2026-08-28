@@ -20,6 +20,7 @@ const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const removeFactoryAutomationResourcesMock = vi.hoisted(() => vi.fn());
 const ensureFactoryAutomationsMock = vi.hoisted(() => vi.fn());
+const listEnabledFactoryAutomationNamesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -51,6 +52,7 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
   removeFactoryAutomationResources: removeFactoryAutomationResourcesMock,
   ensureFactoryAutomations: ensureFactoryAutomationsMock,
+  listEnabledFactoryAutomationNames: listEnabledFactoryAutomationNamesMock,
 }));
 
 beforeEach(() => {
@@ -75,6 +77,9 @@ beforeEach(() => {
   });
   removeFactoryAutomationResourcesMock.mockResolvedValue(undefined);
   ensureFactoryAutomationsMock.mockResolvedValue(undefined);
+  listEnabledFactoryAutomationNamesMock.mockResolvedValue(
+    new Set(["factory-slack-feedback"]),
+  );
 });
 
 describe("delete-factory", () => {

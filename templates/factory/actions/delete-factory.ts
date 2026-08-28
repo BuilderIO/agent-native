@@ -19,17 +19,14 @@ import {
   DEFAULT_FACTORY_ID,
   readFactoryDefinition,
 } from "../server/factory-graph/store.js";
-import { resolveEnabledAutomationsFromSavedConfig } from "../server/lib/factory-automation-plan.js";
-import {
-  factoryIdSchema,
-  readTriageConfigRow,
-} from "../server/lib/factory-scope.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import {
   ensureFactoryAutomations,
+  listEnabledFactoryAutomationNames,
   removeFactoryAutomationResources,
 } from "../server/plugins/factory-scheduler-job.js";
 
@@ -56,16 +53,11 @@ export default defineAction({
       throw new Error("Factory name confirmation does not match.");
     }
 
-    const config = await readTriageConfigRow(getDb(), orgId, factoryId);
-    const enabledNames = resolveEnabledAutomationsFromSavedConfig({
-      pollingEnabled: config?.pollingEnabled ?? 0,
-      githubPollingEnabled: config?.githubPollingEnabled ?? 0,
-      sentryPollingEnabled: config?.sentryPollingEnabled ?? 0,
-      slackChannelId: config?.slackChannelId,
-      repository: config?.repository,
-      sentryOrgSlug: config?.sentryOrgSlug,
-      sentryProjectSlug: config?.sentryProjectSlug,
-    });
+    const enabledNames = await listEnabledFactoryAutomationNames(
+      userEmail,
+      orgId,
+      factoryId,
+    );
 
     const db = getDb();
     try {

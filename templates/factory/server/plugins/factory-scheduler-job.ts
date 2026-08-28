@@ -23,12 +23,13 @@ import {
   DEFAULT_FACTORY_ID,
   assignCreatedByIfMissing,
   factoryAutomationJobPath,
+  factoryAutomationLeafName,
   factoryConfigRowId,
-  patchAutomationResource,
   readAutomationFactoryId,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
 } from "../lib/factory-scope.js";
+import { persistGitHubRepository } from "../lib/github-repository.js";
 import {
   repairSlackFeedbackPrompt,
   SLACK_HANDOFF_INSTRUCTION,
@@ -399,7 +400,7 @@ function workspaceOwnerEmail(): string | undefined {
 function defaultRepository(): string | null {
   const repository = process.env.FACTORY_DEFAULT_REPOSITORY?.trim(); // guard:allow-env-credential - repository configuration, not a credential
   if (!repository || /[\r\n]/.test(repository)) return null;
-  return repository;
+  return persistGitHubRepository(repository);
 }
 
 function defaultGithubPollingEnabled(): 0 | 1 {
@@ -617,55 +618,30 @@ export async function ensureFactoryAutomations(
   );
 }
 
-export async function syncFactoryAutomationEnabledStates(
+export async function listEnabledFactoryAutomationNames(
   ownerEmail: string,
   orgId: string,
   factoryId: string,
-  enabledNames: readonly string[],
-): Promise<void> {
-  const enabledSet = new Set(enabledNames);
+): Promise<Set<string>> {
   const definitions = await listAutomationDefinitions(
     { userEmail: ownerEmail, orgId, appId: "factory" },
     "organization",
   );
-  await Promise.all(
-    definitions
-      .filter(
-        (definition) =>
-          readAutomationFactoryId(
-            definition.meta,
-            definition.resource.content,
-            definition.resource.path,
-          ) === factoryId,
-      )
-      .map(async (definition) => {
-        const resource = await resourceGetByPath(
-          definition.resource.owner,
-          definition.resource.path,
-        );
-        if (!resource) return;
-        const leafName =
-          definition.resource.path.match(/([^/]+)\.md$/)?.[1] ??
-          definition.name;
-        const enabled = enabledSet.has(leafName);
-        const content = patchAutomationResource(resource.content, { enabled });
-        if (content === resource.content) return;
-        const updated = await resourcePutIfCurrent({
-          owner: definition.resource.owner,
-          path: definition.resource.path,
-          content,
-          mimeType: "text/markdown",
-          expectedId: resource.id,
-          expectedUpdatedAt: resource.updatedAt,
-          expectedContent: resource.content,
-        });
-        if (!updated) {
-          console.warn(
-            `[factory-scheduler-job] skipped enabled-state sync for ${definition.resource.path}: the resource changed concurrently`,
-          );
-        }
-      }),
-  );
+  const enabledNames = new Set<string>();
+  for (const definition of definitions) {
+    if (
+      readAutomationFactoryId(
+        definition.meta,
+        definition.resource.content,
+        definition.resource.path,
+      ) !== factoryId
+    ) {
+      continue;
+    }
+    if (!definition.meta.enabled) continue;
+    enabledNames.add(factoryAutomationLeafName(definition.resource.path));
+  }
+  return enabledNames;
 }
 
 export async function removeFactoryAutomationResources(

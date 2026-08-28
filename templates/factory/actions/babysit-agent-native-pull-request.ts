@@ -12,6 +12,10 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
+import {
+  gitHubRepositoriesEqual,
+  parseGitHubRepositoryRef,
+} from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -53,13 +57,6 @@ function parseTimestamp(value: string | undefined): number | null {
   if (!value) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function repositoryRef(value: string): { owner: string; repo: string } {
-  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(value.trim());
-  if (!match)
-    throw new Error("Repository must use the owner/repository format.");
-  return { owner: match[1], repo: match[2] };
 }
 
 async function updateBabysitMetadata(
@@ -149,14 +146,15 @@ export default defineAction({
     )?.repository;
     if (
       !configuredRepository ||
-      configuredRepository.trim() !== item.repository.trim()
+      !item.repository ||
+      !gitHubRepositoriesEqual(configuredRepository, item.repository)
     ) {
       throw new Error(
         "PR babysitting is restricted to the configured Factory repository.",
       );
     }
 
-    const repository = repositoryRef(item.repository);
+    const repository = parseGitHubRepositoryRef(item.repository);
     const github = createGitHubClient({ ownerEmail: userEmail, orgId });
     const pullRequest = await github.getPullRequestSummary(
       repository,

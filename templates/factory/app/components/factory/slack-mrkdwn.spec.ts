@@ -35,9 +35,13 @@ describe("parseSlackMrkdwn", () => {
   });
 
   it("resolves standard emoji shortcodes and leaves unknown names", () => {
-    expect(parseSlackMrkdwn("ship :rocket: :not_a_real_emoji:")).toEqual([
+    expect(
+      parseSlackMrkdwn("ship :rocket: :snail: :not_a_real_emoji:"),
+    ).toEqual([
       { type: "text", value: "ship " },
       { type: "emoji", value: "🚀", shortcode: "rocket" },
+      { type: "text", value: " " },
+      { type: "emoji", value: "🐌", shortcode: "snail" },
       { type: "text", value: " " },
       { type: "text", value: ":not_a_real_emoji:" },
     ]);

@@ -161,7 +161,7 @@ export function FactoryAuditView({
           </CardContent>
         </Card>
       ) : auditQuery.isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(240px,.4fr)_minmax(0,1fr)]">
+        <div className="factory-audit-split">
           <AuditSkeleton rows={5} />
           <AuditSkeleton rows={4} />
         </div>
@@ -172,8 +172,8 @@ export function FactoryAuditView({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(240px,.4fr)_minmax(0,1fr)]">
-          <Card>
+        <div className="factory-audit-split">
+          <Card className="factory-audit-run-list">
             <CardHeader className="px-4 py-3">
               <CardTitle className="text-sm">
                 {t("factoryRoute.auditRuns")}
@@ -195,17 +195,18 @@ export function FactoryAuditView({
                       }`}
                       onClick={() => selectRun(run.id)}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="min-w-0 truncate text-sm font-medium">
+                      <div className="factory-audit-run-fields">
+                        <span className="min-w-0 break-words text-sm font-medium [overflow-wrap:anywhere]">
                           {automationLabel(run)}
                         </span>
                         <AuditStatus status={runHeadlineStatus(run)} />
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <span className="shrink-0">
-                          {formatAuditAge(run.startedAt)}
+                        <span className="text-xs text-muted-foreground">
+                          {formatAuditAge(
+                            run.startedAt,
+                            t("triage.relativeNow"),
+                          )}
                         </span>
-                        <span className="min-w-0 truncate">
+                        <span className="min-w-0 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                           {formatRunHeadline(run.counts, t)}
                         </span>
                       </div>
@@ -220,15 +221,18 @@ export function FactoryAuditView({
             <CardHeader className="px-4 py-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <CardTitle className="truncate text-base">
+                  <CardTitle className="break-words text-base [overflow-wrap:anywhere]">
                     {selectedRun && automationLabel(selectedRun)}
                   </CardTitle>
                   {selectedRun && (
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {formatAuditAge(selectedRun.startedAt)}
+                    <div className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                      {formatAuditAge(
+                        selectedRun.startedAt,
+                        t("triage.relativeNow"),
+                      )}
                       <span aria-hidden="true"> · </span>
                       {formatRunHeadline(selectedRun.counts, t)}
-                    </p>
+                    </div>
                   )}
                 </div>
                 {selectedRun && (
@@ -350,7 +354,7 @@ function AuditRunDetail({
               >
                 <span className="min-w-0 truncate">{step.summary}</span>
                 <time className="shrink-0">
-                  {formatAuditAge(step.createdAt)}
+                  {formatAuditAge(step.createdAt, t("triage.relativeNow"))}
                 </time>
               </div>
             ))}
@@ -442,7 +446,7 @@ function AuditItemRow({
                     </span>
                   </span>
                   <time className="shrink-0">
-                    {formatAuditAge(entry.createdAt)}
+                    {formatAuditAge(entry.createdAt, t("triage.relativeNow"))}
                   </time>
                 </div>
               ))}
@@ -452,7 +456,7 @@ function AuditItemRow({
 
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-background/40 px-3 py-3 text-xs">
           <a
-            href={`/factory?factoryId=${encodeURIComponent(factoryId)}&tab=inbox&itemId=${encodeURIComponent(item.itemId)}`}
+            href={`/factory?factoryId=${encodeURIComponent(factoryId)}&itemId=${encodeURIComponent(item.itemId)}`}
             className="text-primary hover:underline"
           >
             {t("factoryRoute.auditOpenItem")}
@@ -684,7 +688,7 @@ function formatAuditAction(value: string): string {
   return formatAuditLabel(value).replace(/^Poll /, "Check ");
 }
 
-function formatAuditAge(value: string | number) {
+function formatAuditAge(value: string | number, nowLabel: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
 
@@ -692,7 +696,7 @@ function formatAuditAge(value: string | number) {
     0,
     Math.floor((Date.now() - date.getTime()) / 1_000),
   );
-  if (elapsedSeconds < 60) return "now";
+  if (elapsedSeconds < 60) return nowLabel;
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
   if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
   const elapsedHours = Math.floor(elapsedMinutes / 60);
