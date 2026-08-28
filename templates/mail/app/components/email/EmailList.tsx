@@ -597,7 +597,7 @@ export function EmailList({
       () => {},
     );
     onNavigateThread?.(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+    void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
     }
@@ -1206,7 +1206,7 @@ export function EmailList({
       }
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
       onNavigateThread?.(targetThreadId);
-      navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+      void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
       if (thread.hasUnread) {
         setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
       }

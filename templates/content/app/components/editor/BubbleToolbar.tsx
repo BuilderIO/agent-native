@@ -87,7 +87,7 @@ const COLOR_NAMES: ColorName[] = [
 export function getSelectionNotionSpanAttribute(
   editor: Editor,
   attribute: ColorAttribute,
-): string | null | "mixed" {
+): "mixed" | (string & {}) | null {
   const { from, to } = editor.state.selection;
   const markType = editor.state.schema.marks.notionSpan;
   if (!markType) return null;

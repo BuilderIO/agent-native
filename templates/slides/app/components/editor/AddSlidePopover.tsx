@@ -140,7 +140,7 @@ export function AddSlidePopover({
   useLayoutEffect(() => {
     if (!open || !panelRef.current) return;
     setPanelHeight(panelRef.current.getBoundingClientRect().height);
-  });
+  }, [open]);
 
   // Content can grow after the first paint (Google Doc hint, file chips,
   // an auto-growing textarea) without necessarily triggering a React

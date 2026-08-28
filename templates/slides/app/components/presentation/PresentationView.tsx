@@ -419,12 +419,12 @@ export default function PresentationView({
     }
     if (isShared) {
       const token = deckId.replace("__shared__/", "");
-      navigate(`/share/${token}`);
+      void navigate(`/share/${token}`);
     } else {
       const rawIndex =
         visibleRawIndicesRef.current[currentIndexRef.current] ??
         currentIndexRef.current;
-      navigate(`/deck/${deckId}?slide=${rawIndex + 1}`);
+      void navigate(`/deck/${deckId}?slide=${rawIndex + 1}`);
     }
   }, [navigate, deckId, isShared]);
 
@@ -543,12 +543,12 @@ export default function PresentationView({
         enteredFullscreenRef.current = false;
         if (isSharedRef.current) {
           const token = deckIdRef.current.replace("__shared__/", "");
-          navigate(`/share/${token}`);
+          void navigate(`/share/${token}`);
         } else {
           const rawIndex =
             visibleRawIndicesRef.current[currentIndexRef.current] ??
             currentIndexRef.current;
-          navigate(`/deck/${deckIdRef.current}?slide=${rawIndex + 1}`);
+          void navigate(`/deck/${deckIdRef.current}?slide=${rawIndex + 1}`);
         }
       }
     };

@@ -117,13 +117,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ? JSON.parse(commandValue)
           : commandValue;
       if (cmd.view === "analytics") {
-        navigate("/analytics");
+        void navigate("/analytics");
       } else if (cmd.view === "settings") {
-        navigate("/settings");
+        void navigate("/settings");
       } else if (cmd.view === "agent") {
-        navigate("/settings/agent");
+        void navigate("/settings/agent");
       } else if (cmd.view === "entry") {
-        navigate("/");
+        void navigate("/");
       }
       // Clear the command
       fetch(agentNativePath("/_agent-native/application-state/navigate"), {

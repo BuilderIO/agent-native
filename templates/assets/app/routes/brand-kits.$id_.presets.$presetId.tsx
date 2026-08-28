@@ -1114,7 +1114,7 @@ export default function GenerationPresetEditorRoute() {
     try {
       await deletePreset.mutateAsync({ id: preset.id });
       toast.success(t("brandKitDetail.generationPresetDeleted"));
-      navigate(settingsHref);
+      void navigate(settingsHref);
     } catch (error) {
       toast.error(
         error instanceof Error

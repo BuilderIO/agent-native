@@ -42,7 +42,7 @@ export interface CreateReviewCommentInput {
   resourceId: string;
   targetId?: string | null;
   kind?: ReviewCommentKind;
-  anchor?: unknown | null;
+  anchor?: unknown;
   body: string;
   authorName?: string | null;
   resolutionTarget?: ReviewResolutionTarget | null;

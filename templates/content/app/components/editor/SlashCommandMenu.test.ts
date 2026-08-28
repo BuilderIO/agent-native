@@ -494,10 +494,10 @@ describe("heading slash commands", () => {
     };
     const editor = { chain: () => chain } as any;
 
-    buildHeadingCommands("toggle")[4]?.action(editor, {
+    void buildHeadingCommands("toggle")[4]?.action(editor, {
       slashRange: null,
     });
-    buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
+    void buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
 
     expect(chain.toggleHeading).toHaveBeenCalledWith({ level: 5 });
     expect(chain.setHeading).toHaveBeenCalledWith({ level: 6 });

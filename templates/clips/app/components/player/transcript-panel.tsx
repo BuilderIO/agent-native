@@ -180,7 +180,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
   function copyAll() {
     const text = displaySegments.map((s) => s.text).join(" ");
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
@@ -728,7 +728,7 @@ function TranscriptSetupCard({
       if (!document.hidden) void tick();
     };
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [onRetry, stopVisibilityHandler]);
+  }, [onRetry, stopVisibilityHandler, t]);
 
   const isProviderError =
     !isBuilderCreditsExhaustedMessage(failureReason) &&

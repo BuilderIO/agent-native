@@ -46,21 +46,21 @@ export function detectOwnerOwnedArea(
     /(^|\b)(clips app|clips desktop|clips chrome extension|clips bug)\b/.test(
       text,
     ) ||
-    /(^|\n)\s*clips(?:\s+app)?\s*[:\-]/m.test(text) ||
+    /(^|\n)\s*clips(?:\s+app)?\s*[:-]/m.test(text) ||
     paths.some((path) => /(^|[/_-])clips([/_-]|$)/.test(path))
   ) {
     return "clips";
   }
   if (
     /(^|\b)(design app|design bug)\b/.test(text) ||
-    /(^|\n)\s*design(?:\s+(?:app|generation))?\s*[:\-]/m.test(text) ||
+    /(^|\n)\s*design(?:\s+(?:app|generation))?\s*[:-]/m.test(text) ||
     paths.some((path) => /(^|[/_-])design([/_-]|$)/.test(path))
   ) {
     return "design";
   }
   if (
     /(^|\b)(content app|content bug)\b/.test(text) ||
-    /(^|\n)\s*content(?:\s+app)?\s*[:\-]/m.test(text) ||
+    /(^|\n)\s*content(?:\s+app)?\s*[:-]/m.test(text) ||
     paths.some((path) => /(^|[/_-])content([/_-]|$)/.test(path))
   ) {
     return "content";

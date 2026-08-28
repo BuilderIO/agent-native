@@ -553,7 +553,12 @@ function isTransientAskAppStatusError(err: unknown): boolean {
 function askAppStatusErrorCategory(
   err: unknown,
 ): AskAppStatusErrorCategory | null {
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : (JSON.stringify(err ?? "") ?? "");
   const causeCode = askAppStatusErrorCauseCode(err) ?? "";
   const diagnostic = `${message} ${causeCode}`;
   if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";

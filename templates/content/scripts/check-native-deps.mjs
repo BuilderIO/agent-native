@@ -80,23 +80,28 @@ function acquireRebuildLock(packageDir) {
         }),
       );
       return () => {
+        let closeError;
+        let unlinkError;
         try {
           closeSync(lockFd);
-        } finally {
-          try {
-            unlinkSync(lockPath);
-          } catch (error) {
-            if (
-              !(
-                error instanceof Error &&
-                "code" in error &&
-                error.code === "ENOENT"
-              )
-            ) {
-              throw error;
-            }
+        } catch (error) {
+          closeError = error;
+        }
+        try {
+          unlinkSync(lockPath);
+        } catch (error) {
+          if (
+            !(
+              error instanceof Error &&
+              "code" in error &&
+              error.code === "ENOENT"
+            )
+          ) {
+            unlinkError = error;
           }
         }
+        if (unlinkError !== undefined) throw unlinkError;
+        if (closeError !== undefined) throw closeError;
       };
     } catch (error) {
       if (

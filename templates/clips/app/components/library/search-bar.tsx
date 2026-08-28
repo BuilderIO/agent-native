@@ -125,7 +125,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
     }
     if (hit.matchPanel) params.set("panel", hit.matchPanel);
     const suffix = params.toString() ? `?${params.toString()}` : "";
-    navigate(`/r/${hit.id}${suffix}`);
+    void navigate(`/r/${hit.id}${suffix}`);
   }
 
   const showPopover = open && query.length >= 2;

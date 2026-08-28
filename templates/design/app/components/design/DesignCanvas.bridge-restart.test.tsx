@@ -114,7 +114,12 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
   it("silently re-registers and reloads the frame when /health reports a different bridgeInstanceId (bridge process restarted)", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
         return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
       }
@@ -154,7 +159,12 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     // down (setRegisteredLiveEditBridgeKey(null)), flashing "Live editor
     // connection failed" under a load that was still legitimately in flight.
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
         return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
       }
@@ -201,7 +211,12 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
   it("surfaces a NON-destructive error once the same-instance-id escalation ceiling is exceeded, without nulling registeredLiveEditBridgeKey — and a late ready handshake still clears it", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
         return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
       }
@@ -253,7 +268,12 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
   it("tears down the iframe and surfaces the destructive error when /health itself is unreachable (dev server actually down)", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
         return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
       }
@@ -283,7 +303,12 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
   it("recovers from a destructive watchdog error when the exact retired live document posts ready late", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
         return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
       }
@@ -342,7 +367,12 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     // error rather than polling forever.
     let healthCallCounter = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input);
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       if (url.startsWith(`${BRIDGE_URL}/live-edit-bridge`)) {
         return jsonResponse({ ok: true, bridgeInstanceId: "instance-1" });
       }

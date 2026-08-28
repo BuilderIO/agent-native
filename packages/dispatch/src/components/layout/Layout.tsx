@@ -665,7 +665,7 @@ function DispatchChatsSection({
   const chatHistoryError = threadsLoadError ? (
     <button
       type="button"
-      onClick={() => void refreshThreads()}
+      onClick={() => refreshThreads()}
       className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     >
       <span>Could not load chats</span>
@@ -1096,7 +1096,7 @@ export function NavContent({
         onNavigate?.();
       }}
       onOpenAllApps={() => {
-        navigate(dispatchNavLinkTarget("/apps"));
+        void navigate(dispatchNavLinkTarget("/apps"));
         onNavigate?.();
       }}
       createAppTrigger={chatFirstCreateAppTrigger}
@@ -1301,11 +1301,11 @@ export function NavContent({
               activeTab: chatFirstActivePrimaryTab,
               onNewChat: onChatFirstNewChat,
               onOpenIntegrations: () => {
-                navigate(dispatchNavLinkTarget("/admin/integrations"));
+                void navigate(dispatchNavLinkTarget("/admin/integrations"));
                 onNavigate?.();
               },
               onOpenScheduled: () => {
-                navigate(dispatchNavLinkTarget("/admin/automations"));
+                void navigate(dispatchNavLinkTarget("/admin/automations"));
                 onNavigate?.();
               },
             }}
@@ -1531,7 +1531,7 @@ export function Layout({
         navigateToWorkspaceApp(directHref);
         return;
       }
-      navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+      void navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
     },
     [chatFirstAppRegistrations, navigate],
   );
@@ -1778,7 +1778,6 @@ export function Layout({
       chatFirstAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.isLoading,
       chatFirstSurfaceTabsStore,
-      closeChatFirstSessionWatch,
       openChatFirstPane,
       navigate,
       persistChatFirstPane,
@@ -2302,7 +2301,7 @@ export function Layout({
     );
   }
   function openRunThread(threadId: string) {
-    navigate("/chat", {
+    void navigate("/chat", {
       state: {
         dispatchThread: {
           id: `${Date.now()}-${threadId}`,

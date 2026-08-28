@@ -91,7 +91,7 @@ export function useTrackMetrics(metrics: string[], dashboardId: string): void {
   React.useEffect(() => {
     metrics.forEach((metricName) => {
       if (metricName && metricName.trim()) {
-        trackMetricViewed(metricName, dashboardId);
+        void trackMetricViewed(metricName, dashboardId);
       }
     });
   }, [metrics.join(","), dashboardId]);
