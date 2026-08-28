@@ -1223,7 +1223,10 @@ export function NavContent({
   );
   const organizationPicker = (
     <div
-      className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
+      className={cn(
+        "py-2 empty:hidden",
+        collapsed ? "flex justify-center px-1" : "px-3",
+      )}
     >
       <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
     </div>

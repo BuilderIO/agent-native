@@ -230,10 +230,10 @@ export function Sidebar() {
 
           {!collapsed && (
             <div className="mt-auto shrink-0">
-              <div className="px-3 py-2">
+              <div className="px-3 py-2 empty:hidden">
                 <OrgSwitcher reserveSpace />
               </div>
-              <div className="px-3 py-2">
+              <div className="px-3 py-2 empty:hidden">
                 <DevDatabaseLink />
               </div>
             </div>

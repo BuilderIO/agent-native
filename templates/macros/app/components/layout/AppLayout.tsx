@@ -334,7 +334,7 @@ function SidebarContent({
 
       {!collapsed && (
         <>
-          <div className="space-y-2 px-3 py-2">
+          <div className="space-y-2 px-3 py-2 empty:hidden">
             <DevDatabaseLink />
             <OrgSwitcher />
           </div>

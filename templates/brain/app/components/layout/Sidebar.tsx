@@ -446,13 +446,13 @@ export function Sidebar({
 
       <div className="mt-auto shrink-0">
         {!collapsed ? (
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <OrgSwitcher />
           </div>
         ) : null}
 
         {!collapsed ? (
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <DevDatabaseLink />
           </div>
         ) : null}

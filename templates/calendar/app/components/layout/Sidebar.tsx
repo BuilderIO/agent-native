@@ -1179,7 +1179,7 @@ export function Sidebar({
 
         {!collapsed ? (
           <>
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <OrgSwitcher />
             </div>
 

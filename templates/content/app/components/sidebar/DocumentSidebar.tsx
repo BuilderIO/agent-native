@@ -2425,7 +2425,7 @@ export function DocumentSidebar({
         />
       </div>
 
-      <div className="shrink-0 px-3 py-2">
+      <div className="shrink-0 px-3 py-2 empty:hidden">
         <OrgSwitcher reserveSpace />
       </div>
 

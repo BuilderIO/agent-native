@@ -213,8 +213,8 @@ export function Sidebar({
           className={cn(
             "grid gap-1",
             collapsed
-              ? "px-1 py-1"
-              : "border-t border-sidebar-border px-3 py-2",
+              ? "px-1 py-1 empty:hidden"
+              : "border-t border-sidebar-border px-3 py-2 empty:hidden",
           )}
         >
           {BOTTOM_NAV_ITEMS.map((item) => {

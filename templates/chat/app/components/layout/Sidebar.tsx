@@ -493,7 +493,11 @@ export function Sidebar({
           })}
         </nav>
 
-        <div className={cn(collapsed ? "px-1 py-1" : "px-3 py-2")}>
+        <div
+          className={cn(
+            collapsed ? "px-1 py-1 empty:hidden" : "px-3 py-2 empty:hidden",
+          )}
+        >
           <OrgSwitcher
             reserveSpace
             className={
