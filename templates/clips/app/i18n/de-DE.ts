@@ -1094,6 +1094,10 @@ const messages = {
       "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
     resume: "Fortsetzen",
     discardRecording: "Aufnahme verwerfen",
+    restart: "Aufnahme neu starten",
+    restartShortcut: "Neu starten (⌥⇧R)",
+    restartQuestion: "Eine neue Aufnahme starten?",
+    restartConfirm: "Neu starten",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",

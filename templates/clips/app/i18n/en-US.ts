@@ -1055,6 +1055,10 @@ const messages = {
       "This can't be undone. Your recording so far will be permanently deleted.",
     resume: "Resume",
     discardRecording: "Discard recording",
+    restart: "Restart recording",
+    restartShortcut: "Restart (⌥⇧R)",
+    restartQuestion: "Start a new recording?",
+    restartConfirm: "Restart",
   },
   countdownOverlay: {
     startsIn: "Recording starts in {{count}}",
