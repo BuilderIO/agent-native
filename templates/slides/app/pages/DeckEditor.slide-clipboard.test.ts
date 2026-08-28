@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   getSlideClipboardStorageKey,
+  normalizeSlideClipboard,
   readSlideClipboard,
   resolveSlideClipboardForPaste,
   writeSlideClipboard,
@@ -135,6 +136,16 @@ describe("slide clipboard storage", () => {
       },
       copiedAt: 2_500,
     });
+  });
+
+  it("normalizes the in-memory fallback before paste", () => {
+    expect(
+      normalizeSlideClipboard({
+        ...slide,
+        imageLoading: true,
+        unexpected: true,
+      }),
+    ).toEqual(slide);
   });
 
   it("rejects malformed optional fields", () => {

@@ -89,7 +89,7 @@ function getBrowserStorage(): SlideClipboardStorage | null {
   }
 }
 
-function normalizeSlide(value: unknown): Slide | null {
+export function normalizeSlideClipboard(value: unknown): Slide | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -227,7 +227,7 @@ export function readSlideClipboard(
 
   try {
     const parsed = JSON.parse(raw) as Partial<StoredSlideClipboard>;
-    const slide = normalizeSlide(parsed.slide);
+    const slide = normalizeSlideClipboard(parsed.slide);
     if (
       parsed.version !== SLIDE_CLIPBOARD_VERSION ||
       !slide ||
@@ -254,7 +254,7 @@ export function writeSlideClipboard(
   copiedAt: number,
   storage: SlideClipboardStorage | null = getBrowserStorage(),
 ): boolean {
-  const normalizedSlide = normalizeSlide(slide);
+  const normalizedSlide = normalizeSlideClipboard(slide);
   if (!storage || !normalizedSlide || !Number.isFinite(copiedAt)) return false;
   try {
     storage.setItem(

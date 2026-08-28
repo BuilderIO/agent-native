@@ -117,6 +117,7 @@ import {
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardStorageKey,
+  normalizeSlideClipboard,
   readSlideClipboard,
   resolveSlideClipboardForPaste,
   writeSlideClipboard,
@@ -1192,7 +1193,8 @@ export default function DeckEditor() {
   const saveSlideToClipboard = useCallback(
     (slide: Slide) => {
       const copiedAt = Date.now();
-      const snapshot = { ...slide };
+      const snapshot = normalizeSlideClipboard(slide);
+      if (!snapshot) return;
       slideClipboardRef.current = snapshot;
       slideClipboardScopeRef.current = slideClipboardStorageKey;
       slideClipboardArmedAtRef.current = copiedAt;
