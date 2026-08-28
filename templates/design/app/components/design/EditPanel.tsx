@@ -141,6 +141,7 @@ import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
+  type ApplyLayoutFlowHandler,
   type StyleChangeHandler,
   type StyleChangeMeta,
   type StylesChangeHandler,
@@ -422,6 +423,11 @@ interface EditPanelProps {
    */
   /** Convert this container to freeform, pinning children where they render. */
   onDisableAutoLayout?: (nodeId: string) => void;
+  /**
+   * Apply a flex/grid flow to this container, reflowing its children into it.
+   * Only `"unsupported"` may fall back to writing the container styles alone.
+   */
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
@@ -1753,6 +1759,7 @@ export const EditPanel = memo(function EditPanel({
   onCreateScreenFromPreset,
   onAlignSelection,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
   onInteractionStateChange,
   availableInteractionStates,
   onEditCode,
@@ -2279,6 +2286,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onDisableAutoLayout={onDisableAutoLayout}
+                    onApplyLayoutFlow={onApplyLayoutFlow}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
