@@ -135,6 +135,8 @@ describe("SlideEditor render-phase safety", () => {
     expect(pasteBody).toContain(
       "if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`",
     );
+    expect(pasteBody).toContain("box.style.maxHeight = `${slideHeight}px`");
+    expect(pasteBody).toContain('box.style.overflowY = "auto"');
   });
 
   it("lets HTML-only native paste beat a stale object clipboard", () => {

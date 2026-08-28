@@ -4257,11 +4257,13 @@ export default function SlideEditor({
       );
       if (!box) return false;
 
+      const slideHeight = positioningLayer.offsetHeight;
+      if (slideHeight > 0 && box.offsetHeight > slideHeight) {
+        box.style.maxHeight = `${slideHeight}px`;
+        box.style.overflowY = "auto";
+      }
       const renderedHeight = Math.max(height, box.offsetHeight);
-      const renderedMaxY = Math.max(
-        0,
-        positioningLayer.offsetHeight - renderedHeight,
-      );
+      const renderedMaxY = Math.max(0, slideHeight - renderedHeight);
       if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`;
 
       const selector = getBuilderSelector(box);
