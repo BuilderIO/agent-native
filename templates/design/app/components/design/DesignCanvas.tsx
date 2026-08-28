@@ -4933,7 +4933,7 @@ export function DesignCanvas({
           annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
           onAnnotationSendingChange?.(true);
-          captureAnnotatedScreenshot({
+          void captureAnnotatedScreenshot({
             designId,
             fileId: screenId,
             sourceType:

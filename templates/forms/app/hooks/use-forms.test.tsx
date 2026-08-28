@@ -178,7 +178,11 @@ describe("useDeleteForm", () => {
     });
 
     const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(String(request.body));
+    const body = JSON.parse(
+      typeof request.body === "string"
+        ? request.body
+        : JSON.stringify(request.body),
+    );
     expect(body._meta.pageUrl).toContain("utm_source=newsletter");
     expect(body._meta.pageUrl).toContain("token=%3Credacted%3E");
   });

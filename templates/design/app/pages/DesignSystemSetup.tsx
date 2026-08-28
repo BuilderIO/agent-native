@@ -405,7 +405,7 @@ export default function DesignSystemSetup() {
         newFiles.push(file);
       });
 
-      Promise.all(promises).then(() => {
+      void Promise.all(promises).then(() => {
         setter((prev) => [...prev, ...newFiles]);
       });
     },
@@ -847,7 +847,7 @@ export default function DesignSystemSetup() {
       submit: true,
       newTab: true,
     });
-    navigate("/design-systems");
+    void navigate("/design-systems");
   }, [
     hasAnySources,
     companyInfo,

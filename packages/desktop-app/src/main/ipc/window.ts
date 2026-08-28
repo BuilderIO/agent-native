@@ -15,7 +15,8 @@ export function toggleWindowMode(
     return;
   }
 
-  window.isMaximized() ? window.restore() : window.maximize();
+  if (window.isMaximized()) window.restore();
+  else window.maximize();
 }
 
 /** Registers the basic frameless-window control IPC handlers. */

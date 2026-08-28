@@ -255,7 +255,7 @@ async function safeOpenAiErrorDetail(
   let detail = raw;
   try {
     const parsed = JSON.parse(raw) as {
-      error?: { message?: unknown; code?: unknown; type?: unknown } | unknown;
+      error?: unknown;
     };
     if (parsed.error && typeof parsed.error === "object") {
       const error = parsed.error as {
@@ -455,7 +455,7 @@ function declaredBodyBytes(event: H3Event): number | undefined {
 async function readLimitedRawBody(
   event: H3Event,
   maxBytes: number,
-): Promise<string | null | "oversize"> {
+): Promise<string | null> {
   const declared = declaredBodyBytes(event);
   if (declared !== undefined && declared > maxBytes) return "oversize";
 

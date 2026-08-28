@@ -404,7 +404,7 @@ export type AccessResolver = (
   resourceType: string,
   resourceId: string,
   ctx: { userEmail: string; orgId: string | undefined },
-) => Promise<unknown | null>;
+) => Promise<unknown>;
 
 const defaultResolveAccess: AccessResolver = async (
   resourceType,

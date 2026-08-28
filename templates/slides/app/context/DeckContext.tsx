@@ -2256,7 +2256,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const openDeckRequestId = requestedOpenDeckId
       ? nextOpenDeckRequestId(requestedOpenDeckId)
       : null;
-    fetchDecksForCurrentRoute().then(async (loaded) => {
+    void fetchDecksForCurrentRoute().then(async (loaded) => {
       if (
         requestId !== deckBaselineRequestIdRef.current ||
         requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
@@ -2455,7 +2455,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             const refetchPromise = refetchOpenDeckIfChanged(data.deckId);
             void refetchPromise.catch((error) => {
               console.error(
-                `Failed to refresh deck ${data.deckId} after sync event:`,
+                `Failed to refresh deck ${typeof data.deckId === "string" ? data.deckId : (JSON.stringify(data.deckId) ?? "unknown")} after sync event:`,
                 error,
               );
             });
@@ -2787,17 +2787,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Enqueue a granular patch-deck-fields op — only the changed fields are
       // sent to the server, so concurrent edits to slides are never clobbered.
       // Exclude internal/derived fields that live only in client state.
-      const {
-        slides: _slides,
-        createdAt: _ca,
-        ...persistableUpdates
-      } = {
-        slides: undefined,
-        createdAt: undefined,
-        ...updates,
-      };
-      void _slides;
-      _ca;
+      const { slides: _slides, ...persistableUpdates } = updates;
       const hasPersistableUpdates = Object.keys(persistableUpdates).length > 0;
       const op: PatchDeckOp | null = hasPersistableUpdates
         ? {

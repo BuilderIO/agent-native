@@ -1342,7 +1342,6 @@ export default function CalendarView() {
     [
       displayTimezone,
       events,
-      displayTimezone,
       updateDraftEvent,
       promptGuestNotification,
       updateEvent,

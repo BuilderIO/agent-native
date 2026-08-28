@@ -398,7 +398,8 @@ type AppSecretsReadQuery = { sql: string; args: unknown[] };
  */
 function isMissingAppSecretsTableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const code = String((error as Error & { code?: unknown }).code ?? "");
+  const codeValue = (error as Error & { code?: unknown }).code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = error.message.toLowerCase();
   const namesAppSecrets = /(?:app_secrets|"app_secrets")/.test(message);
 

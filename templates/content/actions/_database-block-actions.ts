@@ -165,8 +165,14 @@ function contractError(
 
 function isUniqueConstraintError(error: unknown): boolean {
   const candidate = error as { code?: unknown; message?: unknown };
-  const code = String(candidate?.code ?? "");
-  const message = String(candidate?.message ?? "");
+  const code =
+    typeof candidate?.code === "string"
+      ? candidate.code
+      : (JSON.stringify(candidate?.code) ?? "");
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : (JSON.stringify(candidate?.message) ?? "");
   return (
     code === "23505" ||
     code.includes("SQLITE_CONSTRAINT") ||

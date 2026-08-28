@@ -51,7 +51,7 @@ import { createCodeBlockNode } from "./CodeBlockNode.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 
 interface YSyncBindingWithInitialRender {
-  beforeTransactionSelection: unknown | null;
+  beforeTransactionSelection: unknown;
   _forceRerender: () => void;
 }
 

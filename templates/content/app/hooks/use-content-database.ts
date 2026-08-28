@@ -426,19 +426,19 @@ export function clearDeletedContentDatabaseFromCache(
 ) {
   queryClient.removeQueries(contentDatabaseQueryFilter(documentId));
   queryClient.removeQueries(documentQueryFilter(documentId));
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     queryKey: ["action", "get-content-database"],
   });
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     queryKey: ["action", "get-document"],
   });
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     queryKey: ["action", "list-documents"],
   });
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     queryKey: ["action", "list-trashed-content-databases"],
   });
-  queryClient.invalidateQueries({
+  void queryClient.invalidateQueries({
     queryKey: ["action", "list-content-databases"],
   });
 }
@@ -731,15 +731,15 @@ export function useCreateContentDatabase(documentId: string | null) {
     {
       onSuccess: (data) => {
         if (documentId) {
-          queryClient.invalidateQueries(documentQueryFilter(documentId));
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries(documentQueryFilter(documentId));
+          void queryClient.invalidateQueries({
             queryKey: contentDatabaseQueryKey(documentId),
           });
         }
-        queryClient.invalidateQueries(
+        void queryClient.invalidateQueries(
           documentQueryFilter(data.database.documentId),
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       },
@@ -755,15 +755,15 @@ export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
   >("create-inline-content-database", {
     onSuccess: (data) => {
       if (hostDocumentId) {
-        queryClient.invalidateQueries(documentQueryFilter(hostDocumentId));
+        void queryClient.invalidateQueries(documentQueryFilter(hostDocumentId));
       }
-      queryClient.invalidateQueries(
+      void queryClient.invalidateQueries(
         documentQueryFilter(data.block.databaseDocumentId),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(data.block.databaseDocumentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
     },
@@ -783,7 +783,7 @@ export function useDeleteContentDatabase() {
   >("delete-content-database", {
     onSuccess: (data) => {
       clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-documents"],
       });
     },
@@ -802,22 +802,22 @@ export function useRestoreContentDatabase() {
     { databaseId: string }
   >("restore-content-database", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-document"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-documents"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-content-databases"],
       });
     },
@@ -863,10 +863,10 @@ export function useAddDatabaseItem(documentId: string) {
             applyOptimisticItemToContentDatabase(current, data.createdItem!),
         );
       }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
     },
@@ -880,16 +880,16 @@ export function useSubmitContentDatabaseForm(documentId: string) {
     SubmitContentDatabaseFormRequest
   >("submit-content-database-form", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseItemsPageQueryKey,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
     },
@@ -903,13 +903,13 @@ export function useDuplicateDatabaseItem(documentId: string) {
     DuplicateDatabaseItemRequest
   >("duplicate-database-item", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseItemsPageQueryKey,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
     },
@@ -922,10 +922,10 @@ export function useDuplicateDatabaseItems(documentId: string) {
     "duplicate-database-items",
     {
       onSuccess: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       },
@@ -939,10 +939,10 @@ export function useRemoveDatabaseItems(documentId: string) {
     "remove-database-items",
     {
       onSuccess: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       },
@@ -1003,15 +1003,15 @@ export function useMoveDatabaseItem(documentId: string) {
         );
       },
       onSettled: (_data, _error, variables) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
         if (variables.databaseId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
           });
         }
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       },
@@ -1098,7 +1098,7 @@ export function useUpdateContentDatabasePersonalView(
     },
     onSettled: () => {
       if (!databaseId) return;
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: [
           "action",
           "get-content-database-personal-view",
@@ -1173,13 +1173,13 @@ export function useAttachContentDatabaseSource(
           (current) => applyBuilderAttachCompletion(current, data),
         );
       }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseItemsPageQueryKey,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1271,10 +1271,10 @@ export function useChangeContentDatabaseSourceRole(documentId: string) {
     ChangeContentDatabaseSourceRoleRequest
   >("change-content-database-source-role", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1329,16 +1329,16 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
             data,
           ),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseItemsPageQueryKey,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: [
           "action",
           "list-document-properties",
@@ -1357,13 +1357,13 @@ export function useMaterializeBuilderRequiredFields(documentId: string) {
   >("materialize-builder-required-fields", {
     onSuccess: (data) => {
       writeContentDatabaseResponseToCache(queryClient, documentId, data);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: [
           "action",
           "list-document-properties",
@@ -1600,10 +1600,10 @@ export function useDisconnectContentDatabaseSource(documentId: string) {
     DisconnectContentDatabaseSourceRequest
   >("disconnect-content-database-source", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1617,10 +1617,10 @@ export function useStageBuilderRevision(documentId: string) {
     StageBuilderRevisionRequest
   >("stage-builder-revision", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1634,10 +1634,10 @@ export function useReviewContentDatabaseSourceChangeSet(documentId: string) {
     ReviewContentDatabaseSourceChangeSetRequest
   >("review-content-database-source-change-set", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1651,10 +1651,10 @@ export function usePrepareBuilderSourceExecution(documentId: string) {
     PrepareBuilderSourceExecutionRequest
   >("prepare-builder-source-execution", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1668,10 +1668,10 @@ export function useCancelPreparedBuilderSourceUpdate(documentId: string) {
     CancelPreparedBuilderSourceUpdateRequest
   >("cancel-prepared-builder-source-update", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1685,10 +1685,10 @@ export function useValidateBuilderSourceExecution(documentId: string) {
     ValidateBuilderSourceExecutionRequest
   >("validate-builder-source-execution", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1702,10 +1702,10 @@ export function useExecuteBuilderSourceExecution(documentId: string) {
     ExecuteBuilderSourceExecutionRequest
   >("execute-builder-source-execution", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1719,10 +1719,10 @@ export function useExecuteBuilderSourceBatch(documentId: string) {
     ExecuteBuilderSourceBatchRequest
   >("execute-builder-source-batch", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1737,10 +1737,10 @@ export function useSetContentDatabaseSourceWriteMode(documentId: string) {
   >("set-content-database-source-write-mode", {
     onSuccess: (data) => {
       writeContentDatabaseResponseToCache(queryClient, documentId, data);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1754,10 +1754,10 @@ export function usePrepareBuilderSourceReview(documentId: string) {
     PrepareBuilderSourceReviewRequest
   >("prepare-builder-source-review", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },
@@ -1798,10 +1798,10 @@ export function useStageBuilderSourceBulkUpdate(documentId: string) {
     StageBuilderSourceBulkUpdateRequest
   >("stage-builder-source-bulk-update", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
     },

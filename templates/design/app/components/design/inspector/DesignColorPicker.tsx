@@ -830,7 +830,7 @@ export function DesignColorPicker({
             toCssColor(color) || "#000000",
           )
         : null,
-    [color.r, color.g, color.b, color.a, effectivePaintType],
+    [color, effectivePaintType],
   );
   const activeGradient: GradientValue | null = GRADIENT_TYPES.has(
     effectivePaintType,
@@ -842,7 +842,7 @@ export function DesignColorPicker({
     const nextHex = toDisplayHex(color);
     hexDraftRef.current = nextHex;
     setHexDraft(nextHex);
-  }, [color.r, color.g, color.b]);
+  }, [color]);
 
   useEffect(() => {
     if (open) {
@@ -2701,7 +2701,9 @@ export function expandHexShorthand(value: string): string {
   if (/^[0-9a-f]$/i.test(trimmed)) return trimmed.repeat(6);
   if (/^[0-9a-f]{2}$/i.test(trimmed)) return trimmed.repeat(3);
   if (/^[0-9a-f]{3}$/i.test(trimmed)) {
-    return [...trimmed].map((digit) => digit.repeat(2)).join("");
+    return Array.from(trimmed)
+      .map((digit) => digit.repeat(2))
+      .join("");
   }
   return trimmed;
 }

@@ -217,13 +217,13 @@ export function useRunAutomationNow() {
         const name =
           variables.name ??
           variables.path?.replace(/^jobs\//, "").replace(/\.md$/, "");
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-automation-runs", { scope, name }],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-automations", { scope }],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-recurring-jobs", { scope }],
         });
       },

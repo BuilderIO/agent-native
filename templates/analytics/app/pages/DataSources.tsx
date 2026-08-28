@@ -380,7 +380,7 @@ function GitHubOAuthView({
   });
 
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["github-oauth-status"] });
+    void queryClient.invalidateQueries({ queryKey: ["github-oauth-status"] });
     onSaved();
   };
 
@@ -812,7 +812,9 @@ function ConnectedView({
     onSuccess: () => {
       setDisconnectConfirmOpen(false);
       if (source.id === "github") {
-        queryClient.invalidateQueries({ queryKey: ["github-oauth-status"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["github-oauth-status"],
+        });
       }
       onSaved();
     },
@@ -1632,7 +1634,8 @@ function AddDataSourceCTA() {
 
 function FirstPartyAnalyticsCard() {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
@@ -1682,7 +1685,7 @@ function FirstPartyAnalyticsCard() {
     onSuccess: (result: any) => {
       setCreatedKey(result.publicKey);
       setCopied(false);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-analytics-public-keys"],
       });
     },
@@ -1690,7 +1693,7 @@ function FirstPartyAnalyticsCard() {
 
   const revokeKey = useActionMutation("revoke-analytics-public-key", {
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-analytics-public-keys"],
       });
     },
@@ -1960,7 +1963,7 @@ function FirstPartyAnalyticsCard() {
                     variant="outline"
                     onClick={(e) => {
                       e.stopPropagation();
-                      copyCreatedKey();
+                      void copyCreatedKey();
                     }}
                     className="text-xs"
                   >
@@ -2087,7 +2090,7 @@ export default function DataSources() {
   ).length;
 
   const handleSaved = () => {
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["action", "data-source-status"],
     });
   };

@@ -10,7 +10,8 @@
   "rules": {
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
-    "eslint/eqeqeq": "warn",
+    "eslint/eqeqeq": ["warn", "smart"],
+    "typescript/no-base-to-string": ["warn", { "checkUnknown": false }],
     "eslint/no-unused-vars": [
       "error",
       {
@@ -53,6 +54,12 @@
         "templates/*/shared/**/*.ts"
       ],
       "rules": {}
+    },
+    {
+      "files": ["packages/recap-cli/src/**/*.ts"],
+      "rules": {
+        "typescript/no-useless-default-assignment": "off"
+      }
     }
   ]
 }

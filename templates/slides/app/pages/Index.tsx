@@ -629,7 +629,7 @@ export default function Index() {
     setNewDeckRetryPrompt(state.retryPrompt);
     setNewDeckRetryAttachments(state.retryAttachments ?? []);
     setShowNewDeckPrompt(true);
-    navigate(".", { replace: true, state: null });
+    void navigate(".", { replace: true, state: null });
   }, [location.state, navigate]);
 
   const handleCreateDeckBlank = () => {
@@ -647,7 +647,7 @@ export default function Index() {
       setIsStartingNewDeck(false);
       return;
     }
-    navigate(`/deck/${deck.id}`);
+    void navigate(`/deck/${deck.id}`);
   };
 
   const settlePendingDeckAttachments = useCallback(
@@ -733,7 +733,7 @@ export default function Index() {
     // Leave the grid as soon as the optimistic deck exists. Persistence and
     // agent context hydration can take several seconds, so the editor's
     // generation state is the only useful surface while that work finishes.
-    navigate(`/deck/${deck.id}?generating=1`, {
+    void navigate(`/deck/${deck.id}?generating=1`, {
       replace: true,
       flushSync: true,
     });
@@ -753,7 +753,7 @@ export default function Index() {
         typeof window !== "undefined" &&
         deckIdFromPathname(window.location.pathname) === deckId
       ) {
-        navigate("/", {
+        void navigate("/", {
           replace: true,
           state: {
             retryPrompt: prompt,
@@ -1075,7 +1075,7 @@ export default function Index() {
           );
         }
         await reloadDecks();
-        navigate(`/deck/${imported.id}`, { flushSync: true });
+        void navigate(`/deck/${imported.id}`, { flushSync: true });
         return true;
       }
 
@@ -1102,7 +1102,7 @@ export default function Index() {
           throw new Error("The PowerPoint presentation did not create a deck.");
         }
         await reloadDecks();
-        navigate(`/deck/${imported.id}`, { flushSync: true });
+        void navigate(`/deck/${imported.id}`, { flushSync: true });
         return true;
       }
 
@@ -1146,7 +1146,7 @@ export default function Index() {
           throw new Error("The PDF could not be imported into the new deck.");
         }
         await reloadDecks();
-        navigate(`/deck/${deck.id}`, { flushSync: true });
+        void navigate(`/deck/${deck.id}`, { flushSync: true });
         return true;
       } catch (error) {
         deleteDeck(deck.id);
@@ -1154,7 +1154,6 @@ export default function Index() {
       }
     },
     [
-      callAction,
       createDeck,
       deleteDeck,
       ensureDeckPersisted,
@@ -1318,15 +1317,7 @@ export default function Index() {
         setReferenceImporting(false);
       }
     },
-    [
-      callAction,
-      createDeck,
-      deleteDeck,
-      ensureDeckPersisted,
-      pendingDeck,
-      reloadDecks,
-      t,
-    ],
+    [createDeck, deleteDeck, ensureDeckPersisted, pendingDeck, reloadDecks, t],
   );
 
   const handleReferenceSourceImport = useCallback(
@@ -1378,7 +1369,7 @@ export default function Index() {
         setReferenceImporting(false);
       }
     },
-    [callAction, reloadDecks, t],
+    [reloadDecks, t],
   );
 
   const handleReferenceSkip = useCallback(async () => {
@@ -1518,7 +1509,7 @@ export default function Index() {
         // there, send them back to the deck list instead of stranding them
         // on a "Deck unavailable" screen for a deck that no longer exists.
         if (deckIdFromPathname(window.location.pathname) === newId) {
-          navigate("/");
+          void navigate("/");
         }
         toast.error(t("home.duplicateFailed"));
       });
@@ -1528,7 +1519,7 @@ export default function Index() {
         toast.error(t("home.duplicateFailed"));
         return;
       }
-      navigate(`/deck/${copy.id}`);
+      void navigate(`/deck/${copy.id}`);
     },
     [duplicateDeck, navigate, t],
   );

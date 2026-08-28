@@ -64,7 +64,7 @@ export function useVideoStorageStatus() {
 export function usePrefetchVideoStorageStatus() {
   const qc = useQueryClient();
   useEffect(() => {
-    qc.prefetchQuery({
+    void qc.prefetchQuery({
       queryKey: VIDEO_STORAGE_STATUS_KEY,
       queryFn: fetchVideoStorageStatus,
       staleTime: 60_000,

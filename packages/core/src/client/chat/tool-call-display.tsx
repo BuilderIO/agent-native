@@ -245,7 +245,7 @@ function looksLikeSql(text: string): boolean {
   );
 }
 
-function parseJsonText(text: string): unknown | null {
+function parseJsonText(text: string): unknown {
   const trimmed = text.trim();
   if (!trimmed || !/^[{[]/.test(trimmed)) return null;
   try {

@@ -351,7 +351,7 @@ export async function loadWorkspaceMcpServers(options?: {
     if (!isMissingWorkspaceResourceTable(error)) {
       console.warn(
         `[mcp-client] Failed to load workspace MCP server resources: ${
-          (error as { message?: string })?.message ?? error
+          (error as { message?: string })?.message ?? String(error)
         }`,
       );
     }
@@ -369,7 +369,7 @@ export async function loadWorkspaceMcpServers(options?: {
     } catch (error) {
       console.warn(
         `[mcp-client] Skipping workspace MCP server resource ${row.path}: ${
-          (error as { message?: string })?.message ?? error
+          (error as { message?: string })?.message ?? String(error)
         }`,
       );
     }

@@ -204,7 +204,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${await token()}`,
         "X-GitHub-Api-Version": "2022-11-28",
-        ...init.headers,
+        ...Object.fromEntries(new Headers(init.headers).entries()),
       },
     })) as JsonResponse;
     if (!response.ok) {

@@ -198,7 +198,9 @@ export default function DesktopAppChatShell({
   useEffect(() => {
     let cancelled = false;
     setLocalAgentModelsLoading(true);
-    const listModels = window.electronAPI?.codeAgents?.listModels;
+    const listModels = window.electronAPI?.codeAgents
+      ? () => window.electronAPI!.codeAgents!.listModels()
+      : undefined;
     if (!listModels) {
       setLocalAgentModelsLoading(false);
       return () => undefined;
@@ -304,7 +306,9 @@ export default function DesktopAppChatShell({
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
 
-    const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
+    const getApiUrl = window.electronAPI?.desktopChat
+      ? (id: string) => window.electronAPI!.desktopChat!.getApiUrl(id)
+      : undefined;
     if (!getApiUrl) return () => undefined;
 
     void getApiUrl(appId)
@@ -346,7 +350,15 @@ export default function DesktopAppChatShell({
         status: "starting",
         message: `Preparing ${appName} in a local workspace.`,
       });
-      const prepare = window.electronAPI?.appConfig?.prepareLocalCodeChange;
+      const prepare = window.electronAPI?.appConfig
+        ? (
+            input: Parameters<
+              NonNullable<
+                typeof window.electronAPI.appConfig.prepareLocalCodeChange
+              >
+            >[0],
+          ) => window.electronAPI!.appConfig!.prepareLocalCodeChange(input)
+        : undefined;
       if (!prepare) {
         setLocalCodeChange({
           status: "error",
@@ -402,7 +414,10 @@ export default function DesktopAppChatShell({
 
   useEffect(() => {
     if (localCodeChange.status === "idle") return;
-    const onRuntimeStatus = window.electronAPI?.appConfig?.onRuntimeStatus;
+    const onRuntimeStatus = window.electronAPI?.appConfig
+      ? (callback: (status: DesktopAppRuntimeStatus) => void) =>
+          window.electronAPI!.appConfig!.onRuntimeStatus(callback)
+      : undefined;
     if (!onRuntimeStatus) return;
     return onRuntimeStatus((status: DesktopAppRuntimeStatus) => {
       if (status.appId !== appId) return;

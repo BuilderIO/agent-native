@@ -1171,10 +1171,13 @@ export function App({
     if (!retryingUploadId) return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    listen<NativeUploadProgress>("clips:native-upload-progress", (event) => {
-      const message = event.payload?.message?.trim();
-      if (message) setRetryingUploadStatus(message);
-    }).then((cleanup) => {
+    void listen<NativeUploadProgress>(
+      "clips:native-upload-progress",
+      (event) => {
+        const message = event.payload?.message?.trim();
+        if (message) setRetryingUploadStatus(message);
+      },
+    ).then((cleanup) => {
       if (disposed) cleanup();
       else unlisten = cleanup;
     });
@@ -1530,7 +1533,7 @@ export function App({
   }, [serverUrl]);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
   }, [checkAuth]);
 
   // Push the current server URL to the Rust meetings watcher so it can
@@ -1660,7 +1663,11 @@ export function App({
       if (method === "GET") {
         const params = new URLSearchParams();
         for (const [key, value] of Object.entries(body)) {
-          if (value != null) params.set(key, String(value));
+          if (value != null)
+            params.set(
+              key,
+              typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+            );
         }
         const qs = params.toString();
         if (qs) url += `?${qs}`;
@@ -2123,7 +2130,7 @@ export function App({
         cancelled = true;
       };
     }
-    Promise.all(
+    void Promise.all(
       meetings.map(async (meeting) => {
         if (!meeting.scheduledStart)
           return [meeting.id, { available: false }] as const;
@@ -2425,11 +2432,11 @@ export function App({
 
     try {
       setSignInError(null);
-      const flowId = crypto.randomUUID?.() ?? null;
+      const flowId = crypto.randomUUID?.call(crypto) ?? null;
       const verifier = (() => {
-        const randomUuid = crypto.randomUUID;
-        if (typeof randomUuid === "function") {
-          return `${randomUuid.call(crypto)}${randomUuid.call(crypto)}`;
+        const randomUuid = crypto.randomUUID?.bind(crypto);
+        if (randomUuid) {
+          return `${randomUuid()}${randomUuid()}`;
         }
         if (typeof crypto.getRandomValues === "function") {
           const bytes = new Uint8Array(32);
@@ -2776,7 +2783,7 @@ export function App({
   useEffect(() => {
     if (!toolbarActive) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         await invoke("show_toolbar");
         if (cancelled) return;
@@ -3105,7 +3112,7 @@ export function App({
   }, [fetchUpcomingMeetings, popoverView, popoverVisible]);
 
   useEffect(() => {
-    loadPendingUploads();
+    void loadPendingUploads();
   }, [loadPendingUploads, popoverVisible]);
 
   useEffect(() => {
@@ -6613,7 +6620,7 @@ function Setup({
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     let cancelled = false;
     setProviderStatusLoading(true);
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch(
           `${base}/_agent-native/voice-providers/status`,
@@ -7742,7 +7749,7 @@ function Setup({
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          saveApiKey();
+                          void saveApiKey();
                         }
                       }}
                       placeholder={
