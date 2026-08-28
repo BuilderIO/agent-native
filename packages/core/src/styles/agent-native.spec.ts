@@ -129,6 +129,9 @@ describe("agent-native shell surface tokens", () => {
     expect(css).toMatch(
       /@keyframes skeleton-shimmer[\s\S]*?background-position: 150% 0;[\s\S]*?background-position: -50% 0;/s,
     );
+    expect(css).toContain(
+      "hsl(var(--foreground, var(--ui-foreground)) / 0.072)",
+    );
     expect(css).not.toContain("skeleton-pulse");
   });
 
