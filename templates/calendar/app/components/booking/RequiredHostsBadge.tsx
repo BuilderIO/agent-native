@@ -26,6 +26,7 @@ export function RequiredHostsBadge({
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
   function clearHoverTimeout() {
     if (hoverTimeoutRef.current) {
@@ -67,6 +68,7 @@ export function RequiredHostsBadge({
     >
       <PopoverAnchor asChild>
         <span
+          ref={anchorRef}
           role="button"
           tabIndex={0}
           aria-expanded={open}
@@ -89,6 +91,15 @@ export function RequiredHostsBadge({
         className="w-64 p-3"
         onOpenAutoFocus={(event) => {
           if (!pinned) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          // Radix treats the anchor as "outside" the content, so a click on
+          // the badge itself would otherwise dismiss the popover a moment
+          // before our own onClick handler runs, undoing the pin. Let our
+          // handler own that click instead.
+          if (anchorRef.current?.contains(event.target as Node)) {
+            event.preventDefault();
+          }
         }}
       >
         <div className="flex items-start justify-between gap-2">
