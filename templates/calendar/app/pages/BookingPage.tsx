@@ -33,6 +33,11 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   useAvailableDays,
   useAvailableSlots,
   useCreateBooking,
@@ -333,11 +338,25 @@ export default function BookingPage() {
                 </span>
               )}
               {requiredHostCount > 1 && (
-                <span className="inline-flex rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {t("bookingLinks.requiredHostsCount", {
-                    count: requiredHostCount,
-                  })}
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-default rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground">
+                      {t("bookingLinks.requiredHostsCount", {
+                        count: requiredHostCount,
+                      })}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <ul className="space-y-0.5">
+                      <li>{t("bookingLinks.hostLabel")}</li>
+                      {(bookingLink?.hosts ?? []).map((host) => (
+                        <li key={host.email}>
+                          {host.displayName || host.email}
+                        </li>
+                      ))}
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
               )}
             </div>
           )}
