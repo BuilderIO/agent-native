@@ -128,6 +128,7 @@ import {
 } from "@/lib/slide-clipboard";
 import {
   applyOptimisticImagePreview,
+  captureOptimisticImagePreview,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   insertDroppedImageIntoSlideHtml,
@@ -201,6 +202,25 @@ export function isSourceImportedDeck(deck: Deck | null | undefined): boolean {
     (metadata.format === "pdf" || metadata.format === "pptx") &&
     Array.isArray(metadata.slides)
   );
+}
+
+export function syncSlideContentSnapshots(
+  slides: ReadonlyArray<Pick<Slide, "id" | "content">>,
+  latestContent: Map<string, string>,
+  renderedContent: Map<string, string>,
+): void {
+  for (const slide of slides) {
+    const previousRenderedContent = renderedContent.get(slide.id);
+    const cachedContent = latestContent.get(slide.id);
+    if (
+      cachedContent === undefined ||
+      (previousRenderedContent !== undefined &&
+        slide.content !== previousRenderedContent)
+    ) {
+      latestContent.set(slide.id, slide.content);
+    }
+    renderedContent.set(slide.id, slide.content);
+  }
 }
 
 export default function DeckEditor() {
@@ -451,6 +471,19 @@ export default function DeckEditor() {
     PendingImagePreview[]
   >([]);
   const pendingImagePreviewsRef = useRef<PendingImagePreview[]>([]);
+  // Keep upload completion ahead of React when a slide edit has been queued
+  // locally but its render has not committed yet.
+  const latestSlideContentRef = useRef(new Map<string, string>());
+  const renderedSlideContentRef = useRef(new Map<string, string>());
+
+  const updateSlideContent = useCallback(
+    (slideId: string, content: string) => {
+      if (!id) return;
+      latestSlideContentRef.current.set(slideId, content);
+      updateSlide(id, slideId, { content });
+    },
+    [id, updateSlide],
+  );
 
   const updatePendingImagePreviews = useCallback(
     (update: PendingImagePreviewUpdate) => {
@@ -906,17 +939,19 @@ export default function DeckEditor() {
     (oldSrc: string, newSrc: string, alt?: string) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
+      const currentContent =
+        latestSlideContentRef.current.get(slide.id) ?? slide.content;
       const updatedContent = replaceImageTargetInSlideHtml(
-        slide.content,
+        currentContent,
         oldSrc,
         newSrc,
         { alt },
       );
-      if (updatedContent !== slide.content) {
-        updateSlide(id, slide.id, { content: updatedContent });
+      if (updatedContent !== currentContent) {
+        updateSlideContent(slide.id, updatedContent);
       }
     },
-    [id, updateSlide],
+    [updateSlideContent],
   );
 
   const uploadAndApplyImage = useCallback(
@@ -928,7 +963,7 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       const targetSlideId = currentSlideRef.current.id;
       const previewSrc = URL.createObjectURL(file);
-      const pendingPreview: PendingImagePreview = {
+      const initialPreview: PendingImagePreview = {
         slideId: targetSlideId,
         previewSrc,
         replaceSrc,
@@ -943,7 +978,7 @@ export default function DeckEditor() {
             replaceSrc === null ||
             preview.replaceSrc !== replaceSrc,
         ),
-        pendingPreview,
+        initialPreview,
       ]);
       const clearPreview = () => {
         updatePendingImagePreviews((current) =>
@@ -968,16 +1003,23 @@ export default function DeckEditor() {
           clearPreview();
           return;
         }
+        const targetContent =
+          latestSlideContentRef.current.get(targetSlideId) ??
+          targetSlide.content;
+        const activePreview = pendingImagePreviewsRef.current.find(
+          (preview) => preview.previewSrc === previewSrc,
+        );
+        if (!activePreview) return;
         const pendingForSlide = pendingImagePreviewsRef.current.filter(
           (preview) => preview.slideId === targetSlideId,
         );
         const cleanTargetContent = stripOptimisticImagePreviews(
-          targetSlide.content,
+          targetContent,
           pendingForSlide,
         );
         const previewContent = applyOptimisticImagePreview(
           cleanTargetContent,
-          pendingPreview,
+          activePreview,
         );
         const updatedContent = replaceOptimisticImagePreview(
           previewContent,
@@ -988,8 +1030,9 @@ export default function DeckEditor() {
           clearPreview();
           return;
         }
-        if (updatedContent !== targetSlide.content) {
-          updateSlide(id, targetSlide.id, { content: updatedContent });
+        latestSlideContentRef.current.set(targetSlideId, updatedContent);
+        if (updatedContent !== targetContent) {
+          updateSlideContent(targetSlide.id, updatedContent);
         }
         clearPreview();
       } catch (error) {
@@ -1002,7 +1045,14 @@ export default function DeckEditor() {
         });
       }
     },
-    [getDeck, id, t, updatePendingImagePreviews, updateSlide, uploadImageAsset],
+    [
+      getDeck,
+      id,
+      t,
+      updatePendingImagePreviews,
+      updateSlideContent,
+      uploadImageAsset,
+    ],
   );
 
   // Drag an already-hosted image (e.g. dragged out of a generated-image
@@ -1018,19 +1068,22 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       if (!replaceSrc) {
         const targetSlide = currentSlideRef.current;
+        const currentContent =
+          latestSlideContentRef.current.get(targetSlide.id) ??
+          targetSlide.content;
         const updatedContent = insertDroppedImageIntoSlideHtml(
-          targetSlide.content,
+          currentContent,
           url,
           { position },
         );
-        if (updatedContent !== targetSlide.content) {
-          updateSlide(id, targetSlide.id, { content: updatedContent });
+        if (updatedContent !== currentContent) {
+          updateSlideContent(targetSlide.id, updatedContent);
         }
         return;
       }
       replaceImageInSlide(replaceSrc, url);
     },
-    [id, replaceImageInSlide, updateSlide],
+    [replaceImageInSlide, updateSlideContent],
   );
 
   // Update fit or crop position on an image in the current slide
@@ -1045,17 +1098,43 @@ export default function DeckEditor() {
     ) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
+      const pendingForSlide = pendingImagePreviewsRef.current.filter(
+        (preview) => preview.slideId === slide.id,
+      );
+      const currentContent = pendingForSlide.reduce(
+        (content, preview) => applyOptimisticImagePreview(content, preview),
+        latestSlideContentRef.current.get(slide.id) ?? slide.content,
+      );
       const updatedContent = updateImageFitInSlideHtml(
-        slide.content,
+        currentContent,
         imgSrc,
         updates,
         imageOccurrence,
       );
-      if (updatedContent !== slide.content) {
-        updateSlide(id, slide.id, { content: updatedContent });
+      if (updatedContent !== currentContent) {
+        const updatedPreviews = pendingForSlide.map((preview) => ({
+          ...captureOptimisticImagePreview(updatedContent, preview),
+          slideId: preview.slideId,
+        }));
+        if (updatedPreviews.length > 0) {
+          updatePendingImagePreviews((current) =>
+            current.map((preview) => {
+              const updated = updatedPreviews.find(
+                (candidate) => candidate.previewSrc === preview.previewSrc,
+              );
+              return updated ?? preview;
+            }),
+          );
+        }
+        updateSlideContent(
+          slide.id,
+          updatedPreviews.length > 0
+            ? stripOptimisticImagePreviews(updatedContent, updatedPreviews)
+            : updatedContent,
+        );
       }
     },
-    [id, updateSlide],
+    [updatePendingImagePreviews, updateSlideContent],
   );
 
   const handleClipboardImagePaste = useCallback(
@@ -1940,6 +2019,11 @@ export default function DeckEditor() {
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
+  syncSlideContentSnapshots(
+    deck.slides,
+    latestSlideContentRef.current,
+    renderedSlideContentRef.current,
+  );
   const pendingForCurrentSlide = currentSlide
     ? pendingImagePreviews.filter(
         (preview) => preview.slideId === currentSlide.id,
@@ -2368,27 +2452,52 @@ export default function DeckEditor() {
                         ),
                       )
                     : pendingForSlide;
-              if (updates.content !== undefined && clearMissingPreviews) {
-                updatePendingImagePreviews((current) =>
-                  current.filter(
-                    (preview) =>
-                      preview.slideId !== targetSlideId ||
-                      activePreviews.some(
-                        (active) => active.previewSrc === preview.previewSrc,
+              const previewsToStrip =
+                updates.content === undefined
+                  ? activePreviews
+                  : activePreviews.map((preview) =>
+                      captureOptimisticImagePreview(
+                        updates.content as string,
+                        preview,
                       ),
-                  ),
+                    );
+              if (updates.content !== undefined) {
+                updatePendingImagePreviews((current) =>
+                  current.flatMap((preview) => {
+                    if (preview.slideId !== targetSlideId) return [preview];
+                    if (
+                      !activePreviews.some(
+                        (active) => active.previewSrc === preview.previewSrc,
+                      )
+                    ) {
+                      return clearMissingPreviews ? [] : [preview];
+                    }
+                    const updated = previewsToStrip.find(
+                      (candidate) =>
+                        candidate.previewSrc === preview.previewSrc,
+                    );
+                    return [
+                      { ...(updated ?? preview), slideId: preview.slideId },
+                    ];
+                  }),
                 );
               }
               const safeUpdates =
-                updates.content !== undefined && activePreviews.length > 0
+                updates.content !== undefined && previewsToStrip.length > 0
                   ? {
                       ...updates,
                       content: stripOptimisticImagePreviews(
                         updates.content,
-                        activePreviews,
+                        previewsToStrip,
                       ),
                     }
                   : updates;
+              if (typeof safeUpdates.content === "string") {
+                latestSlideContentRef.current.set(
+                  targetSlideId,
+                  safeUpdates.content,
+                );
+              }
               updateSlide(id, targetSlideId, safeUpdates, options);
             }}
             onInlineEditStart={(slideId) => {

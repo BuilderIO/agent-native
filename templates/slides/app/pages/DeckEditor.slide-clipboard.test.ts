@@ -12,6 +12,7 @@ import {
   isSlideClipboardStillArmed,
   isSourceImportedDeck,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
+  syncSlideContentSnapshots,
 } from "./DeckEditor";
 
 function createStorage(initial?: Record<string, string>) {
@@ -71,6 +72,34 @@ describe("source-imported deck structure", () => {
         sourceImport: { mode: "source-preserving", format: "pptx" },
       } as unknown as Deck),
     ).toBe(false);
+  });
+});
+
+describe("syncSlideContentSnapshots", () => {
+  it("adopts an inactive slide update without losing a queued local edit", () => {
+    const latestContent = new Map<string, string>();
+    const renderedContent = new Map<string, string>();
+    const initialSlides = [
+      { id: "slide-a", content: "A initial" },
+      { id: "slide-b", content: "B initial" },
+    ];
+
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+    latestContent.set("slide-a", "A queued local edit");
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+
+    expect(latestContent.get("slide-a")).toBe("A queued local edit");
+
+    syncSlideContentSnapshots(
+      [
+        { id: "slide-a", content: "A intervening update" },
+        { id: "slide-b", content: "B initial" },
+      ],
+      latestContent,
+      renderedContent,
+    );
+
+    expect(latestContent.get("slide-a")).toBe("A intervening update");
   });
 });
 
