@@ -331,6 +331,9 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-cube-loader]")?.className,
+    ).toContain("size-3.5");
   });
 
   it("keeps a remote pending delegation out of the terminal state", () => {
