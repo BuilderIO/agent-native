@@ -62,7 +62,7 @@ describe("release everything workflow", () => {
     assert.match(source, /90 \* 60_000/);
     assert.match(
       source,
-      /const coordinatorDeadline = startedAt \+ 355 \* 60_000/,
+      /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
     );
     assert.match(
       source,
@@ -89,6 +89,7 @@ describe("release everything workflow", () => {
     assert.match(source, /github\.rest\.repos\.deleteRelease/);
     assert.match(source, /github\.rest\.git\.deleteRef/);
     assert.match(source, /await cleanupReservedTags\(\)/);
+    assert.match(source, /Downstream workflows own these reserved tags/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,

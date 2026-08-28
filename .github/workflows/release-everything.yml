@@ -47,7 +47,7 @@ jobs:
             const apiVersion = "2026-03-10";
             const releaseType = process.env.RELEASE_TYPE;
             const startedAt = Date.now();
-            const coordinatorDeadline = startedAt + 355 * 60_000;
+            const coordinatorDeadline = startedAt + 350 * 60_000;
             const pollIntervalMs = 15_000;
             const reservedTags = new Map();
 
@@ -450,28 +450,36 @@ jobs:
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
+            let desktopVersion;
+            let clipsVersion;
+            let productionSites;
             try {
-            // Private desktop packages do not advance in the npm release commit.
-            const desktopVersion = await reserveStableVersion(
-              "v",
-              stableVersion(desktopPackage.version, "Desktop app"),
-              releaseSha,
-            );
-            const clipsVersion = await reserveStableVersion(
-              "clips-v",
-              stableVersion(clipsPackage.version, "Clips desktop app"),
-              releaseSha,
-            );
-            core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
-            const productionSites = Object.entries(sitesManifest)
-              .filter(([, site]) =>
-                typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
-              )
-              .map(([name]) => name);
-            if (productionSites.length === 0) {
-              throw new Error("The production site manifest contains no *.agent-native.com sites.");
+              // Private desktop packages do not advance in the npm release commit.
+              desktopVersion = await reserveStableVersion(
+                "v",
+                stableVersion(desktopPackage.version, "Desktop app"),
+                releaseSha,
+              );
+              clipsVersion = await reserveStableVersion(
+                "clips-v",
+                stableVersion(clipsPackage.version, "Clips desktop app"),
+                releaseSha,
+              );
+              productionSites = Object.entries(sitesManifest)
+                .filter(([, site]) =>
+                  typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
+                )
+                .map(([name]) => name);
+              if (productionSites.length === 0) {
+                throw new Error("The production site manifest contains no *.agent-native.com sites.");
+              }
+            } catch (error) {
+              await cleanupReservedTags();
+              throw error;
             }
+            core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
 
+            // Downstream workflows own these reserved tags after dispatch.
             const [desktop, clips, production] = await Promise.all([
               dispatch("desktop-release.yml", workflowRef, {
                 channel: "production",
@@ -520,7 +528,3 @@ jobs:
               .write();
 
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
-            } catch (error) {
-              await cleanupReservedTags();
-              throw error;
-            }
