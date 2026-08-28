@@ -24,6 +24,11 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -147,6 +152,10 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [builderActivationOpen, setBuilderActivationOpen] = useState(false);
+  const [builderConnectionMode, setBuilderConnectionMode] = useState<
+    "existing" | "provision"
+  >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
@@ -282,7 +291,7 @@ export function FirstRunOnboarding({
     (capability) => capability.builderIncluded,
   );
 
-  const handleBuilder = () => {
+  const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
       showTools();
       return;
@@ -292,10 +301,16 @@ export function FirstRunOnboarding({
       showTools();
       return;
     }
+    setBuilderConnectionMode(
+      provisionAccount && canActivateBuilderFreeCredits
+        ? "provision"
+        : "existing",
+    );
     setScreen("connecting");
     connectFlow.start({
       trackingSource: "first_run_onboarding",
       trackingFlow: "connect_llm",
+      provisionAccount,
     });
   };
 
@@ -591,50 +606,107 @@ export function FirstRunOnboarding({
                   </Tooltip>
                 </div>
               </div>
-              <button
-                type="button"
-                data-testid="first-run-connect-builder"
-                aria-describedby={
-                  canActivateBuilderFreeCredits
-                    ? "first-run-builder-consent"
-                    : undefined
-                }
-                className={cn(primaryButtonClass, "mt-5 w-full")}
-                onClick={handleBuilder}
-              >
-                {canActivateBuilderFreeCredits
-                  ? "Activate Builder.io free credits"
-                  : "Connect Builder.io free credits"}
-                <IconArrowRight size={15} />
-              </button>
-              {canActivateBuilderFreeCredits && (
-                <p
-                  id="first-run-builder-consent"
-                  data-testid="first-run-builder-consent"
-                  className="mt-3 text-[11px] leading-4 text-muted-foreground"
+              {canActivateBuilderFreeCredits ? (
+                <Popover
+                  open={builderActivationOpen}
+                  onOpenChange={setBuilderActivationOpen}
                 >
-                  Uses your verified Agent-Native email only. Google credentials
-                  are never shared. By selecting Activate, you agree to
-                  Builder.io&apos;s{" "}
-                  <a
-                    href="https://www.builder.io/legal/terms"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      data-testid="first-run-connect-builder"
+                      className={cn(primaryButtonClass, "mt-5 w-full")}
+                    >
+                      Activate Builder.io free credits
+                      <IconArrowRight size={15} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    sideOffset={8}
+                    aria-labelledby="first-run-builder-consent-title"
+                    data-testid="first-run-builder-consent"
+                    className="w-[min(360px,calc(100vw-2rem))] p-4 text-left"
                   >
-                    Terms of Service
-                  </a>{" "}
-                  and{" "}
-                  <a
-                    href="https://www.builder.io/legal/privacy"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Privacy Policy
-                  </a>
-                  .
-                </p>
+                    <div className="space-y-3">
+                      <div>
+                        <h2
+                          id="first-run-builder-consent-title"
+                          className="text-sm font-semibold text-foreground"
+                        >
+                          Activate Builder.io free credits
+                        </h2>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          We will create your Builder account for you
+                          automatically in one click.
+                        </p>
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        We use your verified Agent-Native email to create or
+                        reuse your Builder account. Google credentials are never
+                        shared.
+                      </p>
+                      <button
+                        type="button"
+                        data-testid="first-run-builder-create-and-activate"
+                        className={cn(primaryButtonClass, "w-full")}
+                        onClick={() => {
+                          setBuilderActivationOpen(false);
+                          handleBuilder();
+                        }}
+                      >
+                        Create and activate
+                        <IconArrowRight size={15} />
+                      </button>
+                      <p className="text-[11px] leading-4 text-muted-foreground">
+                        By selecting Create and activate, you agree to
+                        Builder.io&apos;s{" "}
+                        <a
+                          href="https://www.builder.io/legal/terms"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          Terms of Service
+                        </a>{" "}
+                        and{" "}
+                        <a
+                          href="https://www.builder.io/legal/privacy"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          Privacy Policy
+                        </a>
+                        .
+                      </p>
+                      <div className="border-t border-border pt-3">
+                        <button
+                          type="button"
+                          data-testid="first-run-builder-existing-account"
+                          className={cn(secondaryButtonClass, "w-full")}
+                          onClick={() => {
+                            setBuilderActivationOpen(false);
+                            handleBuilder(false);
+                          }}
+                        >
+                          Connect or log in to an existing Builder.io account
+                          <IconArrowRight size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="first-run-connect-builder"
+                  className={cn(primaryButtonClass, "mt-5 w-full")}
+                  onClick={() => handleBuilder()}
+                >
+                  Connect Builder.io free credits
+                  <IconArrowRight size={15} />
+                </button>
               )}
             </section>
 
@@ -968,7 +1040,7 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "connecting") {
-    const provisioning = connectFlow.agentNativeProvisioningEnabled;
+    const provisioning = builderConnectionMode === "provision";
     return (
       <OnboardingShell profile={profile} screen="choice">
         <div

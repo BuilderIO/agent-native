@@ -182,7 +182,7 @@ describe("FirstRunOnboarding", () => {
     ).toBeNull();
   });
 
-  it("shows one-click account consent and its loading state when enabled", () => {
+  it("shows one-click account consent in a popover and its loading state when enabled", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
@@ -213,11 +213,28 @@ describe("FirstRunOnboarding", () => {
     ).toContain("Activate Builder.io free credits");
     expect(
       document.body.querySelector('[data-testid="first-run-builder-consent"]'),
-    ).toBeTruthy();
+    ).toBeNull();
 
     act(() => {
       document.body
         .querySelector('[data-testid="first-run-connect-builder"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]')
+        ?.textContent,
+    ).toContain(
+      "We will create your Builder account for you automatically in one click.",
+    );
+    expect(document.body.textContent).toContain("Create and activate");
+    expect(document.body.textContent).toContain(
+      "Connect or log in to an existing Builder.io account",
+    );
+
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -231,6 +248,51 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[role="status"][aria-busy="true"]'),
     ).toBeTruthy();
     expect(start).toHaveBeenCalledOnce();
+  });
+
+  it("uses the existing-account connection flow from the consent popover", () => {
+    const start = vi.fn();
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: true,
+      error: null,
+      start,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-connect-builder"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-existing-account"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(start).toHaveBeenCalledWith({
+      trackingSource: "first_run_onboarding",
+      trackingFlow: "connect_llm",
+      provisionAccount: false,
+    });
+    expect(document.body.textContent).toContain(
+      "Connecting Builder.io free credits",
+    );
   });
 
   it("shows the searchable integration catalog and keeps onboarding open after connecting", async () => {
