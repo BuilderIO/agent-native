@@ -92,48 +92,6 @@ jobs:
               return { id: runId, url };
             }
 
-            async function getPublishedRelease(tag) {
-              try {
-                const response = await github.rest.repos.getReleaseByTag({
-                  owner,
-                  repo,
-                  tag,
-                });
-                return response.data;
-              } catch (error) {
-                if (error.status === 404) return null;
-                throw error;
-              }
-            }
-
-            function hasCompleteClipsRelease(release, version) {
-              if (!release || release.draft || release.prerelease) return false;
-              const assets = new Set(release.assets.map((asset) => asset.name));
-              return [
-                `Clips_${version}_universal.dmg`,
-                `Clips_${version}_x64-setup.exe`,
-                `Clips_${version}_x64_en-US.msi`,
-                "latest.json",
-              ].every((asset) => assets.has(asset));
-            }
-
-            function hasCompleteDesktopRelease(release) {
-              if (!release || release.draft || release.prerelease) return false;
-              const assets = new Set(release.assets.map((asset) => asset.name));
-              return [
-                "Agent-Native-arm64.dmg",
-                "Agent-Native-x64.dmg",
-                "Agent-Native-arm64.exe",
-                "Agent-Native-x64.exe",
-                "Agent-Native-arm64.AppImage",
-                "Agent-Native-x86_64.AppImage",
-                "latest.yml",
-                "latest-mac.yml",
-                "latest-linux.yml",
-                "latest-linux-arm64.yml",
-              ].every((asset) => assets.has(asset));
-            }
-
             async function getRun(runId) {
               return (await github.rest.actions.getWorkflowRun({
                 owner,
@@ -162,6 +120,49 @@ jobs:
                 if (error.status === 404) return null;
                 throw error;
               }
+            }
+
+            function parseStableVersion(value, label) {
+              const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+              if (!match) {
+                throw new Error(`${label} has no exact stable semver: ${value}`);
+              }
+              return match.slice(1).map(Number);
+            }
+
+            function compareStableVersions(left, right) {
+              for (let index = 0; index < left.length; index += 1) {
+                if (left[index] !== right[index]) return left[index] - right[index];
+              }
+              return 0;
+            }
+
+            function formatStableVersion(version) {
+              return version.join(".");
+            }
+
+            async function nextStableVersion(tagPrefix, baseVersion) {
+              let latest = parseStableVersion(baseVersion, `${tagPrefix} base version`);
+              const releases = await github.paginate(github.rest.repos.listReleases, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+              for (const release of releases) {
+                if (release.draft || release.prerelease || !release.tag_name.startsWith(tagPrefix)) {
+                  continue;
+                }
+                const version = release.tag_name.slice(tagPrefix.length);
+                if (!/^\d+\.\d+\.\d+$/.test(version)) continue;
+                const parsed = parseStableVersion(version, release.tag_name);
+                if (compareStableVersions(parsed, latest) > 0) latest = parsed;
+              }
+
+              const candidate = [latest[0], latest[1], latest[2] + 1];
+              while (await getRemoteTagSha(`${tagPrefix}${formatStableVersion(candidate)}`)) {
+                candidate[2] += 1;
+              }
+              return formatStableVersion(candidate);
             }
 
             async function getFirstParentSha(ref) {
@@ -328,7 +329,7 @@ jobs:
             await waitForRun(
               packagePreparation,
               "Stable package release preparation",
-              30 * 60_000,
+              90 * 60_000,
             );
 
             const releasePr = await waitForReleasePullRequest(previousReleaseNumbers);
@@ -343,9 +344,7 @@ jobs:
               "packages/core/package.json",
             );
             const stableVersion = (value, label) => {
-              if (typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)) {
-                throw new Error(`${label} has no exact stable semver: ${value}`);
-              }
+              parseStableVersion(value, label);
               return value;
             };
             const coreVersion = stableVersion(corePackage.version, "Core package");
@@ -362,26 +361,24 @@ jobs:
               releaseSha,
               "packages/desktop-app/package.json",
             );
-            const initialDesktopPackage = await readJsonAt(
-              releaseBaseSha,
-              "packages/desktop-app/package.json",
-            );
             const clipsPackage = await readJsonAt(
               releaseSha,
-              "templates/clips/desktop/package.json",
-            );
-            const initialClipsPackage = await readJsonAt(
-              releaseBaseSha,
               "templates/clips/desktop/package.json",
             );
             const sitesManifest = await readJsonAt(
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
-            const desktopVersion = stableVersion(desktopPackage.version, "Desktop app");
-            const clipsVersion = stableVersion(clipsPackage.version, "Clips desktop app");
-            const desktopVersionChanged = initialDesktopPackage.version !== desktopPackage.version;
-            const clipsVersionChanged = initialClipsPackage.version !== clipsPackage.version;
+            // Private desktop packages do not advance in the npm release commit.
+            const desktopVersion = await nextStableVersion(
+              "v",
+              stableVersion(desktopPackage.version, "Desktop app"),
+            );
+            const clipsVersion = await nextStableVersion(
+              "clips-v",
+              stableVersion(clipsPackage.version, "Clips desktop app"),
+            );
+            core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
             const productionSites = Object.entries(sitesManifest)
               .filter(([, site]) =>
                 typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
@@ -391,69 +388,17 @@ jobs:
               throw new Error("The production site manifest contains no *.agent-native.com sites.");
             }
 
-            const existingDesktopRelease = await getPublishedRelease(`v${desktopVersion}`);
-            const desktopAlreadyPublished = hasCompleteDesktopRelease(existingDesktopRelease);
-            if (desktopAlreadyPublished) {
-              const desktopTagSha = await getRemoteTagSha(`v${desktopVersion}`);
-              if (!desktopTagSha) {
-                throw new Error(`Complete Desktop release v${desktopVersion} has no resolvable tag.`);
-              }
-              if (desktopVersionChanged) {
-                if (desktopTagSha !== releaseSha) {
-                  throw new Error(
-                    `Complete Desktop release v${desktopVersion} points to ${desktopTagSha}, expected ${releaseSha}.`,
-                  );
-                }
-              }
-              core.info(`Desktop v${desktopVersion} is already published with its required assets; treating it as complete.`);
-            } else if (existingDesktopRelease && !existingDesktopRelease.draft) {
-              throw new Error(
-                `Desktop release v${desktopVersion} is published but incomplete; refusing to rebuild a published release. Repair it manually or choose a new version.`,
-              );
-            }
-
-            const existingClipsRelease = await getPublishedRelease(`clips-v${clipsVersion}`);
-            const clipsAlreadyPublished = hasCompleteClipsRelease(existingClipsRelease, clipsVersion);
-            if (clipsAlreadyPublished) {
-              const clipsTagSha = await getRemoteTagSha(`clips-v${clipsVersion}`);
-              if (!clipsTagSha) {
-                throw new Error(`Complete Clips release clips-v${clipsVersion} has no resolvable tag.`);
-              }
-              if (clipsVersionChanged) {
-                if (clipsTagSha !== releaseSha) {
-                  throw new Error(
-                    `Complete Clips release clips-v${clipsVersion} points to ${clipsTagSha}, expected ${releaseSha}.`,
-                  );
-                }
-              }
-              core.info(`Clips v${clipsVersion} is already published with its required assets; treating it as complete.`);
-            } else if (existingClipsRelease && !existingClipsRelease.draft) {
-              throw new Error(
-                `Clips release clips-v${clipsVersion} is published but incomplete; refusing to rebuild a published release. Repair it manually or choose a new version.`,
-              );
-            }
-
             const [desktop, clips, production] = await Promise.all([
-              desktopAlreadyPublished
-                ? Promise.resolve({
-                    url: existingDesktopRelease.html_url,
-                    existing: true,
-                  })
-                : dispatch("desktop-release.yml", workflowRef, {
-                    channel: "production",
-                    version: desktopVersion,
-                    source_ref: releaseSha,
-                  }),
-              clipsAlreadyPublished
-                ? Promise.resolve({
-                    url: existingClipsRelease.html_url,
-                    existing: true,
-                  })
-                : dispatch("clips-desktop-release.yml", workflowRef, {
-                    channel: "production",
-                    version: clipsVersion,
-                    source_ref: releaseSha,
-                  }),
+              dispatch("desktop-release.yml", workflowRef, {
+                channel: "production",
+                version: desktopVersion,
+                source_ref: releaseSha,
+              }),
+              dispatch("clips-desktop-release.yml", workflowRef, {
+                channel: "production",
+                version: clipsVersion,
+                source_ref: releaseSha,
+              }),
               dispatch("deploy-production-sites-prebuilt.yml", workflowRef, {
                 sites: productionSites.join(","),
                 source_ref: releaseSha,
@@ -463,12 +408,8 @@ jobs:
             ]);
 
             const downstream = await Promise.allSettled([
-              desktopAlreadyPublished
-                ? Promise.resolve({ status: "completed", conclusion: "success" })
-                : waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
-              clipsAlreadyPublished
-                ? Promise.resolve({ status: "completed", conclusion: "success" })
-                : waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
+              waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
+              waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
               waitForRun(production, "Production site fleet", 120 * 60_000),
             ]);
             const failures = downstream
