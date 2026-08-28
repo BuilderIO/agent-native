@@ -37,6 +37,7 @@ import {
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
+  hasActiveCredibleSafetyFinding,
   currentPullRequestApprovals,
   FACTORY_APPROVAL_BODY_MARKER,
   hasCurrentBlockingPullRequestReview,
@@ -325,13 +326,53 @@ export default defineAction({
               updatedAt: new Date().toISOString(),
             })
             .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+          await recordFactoryAudit(
+            context,
+            { userEmail, orgId },
+            {
+              action: "govern-agent-native-pull-request",
+              kind: "external_action",
+              status: "success",
+              itemId,
+              source: "github",
+              sourceUrl: attributedApprovalUrl,
+              summary:
+                "Recovered the attributed Factory approval after an ambiguous provider result.",
+              details: {
+                repo,
+                pullRequestNumber,
+                decisionId,
+                approvalUrl: attributedApprovalUrl,
+              },
+            },
+            factoryId,
+          );
         }
       }
       if (itemId && !recoveredApproval && !previouslyFinalized) {
         await getDb()
+          .update(triageDecisions)
+          .set({
+            outcome: "needs_manual",
+            reason:
+              "A current approval could not be correlated to the Factory claim; reconciliation is required.",
+          })
+          .where(
+            and(
+              eq(
+                triageDecisions.id,
+                stableId("pr-governance", orgId, itemId, snapshot.headSha),
+              ),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          );
+        await getDb()
           .update(triageItems)
           .set({
-            status: "pr_observed",
+            status: "reconciliation_required",
             updatedAt: new Date().toISOString(),
           })
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
@@ -350,6 +391,10 @@ export default defineAction({
       snapshot.checks.every((check) => check.state === "passed");
     const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
       snapshot.reviews,
+    );
+    const safetyFindingsClean = !hasActiveCredibleSafetyFinding(
+      snapshot.reviews,
+      snapshot.comments,
     );
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
@@ -387,6 +432,7 @@ export default defineAction({
       checksPassed,
       reviewFeedbackHandled,
       blockingReviewStatesClean,
+      safetyFindingsClean,
       openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
       internalBuilderMember: internalMember.isMember,
       factoryTriggered,

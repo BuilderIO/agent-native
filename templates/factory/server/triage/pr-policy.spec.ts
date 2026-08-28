@@ -5,6 +5,7 @@ import {
   detectOwnerOwnedArea,
   hasCurrentBlockingPullRequestReview,
   hasCurrentPullRequestApproval,
+  hasActiveCredibleSafetyFinding,
   isDocsOnly,
   isUltraScaryChange,
 } from "./pr-policy.js";
@@ -19,6 +20,7 @@ const cleanInternalBug = {
   checksPassed: true,
   reviewFeedbackHandled: true,
   blockingReviewStatesClean: true,
+  safetyFindingsClean: true,
   openNonDraft: true,
   internalBuilderMember: true,
   factoryTriggered: true,
@@ -145,6 +147,29 @@ describe("pull-request governance", () => {
         "templates/factory/actions/start-builder-for-item.ts",
       ]),
     ).toBe(true);
+    expect(
+      isUltraScaryChange([
+        "templates/factory/server/plugins/agent-chat.ts",
+        "templates/factory/server/triage/builder-executor.ts",
+      ]),
+    ).toBe(true);
+  });
+
+  it("keeps active safety findings blocking", () => {
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "This bypasses tenant isolation." }],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        authorId: 2721089,
+        safetyFindingsClean: false,
+      }).autoApprove,
+    ).toBe(false);
   });
 
   it("does not trust an owner username without verified membership", () => {

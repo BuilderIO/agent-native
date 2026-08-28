@@ -27,6 +27,7 @@ export interface PullRequestGovernanceInput {
   checksPassed: boolean;
   reviewFeedbackHandled: boolean;
   blockingReviewStatesClean: boolean;
+  safetyFindingsClean: boolean;
   openNonDraft: boolean;
   internalBuilderMember: boolean;
   factoryTriggered: boolean;
@@ -120,6 +121,13 @@ export function decidePullRequestGovernance(
       reason: ultraScary
         ? "Security-sensitive auth, tenant-isolation, execution, payment, or deployment changes always require manual review."
         : "The changed paths do not match the ultra-scary manual-review categories.",
+    },
+    {
+      code: "security",
+      passed: input.safetyFindingsClean,
+      reason: input.safetyFindingsClean
+        ? "Fresh review evidence contains no active credible safety finding."
+        : "An active credible safety finding requires manual review.",
     },
     {
       code: "security",
@@ -398,6 +406,8 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/reconcile-triage-run.ts") ||
       normalized.endsWith("/approve-factory-item.ts") ||
       normalized.endsWith("/start-builder-for-item.ts") ||
+      normalized.endsWith("/agent-chat.ts") ||
+      normalized.endsWith("/builder-executor.ts") ||
       normalized.includes("/pr-policy.") ||
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith(".github/workflows/") ||
@@ -406,6 +416,28 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       )
     );
   });
+}
+
+const SAFETY_FINDING_PATTERN =
+  /\b(auth|authentication|credential|secret|permission|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss)\b/i;
+
+export function hasActiveCredibleSafetyFinding(
+  reviews: readonly { state: string; body?: string | null }[],
+  comments: readonly { body: string; isResolved?: boolean }[],
+): boolean {
+  return (
+    reviews.some(
+      (review) =>
+        review.state === "commented" &&
+        typeof review.body === "string" &&
+        SAFETY_FINDING_PATTERN.test(review.body),
+    ) ||
+    comments.some(
+      (comment) =>
+        comment.isResolved !== true &&
+        SAFETY_FINDING_PATTERN.test(comment.body),
+    )
+  );
 }
 
 function ownerExceptionCoversArea(

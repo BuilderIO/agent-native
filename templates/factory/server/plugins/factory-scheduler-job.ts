@@ -341,7 +341,8 @@ number, clearBug, productUxImplications, and a short reason. The action fetches
 fresh CI and review evidence before approving. For a verified current BuilderIO
 member, the internal-author exception means ordinary failed, pending, skipped,
 or unknown checks and unresolved ordinary feedback do not by themselves block
-approval; record their exact states and never call them clean. Apply the
+approval; record their exact states and never call them clean. Active credible
+safety findings in fresh review evidence always block approval. Apply the
 verified Alice/Content, Nick/Slides, Enzo/Factory-specific, Sid/Design, and
 docs-only owner exceptions from review-prs only after membership and an
 explicit ultra-scary assessment. Those exceptions do not waive membership,
