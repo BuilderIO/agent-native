@@ -652,7 +652,7 @@ export function updateImageFitInSlideHtml(
   for (const token of imageSourceTokens(content)) {
     if (token.source !== src) continue;
     if (matchingImage++ !== Math.max(0, imageOccurrence)) continue;
-  return token.kind === "html"
+    return token.kind === "html"
       ? updateHtmlImageAt(content, token, updates)
       : updateMarkdownImageAt(content, token, updates);
   }
