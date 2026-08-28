@@ -43,6 +43,7 @@ import {
   getDateKeyInTimezone,
   getEventDateKey,
   getEventSegmentForCalendarDay,
+  isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
@@ -635,7 +636,8 @@ export const WeekView = memo(function WeekView({
   const allDayEvents = useMemo(
     () =>
       events.filter(
-        (event) => event.allDay || isFullDayOutOfOfficeEvent(event),
+        (event) =>
+          isAllDayCalendarEvent(event) || isFullDayOutOfOfficeEvent(event),
       ),
     [events],
   );
@@ -644,7 +646,7 @@ export const WeekView = memo(function WeekView({
     () =>
       events.filter(
         (event) =>
-          !event.allDay &&
+          !isAllDayCalendarEvent(event) &&
           isOutOfOfficeEvent(event) &&
           !isFullDayOutOfOfficeEvent(event),
       ),
@@ -652,7 +654,10 @@ export const WeekView = memo(function WeekView({
   );
 
   const timedEvents = useMemo(
-    () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
+    () =>
+      events.filter(
+        (event) => !isAllDayCalendarEvent(event) && !isOutOfOfficeEvent(event),
+      ),
     [events],
   );
 

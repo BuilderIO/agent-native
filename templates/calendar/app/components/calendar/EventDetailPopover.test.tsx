@@ -277,6 +277,9 @@ describe("EventDetailPopover characterization", () => {
     );
     expect(content).toBeTruthy();
     expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain(
+      "text-[11px] font-medium uppercase tracking-wider",
+    );
   });
 
   it("makes the event options visible and scrolls to them when opened", () => {

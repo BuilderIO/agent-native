@@ -1672,8 +1672,8 @@ export function EventDetailPopover({
       >
         <TooltipProvider>
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-            <div className="text-base font-medium text-foreground">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               <span>
                 {isWorkingLocation
                   ? t("eventForm.workingLocation")

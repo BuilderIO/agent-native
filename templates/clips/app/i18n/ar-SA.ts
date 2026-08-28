@@ -637,6 +637,8 @@ const messages = {
     macSublabel: "عالمي (Apple Silicon + Intel)",
     windowsSublabel: "المثبت 64 بت MSI",
     downloadFor: "تحميل {{platform}}",
+    downloadStarted: "بدأ التنزيل",
+    downloadAgain: "لم ينجح؟ حاول التنزيل مرة أخرى",
     alsoFor: "متاح أيضًا لـ {{platform}}",
     backToLibrary: "العودة إلى المكتبة",
     clipsDesktop: "Clips Desktop",

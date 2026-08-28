@@ -6,6 +6,7 @@ import {
   resolveDesktopSsoBrokerStatePath,
   resolveStableUserDataPath,
   runDesktopStartupStep,
+  type DesktopStartupDependencies,
 } from "./desktop-startup.js";
 
 describe("desktopRequestedUserDataPath", () => {
@@ -27,13 +28,14 @@ describe("desktopRequestedUserDataPath", () => {
 
 function createDependencies(
   overrides: Partial<Parameters<typeof initializeDesktopStartup>[0]> = {},
-) {
+): { events: string[]; dependencies: DesktopStartupDependencies } {
   const events: string[] = [];
   return {
     events,
     dependencies: {
       isPackaged: true,
       version: "0.1.150-desktop-sso-canary.20",
+      releaseChannel: "production",
       appDataPath: "/application-support",
       defaultUserDataPath: "/application-support/Agent-Native",
       pathExists: vi.fn(() => false),
@@ -171,6 +173,22 @@ describe("initializeDesktopStartup", () => {
     expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
       "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
     );
+  });
+
+  it("does not reuse the stable profile for packaged Nightly", () => {
+    const { dependencies, events } = createDependencies({
+      releaseChannel: "nightly",
+      version: "0.1.150-nightly.296",
+      defaultUserDataPath: "/application-support/Agent-Native Nightly",
+      pathExists: vi.fn(() => true),
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.pathExists).not.toHaveBeenCalled();
+    expect(dependencies.createDirectory).not.toHaveBeenCalled();
+    expect(dependencies.setUserDataPath).not.toHaveBeenCalled();
+    expect(events).toEqual(["sentry", "logger"]);
   });
 
   it("uses an explicit profile for packaged Desktop before profile consumers", () => {

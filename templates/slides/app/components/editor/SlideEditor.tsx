@@ -84,6 +84,9 @@ import {
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
+  imageOccurrenceInRenderedSlide,
+  normalizeImageObjectPosition,
+  type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -468,6 +471,7 @@ function stylePropertyName(property: string): string {
 
 const INLINE_INSPECTOR_STYLE_KEYS = [
   "color",
+  "fontFamily",
   "fontSize",
   "fontWeight",
   "fontStyle",
@@ -555,10 +559,27 @@ function buildStyleSnapshot(
   const paddingBottom = cssPx(computed.paddingBottom);
   const parsedZIndex = Number(computed.zIndex);
   const zIndex = Number.isFinite(parsedZIndex) ? parsedZIndex : 0;
+  const isImage =
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-pptx-image") ||
+    element.getAttribute("data-pptx-element-kind") === "image";
+  const objectFit =
+    element.tagName === "IMG"
+      ? computed.objectFit === "contain"
+        ? "contain"
+        : "cover"
+      : undefined;
+  const objectPosition =
+    element.tagName === "IMG"
+      ? normalizeImageObjectPosition(
+          element.style.objectPosition || computed.objectPosition,
+        )
+      : undefined;
 
   const selectedTextStyle =
     inlineTextStyle?.scope === "selection" ? inlineTextStyle : null;
   const selectedColor = selectedTextStyle?.values.color;
+  const selectedFontFamily = selectedTextStyle?.values.fontFamily;
   const selectedFontSize = selectedTextStyle?.values.fontSize;
   const selectedFontWeight = selectedTextStyle?.values.fontWeight;
   const selectedFontStyle = selectedTextStyle?.values.fontStyle;
@@ -572,14 +593,14 @@ function buildStyleSnapshot(
     isText:
       element.tagName !== "IMG" &&
       (!!textPreview || element.classList.contains("fmd-text-box")),
-    isImage:
-      element.tagName === "IMG" ||
-      element.classList.contains("fmd-pptx-image") ||
-      element.getAttribute("data-pptx-element-kind") === "image",
+    isImage,
+    objectFit,
+    objectPosition,
     color:
       selectedColor === null || selectedColor === undefined
         ? normalizedColor(computed.color)
         : normalizedColor(selectedColor),
+    fontFamily: selectedFontFamily ?? computed.fontFamily,
     backgroundColor: normalizedColor(computed.backgroundColor),
     fontSize:
       selectedFontSize === null || selectedFontSize === undefined
@@ -631,6 +652,7 @@ function selectionItemForElement(
   element: HTMLElement,
   runtimeSelector: string,
   snapshot?: SlideStyleSnapshot,
+  imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
 ): SlideSelectionItem {
   const identity = getSlideSelectionIdentity(element, runtimeSelector);
   return {
@@ -647,7 +669,9 @@ function selectionItemForElement(
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
         : (element.querySelector("img")?.getAttribute("src") ?? undefined),
-    style: snapshot ? { ...snapshot, selector: identity.selector } : undefined,
+    style: snapshot
+      ? { ...snapshot, ...imageStyle, selector: identity.selector }
+      : undefined,
   };
 }
 
@@ -719,7 +743,16 @@ interface SlideEditorProps {
     url: string,
     position?: SlideImageDropPosition,
   ) => void;
-  onToggleObjectFit: (imgSrc: string, newFit: string) => void;
+  onToggleObjectFit: (
+    imgSrc: string,
+    newFit: "cover" | "contain",
+    imageOccurrence?: number,
+  ) => void;
+  onChangeObjectPosition: (
+    imgSrc: string,
+    objectPosition: ImageObjectPosition,
+    imageOccurrence?: number,
+  ) => void;
   /** Current user display info for cursor caret */
   collabUser?: { name: string; color: string };
   /** True briefly when AI agent is making edits */
@@ -1197,6 +1230,7 @@ export default function SlideEditor({
   onDropImage,
   onDropImageUrl,
   onToggleObjectFit,
+  onChangeObjectPosition,
   agentActive,
   slideIndex = 0,
   designSystem,
@@ -1235,6 +1269,8 @@ export default function SlideEditor({
     rect: DOMRect;
     src: string;
     objectFit: "cover" | "contain";
+    objectPosition: ImageObjectPosition;
+    imageOccurrence: number;
   } | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
@@ -2990,10 +3026,11 @@ export default function SlideEditor({
 
   const getPlaceholderTarget = useCallback(
     (placeholder: HTMLElement): string => {
-      const slideContent = getSlideContent();
-      const placeholders = slideContent
+      const placeholders = containerRef.current
         ? Array.from(
-            slideContent.querySelectorAll<HTMLElement>(".fmd-img-placeholder"),
+            containerRef.current.querySelectorAll<HTMLElement>(
+              ".slide-content .fmd-img-placeholder",
+            ),
           )
         : [];
       const index = Math.max(0, placeholders.indexOf(placeholder));
@@ -3002,7 +3039,7 @@ export default function SlideEditor({
         placeholder.textContent?.trim() || "image",
       );
     },
-    [getSlideContent],
+    [],
   );
 
   const getImageReplacementTarget = useCallback(
@@ -5798,22 +5835,31 @@ export default function SlideEditor({
     );
   }, [multiSelection.size, multiSelectionRects, slide.id, slideIndex]);
 
+  const publishImageSelection = useCallback(
+    (
+      element: HTMLElement,
+      imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
+    ) => {
+      const selector =
+        getBuilderSelector(element) ??
+        `[data-builder-id="${ensureBuilderId(element)}"]`;
+      const snapshot = buildStyleSnapshot(element, selector);
+      syncSelectionToAppState(
+        buildSelectionState("image", [
+          selectionItemForElement(
+            element,
+            selector,
+            { ...snapshot, isImage: true },
+            imageStyle,
+          ),
+        ]),
+      );
+    },
+    [buildSelectionState],
+  );
+
   const showImageOverlay = useCallback(
     (target: HTMLElement) => {
-      const publishImageSelection = (element: HTMLElement) => {
-        const selector =
-          getBuilderSelector(element) ??
-          `[data-builder-id="${ensureBuilderId(element)}"]`;
-        const snapshot = buildStyleSnapshot(element, selector);
-        syncSelectionToAppState(
-          buildSelectionState("image", [
-            selectionItemForElement(element, selector, {
-              ...snapshot,
-              isImage: true,
-            }),
-          ]),
-        );
-      };
       if (target.tagName === "IMG") {
         const img = target as HTMLImageElement;
         const rect = img.getBoundingClientRect();
@@ -5823,8 +5869,22 @@ export default function SlideEditor({
             ? "contain"
             : "cover"
         ) as "cover" | "contain";
+        const computedStyle = window.getComputedStyle(img);
+        const position = normalizeImageObjectPosition(
+          img.style.objectPosition || computedStyle.objectPosition,
+        );
+        const imageOccurrence = imageOccurrenceInRenderedSlide(
+          containerRef.current,
+          img,
+        );
         setSelectedImg(img);
-        setImageOverlay({ rect, src, objectFit: fit });
+        setImageOverlay({
+          rect,
+          src,
+          objectFit: fit,
+          objectPosition: position,
+          imageOccurrence,
+        });
         publishImageSelection(img);
         return;
       }
@@ -5839,11 +5899,13 @@ export default function SlideEditor({
           rect,
           src: getPlaceholderTarget(placeholder),
           objectFit: "cover",
+          objectPosition: "center center",
+          imageOccurrence: 0,
         });
         publishImageSelection(placeholder);
       }
     },
-    [buildSelectionState, getPlaceholderTarget],
+    [getPlaceholderTarget, publishImageSelection],
   );
 
   // Browsers put the dragged element's outerHTML on the "text/html" data
@@ -6999,6 +7061,7 @@ export default function SlideEditor({
           anchorRect={imageOverlay.rect}
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
+          objectPosition={imageOverlay.objectPosition}
           onGenerate={onGenerateImage}
           onLibrary={() => onOpenAssetLibrary(imageOverlay.src)}
           onUpload={() => onUploadImage(imageOverlay.src)}
@@ -7006,8 +7069,32 @@ export default function SlideEditor({
           onToggleObjectFit={() => {
             const newFit =
               imageOverlay.objectFit === "cover" ? "contain" : "cover";
-            onToggleObjectFit(imageOverlay.src, newFit);
+            onToggleObjectFit(
+              imageOverlay.src,
+              newFit,
+              imageOverlay.imageOccurrence,
+            );
             setImageOverlay({ ...imageOverlay, objectFit: newFit });
+            if (selectedImg) {
+              publishImageSelection(selectedImg, {
+                objectFit: newFit,
+                objectPosition: imageOverlay.objectPosition,
+              });
+            }
+          }}
+          onChangeObjectPosition={(objectPosition) => {
+            onChangeObjectPosition(
+              imageOverlay.src,
+              objectPosition,
+              imageOverlay.imageOccurrence,
+            );
+            setImageOverlay({ ...imageOverlay, objectPosition });
+            if (selectedImg) {
+              publishImageSelection(selectedImg, {
+                objectFit: imageOverlay.objectFit,
+                objectPosition,
+              });
+            }
           }}
           onClose={() => setImageOverlay(null)}
         />

@@ -108,6 +108,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
   "forms:responses": "public submissions scoped through forms",
+  "forms:response_deliveries":
+    "internal delivery ledger scoped through form responses",
   "assets:asset_folders": "child rows scoped through libraries",
   "assets:image_assets": "child rows scoped through libraries/collections",
   "assets:image_collections": "child rows scoped through libraries",

@@ -19,6 +19,7 @@ export function setCopiedStyle(s: CopiedStyle | null): void {
 export type CopiedElementStyle = Pick<
   SlideStylePatch,
   | "color"
+  | "fontFamily"
   | "backgroundColor"
   | "fontSize"
   | "fontWeight"
@@ -48,6 +49,7 @@ export function copiedElementStyleFromSnapshot(
 ): CopiedElementStyle {
   return {
     color: snapshot.color,
+    fontFamily: snapshot.fontFamily,
     backgroundColor: snapshot.backgroundColor,
     fontSize: px(snapshot.fontSize),
     fontWeight: snapshot.fontWeight,
