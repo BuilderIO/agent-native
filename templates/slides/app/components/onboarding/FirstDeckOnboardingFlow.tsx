@@ -1,12 +1,14 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
 import { IconArrowLeft } from "@tabler/icons-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -62,11 +64,12 @@ export function FirstDeckOnboardingFlow({
   >([]);
   const [promptInitialText, setPromptInitialText] = useState<string>();
   const [promptInitialTextKey, setPromptInitialTextKey] = useState<number>();
-  const [uploading, setUploading] = useState(false);
   const [referenceImporting, setReferenceImporting] = useState(false);
   const [recentReferences, setRecentReferences] = useState<RecentReference[]>(
     [],
   );
+  const promptSourceFilesRef = useRef<File[]>([]);
+  const generationInFlightRef = useRef(false);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const workspaceDesignSystemId =
@@ -88,6 +91,34 @@ export function FirstDeckOnboardingFlow({
   const initialDesignSystemId =
     lastUsedDesignSystemId ?? workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (!generationInFlightRef.current) discard();
+    },
+    [],
+  );
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    syncFiles,
+    uploadFiles,
+    uploading,
+  } = useEagerFileUploads(uploadPromptFiles, {
+    onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
 
   useEffect(() => {
     const result = readRecentReferences();
@@ -127,9 +158,10 @@ export function FirstDeckOnboardingFlow({
       _references: unknown[],
       options?: PromptComposerSubmitOptions,
     ) => {
-      setUploading(true);
       try {
-        const uploaded = await uploadPromptFiles(files);
+        const uploaded = await uploadFiles(files);
+        retainFiles(files);
+        promptSourceFilesRef.current = files;
         setPrompt(text);
         const chatAttachments = await createPromptChatAttachments(
           options?.attachments,
@@ -139,17 +171,32 @@ export function FirstDeckOnboardingFlow({
         setPromptAttachments(chatAttachments);
         setStep("references");
       } catch (error) {
+        discardFiles(files);
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
               ? error.message
               : t("raw.uploadAttachedFailed"),
         });
-      } finally {
-        setUploading(false);
       }
     },
-    [t],
+    [discardFiles, retainFiles, t, uploadFiles],
+  );
+
+  const handlePromptAttachmentsChange = useCallback(
+    (files: File[]) => {
+      if (files.length === 0 && promptSourceFilesRef.current.length > 0) return;
+      syncFiles(files);
+      void uploadFiles(files).catch((error) => {
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      });
+    },
+    [syncFiles, t, uploadFiles],
   );
 
   const startGeneration = useCallback(
@@ -157,57 +204,77 @@ export function FirstDeckOnboardingFlow({
       files: UploadedFile[],
       selection: NewDeckReferenceSelection = {},
     ) => {
-      const result = await startDeckGeneration({
-        session,
-        prompt,
-        files,
-        attachments: promptAttachments,
-        referenceSelection: selection,
-        selectedDesignSystemId: initialDesignSystemId,
-        selectedReferenceDeckId: initialReferenceDeckId,
-        designSystems,
-        createDeck,
-        ensureDeckPersisted,
-        deleteDeck,
-        navigate,
-        agentSubmit,
-        onPromptClosed: () => undefined,
-        onUnauthenticated: () => {
-          toast.error(t("home.signInTitle"));
-        },
-        onPersistenceFailure: (failedPrompt, failedFiles, failure) => {
-          setPromptInitialText(failedPrompt);
-          setPromptInitialTextKey(Date.now());
-          setPromptFiles(failedFiles);
-          setPromptAttachments(promptAttachments);
-          setStep("prompt");
-          toast.error(t("home.generationStartFailed"), {
-            description: describeDeckPersistenceFailure(
-              failure,
-              t("home.generationStartFailedDescription"),
-            ),
-          });
-        },
-        onSetupFailure: (failedPrompt, failedFiles, failure) => {
-          setPromptInitialText(failedPrompt);
-          setPromptInitialTextKey(Date.now());
-          setPromptFiles(failedFiles);
-          setPromptAttachments(promptAttachments);
-          setStep("prompt");
-          toast.error(t("home.generationStartFailed"), {
-            description:
-              failure instanceof Error
-                ? failure.message
-                : t("home.generationStartFailedDescription"),
-          });
-        },
-      });
-      if (result === "started") onComplete();
+      const sourceFiles = promptSourceFilesRef.current;
+      const clearSourceFiles = () => {
+        if (promptSourceFilesRef.current === sourceFiles) {
+          promptSourceFilesRef.current = [];
+        }
+      };
+      generationInFlightRef.current = true;
+      try {
+        const result = await startDeckGeneration({
+          session,
+          prompt,
+          files,
+          attachments: promptAttachments,
+          referenceSelection: selection,
+          selectedDesignSystemId: initialDesignSystemId,
+          selectedReferenceDeckId: initialReferenceDeckId,
+          designSystems,
+          createDeck,
+          ensureDeckPersisted,
+          deleteDeck,
+          navigate,
+          agentSubmit,
+          onPromptClosed: () => undefined,
+          onUnauthenticated: () => {
+            toast.error(t("home.signInTitle"));
+          },
+          onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
+            setPromptInitialText(failedPrompt);
+            setPromptInitialTextKey(Date.now());
+            setStep("prompt");
+            toast.error(t("home.generationStartFailed"), {
+              description: describeDeckPersistenceFailure(
+                failure,
+                t("home.generationStartFailedDescription"),
+              ),
+            });
+          },
+          onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+            setPromptInitialText(failedPrompt);
+            setPromptInitialTextKey(Date.now());
+            setStep("prompt");
+            toast.error(t("home.generationStartFailed"), {
+              description:
+                failure instanceof Error
+                  ? failure.message
+                  : t("home.generationStartFailedDescription"),
+            });
+          },
+        });
+        if (result === "started") {
+          commitFiles(sourceFiles);
+          clearSourceFiles();
+          onComplete();
+          return;
+        }
+        discardFiles(sourceFiles);
+        clearSourceFiles();
+      } catch (error) {
+        discardFiles(sourceFiles);
+        clearSourceFiles();
+        throw error;
+      } finally {
+        generationInFlightRef.current = false;
+      }
     },
     [
       agentSubmit,
+      commitFiles,
       createDeck,
       deleteDeck,
+      discardFiles,
       designSystems,
       ensureDeckPersisted,
       initialDesignSystemId,
@@ -410,14 +477,20 @@ export function FirstDeckOnboardingFlow({
     [callAction, reloadDecks, t],
   );
 
-  const handleReferenceSkip = useCallback(() => {
+  const handleReferenceSkip = useCallback(async () => {
     forgetReference("design-system");
     forgetReference("deck");
-    void startGeneration(promptFiles, {
+    await startGeneration(promptFiles, {
       designSystemId: null,
       referenceDeckId: null,
     });
   }, [forgetReference, promptFiles, startGeneration]);
+
+  const handleFirstDeckSkip = useCallback(() => {
+    discardFiles(promptSourceFilesRef.current);
+    promptSourceFilesRef.current = [];
+    onSkip();
+  }, [discardFiles, onSkip]);
 
   if (step === "references") {
     return (
@@ -432,7 +505,11 @@ export function FirstDeckOnboardingFlow({
         onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
         onOpenChange={(open) => {
-          if (!open) setStep("prompt");
+          if (!open && !generationInFlightRef.current) {
+            discardFiles(promptSourceFilesRef.current);
+            promptSourceFilesRef.current = [];
+            setStep("prompt");
+          }
         }}
         importing={referenceImporting}
         title={t("home.newDeck")}
@@ -461,7 +538,7 @@ export function FirstDeckOnboardingFlow({
         </div>
         <button
           type="button"
-          onClick={onSkip}
+          onClick={handleFirstDeckSkip}
           className="text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("home.firstDeckSkip")}
@@ -482,6 +559,7 @@ export function FirstDeckOnboardingFlow({
             disabled={uploading}
             placeholder={t("home.newDeckPlaceholder")}
             onSubmit={handlePromptSubmit}
+            onAttachmentsChange={handlePromptAttachmentsChange}
             draftScope="slides-first-deck"
             initialText={promptInitialText}
             initialTextKey={promptInitialTextKey}

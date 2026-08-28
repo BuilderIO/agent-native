@@ -60,6 +60,7 @@ import {
 } from "../../lib/recordings.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
+import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -329,6 +330,7 @@ export default defineEventHandler(async (event) => {
           asc(schema.recordingComments.createdAt),
         )
     : [];
+  const hydratedComments = await hydrateCommentAuthorNames(comments);
 
   const reactions = rec.enableReactions
     ? await db
@@ -509,7 +511,7 @@ export default defineEventHandler(async (event) => {
           segments: transcriptSegments,
         }
       : null,
-    comments: comments.map((c) => ({
+    comments: hydratedComments.map((c) => ({
       id: c.id,
       recordingId: c.recordingId,
       threadId: c.threadId,

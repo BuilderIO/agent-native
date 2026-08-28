@@ -1,6 +1,8 @@
+import fs from "fs";
 import path from "path";
 
 import {
+  deletePrivateBlob,
   putPrivateBlob,
   readPrivateBlob,
   type PrivateBlobHandle,
@@ -15,7 +17,11 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
 
-import { tenantFileKey } from "./tenant-files.js";
+import {
+  isHostedSlidesRuntime,
+  tenantFileKey,
+  tenantUploadDir,
+} from "./tenant-files.js";
 
 export { isHostedSlidesRuntime } from "./tenant-files.js";
 
@@ -72,11 +78,13 @@ export async function storeUploadedReferenceBlob(args: {
   )}`;
 }
 
-export async function readUploadedReferenceBlob(
+function parseUploadedReferenceDescriptor(
   reference: string,
   email: string,
-): Promise<{ data: Buffer; filename: string } | null> {
-  if (!reference.startsWith(UPLOADED_REFERENCE_PREFIX)) return null;
+): UploadedReferenceDescriptor {
+  if (!reference.startsWith(UPLOADED_REFERENCE_PREFIX)) {
+    throw new Error("Invalid uploaded file reference");
+  }
 
   let descriptor: UploadedReferenceDescriptor;
   try {
@@ -121,6 +129,41 @@ export async function readUploadedReferenceBlob(
       "Access denied: uploaded file reference is not valid for this user or organization",
     );
   }
+
+  return descriptor;
+}
+
+export async function deleteUploadedReferenceBlob(
+  reference: string,
+  email: string,
+): Promise<boolean> {
+  if (isHostedSlidesRuntime()) {
+    const descriptor = parseUploadedReferenceDescriptor(reference, email);
+    return (await deletePrivateBlob(descriptor.handle)).deleted;
+  }
+
+  const uploadDir = path.resolve(tenantUploadDir(email));
+  const candidate = path.resolve(process.cwd(), reference);
+  if (path.dirname(candidate) !== uploadDir) {
+    throw new Error("Invalid uploaded file reference");
+  }
+  try {
+    await fs.promises.unlink(candidate);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+export async function readUploadedReferenceBlob(
+  reference: string,
+  email: string,
+): Promise<{ data: Buffer; filename: string } | null> {
+  if (!reference.startsWith(UPLOADED_REFERENCE_PREFIX)) return null;
+
+  const descriptor = parseUploadedReferenceDescriptor(reference, email);
+  const safeFilename = descriptor.filename;
 
   const blob = await readPrivateBlob(descriptor.handle);
   return { data: Buffer.from(blob.data), filename: safeFilename };

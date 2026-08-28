@@ -2,6 +2,7 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
+  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -196,6 +197,29 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
   return data as UploadedFile[];
 }
 
+async function deleteUploadedPromptFile(file: UploadedFile): Promise<void> {
+  const response = await fetch(`${appBasePath()}/api/uploads`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ path: file.path }),
+  });
+  if (!response.ok) {
+    throw new Error(`Upload cleanup failed (${response.status})`);
+  }
+}
+
+async function cleanupUploadedPromptFiles(files: UploadedFile[]) {
+  const results = await Promise.allSettled(
+    files.map((file) => deleteUploadedPromptFile(file)),
+  );
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      console.error("Eager upload cleanup failed", result.reason);
+    }
+  });
+}
+
 async function uploadFileChunked(file: File): Promise<UploadedFile> {
   const startResponse = await fetch(
     `${appBasePath()}/api/uploads-chunked/start`,
@@ -282,12 +306,38 @@ export async function uploadPromptFiles(
   const largeIndices = files.flatMap((file, index) =>
     file.size > CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
   );
-  const [smallUploads, largeUploads] = await Promise.all([
+  const smallPromise =
     smallIndices.length > 0
       ? uploadFilesMultipart(smallIndices.map((index) => files[index]))
-      : [],
-    Promise.all(largeIndices.map((index) => uploadFileChunked(files[index]))),
+      : Promise.resolve([] as UploadedFile[]);
+  const [smallResult, largeResults] = await Promise.all([
+    smallPromise.then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason) => ({ status: "rejected" as const, reason }),
+    ),
+    Promise.allSettled(
+      largeIndices.map((index) => uploadFileChunked(files[index])),
+    ),
   ]);
+  const successfulLargeUploads = largeResults.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  const failedLargeResult = largeResults.find(
+    (result) => result.status === "rejected",
+  );
+  if (smallResult.status === "rejected") {
+    await cleanupUploadedPromptFiles([...successfulLargeUploads]);
+    throw smallResult.reason;
+  }
+  if (failedLargeResult) {
+    await cleanupUploadedPromptFiles([
+      ...smallResult.value,
+      ...successfulLargeUploads,
+    ]);
+    throw failedLargeResult.reason;
+  }
+  const smallUploads = smallResult.value;
+  const largeUploads = successfulLargeUploads;
   if (smallUploads.length !== smallIndices.length) {
     throw new Error("Upload failed: response file count did not match request");
   }
@@ -321,6 +371,15 @@ export type PromptImportSelection =
   | { kind: "pdf" | "pptx"; files: File[] }
   | { kind: "google-slides"; url: string };
 
+export interface PromptAttachmentActions {
+  commit: () => void;
+  discard: () => void;
+  attachments: ReadonlyArray<PromptChatAttachment>;
+  context?: string;
+}
+
+export type PromptSubmitResult = "commit" | "retain" | "discard";
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -331,9 +390,8 @@ interface PromptPopoverProps {
   onSubmit: (
     prompt: string,
     files: UploadedFile[],
-    context?: string,
-    attachments?: ReadonlyArray<PromptChatAttachment>,
-  ) => void | Promise<void>;
+    attachments: PromptAttachmentActions,
+  ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -347,6 +405,7 @@ interface PromptPopoverProps {
     context?: string,
     attachments?: ReadonlyArray<PromptChatAttachment>,
   ) => boolean | void;
+  onRetainedAttachmentsAbandoned?: () => void;
   onImport?: (
     selection: PromptImportSelection,
   ) => Promise<boolean | void> | boolean | void;
@@ -370,14 +429,17 @@ export default function PromptPopover({
   initialText,
   initialTextKey,
   onBeforeUpload,
+  onRetainedAttachmentsAbandoned,
   onImport,
   importFromLabel,
   importingLabel = "Importing...",
   children,
 }: PromptPopoverProps) {
   const t = useT();
-  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [retainingAttachments, setRetainingAttachments] = useState(false);
+  const retainingAttachmentsRef = useRef(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
@@ -451,17 +513,56 @@ export default function PromptPopover({
     };
   }, [open, onOpenChange, anchorRef]);
 
-  const uploadFiles = useCallback(
-    async (files: File[]): Promise<UploadedFile[]> => {
-      if (files.length === 0) return [];
-      setUploading(true);
-      try {
-        return await uploadPromptFiles(files);
-      } finally {
-        setUploading(false);
+  const deleteUploadedFile = useCallback(deleteUploadedPromptFile, []);
+
+  const handleRetainedFilesAbandoned = useCallback(
+    (_files: readonly File[], discard: () => void) => {
+      if (retainingAttachmentsRef.current) {
+        if (onRetainedAttachmentsAbandoned) {
+          onRetainedAttachmentsAbandoned();
+        } else {
+          discard();
+        }
+        return;
       }
+      if (!submittingRef.current) discard();
     },
-    [],
+    [onRetainedAttachmentsAbandoned],
+  );
+
+  const {
+    commitFiles,
+    discardFiles,
+    retainFiles,
+    uploadFiles,
+    uploading,
+    reset: resetEagerUploads,
+    syncFiles,
+  } = useEagerFileUploads(uploadPromptFiles, {
+    onDiscard: deleteUploadedFile,
+    onRetainedFilesAbandoned: handleRetainedFilesAbandoned,
+  });
+
+  const handleAttachmentsChange = useCallback(
+    (files: File[]) => {
+      if (files.length === 0 && retainingAttachmentsRef.current) return;
+      syncFiles(files);
+      if (files.length === 0) return;
+      if (
+        onBeforeUpload?.(promptText, files, googleDocContext || undefined) ===
+        false
+      )
+        return;
+      void uploadFiles(files).catch((error) => {
+        toast.error(t("raw.uploadFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("raw.uploadAttachedFailed"),
+        });
+      });
+    },
+    [googleDocContext, onBeforeUpload, promptText, syncFiles, t, uploadFiles],
   );
 
   const handleSubmit = useCallback(
@@ -484,6 +585,7 @@ export default function PromptPopover({
       ) {
         return;
       }
+      submittingRef.current = true;
       setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
@@ -491,15 +593,37 @@ export default function PromptPopover({
           options?.attachments,
           uploaded,
         );
-        await onSubmit(
-          text,
-          uploaded,
-          googleDocContext || undefined,
-          chatAttachments,
-        );
+        retainFiles(files);
+        const result = await onSubmit(text, uploaded, {
+          commit: () => {
+            commitFiles(files);
+            retainingAttachmentsRef.current = false;
+            setRetainingAttachments(false);
+          },
+          discard: () => {
+            discardFiles(files);
+            retainingAttachmentsRef.current = false;
+            setRetainingAttachments(false);
+          },
+          attachments: chatAttachments,
+          context: googleDocContext || undefined,
+        });
+        if (result === "retain") {
+          retainingAttachmentsRef.current = true;
+          setRetainingAttachments(true);
+        } else if (result === "discard") {
+          discardFiles(files);
+          retainingAttachmentsRef.current = false;
+        } else {
+          commitFiles(files);
+          retainingAttachmentsRef.current = false;
+        }
         setSubmitting(false);
+        submittingRef.current = false;
       } catch (error) {
+        discardFiles(files);
         setSubmitting(false);
+        submittingRef.current = false;
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
@@ -509,7 +633,16 @@ export default function PromptPopover({
         throw error;
       }
     },
-    [googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
+    [
+      commitFiles,
+      discardFiles,
+      googleDocContext,
+      onBeforeUpload,
+      onSubmit,
+      retainFiles,
+      uploadFiles,
+      t,
+    ],
   );
 
   const runImport = useCallback(
@@ -569,9 +702,12 @@ export default function PromptPopover({
       setImportMode(null);
       setSelectedImportFile(null);
       setImportingSource(null);
-      setSubmitting(false);
+      if (!submitting && !retainingAttachmentsRef.current) {
+        setSubmitting(false);
+        resetEagerUploads();
+      }
     }
-  }, [open]);
+  }, [open, retainingAttachments, resetEagerUploads, submitting]);
 
   if (!open) return null;
 
@@ -671,6 +807,7 @@ export default function PromptPopover({
                 }
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}
                 initialText={initialText}
@@ -678,7 +815,7 @@ export default function PromptPopover({
               />
             </div>
 
-            {submitting && (
+            {uploading && (
               <div
                 className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
                 role="status"

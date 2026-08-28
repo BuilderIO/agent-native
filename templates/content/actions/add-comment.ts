@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -89,7 +93,12 @@ export default defineAction({
 
     const providedName = args.authorName?.trim();
     let name: string;
-    if (providedName) {
+    const requestName = getRequestRunContext()
+      ? undefined
+      : getRequestUserName()?.trim();
+    if (requestName) {
+      name = requestName;
+    } else if (providedName) {
       name = providedName;
     } else if (email) {
       const derived = displayNameFromEmail(email).trim();

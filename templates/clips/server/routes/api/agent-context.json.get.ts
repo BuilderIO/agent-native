@@ -28,6 +28,7 @@ import {
   queryString,
   CLIPS_AGENT_ACCESS_PARAM,
 } from "../../lib/public-agent-context.js";
+import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   applyAgentJsonHeaders(event);
@@ -65,6 +66,7 @@ export default defineEventHandler(async (event: H3Event) => {
             recordingId: schema.recordingComments.recordingId,
             threadId: schema.recordingComments.threadId,
             parentId: schema.recordingComments.parentId,
+            authorEmail: schema.recordingComments.authorEmail,
             authorName: schema.recordingComments.authorName,
             content: schema.recordingComments.content,
             videoTimestampMs: schema.recordingComments.videoTimestampMs,
@@ -111,7 +113,10 @@ export default defineEventHandler(async (event: H3Event) => {
     loadAgentBugReport(recording.id),
   ]);
   const chapters = parseAgentChapters(recording);
-  const comments = commentRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS);
+  const comments = (await hydrateCommentAuthorNames(commentRows)).slice(
+    0,
+    MAX_PUBLIC_AGENT_HISTORY_ITEMS,
+  );
   const reactions = reactionRows.slice(0, MAX_PUBLIC_AGENT_HISTORY_ITEMS);
   const commentCount = Number(commentCountRows[0]?.count ?? comments.length);
   const reactionCount = Number(reactionCountRows[0]?.count ?? reactions.length);

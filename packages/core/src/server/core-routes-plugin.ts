@@ -106,6 +106,7 @@ import {
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -126,6 +127,10 @@ import {
 } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getSession, type AuthSession } from "./auth.js";
+import {
+  getBetterAuthInternalAdapter,
+  getBetterAuthSync,
+} from "./better-auth-instance.js";
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
@@ -4308,7 +4313,27 @@ export function createCoreRoutesPlugin(
             const data = await getSetting(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
-            return { image: (data as any)?.image ?? null };
+            const storedImage = (data as any)?.image;
+            if (typeof storedImage === "string" && storedImage.trim()) {
+              return { image: storedImage };
+            }
+            if (getBetterAuthSync()) {
+              const adapter = await getBetterAuthInternalAdapter().catch(
+                () => undefined,
+              );
+              const user = await adapter
+                ?.findUserByEmail(decodeURIComponent(emailParam), {
+                  includeAccounts: false,
+                })
+                // coercion-ok: an avatar miss must not turn a valid settings request into a 500.
+                .catch(() => null);
+              return {
+                image: isGoogleProfileImageUrl(user?.user.image)
+                  ? (user?.user.image ?? null)
+                  : null,
+              };
+            }
+            return { image: null };
           }
 
           if (method === "PUT") {

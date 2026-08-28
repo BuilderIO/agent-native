@@ -3,6 +3,11 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
+  isEmailDerivedName,
+  resolveUserProfileName,
+} from "../../user-profile/shared.js";
+import { getUserProfiles } from "../../user-profile/store.js";
+import {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
   shouldRedactReviewIdentity,
@@ -66,9 +71,26 @@ export default defineAction({
         targetId: args.targetId,
       }),
     ]);
+    const profiles = await getUserProfiles(
+      comments.flatMap((comment) =>
+        comment.authorEmail &&
+        isEmailDerivedName(comment.authorName, comment.authorEmail)
+          ? [comment.authorEmail]
+          : [],
+      ),
+    );
     const redactIdentity = shouldRedactReviewIdentity(actionCtx, access);
     const commentsWithCapabilities = comments.map((comment) => ({
       ...comment,
+      ...(comment.authorEmail
+        ? {
+            authorName: resolveUserProfileName(
+              comment.authorEmail,
+              comment.authorName,
+              profiles.get(comment.authorEmail.toLowerCase())?.name,
+            ),
+          }
+        : {}),
       canDelete:
         roleSatisfies(access.role, "commenter") &&
         (roleSatisfies(access.role, "editor") ||

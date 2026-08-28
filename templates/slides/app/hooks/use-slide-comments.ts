@@ -3,6 +3,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 
 export interface SlideComment {
   id: string;
@@ -12,6 +13,7 @@ export interface SlideComment {
   parent_id: string | null;
   content: string;
   quoted_text: string | null;
+  anchor?: SlideCommentAnchor | null;
   author_email: string;
   author_name: string | null;
   resolved: number | boolean;
@@ -22,6 +24,7 @@ export interface SlideComment {
 export interface CommentThread {
   threadId: string;
   quotedText: string | null;
+  anchor?: SlideCommentAnchor | null;
   resolved: boolean;
   comments: SlideComment[];
 }
@@ -39,6 +42,7 @@ function groupIntoThreads(comments: SlideComment[]): CommentThread[] {
       map.set(c.thread_id, {
         threadId: c.thread_id,
         quotedText: c.quoted_text,
+        anchor: c.anchor,
         resolved: isResolved(c.resolved),
         comments: [],
       });
