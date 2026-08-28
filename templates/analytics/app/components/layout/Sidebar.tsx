@@ -1,3 +1,4 @@
+import { AgentNativeIcon } from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -91,7 +92,6 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
@@ -2355,21 +2355,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               to="/"
               className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
             >
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
+              <AgentNativeIcon
+                size={35}
                 aria-hidden="true"
-                width={35}
-                height={20}
-                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
+                className="h-5 w-[35px] shrink-0 text-black dark:text-white"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}
