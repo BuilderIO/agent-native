@@ -22,9 +22,9 @@ import {
   countRecordingAgentViews,
   listRecordingAgentViewers,
 } from "../server/lib/agent-views.js";
+import { hydrateViewerNames } from "../server/lib/user-identities.js";
 import {
   clampCompletionPct,
-  displayViewerName,
   isCountedViewerRow,
 } from "../shared/view-analytics.js";
 
@@ -114,16 +114,19 @@ export default defineAction({
         : Math.min(100, (ctaClicks / countedViewers) * 100);
 
     // Top viewers by total watch ms
-    const topViewers = viewerRows
-      .slice()
-      .sort((a, b) => (b.totalWatchMs ?? 0) - (a.totalWatchMs ?? 0))
-      .slice(0, 20)
-      .map((v) => ({
-        viewerEmail: v.viewerEmail,
-        viewerName: displayViewerName(v.viewerName),
-        totalWatchMs: v.totalWatchMs ?? 0,
-        completedPct: clampCompletionPct(v.completedPct),
-      }));
+    const topViewers = (
+      await hydrateViewerNames(
+        viewerRows
+          .slice()
+          .sort((a, b) => (b.totalWatchMs ?? 0) - (a.totalWatchMs ?? 0))
+          .slice(0, 20),
+      )
+    ).map((v) => ({
+      viewerEmail: v.viewerEmail,
+      viewerName: v.viewerName,
+      totalWatchMs: v.totalWatchMs ?? 0,
+      completedPct: clampCompletionPct(v.completedPct),
+    }));
 
     return {
       views,

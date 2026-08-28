@@ -33,6 +33,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import { AgentShareSection } from "./AgentShareSection.js";
 import {
@@ -646,7 +647,11 @@ function SharePanel(
         <ul className="flex list-none flex-col gap-1 p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-              <Avatar label={displayName(data.ownerEmail, knownMembers, t)} />
+              <Avatar
+                email={data.ownerEmail}
+                image={memberImage(data.ownerEmail, knownMembers)}
+                label={displayName(data.ownerEmail, knownMembers, t)}
+              />
               <span className="flex-1 min-w-0 truncate">
                 {displayName(data.ownerEmail, knownMembers, t)}
               </span>
@@ -664,6 +669,12 @@ function SharePanel(
               )}
             >
               <Avatar
+                email={s.principalType === "user" ? s.principalId : undefined}
+                image={
+                  s.principalType === "user"
+                    ? memberImage(s.principalId, knownMembers)
+                    : undefined
+                }
                 label={principalLabel(s, knownMembers, t)}
                 org={s.principalType === "org"}
                 group={s.principalType === "group"}
@@ -1089,7 +1100,14 @@ function MemberAutocomplete({
                       strokeWidth={1.8}
                       className="shrink-0 text-muted-foreground"
                     />
-                  ) : null}
+                  ) : (
+                    <Avatar
+                      email={suggestion.email}
+                      image={suggestion.image}
+                      label={suggestion.name?.trim() || suggestion.email}
+                      className="h-6 w-6 text-[10px]"
+                    />
+                  )}
                   <span className="truncate">
                     {suggestion.principalType === "group"
                       ? suggestion.name
@@ -1381,21 +1399,38 @@ function VisibilitySelect(props: {
 }
 
 function Avatar({
+  email,
+  image,
   label,
   org,
   group,
+  className,
 }: {
+  email?: string;
+  image?: string | null;
   label: string;
   org?: boolean;
   group?: boolean;
+  className?: string;
 }) {
+  const profileImage = image?.trim();
+  const avatarUrl = useAvatarUrl(profileImage ? undefined : email);
   return (
     <span
       aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+      className={cn(
+        "inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[11px] font-semibold text-muted-foreground",
+        className,
+      )}
     >
       {org || group ? (
         <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : profileImage || avatarUrl ? (
+        <img
+          src={profileImage || avatarUrl || undefined}
+          alt=""
+          className="size-full object-cover"
+        />
       ) : (
         initials(label)
       )}
@@ -1444,4 +1479,12 @@ function displayName(
     : t("agentChat.share.unknownPerson", {
         defaultValue: "Unknown person",
       });
+}
+
+function memberImage(email: string, members: OrgMember[]): string | undefined {
+  const normalized = email.trim().toLowerCase();
+  const match = members.find(
+    (member) => member.email.trim().toLowerCase() === normalized,
+  );
+  return match?.image?.trim() || undefined;
 }

@@ -47,6 +47,7 @@ export interface ShareButtonSharesResponse {
 export interface ShareButtonOrgMember {
   email: string;
   name?: string | null;
+  image?: string | null;
   role?: string | null;
   joinedAt?: number | null;
 }
