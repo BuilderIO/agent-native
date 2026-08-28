@@ -24,6 +24,12 @@ vi.mock("@agent-native/core/client/db-admin", () => ({
 }));
 
 vi.mock("@agent-native/core/client/ui", () => ({
+  AgentNativeIcon: ({
+    size = 24,
+    ...props
+  }: React.SVGProps<SVGSVGElement> & { size?: number }) => (
+    <svg data-agent-native-icon width={size} height={size} {...props} />
+  ),
   FeedbackButton: () => null,
 }));
 
@@ -112,17 +118,17 @@ describe("<Sidebar expanded>", () => {
       <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
     );
 
-    const brandMarks = container.querySelectorAll(
-      'img[src="/agent-native-icon-light.svg"], img[src="/agent-native-icon-dark.svg"]',
+    const brandMark = container.querySelector(
+      'button[data-sidebar-brand-toggle] svg[aria-hidden="true"]',
     );
 
-    expect(brandMarks).toHaveLength(2);
-    for (const brandMark of brandMarks) {
-      expect(brandMark.getAttribute("width")).toBe("28");
-      expect(brandMark.getAttribute("height")).toBe("16");
-      expect(brandMark.className).toContain("w-7");
-      expect(brandMark.className).toContain("object-contain");
-    }
+    expect(brandMark).not.toBeNull();
+    expect(brandMark?.getAttribute("width")).toBe("28");
+    expect(brandMark?.getAttribute("height")).toBe("28");
+    expect(brandMark?.className).toContain("w-7");
+    expect(brandMark?.className).toContain("h-4");
+    expect(brandMark?.className).toContain("text-black");
+    expect(brandMark?.className).toContain("dark:text-white");
   });
 
   it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
