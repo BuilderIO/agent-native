@@ -5,6 +5,7 @@
 *.eval.ts
 `window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
 + Drizzle query DSL
++ Slack / webhook / Sheets
 Ease
 Ease In
 Ease In/Out
@@ -114,6 +115,7 @@ SQL
 SQL + application_state
 SQL row scoping
 SQL rows via Drizzle
+SQL via Drizzle
 SQLite file
 SSE push
 startFrame / easing / animatedProps

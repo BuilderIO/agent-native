@@ -30,6 +30,11 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -94,9 +99,184 @@ function storedCreativeContext(value: unknown): {
   };
 }
 
+const unresolvedPlaceholderPattern =
+  /__[A-Za-z][A-Za-z0-9]*(?:[_ -][A-Za-z0-9]+)*__/g;
+
+function assertNoNewUnresolvedPlaceholders(
+  previousContent: string,
+  nextContent: string,
+): void {
+  const previous = new Set(previousContent.match(unresolvedPlaceholderPattern));
+  const introduced = [
+    ...new Set(nextContent.match(unresolvedPlaceholderPattern)),
+  ].filter((marker) => !previous.has(marker));
+  if (introduced.length > 0) {
+    throw new Error(
+      `Slide edit introduced unresolved placeholder content: ${introduced.join(", ")}. Re-read the slide and preserve the existing content instead of using markers as stand-ins.`,
+    );
+  }
+}
+
+function styleInvariant(content: string): string {
+  return content
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const protectedStyleProperties = new Set([
+  "padding",
+  "padding-block",
+  "padding-block-start",
+  "padding-block-end",
+  "padding-inline",
+  "padding-inline-start",
+  "padding-inline-end",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "margin",
+  "margin-block",
+  "margin-block-start",
+  "margin-block-end",
+  "margin-inline",
+  "margin-inline-start",
+  "margin-inline-end",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "gap",
+  "row-gap",
+  "column-gap",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "line-height",
+  "letter-spacing",
+  "width",
+  "height",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
+  "position",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "inset",
+  "inset-block",
+  "inset-inline",
+  "display",
+  "visibility",
+  "content",
+  "opacity",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "white-space",
+  "word-break",
+  "overflow-wrap",
+  "flex",
+  "flex-direction",
+  "flex-wrap",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
+  "grid",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid-column",
+  "grid-row",
+  "align-items",
+  "align-content",
+  "align-self",
+  "justify-content",
+  "justify-items",
+  "justify-self",
+  "transform",
+  "clip",
+  "clip-path",
+  "text-indent",
+  "box-sizing",
+  "aspect-ratio",
+  "object-fit",
+  "object-position",
+]);
+
+function protectedStyleInvariant(content: string): string {
+  const styleBlocks = Array.from(
+    content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
+    (match) => match[1] ?? "",
+  );
+  const inlineStyles = Array.from(
+    content.matchAll(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
+    (match) => match[1] ?? match[2] ?? match[3] ?? "",
+  );
+  const ruleSignatures: string[] = [];
+  for (const stylesheet of styleBlocks) {
+    const source = stylesheet.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const rule of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const declarations = protectedCssDeclarations(rule[2]);
+      if (declarations.length > 0) {
+        ruleSignatures.push(
+          `rule:${rule[1].replace(/\s+/g, " ").trim()}{${declarations.join(";")}}`,
+        );
+      }
+    }
+  }
+  const inlineSignatures: string[] = [];
+  let inlineIndex = 0;
+  for (const style of inlineStyles) {
+    const declarations = protectedCssDeclarations(style);
+    if (declarations.length > 0) {
+      inlineSignatures.push(`inline:${inlineIndex}{${declarations.join(";")}}`);
+      inlineIndex += 1;
+    }
+  }
+  return [...ruleSignatures.sort(), ...inlineSignatures].join("|");
+}
+
+function protectedCssDeclarations(style: string): string[] {
+  const declarations: string[] = [];
+  const source = style.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const match of source.matchAll(
+    /(?:^|[;{])\s*([\w-]+)\s*:\s*([^;{}]+)/g,
+  )) {
+    const property = match[1].toLowerCase();
+    if (protectedStyleProperties.has(property) || property.startsWith("--")) {
+      declarations.push(`${property}:${match[2].replace(/\s+/g, " ").trim()}`);
+    }
+  }
+  return declarations.sort();
+}
+
+function assertStyleOnlyEdit(
+  previousContent: string,
+  nextContent: string,
+): void {
+  if (styleInvariant(previousContent) !== styleInvariant(nextContent)) {
+    throw new Error(
+      "Style-only slide edits must preserve text, markup, element order, and layout structure; use edits that change only CSS declarations",
+    );
+  }
+  if (
+    protectedStyleInvariant(previousContent) !==
+    protectedStyleInvariant(nextContent)
+  ) {
+    throw new Error(
+      "Style-only slide edits must preserve text, markup, and protected layout CSS; use edits that change only the requested visual CSS declarations",
+    );
+  }
+}
+
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for style-only requests, reorders, or changes that must stay consistent across lists, tables, or other representations. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation and the requested scope. Content edits clear existing click-reveal metadata; style-only CSS edits preserve it because the HTML structure remains stable. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -157,6 +337,13 @@ export default defineAction({
       .describe(
         "Ordered atomic edits against the current HTML. Each edit must match unless required=false. Use expectedMatches to make ambiguity explicit.",
       ),
+    styleOnly: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Set true for a styling-only request. Requires edits and rejects any change outside CSS declarations, including text, markup, or layout structure.",
+      ),
     baseContentHash: z
       .string()
       .optional()
@@ -207,20 +394,34 @@ export default defineAction({
       baseContentHash,
       format,
       preserveSource,
+      styleOnly,
       contextPackId,
       contextModeOverride,
       reuseLabels,
     } = args;
-    if (!edits && find === undefined && fullContent === undefined) {
+    const hasLegacyMode = find !== undefined || replace !== undefined;
+    const inputModeCount =
+      Number(Boolean(edits)) +
+      Number(hasLegacyMode) +
+      Number(fullContent !== undefined);
+    if (inputModeCount === 0) {
       throw new Error("One of --edits, --find, or --fullContent is required");
+    }
+    if (inputModeCount > 1) {
+      throw new Error(
+        "Use exactly one input mode: --edits, --find/--replace, or --fullContent; do not combine modes",
+      );
+    }
+    if (styleOnly && !edits) {
+      throw new Error(
+        "Style-only slide edits require --edits and cannot use --fullContent or legacy find/replace",
+      );
+    }
+    if (replace !== undefined && find === undefined) {
+      throw new Error("Legacy --replace requires --find");
     }
     if (find !== undefined && find.length === 0) {
       throw new Error("find must not be empty for legacy search/replace");
-    }
-    if (edits && (find !== undefined || fullContent !== undefined)) {
-      throw new Error(
-        "Use --edits instead of combining it with --find or --fullContent",
-      );
     }
     await assertAccess("deck", deckId, "editor");
 
@@ -246,6 +447,7 @@ export default defineAction({
           data: schema.decks.data,
           ownerEmail: schema.decks.ownerEmail,
           designSystemId: schema.decks.designSystemId,
+          updatedAt: schema.decks.updatedAt,
         })
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId))
@@ -302,15 +504,22 @@ export default defineAction({
       // per-edit breakdown to report.
       let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
-
-      if (fullContent !== undefined) {
-        const nextContent = normalizeSlidePadding(fullContent);
+      const validateNextContent = (nextContent: string) => {
+        assertNoNewUnresolvedPlaceholders(previousContent, nextContent);
+        if (styleOnly) {
+          assertStyleOnlyEdit(previousContent, nextContent);
+        }
         assertSourceSlidePreserved({
           metadata: sourceImportForDeck(deck.sourceImport),
           slideId,
           nextContent,
           preserveSource,
         });
+      };
+
+      if (fullContent !== undefined) {
+        const nextContent = normalizeSlidePadding(fullContent);
+        validateNextContent(nextContent);
         slide.content = nextContent;
         applied = nextContent !== previousContent;
       } else if (edits) {
@@ -322,13 +531,10 @@ export default defineAction({
           edits as SlideContentEdit[],
           format,
         );
-        const nextContent = normalizeSlidePadding(patched.content);
-        assertSourceSlidePreserved({
-          metadata: sourceImportForDeck(deck.sourceImport),
-          slideId,
-          nextContent,
-          preserveSource,
-        });
+        const nextContent = styleOnly
+          ? patched.content
+          : normalizeSlidePadding(patched.content);
+        validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;
         editResults = patched.applied;
@@ -342,12 +548,7 @@ export default defineAction({
             previousContent.slice(0, idx) +
             (replace ?? "") +
             previousContent.slice(idx + find.length);
-          assertSourceSlidePreserved({
-            metadata: sourceImportForDeck(deck.sourceImport),
-            slideId,
-            nextContent,
-            preserveSource,
-          });
+          validateNextContent(nextContent);
           slide.content = nextContent;
           applied = nextContent !== previousContent;
         }
@@ -360,7 +561,7 @@ export default defineAction({
       // that path, so preserving the old list would reveal the wrong content.
       // patch-deck is the explicit escape hatch when content and animations
       // are intentionally revised together.
-      if (applied && Array.isArray(slide.animations)) {
+      if (applied && Array.isArray(slide.animations) && !styleOnly) {
         delete slide.animations;
       }
 
@@ -435,22 +636,23 @@ export default defineAction({
                 contextPackId: validated.contextPackId,
                 reuseLabels: mergedReuseLabels,
               };
-        await createDeckVersionSnapshot(
-          {
-            id: row.id,
-            title: row.title ?? "Untitled",
-            data: row.data ?? "",
-            ownerEmail: row.ownerEmail ?? "",
-          },
-          { label: "Before slide edit" },
-        );
-        const now = new Date().toISOString();
+        const now = nextDeckRevision(row.updatedAt);
         deck.updatedAt = now;
         await db.transaction(async (tx: any) => {
-          await tx
+          await createDeckVersionSnapshot(
+            {
+              id: row.id,
+              title: row.title ?? "Untitled",
+              data: row.data ?? "",
+              ownerEmail: row.ownerEmail ?? "",
+            },
+            { label: "Before slide edit", db: tx },
+          );
+          const updateResult = await tx
             .update(schema.decks)
             .set({ data: JSON.stringify(deck), updatedAt: now })
-            .where(eq(schema.decks.id, deckId));
+            .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+          assertDeckWriteApplied(updateResult, deckId, "slide edit");
           await recordGenerationCreativeContext(
             {
               appId: "slides",
