@@ -333,6 +333,7 @@ export default function DesktopAppChatShell({
       onOpenSettings?.(desktopSettingsTabForSection(section)),
     [onOpenSettings],
   );
+  const ignoreOpenSettings = useCallback(() => undefined, []);
 
   installDesktopChatFetchRelay();
 
@@ -588,7 +589,11 @@ export default function DesktopAppChatShell({
               }}
               toggleScopeId={toggleScopeId}
               onOpenSettings={
-                onOpenSettings && isActive ? openDesktopSettings : undefined
+                isActive
+                  ? onOpenSettings
+                    ? openDesktopSettings
+                    : undefined
+                  : ignoreOpenSettings
               }
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
