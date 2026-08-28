@@ -55,6 +55,7 @@ const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 const APPLICATION_STATE_DESTINATION = "application-state";
 const RESPONSE_EMAIL_DESTINATION = "email";
 const DELIVERY_CLAIM_LEASE_MS = 60_000;
+const DELIVERY_CLAIM_HEARTBEAT_MS = Math.floor(DELIVERY_CLAIM_LEASE_MS / 3);
 
 type ResponseDeliveryStatus = "pending" | "processing" | "succeeded" | "failed";
 
@@ -405,6 +406,59 @@ async function claimResponseDelivery(
   return claimed ? claimToken : null;
 }
 
+async function renewResponseDeliveryClaim(
+  db: ReturnType<typeof getDb>,
+  deliveryId: string,
+  claimToken: string,
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const [renewed] = await db
+    .update(schema.responseDeliveries)
+    .set({ claimedAt: nowIso, updatedAt: nowIso })
+    .where(
+      and(
+        eq(schema.responseDeliveries.id, deliveryId),
+        eq(schema.responseDeliveries.claimToken, claimToken),
+        eq(schema.responseDeliveries.status, "processing"),
+      ),
+    )
+    .returning({ id: schema.responseDeliveries.id });
+  if (!renewed) throw new Error("Response delivery claim was lost");
+}
+
+function startResponseDeliveryLeaseHeartbeat(
+  db: ReturnType<typeof getDb>,
+  deliveryId: string,
+  claimToken: string,
+) {
+  let stopped = false;
+  let failure: unknown = null;
+  let pendingRenewal: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (stopped || failure || pendingRenewal) return;
+    pendingRenewal = renewResponseDeliveryClaim(db, deliveryId, claimToken)
+      .catch((error) => {
+        failure = error;
+        clearInterval(timer);
+      })
+      .finally(() => {
+        pendingRenewal = null;
+      });
+  }, DELIVERY_CLAIM_HEARTBEAT_MS);
+  (timer as ReturnType<typeof setInterval> & { unref?: () => void }).unref?.();
+
+  return {
+    assertHealthy() {
+      if (failure) throw failure;
+    },
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      await pendingRenewal;
+    },
+  };
+}
+
 async function markResponseDelivery(
   db: ReturnType<typeof getDb>,
   deliveryId: string,
@@ -539,15 +593,115 @@ async function deliverStoredResponseDelivery(
   }
 }
 
+async function deliverStoredResponseDeliveries(
+  db: ReturnType<typeof getDb>,
+  responseId: string,
+  snapshot: DeliverySnapshot,
+): Promise<boolean> {
+  const rows = await ensureResponseDeliveryRows(db, responseId, snapshot);
+  await Promise.all(
+    rows.map(async (row) => {
+      const claimToken = await claimResponseDelivery(db, row.id);
+      if (!claimToken) return;
+      const heartbeat = startResponseDeliveryLeaseHeartbeat(
+        db,
+        row.id,
+        claimToken,
+      );
+      try {
+        await deliverStoredResponseDelivery(row);
+        await heartbeat.stop();
+        heartbeat.assertHealthy();
+        await markResponseDelivery(db, row.id, claimToken, "succeeded");
+      } catch (error) {
+        await heartbeat.stop();
+        console.warn(`[forms] ${row.destination} delivery failed:`, error);
+        await markResponseDelivery(
+          db,
+          row.id,
+          claimToken,
+          "failed",
+          deliveryErrorMessage(error),
+        );
+      }
+    }),
+  );
+  await refreshResponseDeliverySummary(db, responseId);
+  const currentRows = await db
+    .select()
+    .from(schema.responseDeliveries)
+    .where(eq(schema.responseDeliveries.responseId, responseId));
+  return currentRows.some((row) => row.status !== "succeeded");
+}
+
+export async function reconcileResponseDeliveries(responseId: string) {
+  const db = getDb();
+  const [response] = await db
+    .select({
+      id: schema.responses.id,
+      deliverySnapshot: schema.responses.deliverySnapshot,
+    })
+    .from(schema.responses)
+    .where(eq(schema.responses.id, responseId));
+  if (!response) throw new Error(`Response ${responseId} not found`);
+
+  const snapshot = parseDeliverySnapshot(response.deliverySnapshot);
+  if (!snapshot) {
+    throw new Error(`Response ${responseId} has no delivery snapshot`);
+  }
+
+  const pending = await deliverStoredResponseDeliveries(
+    db,
+    response.id,
+    snapshot,
+  );
+  return {
+    success: !pending,
+    retryable: pending,
+    id: response.id,
+  };
+}
+
 function deliverySummary(
   rows: Array<typeof schema.responseDeliveries.$inferSelect>,
 ) {
   const summary: Record<string, "pending" | "succeeded" | "failed"> = {};
-  for (const row of rows) {
+  for (const row of [...rows].sort((a, b) =>
+    a.destination.localeCompare(b.destination),
+  )) {
     summary[row.destination] =
       row.status === "processing" ? "pending" : row.status;
   }
   return summary;
+}
+
+async function refreshResponseDeliverySummary(
+  db: ReturnType<typeof getDb>,
+  responseId: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [response] = await tx
+      .select({ deliveryStatus: schema.responses.deliveryStatus })
+      .from(schema.responses)
+      .where(eq(schema.responses.id, responseId));
+    if (!response) return;
+
+    // Serialize all summary writers on the response row before reading the
+    // delivery rows, so a retry cannot commit an older aggregate after a
+    // newer destination status has been recorded.
+    await tx
+      .update(schema.responses)
+      .set({ deliveryStatus: response.deliveryStatus })
+      .where(eq(schema.responses.id, responseId));
+    const rows = await tx
+      .select()
+      .from(schema.responseDeliveries)
+      .where(eq(schema.responseDeliveries.responseId, responseId));
+    await tx
+      .update(schema.responses)
+      .set({ deliveryStatus: JSON.stringify(deliverySummary(rows)) })
+      .where(eq(schema.responses.id, responseId));
+  });
 }
 
 async function deliverBestEffortResponseSideEffects({
@@ -688,40 +842,85 @@ async function deliverResponseSideEffects({
       chatSessionIds,
       activeRunId,
     });
-  const rows = await ensureResponseDeliveryRows(db, responseId, snapshot);
-  await Promise.all(
-    rows.map(async (row) => {
-      const claimToken = await claimResponseDelivery(db, row.id);
-      if (!claimToken) return;
-      try {
-        await deliverStoredResponseDelivery(row);
-        await markResponseDelivery(db, row.id, claimToken, "succeeded");
-      } catch (error) {
-        console.warn(`[forms] ${row.destination} delivery failed:`, error);
-        await markResponseDelivery(
-          db,
-          row.id,
-          claimToken,
-          "failed",
-          deliveryErrorMessage(error),
-        );
-      }
-    }),
-  );
-  const currentRows = await db
-    .select()
-    .from(schema.responseDeliveries)
-    .where(eq(schema.responseDeliveries.responseId, responseId));
-  await db
-    .update(schema.responses)
-    .set({ deliveryStatus: JSON.stringify(deliverySummary(currentRows)) })
-    .where(eq(schema.responses.id, responseId));
-  return currentRows.some((row) => row.status !== "succeeded");
+  return deliverStoredResponseDeliveries(db, responseId, snapshot);
 }
 
 export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
   const id = getRouterParam(event, "id") as string;
+
+  // coercion-ok: malformed request bodies are rejected as invalid submissions.
+  const body = await readBody(event).catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid submission payload" };
+  }
+
+  // Check overall payload size
+  const bodyStr = JSON.stringify(body);
+  if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
+    setResponseStatus(event, 413);
+    return { error: "Payload too large" };
+  }
+
+  const rawIdempotencyKey = getRequestHeader(event, "idempotency-key");
+  if (
+    rawIdempotencyKey &&
+    rawIdempotencyKey.trim().length > MAX_IDEMPOTENCY_KEY_LENGTH
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Idempotency-Key is too long" };
+  }
+  const idempotencyKey = rawIdempotencyKey?.trim() || null;
+
+  // A retry must be able to reconcile a persisted response even after its
+  // form is unpublished or soft-deleted. The immutable snapshot is the only
+  // input needed for delivery, so do this lookup before loading the active
+  // form or applying one-time submission checks.
+  if (idempotencyKey) {
+    const [existing] = await db
+      .select({
+        id: schema.responses.id,
+        deliverySnapshot: schema.responses.deliverySnapshot,
+      })
+      .from(schema.responses)
+      .where(
+        and(
+          eq(schema.responses.formId, id),
+          eq(schema.responses.idempotencyKey, idempotencyKey),
+        ),
+      );
+    if (existing) {
+      try {
+        const snapshot = parseDeliverySnapshot(existing.deliverySnapshot);
+        if (!snapshot) {
+          throw new Error(`Response ${existing.id} has no delivery snapshot`);
+        }
+        const deliveryPending = await deliverStoredResponseDeliveries(
+          db,
+          existing.id,
+          snapshot,
+        );
+        if (deliveryPending) {
+          setResponseStatus(event, 503);
+          return {
+            error: "Response delivery is still pending",
+            retryable: true,
+            id: existing.id,
+          };
+        }
+      } catch (error) {
+        console.warn("[forms] response delivery retry failed:", error);
+        setResponseStatus(event, 503);
+        return {
+          error: "Response delivery is still pending",
+          retryable: true,
+          id: existing.id,
+        };
+      }
+      return { success: true, id: existing.id };
+    }
+  }
 
   // guard:allow-unscoped — public submission endpoint intentionally accepts anonymous responses for published forms by id; it returns no owner data and rejects non-published forms.
   // Public submission endpoint: published forms are intentionally readable
@@ -757,29 +956,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
       return { error: "Origin not allowed" };
     }
   }
-
-  const body = await readBody(event).catch(() => null);
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    setResponseStatus(event, 400);
-    return { error: "Invalid submission payload" };
-  }
-
-  // Check overall payload size
-  const bodyStr = JSON.stringify(body);
-  if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
-    setResponseStatus(event, 413);
-    return { error: "Payload too large" };
-  }
-
-  const rawIdempotencyKey = getRequestHeader(event, "idempotency-key");
-  if (
-    rawIdempotencyKey &&
-    rawIdempotencyKey.trim().length > MAX_IDEMPOTENCY_KEY_LENGTH
-  ) {
-    setResponseStatus(event, 400);
-    return { error: "Idempotency-Key is too long" };
-  }
-  const idempotencyKey = rawIdempotencyKey?.trim() || null;
 
   const finishResponse = async ({
     responseId,
@@ -870,48 +1046,6 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     }
     return { success: true, id: responseId };
   };
-
-  // A retry may arrive after the original response was persisted but before
-  // the client received its success response. Replay the original result
-  // before applying any one-time submission checks or side effects.
-  if (idempotencyKey) {
-    const [existing] = await db
-      .select({
-        id: schema.responses.id,
-        data: schema.responses.data,
-        submittedAt: schema.responses.submittedAt,
-        submitterEmail: schema.responses.submitterEmail,
-        pageUrl: schema.responses.pageUrl,
-        clientSurface: schema.responses.clientSurface,
-        deliveryStatus: schema.responses.deliveryStatus,
-        deliverySnapshot: schema.responses.deliverySnapshot,
-      })
-      .from(schema.responses)
-      .where(
-        and(
-          eq(schema.responses.formId, id),
-          eq(schema.responses.idempotencyKey, idempotencyKey),
-        ),
-      );
-    if (existing) {
-      const metadata = submissionMetadata(
-        body as Record<string, unknown>,
-        settings.anonymous === true,
-      );
-      return finishResponse({
-        responseId: existing.id,
-        fields: JSON.parse(form.fields),
-        data: JSON.parse(existing.data),
-        submittedAt: existing.submittedAt,
-        submitterEmail: existing.submitterEmail,
-        pageUrl: existing.pageUrl,
-        clientSurface: existing.clientSurface,
-        chatSessionIds: metadata.chatSessionIds,
-        activeRunId: metadata.activeRunId,
-        deliverySnapshot: existing.deliverySnapshot,
-      });
-    }
-  }
 
   // Honeypot: silently accept-and-drop if filled. Bots that fire-and-forget
   // get a 200 and never know they were caught.

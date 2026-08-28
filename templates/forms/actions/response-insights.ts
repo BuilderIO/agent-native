@@ -77,7 +77,10 @@ const responseInsightsSchema = z.object({
 type ResponseInsightsArgs = z.infer<typeof responseInsightsSchema>;
 
 type FormRow = typeof schema.forms.$inferSelect;
-type ResponseRow = typeof schema.responses.$inferSelect;
+type ResponseRow = Pick<
+  typeof schema.responses.$inferSelect,
+  "id" | "formId" | "data" | "submittedAt" | "submitterEmail"
+>;
 
 function safeJson<T>(value: string, fallback: T): T {
   try {
@@ -331,13 +334,7 @@ export default defineAction({
             formId: schema.responses.formId,
             data: schema.responses.data,
             submittedAt: schema.responses.submittedAt,
-            ip: schema.responses.ip,
             submitterEmail: schema.responses.submitterEmail,
-            pageUrl: schema.responses.pageUrl,
-            clientSurface: schema.responses.clientSurface,
-            idempotencyKey: schema.responses.idempotencyKey,
-            deliveryStatus: schema.responses.deliveryStatus,
-            deliverySnapshot: schema.responses.deliverySnapshot,
           })
           .from(schema.responses)
           .where(responseFilter)

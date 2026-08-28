@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mutable request body so each test can drive a different submission payload.
 const state = vi.hoisted(() => ({
@@ -30,7 +30,7 @@ const publishedForm = {
   settings: JSON.stringify({}),
   status: "published",
   ownerEmail: "owner@example.com",
-  deletedAt: null,
+  deletedAt: null as string | null,
 };
 
 vi.mock("h3", () => ({
@@ -91,147 +91,156 @@ vi.mock("../db/index.js", async () => {
     };
     return visit(condition);
   };
-  return {
-    getDb: () => ({
-      select: () => ({
-        from: (table: unknown) => ({
-          where: (condition?: unknown) => {
-            const params = paramsFromWhere(condition);
-            if (table === schema.responses) {
-              return Promise.resolve(state.responses);
-            }
-            if (table === schema.responseDeliveries) {
-              const matchesId = state.deliveries.some(
-                (delivery) => delivery.id === params[0],
-              );
-              return Promise.resolve(
-                state.deliveries.filter(
-                  (delivery) =>
-                    !params[0] ||
-                    (matchesId
-                      ? delivery.id === params[0]
-                      : delivery.responseId === params[0]),
-                ),
-              );
-            }
-            return Promise.resolve([publishedForm]);
-          },
-        }),
-      }),
-      insert: (table: unknown) => ({
-        values: (
-          input: Record<string, unknown> | Array<Record<string, unknown>>,
-        ) => {
-          const values = Array.isArray(input) ? input : [input];
-          const persist = () => {
-            for (const value of values) {
-              if (table === schema.responses) {
-                state.inserted.push(value);
-                if (value.idempotencyKey) {
-                  state.responses.push({ ...value });
-                }
-              } else if (
-                table === schema.responseDeliveries &&
-                !state.deliveries.some(
-                  (delivery) =>
-                    delivery.responseId === value.responseId &&
-                    delivery.destination === value.destination,
-                )
-              ) {
-                state.deliveries.push({ ...value });
-              }
-            }
-          };
-          const builder: any = {};
-          builder.onConflictDoNothing = () => builder;
-          builder.returning = async () => {
-            const v = values[0]!;
-            if (table !== schema.responses) {
-              persist();
-              return [];
-            }
-            if (
-              state.responses.some(
-                (response) =>
-                  response.formId === v.formId &&
-                  response.idempotencyKey === v.idempotencyKey,
-              )
-            ) {
-              return [];
-            }
-            persist();
-            return [{ id: v.id }];
-          };
-          builder.then = (
-            onFulfilled: (value: void) => unknown,
-            onRejected?: (reason: unknown) => unknown,
-          ) => Promise.resolve().then(persist).then(onFulfilled, onRejected);
-          return builder;
-        },
-      }),
-      update: (table: unknown) => ({
-        set: (values: Record<string, unknown>) => {
-          const execute = (condition?: unknown) => {
-            const params = paramsFromWhere(condition);
-            if (table === schema.responses) {
-              for (const response of state.responses) {
-                if (!params[0] || response.id === params[0]) {
-                  Object.assign(response, values);
-                }
-              }
-              return;
-            }
-            for (const delivery of state.deliveries) {
-              if (params[0] && delivery.id !== params[0]) continue;
-              if (
-                values.status === "processing" &&
-                delivery.status !== "pending" &&
-                delivery.status !== "failed"
-              ) {
-                continue;
-              }
-              if (
-                values.status !== "processing" &&
-                params[1] &&
-                delivery.claimToken !== params[1]
-              ) {
-                continue;
-              }
-              Object.assign(delivery, values);
-              if (
-                values.status === "succeeded" &&
-                delivery.destination === state.throwAfterDeliveryStatusWriteFor
-              ) {
-                state.throwAfterDeliveryStatusWriteFor = null;
-                throw new Error("status write response lost");
-              }
-              return [{ id: delivery.id }];
-            }
-            return [];
-          };
-          return {
-            where: (condition?: unknown) => {
-              const result = {
-                returning: async () => execute(condition),
-                then: (
-                  onFulfilled: (value: unknown) => unknown,
-                  onRejected?: (reason: unknown) => unknown,
-                ) =>
-                  Promise.resolve()
-                    .then(() => execute(condition))
-                    .then(onFulfilled, onRejected),
-              };
-              return result;
-            },
-          };
+  const getDb = () => ({
+    select: () => ({
+      from: (table: unknown) => ({
+        where: (condition?: unknown) => {
+          const params = paramsFromWhere(condition);
+          if (table === schema.responses) {
+            return Promise.resolve(state.responses);
+          }
+          if (table === schema.responseDeliveries) {
+            const matchesId = state.deliveries.some(
+              (delivery) => delivery.id === params[0],
+            );
+            return Promise.resolve(
+              state.deliveries.filter(
+                (delivery) =>
+                  !params[0] ||
+                  (matchesId
+                    ? delivery.id === params[0]
+                    : delivery.responseId === params[0]),
+              ),
+            );
+          }
+          return Promise.resolve(
+            publishedForm.status === "published" && !publishedForm.deletedAt
+              ? [publishedForm]
+              : [],
+          );
         },
       }),
     }),
-    schema,
-  };
+    insert: (table: unknown) => ({
+      values: (
+        input: Record<string, unknown> | Array<Record<string, unknown>>,
+      ) => {
+        const values = Array.isArray(input) ? input : [input];
+        const persist = () => {
+          for (const value of values) {
+            if (table === schema.responses) {
+              state.inserted.push(value);
+              if (value.idempotencyKey) {
+                state.responses.push({ ...value });
+              }
+            } else if (
+              table === schema.responseDeliveries &&
+              !state.deliveries.some(
+                (delivery) =>
+                  delivery.responseId === value.responseId &&
+                  delivery.destination === value.destination,
+              )
+            ) {
+              state.deliveries.push({ ...value });
+            }
+          }
+        };
+        const builder: any = {};
+        builder.onConflictDoNothing = () => builder;
+        builder.returning = async () => {
+          const v = values[0]!;
+          if (table !== schema.responses) {
+            persist();
+            return [];
+          }
+          if (
+            state.responses.some(
+              (response) =>
+                response.formId === v.formId &&
+                response.idempotencyKey === v.idempotencyKey,
+            )
+          ) {
+            return [];
+          }
+          persist();
+          return [{ id: v.id }];
+        };
+        builder.then = (
+          onFulfilled: (value: void) => unknown,
+          onRejected?: (reason: unknown) => unknown,
+        ) => Promise.resolve().then(persist).then(onFulfilled, onRejected);
+        return builder;
+      },
+    }),
+    update: (table: unknown) => ({
+      set: (values: Record<string, unknown>) => {
+        const execute = (condition?: unknown) => {
+          const params = paramsFromWhere(condition);
+          if (table === schema.responses) {
+            for (const response of state.responses) {
+              if (!params[0] || response.id === params[0]) {
+                Object.assign(response, values);
+              }
+            }
+            return;
+          }
+          for (const delivery of state.deliveries) {
+            if (params[0] && delivery.id !== params[0]) continue;
+            const staleAt = params[params.length - 1];
+            if (
+              values.status === "processing" &&
+              delivery.status !== "pending" &&
+              delivery.status !== "failed" &&
+              (delivery.status !== "processing" ||
+                typeof delivery.claimedAt !== "string" ||
+                typeof staleAt !== "string" ||
+                delivery.claimedAt >= staleAt)
+            ) {
+              continue;
+            }
+            if (
+              values.status !== "processing" &&
+              params[1] &&
+              delivery.claimToken !== params[1]
+            ) {
+              continue;
+            }
+            Object.assign(delivery, values);
+            if (
+              values.status === "succeeded" &&
+              delivery.destination === state.throwAfterDeliveryStatusWriteFor
+            ) {
+              state.throwAfterDeliveryStatusWriteFor = null;
+              throw new Error("status write response lost");
+            }
+            return [{ id: delivery.id }];
+          }
+          return [];
+        };
+        return {
+          where: (condition?: unknown) => {
+            const result = {
+              returning: async () => execute(condition),
+              then: (
+                onFulfilled: (value: unknown) => unknown,
+                onRejected?: (reason: unknown) => unknown,
+              ) =>
+                Promise.resolve()
+                  .then(() => execute(condition))
+                  .then(onFulfilled, onRejected),
+            };
+            return result;
+          },
+        };
+      },
+    }),
+    transaction: async (callback: (tx: any) => unknown) => callback(getDb()),
+  });
+  return { getDb, schema };
 });
 
-const { submitForm } = await import("./submissions.js");
+const { reconcileResponseDeliveries, submitForm } =
+  await import("./submissions.js");
 
 async function submit(body: unknown) {
   state.body = body;
@@ -248,6 +257,8 @@ describe("submitForm pageUrl pass-through", () => {
     state.throwAfterDeliveryStatusWriteFor = null;
     state.requestContexts.length = 0;
     state.session = null;
+    publishedForm.status = "published";
+    publishedForm.deletedAt = null;
     publishedForm.fields = JSON.stringify([
       { id: "msg", type: "textarea", label: "Feedback", required: false },
     ]);
@@ -300,6 +311,10 @@ describe("submitForm pageUrl pass-through", () => {
     );
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("persists UTM context while scrubbing sensitive page URL metadata", async () => {
     const res = await submit({
       data: { msg: "love it" },
@@ -339,6 +354,152 @@ describe("submitForm pageUrl pass-through", () => {
     expect(second).toEqual(first);
     expect(state.inserted).toHaveLength(1);
     expect(state.responses).toHaveLength(1);
+  });
+
+  it("reconciles a failed delivery without another public submission", async () => {
+    state.headers["idempotency-key"] = "feedback-request-independent";
+    publishedForm.settings = JSON.stringify({
+      integrations: [
+        {
+          id: "slack",
+          type: "slack",
+          name: "Slack",
+          enabled: true,
+          url: "https://example.com/slack",
+        },
+      ],
+    });
+    state.integrationOutcomes = ["failed", "succeeded"];
+
+    const first = await submit({ data: { msg: "independent retry" } });
+    const result = await reconcileResponseDeliveries(
+      String(state.responses[0]!.id),
+    );
+
+    expect(first).toMatchObject({ retryable: true });
+    expect(result).toEqual({
+      success: true,
+      retryable: false,
+      id: state.responses[0]!.id,
+    });
+    expect(deliverIntegrationDelivery).toHaveBeenCalledTimes(2);
+  });
+
+  it("renews a live delivery claim during a long provider call", async () => {
+    vi.useFakeTimers();
+    state.headers["idempotency-key"] = "feedback-request-lease";
+    publishedForm.settings = JSON.stringify({
+      integrations: [
+        {
+          id: "slack",
+          type: "slack",
+          name: "Slack",
+          enabled: true,
+          url: "https://example.com/slack",
+        },
+      ],
+    });
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    deliverIntegrationDelivery.mockImplementationOnce(async () => {
+      markStarted();
+      await held;
+    });
+
+    const firstPromise = submit({ data: { msg: "long delivery" } });
+    await started;
+    await vi.advanceTimersByTimeAsync(60_001);
+
+    const second = await submit({ data: { msg: "long delivery" } });
+
+    expect(second).toMatchObject({
+      error: "Response delivery is still pending",
+      retryable: true,
+    });
+    expect(deliverIntegrationDelivery).toHaveBeenCalledTimes(1);
+
+    release();
+    expect(await firstPromise).toMatchObject({ success: true });
+  });
+
+  it("keeps the aggregate delivery summary current across concurrent retries", async () => {
+    state.headers["idempotency-key"] = "feedback-request-summary-race";
+    publishedForm.settings = JSON.stringify({
+      integrations: [
+        {
+          id: "slack",
+          type: "slack",
+          name: "Slack",
+          enabled: true,
+          url: "https://example.com/slack",
+        },
+        {
+          id: "discord",
+          type: "discord",
+          name: "Discord",
+          enabled: true,
+          url: "https://example.com/discord",
+        },
+      ],
+    });
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    deliverIntegrationDelivery.mockImplementation(async (snapshot) => {
+      if ((snapshot as { id: string }).id === "slack") {
+        markStarted();
+        await held;
+      }
+    });
+
+    const firstPromise = submit({ data: { msg: "summary race" } });
+    await started;
+    const second = await submit({ data: { msg: "summary race" } });
+
+    expect(second).toMatchObject({ retryable: true });
+    release();
+    expect(await firstPromise).toMatchObject({ success: true });
+    expect(JSON.parse(String(state.responses[0]!.deliveryStatus))).toEqual({
+      "application-state": "succeeded",
+      "integration:discord": "succeeded",
+      "integration:slack": "succeeded",
+    });
+  });
+
+  it("reconciles an idempotent response after its form is unpublished and archived", async () => {
+    state.headers["idempotency-key"] = "feedback-request-lifecycle";
+    publishedForm.settings = JSON.stringify({
+      integrations: [
+        {
+          id: "slack",
+          type: "slack",
+          name: "Slack",
+          enabled: true,
+          url: "https://example.com/slack",
+        },
+      ],
+    });
+    state.integrationOutcomes = ["failed", "succeeded"];
+
+    const first = await submit({ data: { msg: "lifecycle retry" } });
+    publishedForm.status = "draft";
+    publishedForm.deletedAt = "2026-08-28T00:00:00.000Z";
+    const second = await submit({ data: { msg: "lifecycle retry" } });
+
+    expect(first).toMatchObject({ retryable: true });
+    expect(second).toMatchObject({ success: true });
+    expect(deliverIntegrationDelivery).toHaveBeenCalledTimes(2);
   });
 
   it("retries only incomplete destinations and reports partial delivery as retryable", async () => {
