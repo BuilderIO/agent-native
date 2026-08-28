@@ -1,8 +1,3 @@
-import { fireInternalDispatch } from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { defineEventHandler, getMethod, readBody, setResponseStatus } from "h3";
 import { z } from "zod";
 
@@ -11,6 +6,7 @@ import {
   createWebhookSubscription,
   deleteWebhookSubscription,
   listWebhookSubscriptions,
+  resolveWebhookRouteCaller,
 } from "../../../../lib/outbound-webhooks.js";
 
 const createSchema = z.object({
@@ -26,12 +22,12 @@ const createSchema = z.object({
 const deleteSchema = z.object({ id: z.string().min(1) });
 
 export default defineEventHandler(async (event) => {
-  const ownerEmail = getRequestUserEmail();
-  if (!ownerEmail) {
+  const caller = await resolveWebhookRouteCaller(event);
+  if (!caller) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
-  const orgId = getRequestOrgId() ?? null;
+  const { ownerEmail, orgId } = caller;
   if (getMethod(event) === "GET")
     return listWebhookSubscriptions(ownerEmail, orgId);
   if (getMethod(event) === "POST") {

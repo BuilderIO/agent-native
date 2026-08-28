@@ -1,20 +1,19 @@
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
-import { getWebhookSubscription } from "../../../../lib/outbound-webhooks.js";
+import {
+  getWebhookSubscription,
+  resolveWebhookRouteCaller,
+} from "../../../../lib/outbound-webhooks.js";
 
 export default defineEventHandler(async (event) => {
-  const ownerEmail = getRequestUserEmail();
+  const caller = await resolveWebhookRouteCaller(event);
   const id = getRouterParam(event, "id");
-  if (!ownerEmail) {
+  if (!caller) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
   const subscription = id
-    ? await getWebhookSubscription(id, ownerEmail, getRequestOrgId() ?? null)
+    ? await getWebhookSubscription(id, caller.ownerEmail, caller.orgId)
     : null;
   if (!subscription) {
     setResponseStatus(event, 404);

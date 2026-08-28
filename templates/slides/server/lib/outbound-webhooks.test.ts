@@ -155,7 +155,17 @@ vi.mock("@agent-native/core/secrets", () => ({
   encryptSecretValue: (value: string) => value,
   decryptSecretValue: (value: string) => value,
 }));
-vi.mock("@agent-native/core/server", () => ({ fireInternalDispatch: vi.fn() }));
+const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
+const mockResolveConnectBearerCaller = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/server", () => ({
+  fireInternalDispatch: vi.fn(),
+  resolveConnectBearerCaller: (...args: unknown[]) =>
+    mockResolveConnectBearerCaller(...args),
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => mockGetRequestUserEmail(),
+  getRequestOrgId: () => null,
+}));
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
   or: (...conditions: unknown[]) => ({ kind: "or", conditions }),
@@ -175,6 +185,7 @@ import {
   deleteWebhookSubscription,
   enqueueWebhookEvent,
   processDueWebhookDeliveries,
+  resolveWebhookRouteCaller,
 } from "./outbound-webhooks.js";
 
 function subscription(
@@ -202,6 +213,8 @@ beforeEach(() => {
   state.deliveries = [];
   state.delivered = [];
   state.response = { ok: true, status: 200, blocked: false };
+  mockGetRequestUserEmail.mockReset().mockReturnValue(undefined);
+  mockResolveConnectBearerCaller.mockReset().mockResolvedValue(null);
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-08-26T12:00:00.000Z"));
 });
@@ -346,5 +359,37 @@ describe("Slides outbound webhooks", () => {
       claimedAt: null,
       claimExpiresAt: null,
     });
+  });
+
+  it("authenticates a Connect/API bearer caller when there is no session", async () => {
+    mockResolveConnectBearerCaller.mockResolvedValue({
+      owner: "bearer@example.com",
+      orgId: "org-1",
+      anonymous: false,
+    });
+
+    await expect(resolveWebhookRouteCaller({})).resolves.toEqual({
+      ownerEmail: "bearer@example.com",
+      orgId: "org-1",
+    });
+  });
+
+  it("prefers the session caller over a bearer token when both are present", async () => {
+    mockGetRequestUserEmail.mockReturnValue("session@example.com");
+    mockResolveConnectBearerCaller.mockResolvedValue({
+      owner: "bearer@example.com",
+      orgId: null,
+      anonymous: false,
+    });
+
+    await expect(resolveWebhookRouteCaller({})).resolves.toEqual({
+      ownerEmail: "session@example.com",
+      orgId: null,
+    });
+    expect(mockResolveConnectBearerCaller).not.toHaveBeenCalled();
+  });
+
+  it("returns null when neither a session nor a valid bearer token is present", async () => {
+    await expect(resolveWebhookRouteCaller({})).resolves.toBeNull();
   });
 });

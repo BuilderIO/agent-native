@@ -123,6 +123,10 @@ beforeEach(() => {
   // (e.g. the "rejects reopening" case below) never leaks into the next.
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
+  mockAssertAccess.mockResolvedValue({
+    role: "editor",
+    resource: { ownerEmail: "author@example.com", orgId: null },
+  });
   state.rows = [
     {
       id: "c-1",

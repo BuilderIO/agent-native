@@ -74,7 +74,7 @@ import { runWithRequestContext } from "./request-context.js";
 const ROUTE_PREFIX = "/_agent-native/actions";
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 
-async function resolveConnectBearerCaller(
+export async function resolveConnectBearerCaller(
   event: any,
 ): Promise<ActionRouteResolvedCaller | null> {
   const authorization = getHeader(event, "authorization");

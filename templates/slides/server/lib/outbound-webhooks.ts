@@ -8,7 +8,14 @@ import {
   decryptSecretValue,
   encryptSecretValue,
 } from "@agent-native/core/secrets";
-import { fireInternalDispatch } from "@agent-native/core/server";
+import {
+  fireInternalDispatch,
+  resolveConnectBearerCaller,
+} from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -35,6 +42,20 @@ function nextAttempt(attempts: number): string {
   return new Date(
     Date.now() + RETRY_BASE_MS * 2 ** Math.min(attempts, 6),
   ).toISOString();
+}
+
+// The webhook subscription CRUD routes are custom Nitro routes, not
+// `defineAction` HTTP endpoints, so they don't get bearer auth from the
+// auto-mounted action routes for free. Reuse the exact same Connect/API
+// bearer verification those routes use instead of inventing a second one;
+// session cookies still win when both are present.
+export async function resolveWebhookRouteCaller(event: any) {
+  const sessionEmail = getRequestUserEmail();
+  if (sessionEmail)
+    return { ownerEmail: sessionEmail, orgId: getRequestOrgId() ?? null };
+  const bearerCaller = await resolveConnectBearerCaller(event);
+  if (!bearerCaller) return null;
+  return { ownerEmail: bearerCaller.owner, orgId: bearerCaller.orgId ?? null };
 }
 
 export async function createWebhookSubscription(input: {

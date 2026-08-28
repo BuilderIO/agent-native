@@ -428,6 +428,7 @@ export {
 } from "./agent-chat/prompt-resources.js";
 export {
   mountActionRoutes,
+  resolveConnectBearerCaller,
   type MountActionRoutesOptions,
   type ActionRouteAuthAdapter,
   type ActionRouteResolvedCaller,
