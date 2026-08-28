@@ -45,7 +45,7 @@ describe("release everything workflow", () => {
     });
     assert.deepEqual(workflow.permissions, {
       actions: "write",
-      contents: "read",
+      contents: "write",
       "pull-requests": "read",
     });
   });
@@ -53,13 +53,43 @@ describe("release everything workflow", () => {
   it("waits for package publication before dispatching stable downstream releases", () => {
     assert.equal(
       coordinator.uses,
-      "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+      "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3",
     );
     const source = String((coordinator.with as Workflow).script);
     assert.match(source, /auto-publish\.yml/);
     assert.match(source, /waitForStablePackagePublish/);
+    assert.match(source, /Stable package release preparation/);
+    assert.match(source, /90 \* 60_000/);
+    assert.match(
+      source,
+      /const coordinatorDeadline = startedAt \+ 350 \* 60_000/,
+    );
+    assert.match(
+      source,
+      /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
+    );
     assert.match(source, /async function getRemoteTagSha\(tag\)/);
     assert.match(source, /github\.rest\.git\.getTag/);
+    assert.match(
+      source,
+      /async function nextStableVersion\(tagPrefix, baseVersion\)/,
+    );
+    assert.match(source, /github\.paginate\(github\.rest\.repos\.listReleases/);
+    assert.match(source, /release\.tag_name\.startsWith\(tagPrefix\)/);
+    assert.match(source, /candidate\[2\] \+= 1/);
+    assert.match(
+      source,
+      /async function reserveStableVersion\(tagPrefix, baseVersion, sourceSha\)/,
+    );
+    assert.match(source, /github\.rest\.git\.createRef/);
+    assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
+    assert.match(source, /error\.status !== 422/);
+    assert.match(source, /const reservedTags = new Map\(\)/);
+    assert.match(source, /async function cleanupReservedTags\(\)/);
+    assert.match(source, /github\.rest\.repos\.deleteRelease/);
+    assert.match(source, /github\.rest\.git\.deleteRef/);
+    assert.match(source, /await cleanupReservedTags\(\)/);
+    assert.match(source, /Downstream workflows own these reserved tags/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,
@@ -70,13 +100,11 @@ describe("release everything workflow", () => {
       source,
       /waitForStablePackagePublish\(releaseSha, packageRef, coreVersionChanged\)/,
     );
-    assert.match(source, /tagSha !== mergeSha/);
     assert.match(source, /readJsonAt\(\s*releaseBaseSha,/);
     assert.match(
       source,
       /initialCorePackage\.version !== corePackage\.version/,
     );
-    assert.match(source, /pointing to \$\{mergeSha\}/);
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
@@ -90,34 +118,12 @@ describe("release everything workflow", () => {
       /const workflowRef = coreVersionChanged \? packageRef : "main"/,
     );
     assert.match(source, /dispatch\("desktop-release\.yml", workflowRef/);
-    assert.match(source, /source_ref: releaseSha/);
-    assert.match(source, /getReleaseByTag/);
-    assert.match(source, /hasCompleteDesktopRelease/);
-    assert.match(source, /desktopAlreadyPublished/);
-    assert.match(source, /desktopVersionChanged/);
-    assert.match(source, /const desktopTagSha = await getRemoteTagSha/);
-    assert.match(
+    assert.match(source, /version: desktopVersion/);
+    assert.match(source, /dispatch\("clips-desktop-release\.yml", workflowRef/);
+    assert.match(source, /version: clipsVersion/);
+    assert.doesNotMatch(
       source,
-      /Desktop release v\$\{desktopVersion\} is published but incomplete/,
-    );
-    assert.match(source, /hasCompleteClipsRelease/);
-    assert.match(source, /initialClipsPackage/);
-    assert.match(source, /clipsVersionChanged/);
-    assert.match(
-      source,
-      /clipsAlreadyPublished[\s\S]*const clipsTagSha = await getRemoteTagSha/,
-    );
-    assert.match(source, /clipsTagSha !== releaseSha/);
-    assert.match(
-      source,
-      /Clips release clips-v\$\{clipsVersion\} is published but incomplete/,
-    );
-    assert.match(source, /Agent-Native-arm64\.dmg/);
-    assert.match(source, /Clips_\$\{version\}_universal\.dmg/);
-    assert.match(source, /clipsAlreadyPublished/);
-    assert.match(
-      source,
-      /desktopAlreadyPublished[\s\S]*Promise\.resolve\(\{ status: "completed"/,
+      /desktopAlreadyPublished|clipsAlreadyPublished/,
     );
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
