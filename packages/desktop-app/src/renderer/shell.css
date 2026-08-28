@@ -130,6 +130,7 @@ body {
   min-height: 0;
   height: auto;
   overflow: hidden;
+  position: relative;
 }
 
 /* ─── Windows/Linux custom window controls ───────────────────── */
