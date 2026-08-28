@@ -331,6 +331,11 @@ branch, stay on it.
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
 
+   If conflict recovery was required, compare the local checkout with the
+   live PR head before merging `origin/main`; do not update or merge an
+   obsolete local head while another session has advanced the PR branch.
+   `/babysit-pr` provides the exact `headRefOid` check for this gate.
+
    If this invocation also found a Dependabot PR, apply the dedicated
    `review-prs` exception above and merge each qualifying update with its
    expected head SHA. Immediately before each merge, re-read the current head,
