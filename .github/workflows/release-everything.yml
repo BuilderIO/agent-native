@@ -105,13 +105,14 @@ jobs:
             }
 
             async function listAutoPublishRuns() {
-              return github.paginate(github.rest.actions.listWorkflowRuns, {
+              const response = await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: "auto-publish.yml",
                 branch: "main",
-                per_page: 100,
+                per_page: 25,
               });
+              return response.data.workflow_runs;
             }
 
             async function waitForAutoPublishIdle(deadline) {
@@ -119,33 +120,46 @@ jobs:
                 const activeRuns = (await listAutoPublishRuns()).filter(
                   (run) => run.status !== "completed",
                 );
-                if (activeRuns.length === 0) return;
+                if (activeRuns.length === 0) return true;
                 core.info(
                   `Waiting for auto-publish concurrency: ${activeRuns
                     .map((run) => `${run.id}/${run.status}`)
                     .join(", ")}`,
                 );
-                await sleep(pollIntervalMs);
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) return false;
+                await sleep(Math.min(pollIntervalMs, remaining));
               }
-              throw new Error("The auto-publish concurrency slot did not become available in time.");
+              return false;
             }
 
             async function wasSupersededPendingRun(run) {
-              const jobs = await github.paginate(
-                github.rest.actions.listJobsForWorkflowRun,
-                {
-                  owner,
-                  repo,
-                  run_id: run.id,
-                  per_page: 100,
-                },
-              );
-              if (jobs.length > 0) return false;
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+                per_page: 1,
+              });
+              if (jobs.data.total_count > 0) return false;
               const runCreatedAt = Date.parse(run.created_at || "");
+              const runUpdatedAt = Date.parse(run.updated_at || "");
+              if (
+                !Number.isFinite(runCreatedAt) ||
+                !Number.isFinite(runUpdatedAt) ||
+                runUpdatedAt < runCreatedAt
+              ) {
+                return false;
+              }
               return (await listAutoPublishRuns()).some(
-                (candidate) =>
-                  candidate.id !== run.id &&
-                  Date.parse(candidate.created_at || "") > runCreatedAt,
+                (candidate) => {
+                  const candidateCreatedAt = Date.parse(candidate.created_at || "");
+                  return (
+                    candidate.event === "push" &&
+                    Number.isFinite(candidateCreatedAt) &&
+                    candidateCreatedAt > runCreatedAt &&
+                    candidateCreatedAt <= runUpdatedAt
+                  );
+                },
               );
             }
 
@@ -342,7 +356,9 @@ jobs:
                   }
                   return current;
                 }
-                await sleep(pollIntervalMs);
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) break;
+                await sleep(Math.min(pollIntervalMs, remaining));
               }
               throw new Error(`${label} did not finish before the coordinator timeout: ${run.url}`);
             }
@@ -386,7 +402,9 @@ jobs:
                   core.info(`Found stable release PR #${pr.number}: ${pr.html_url}`);
                   return pr;
                 }
-                await sleep(pollIntervalMs);
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) break;
+                await sleep(Math.min(pollIntervalMs, remaining));
               }
               throw new Error("The stable package Version Packages PR was not created in time.");
             }
@@ -409,7 +427,9 @@ jobs:
                 if (current.state === "closed") {
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
                 }
-                await sleep(pollIntervalMs);
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) break;
+                await sleep(Math.min(pollIntervalMs, remaining));
               }
               throw new Error(`Stable release PR #${pr.number} did not merge in time: ${pr.html_url}`);
             }
@@ -429,13 +449,15 @@ jobs:
                   (candidate) => candidate.event === "push" && candidate.head_sha === mergeSha,
                 );
                 if (run) {
+                  const remaining = deadline - Date.now();
+                  if (remaining <= 0) break;
                   const completed = await waitForRun(
                     {
                       id: run.id,
                       url: run.html_url,
                     },
                     "Stable npm publication",
-                    Math.max(60_000, deadline - Date.now()),
+                    remaining,
                   );
                   const tagSha = await getRemoteTagSha(packageTag);
                   if (!tagSha || (requireMergeTag && tagSha !== mergeSha)) {
@@ -448,7 +470,9 @@ jobs:
                   }
                   return completed;
                 }
-                await sleep(pollIntervalMs);
+                const remaining = deadline - Date.now();
+                if (remaining <= 0) break;
+                await sleep(Math.min(pollIntervalMs, remaining));
               }
               throw new Error(`Stable npm publication was not started for ${mergeSha}.`);
             }
@@ -462,7 +486,8 @@ jobs:
             const packagePreparationDeadline = phaseDeadline(90 * 60_000);
             let packagePreparation;
             while (Date.now() < packagePreparationDeadline) {
-              await waitForAutoPublishIdle(packagePreparationDeadline);
+              const autoPublishIdle = await waitForAutoPublishIdle(packagePreparationDeadline);
+              if (!autoPublishIdle || Date.now() >= packagePreparationDeadline) break;
               const dispatched = await dispatch(
                 "auto-publish.yml",
                 "main",
@@ -471,10 +496,16 @@ jobs:
                   redispatchDownstream: "false",
                 },
               );
+              const remaining = packagePreparationDeadline - Date.now();
+              if (remaining <= 0) {
+                throw new Error(
+                  `Stable package release preparation dispatch exceeded the coordinator timeout: ${dispatched.url}`,
+                );
+              }
               const completed = await waitForRun(
                 dispatched,
                 "Stable package release preparation",
-                Math.max(60_000, packagePreparationDeadline - Date.now()),
+                remaining,
                 { retryIfSupersededPending: true },
               );
               if (completed) {
