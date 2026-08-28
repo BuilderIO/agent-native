@@ -105,6 +105,8 @@ export interface Slide {
   content: string;
   notes: string;
   layout: SlideLayout;
+  /** Changes on every persisted content write so fit measurements cannot cross writes. */
+  layoutFitRevision?: string;
   background?: string;
   /** URL of the generated/loaded image for this slide */
   imageUrl?: string;

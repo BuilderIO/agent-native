@@ -1003,10 +1003,12 @@ describe("run() — asynchronous layout fit metadata", () => {
           {
             slideId: "slide-1",
             contentHash: hashSlideContent("<div>Updated one</div>"),
+            layoutFitRevision: expect.any(String),
           },
           {
             slideId: "slide-2",
             contentHash: hashSlideContent("<div>Updated two</div>"),
+            layoutFitRevision: expect.any(String),
           },
         ],
       },

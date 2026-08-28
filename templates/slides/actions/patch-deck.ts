@@ -37,7 +37,10 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
+import {
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -347,7 +350,10 @@ export function applyOperation(deck: any, op: Operation): void {
       const slide = slides[idx];
       const fields = op.fields;
       if (fields.content !== undefined) {
-        slide.content = normalizeSlidePadding(fields.content);
+        const nextContent = normalizeSlidePadding(fields.content);
+        const contentChanged = String(slide.content ?? "") !== nextContent;
+        slide.content = nextContent;
+        if (contentChanged) slide.layoutFitRevision = createLayoutFitRevision();
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
       if (fields.background !== undefined) slide.background = fields.background;
@@ -415,6 +421,7 @@ export function applyOperation(deck: any, op: Operation): void {
           typeof fields.content === "string"
             ? normalizeSlidePadding(fields.content)
             : "",
+        layoutFitRevision: createLayoutFitRevision(),
         notes: fields.notes ?? "",
         layout: fields.layout ?? "content",
       };
@@ -597,7 +604,7 @@ export default defineAction({
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
     "count, and animation metadata before reporting success. Content writes " +
-    "return immediately with hash-keyed layoutFit.status=pending; call " +
+    "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
     "get-layout-overflows later when you need the browser's fit result.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
@@ -900,8 +907,11 @@ export default defineAction({
           ),
         ),
       ];
-      const finalSlides: Array<{ id?: unknown; content?: unknown }> =
-        Array.isArray(deck.slides) ? deck.slides : [];
+      const finalSlides: Array<{
+        id?: unknown;
+        content?: unknown;
+        layoutFitRevision?: unknown;
+      }> = Array.isArray(deck.slides) ? deck.slides : [];
       const base = {
         ok: true,
         deckId,
@@ -918,6 +928,10 @@ export default defineAction({
                     contentHash: hashSlideContent(
                       typeof slide?.content === "string" ? slide.content : "",
                     ),
+                    layoutFitRevision:
+                      typeof slide?.layoutFitRevision === "string"
+                        ? slide.layoutFitRevision
+                        : undefined,
                   };
                 }),
               },

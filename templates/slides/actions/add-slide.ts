@@ -17,7 +17,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
+import {
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
@@ -94,7 +97,7 @@ export default defineAction({
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and a pending layoutFit hash that can be checked later with get-layout-overflows.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -296,6 +299,7 @@ export default defineAction({
       const newSlide: any = {
         id: newSlideId,
         content: normalizeSlidePadding(content),
+        layoutFitRevision: createLayoutFitRevision(),
         creativeContextReuseLabels: slideReuseLabels,
       };
       if (layout) newSlide.layout = layout;
@@ -388,6 +392,7 @@ export default defineAction({
           status: "pending" as const,
           slideId: newSlideId,
           contentHash: hashSlideContent(newSlide.content),
+          layoutFitRevision: newSlide.layoutFitRevision,
         },
       };
 

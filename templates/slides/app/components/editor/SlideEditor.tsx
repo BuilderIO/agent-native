@@ -1053,6 +1053,7 @@ function syncOverflowToAppState(
     slideId: string;
     deckId?: string;
     contentHash: string;
+    layoutFitRevision?: string;
     contentHeight: number;
     contentWidth: number;
     viewportHeight: number;
@@ -1470,6 +1471,9 @@ export default function SlideEditor({
         slideId: slide.id,
         deckId,
         contentHash: hashSlideContent(slide.content),
+        ...(slide.layoutFitRevision
+          ? { layoutFitRevision: slide.layoutFitRevision }
+          : {}),
         contentHeight: info.contentHeight,
         contentWidth: info.contentWidth,
         viewportHeight: info.viewportHeight,

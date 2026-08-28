@@ -25,7 +25,10 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
+import {
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -93,7 +96,7 @@ function storedCreativeContext(value: unknown): {
 
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the hash-keyed result later.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -350,6 +353,8 @@ export default defineAction({
         }
       }
 
+      if (applied) slide.layoutFitRevision = createLayoutFitRevision();
+
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at
       // that path, so preserving the old list would reveal the wrong content.
@@ -467,6 +472,7 @@ export default defineAction({
           slide,
           slideIndex,
           contentHash: hashSlideContent(String(slide.content ?? "")),
+          layoutFitRevision: slide.layoutFitRevision,
           contextMode,
           contextPackId: validated.contextPackId,
           reuseLabels: slideReuseLabels,
@@ -480,6 +486,7 @@ export default defineAction({
         slide,
         slideIndex,
         contentHash: hashSlideContent(String(slide.content ?? "")),
+        layoutFitRevision: slide.layoutFitRevision,
       };
     });
 
@@ -550,6 +557,7 @@ export default defineAction({
         status: "pending" as const,
         slideId,
         contentHash: rmw.contentHash,
+        layoutFitRevision: rmw.layoutFitRevision,
       },
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode

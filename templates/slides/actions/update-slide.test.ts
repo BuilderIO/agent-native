@@ -547,8 +547,14 @@ describe("update-slide", () => {
         slideId: "slide-1",
       },
     });
-    expect((result.layoutFit as { contentHash: string }).contentHash).toBe(
-      result.contentHash,
-    );
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
+      },
+    ).toMatchObject({
+      contentHash: result.contentHash,
+      layoutFitRevision: expect.any(String),
+    });
   });
 });

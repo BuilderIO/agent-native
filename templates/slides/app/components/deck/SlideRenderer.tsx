@@ -997,7 +997,7 @@ export function SlideInner({
 
   useEffect(() => {
     overflowByTargetRef.current.clear();
-  }, [slide.id, slide.content, aspectRatio]);
+  }, [slide.id, slide.content, slide.layoutFitRevision, aspectRatio]);
 
   // If slide has excalidraw data, render it as a static SVG thumbnail
   if (
@@ -1051,7 +1051,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={left}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${left}`}
           className="slide-content text-white/90"
           onOverflowChange={(info) => reportTargetOverflow("left", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1066,7 +1066,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={right}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${right}`}
           className="slide-content text-white/90"
           onOverflowChange={(info) => reportTargetOverflow("right", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1092,7 +1092,7 @@ export function SlideInner({
         <AutoFitContent
           canvasWidth={dims.width}
           canvasHeight={dims.height}
-          fitKey={content}
+          fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
           className="h-full w-full"
           onOverflowChange={(info) => reportTargetOverflow("raw", info)}
           onAutofitSettled={onAutofitSettled}
@@ -1118,7 +1118,7 @@ export function SlideInner({
       <AutoFitContent
         canvasWidth={dims.width}
         canvasHeight={dims.height}
-        fitKey={content}
+        fitKey={`${slide.layoutFitRevision ?? ""}:${content}`}
         className="slide-content text-white/90 w-full"
         onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
         onAutofitSettled={onAutofitSettled}

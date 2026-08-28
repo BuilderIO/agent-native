@@ -289,9 +289,15 @@ describe("add-slide", () => {
         slideId: "slide-new",
       },
     });
-    expect((result.layoutFit as { contentHash: string }).contentHash).toBe(
-      hashSlideContent("<div>New</div>"),
-    );
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
+      },
+    ).toMatchObject({
+      contentHash: hashSlideContent("<div>New</div>"),
+      layoutFitRevision: expect.any(String),
+    });
   });
 
   it("inherits the deck pack and appends exact slide provenance", async () => {
