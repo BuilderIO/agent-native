@@ -39,6 +39,7 @@ import {
 } from "@/components/editor/NewDeckReferenceStep";
 import PromptPopover, {
   uploadPromptFiles,
+  type PromptAttachmentActions,
   type PromptImportSelection,
   type PromptChatAttachment,
   type UploadedFile,
@@ -298,6 +299,9 @@ export default function Index() {
     files: UploadedFile[];
     attachments: ReadonlyArray<PromptChatAttachment>;
   } | null>(null);
+  const pendingDeckAttachmentActionsRef =
+    useRef<PromptAttachmentActions | null>(null);
+  const pendingDeckGenerationRef = useRef<Promise<void> | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
   const [isStartingNewDeck, setIsStartingNewDeck] = useState(false);
@@ -602,6 +606,21 @@ export default function Index() {
     navigate(`/deck/${deck.id}`);
   };
 
+  const settlePendingDeckAttachments = useCallback(
+    (result: "commit" | "discard") => {
+      const actions = pendingDeckAttachmentActionsRef.current;
+      pendingDeckAttachmentActionsRef.current = null;
+      actions?.[result]();
+    },
+    [],
+  );
+
+  const handlePendingDeckAttachmentsAbandoned = useCallback(() => {
+    if (!pendingDeckGenerationRef.current) {
+      settlePendingDeckAttachments("discard");
+    }
+  }, [settlePendingDeckAttachments]);
+
   const handleCreateDeckWithPrompt = async (
     prompt: string,
     files: UploadedFile[],
@@ -614,6 +633,7 @@ export default function Index() {
     // sidebar. Catch it here so the user sees a clear sign-in prompt
     // and the typed prompt isn't lost when they come back.
     if (!session) {
+      settlePendingDeckAttachments("discard");
       preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
       return;
     }
@@ -654,6 +674,7 @@ export default function Index() {
       });
     });
     if (!deck) {
+      settlePendingDeckAttachments("discard");
       setIsStartingNewDeck(false);
       return;
     }
@@ -669,6 +690,7 @@ export default function Index() {
     });
 
     const recoverFromGenerationSetupFailure = (description: string) => {
+      settlePendingDeckAttachments("discard");
       if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
@@ -875,26 +897,75 @@ export default function Index() {
       ...getUploadedImageAgentOptions(filesForGeneration),
       attachments: attachmentsForGeneration,
     });
+    settlePendingDeckAttachments("commit");
   };
+
+  const runPendingDeckGeneration = useCallback(
+    (
+      prompt: string,
+      files: UploadedFile[],
+      referenceSelection: NewDeckReferenceSelection,
+      attachments: ReadonlyArray<PromptChatAttachment> = [],
+    ) => {
+      const generation = Promise.resolve().then(() =>
+        handleCreateDeckWithPrompt(
+          prompt,
+          files,
+          referenceSelection,
+          attachments,
+        ),
+      );
+      pendingDeckGenerationRef.current = generation;
+      void generation.then(
+        () => {
+          if (pendingDeckGenerationRef.current === generation) {
+            pendingDeckGenerationRef.current = null;
+          }
+        },
+        () => {
+          if (pendingDeckGenerationRef.current !== generation) return;
+          pendingDeckGenerationRef.current = null;
+          settlePendingDeckAttachments("discard");
+        },
+      );
+      return generation;
+    },
+    [handleCreateDeckWithPrompt, settlePendingDeckAttachments],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (!pendingDeckGenerationRef.current) {
+        settlePendingDeckAttachments("discard");
+      }
+    };
+  }, [settlePendingDeckAttachments]);
 
   const handlePromptSubmit = useCallback(
     (
       prompt: string,
       files: UploadedFile[],
-      attachments: ReadonlyArray<PromptChatAttachment> = [],
+      attachments: PromptAttachmentActions,
     ) => {
+      pendingDeckAttachmentActionsRef.current = attachments;
       setNewDeckPromptOpen(false, { clearInitialPrompt: false });
-      setPendingDeck({ prompt, files, attachments });
+      setPendingDeck({
+        prompt,
+        files,
+        attachments: attachments.attachments,
+      });
       setShowNewDeckReferenceStep(true);
+      return "retain" as const;
     },
     [setNewDeckPromptOpen],
   );
 
   const handlePromptSkip = useCallback(() => {
+    settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setPendingDeck({ prompt: "", files: [], attachments: [] });
     setShowNewDeckReferenceStep(true);
-  }, [setNewDeckPromptOpen]);
+  }, [setNewDeckPromptOpen, settlePendingDeckAttachments]);
 
   const handleDirectImport = useCallback(
     async (selection: PromptImportSelection): Promise<boolean> => {
@@ -1035,21 +1106,17 @@ export default function Index() {
           forgetReference("deck");
         }
       }
-      setShowNewDeckReferenceStep(false);
-      setPendingDeck(null);
-      await handleCreateDeckWithPrompt(
+      const generation = runPendingDeckGeneration(
         pending.prompt,
         pending.files,
         selection,
         pending.attachments,
       );
+      setShowNewDeckReferenceStep(false);
+      setPendingDeck(null);
+      await generation;
     },
-    [
-      forgetReference,
-      handleCreateDeckWithPrompt,
-      pendingDeck,
-      rememberReference,
-    ],
+    [forgetReference, pendingDeck, rememberReference, runPendingDeckGeneration],
   );
 
   const handleReferenceImport = useCallback(
@@ -1233,21 +1300,21 @@ export default function Index() {
     [callAction, reloadDecks, t],
   );
 
-  const handleReferenceSkip = useCallback(() => {
+  const handleReferenceSkip = useCallback(async () => {
     const pending = pendingDeck;
     if (!pending) {
       setShowNewDeckReferenceStep(false);
       return;
     }
-    setShowNewDeckReferenceStep(false);
-    setPendingDeck(null);
     forgetReference("design-system");
     forgetReference("deck");
     if (!pending.prompt.trim() && pending.files.length === 0) {
+      setShowNewDeckReferenceStep(false);
+      setPendingDeck(null);
       handleCreateDeckBlank();
       return;
     }
-    void handleCreateDeckWithPrompt(
+    const generation = runPendingDeckGeneration(
       pending.prompt,
       pending.files,
       {
@@ -1256,11 +1323,14 @@ export default function Index() {
       },
       pending.attachments,
     );
+    setShowNewDeckReferenceStep(false);
+    setPendingDeck(null);
+    await generation;
   }, [
     forgetReference,
     handleCreateDeckBlank,
-    handleCreateDeckWithPrompt,
     pendingDeck,
+    runPendingDeckGeneration,
   ]);
 
   const handleConfirmDelete = () => {
@@ -1579,13 +1649,15 @@ export default function Index() {
         draftScope={NEW_DECK_DRAFT_SCOPE}
         initialText={newDeckInitialPrompt?.text}
         initialTextKey={newDeckInitialPrompt?.key}
+        onRetainedAttachmentsAbandoned={handlePendingDeckAttachmentsAbandoned}
       />
 
       <NewDeckReferenceStep
         open={showNewDeckReferenceStep}
         onOpenChange={(open) => {
-          if (!open) {
+          if (!open && !pendingDeckGenerationRef.current) {
             const pending = pendingDeck;
+            settlePendingDeckAttachments("discard");
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
             if (pending) {
@@ -1601,7 +1673,7 @@ export default function Index() {
         decks={decks}
         defaultDesignSystemId={initialDesignSystemId}
         defaultReferenceDeckId={initialReferenceDeckId}
-        onSelect={(selection) => void handleReferenceSelect(selection)}
+        onSelect={handleReferenceSelect}
         onImport={handleReferenceImport}
         onImportSource={handleReferenceSourceImport}
         onSkip={handleReferenceSkip}
@@ -1614,7 +1686,6 @@ export default function Index() {
         skipLabel={t("home.referenceDeckNone")}
         searchDecksLabel={t("root.searchDecks")}
         promptSummary={pendingDeck?.prompt}
-        promptFiles={pendingDeck?.files}
       />
 
       {/* Sign-in required to create a deck. Shown when an unauthenticated
