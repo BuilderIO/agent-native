@@ -520,7 +520,7 @@ export function TypographyProperties({
           overlap the weight/size row below (bug: trigger extended ~12 px into
           the next row, causing clicks meant for the size input to open this
           dropdown instead). */}
-      <InspectorGrid>
+      <InspectorGrid layout="field-action">
         <InspectorGridCell span={28} className="h-6 overflow-hidden">
           <Select
             value={fontFamily}
@@ -557,7 +557,7 @@ export function TypographyProperties({
       </InspectorGrid>
 
       {/* Row 2: weight + size side by side */}
-      <InspectorGrid className="items-center" layout="pair">
+      <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <Select
             value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
@@ -620,7 +620,7 @@ export function TypographyProperties({
       </InspectorGrid>
 
       {/* Row 3: labelled line-height + letter-spacing fields */}
-      <InspectorGrid className="items-center" layout="pair">
+      <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <div className="flex flex-col gap-2">
             <p className="design-sidebar-field-label text-muted-foreground">
