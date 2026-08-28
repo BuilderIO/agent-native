@@ -620,6 +620,42 @@ function BookingHostsEditor({
     onChange(hosts.filter((host) => host.email !== email));
   }
 
+  function isOverlayHost(host: BookingHost) {
+    const normalized = normalizeHostEmail(host.email);
+    return overlayPeople.some(
+      (person) => normalizeHostEmail(person.email) === normalized,
+    );
+  }
+
+  const calendarHosts = hosts.filter((host) => isOverlayHost(host));
+  const manualHosts = hosts.filter((host) => !isOverlayHost(host));
+
+  function renderHostBadge(host: BookingHost) {
+    const normalized = normalizeHostEmail(host.email);
+    const overlayColor = overlayPeople.find(
+      (person) => normalizeHostEmail(person.email) === normalized,
+    )?.color;
+    return (
+      <Badge key={host.email} variant="secondary" className="gap-1.5 pr-1">
+        {overlayColor && (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: overlayColor }}
+          />
+        )}
+        {host.displayName || host.email}
+        <button
+          type="button"
+          onClick={() => removeHost(host.email)}
+          className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+          aria-label={t("bookingLinks.removeHost", { email: host.email })}
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </Badge>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="space-y-1">
@@ -716,6 +752,12 @@ function BookingHostsEditor({
           : t("bookingLinks.noOverlayPeopleYet")}
       </p>
 
+      {calendarHosts.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {calendarHosts.map((host) => renderHostBadge(host))}
+        </div>
+      )}
+
       <div className="flex gap-2">
         <Input
           type="email"
@@ -740,41 +782,13 @@ function BookingHostsEditor({
         </Button>
       </div>
 
-      {hosts.length > 0 ? (
+      {manualHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {hosts.map((host) => {
-            const normalized = normalizeHostEmail(host.email);
-            const overlayColor = overlayPeople.find(
-              (person) => normalizeHostEmail(person.email) === normalized,
-            )?.color;
-            return (
-              <Badge
-                key={host.email}
-                variant="secondary"
-                className="gap-1.5 pr-1"
-              >
-                {overlayColor && (
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: overlayColor }}
-                  />
-                )}
-                {host.displayName || host.email}
-                <button
-                  type="button"
-                  onClick={() => removeHost(host.email)}
-                  className="rounded-sm p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={t("bookingLinks.removeHost", {
-                    email: host.email,
-                  })}
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
-              </Badge>
-            );
-          })}
+          {manualHosts.map((host) => renderHostBadge(host))}
         </div>
-      ) : (
+      )}
+
+      {hosts.length === 0 && (
         <p className="text-xs text-muted-foreground">
           {t("bookingLinks.onlyYouRequired")}
         </p>
