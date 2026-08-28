@@ -148,11 +148,14 @@ export async function resolvePropertyDatabaseForDocument(
   document: DocumentRow,
   databaseId?: string,
   role: "viewer" | "editor" | "admin" = "viewer",
+  options: { requireDatabaseAccess?: boolean } = {},
 ): Promise<ContentDatabaseRow | null> {
   if (databaseId) {
     const database = await getDatabaseById(databaseId);
     if (!database) throw new Error(`Database "${databaseId}" not found`);
-    await assertAccess("document", database.documentId, role);
+    if (options.requireDatabaseAccess !== false) {
+      await assertAccess("document", database.documentId, role);
+    }
     if (database.documentId === document.id) return database;
 
     const db = getDb();
@@ -503,17 +506,22 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(
   document: DocumentRow,
   databaseId?: string,
+  options: { requireDatabaseAccess?: boolean } = {},
 ) {
   const database = await resolvePropertyDatabaseForDocument(
     document,
     databaseId,
+    "viewer",
+    options,
   );
   if (!database) return [];
   // Read path: PURE read. Seeding the primary Blocks field happens at create
   // time and via the one-time startup repair (repairUnseededBlocksFields) —
   // never here. A viewer opening a shared/legacy row must not trigger writes on
   // another owner's database.
-  return listPropertiesForDatabase(database.id, document);
+  return listPropertiesForDatabase(database.id, document, {
+    includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+  });
 }
 
 export async function listPropertiesForAllDocumentDatabases(
@@ -557,6 +565,7 @@ export async function listPropertiesForAllDocumentDatabases(
 export async function listPropertiesForDatabase(
   databaseId: string,
   valueDocument?: DocumentRow,
+  options: { includeContainerDerivedValues?: boolean } = {},
 ) {
   const db = getDb();
   const definitions = await db
@@ -577,9 +586,12 @@ export async function listPropertiesForDatabase(
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
   );
-  const rowNumberByDocumentId = valueDocument
-    ? await databaseRowNumbersByDocumentId(databaseId)
-    : new Map<string, number>();
+  const includeContainerDerivedValues =
+    options.includeContainerDerivedValues !== false;
+  const rowNumberByDocumentId =
+    valueDocument && includeContainerDerivedValues
+      ? await databaseRowNumbersByDocumentId(databaseId)
+      : new Map<string, number>();
 
   // Additional (non-primary) Blocks fields keep their content in their own
   // store, keyed by (documentId, propertyId). Load this row's contents up front
@@ -613,7 +625,19 @@ export async function listPropertiesForDatabase(
   const properties = definitions.map((definition) => {
     const type = definition.type as DocumentPropertyType;
     const storedValue = valueByPropertyId.get(definition.id);
-    const options = parsePropertyOptions(definition.optionsJson);
+    const storedOptions = parsePropertyOptions(definition.optionsJson);
+    const options =
+      !includeContainerDerivedValues && type === "relation"
+        ? { relation: { databaseId: null } }
+        : !includeContainerDerivedValues && type === "rollup"
+          ? {
+              rollup: {
+                relationPropertyId: null,
+                targetPropertyId: null,
+                aggregation: storedOptions.rollup?.aggregation ?? "count",
+              },
+            }
+          : storedOptions;
     const value =
       valueDocument && isComputedPropertyType(type) && type !== "formula"
         ? computedPropertyValue(type, valueDocument, {
@@ -644,8 +668,15 @@ export async function listPropertiesForDatabase(
         createdAt: definition.createdAt,
         updatedAt: definition.updatedAt,
       },
-      value,
-      editable: !definition.systemRole && !isComputedPropertyType(type),
+      value:
+        !includeContainerDerivedValues &&
+        (type === "relation" || isComputedPropertyType(type))
+          ? null
+          : value,
+      editable:
+        includeContainerDerivedValues &&
+        !definition.systemRole &&
+        !isComputedPropertyType(type),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -678,11 +709,16 @@ export async function listPropertiesForDatabase(
 
   const nextProperties = [];
   for (const property of evaluatedProperties) {
-    if (property.definition.type === "rollup") {
+    if (
+      property.definition.type === "rollup" &&
+      includeContainerDerivedValues
+    ) {
       nextProperties.push({
         ...property,
         value: await evaluatePropertyRollup(property, evaluatedProperties),
       });
+    } else if (property.definition.type === "rollup") {
+      nextProperties.push({ ...property, value: null });
     } else {
       nextProperties.push(property);
     }

@@ -162,8 +162,8 @@ function tWithFallback(
 
 interface DocumentPropertiesProps {
   documentId: string;
-  databaseId: string;
-  databaseDocumentId: string;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
   canEdit: boolean;
   popoversPortalled?: boolean;
 }
@@ -811,6 +811,17 @@ export function DocumentProperties({
     databaseId,
     data,
   );
+  const canEditValues =
+    canEdit &&
+    loaded &&
+    databaseDocumentId !== null &&
+    data.canEditValues === true;
+  const canManageSchema =
+    canEdit &&
+    loaded &&
+    databaseId !== null &&
+    databaseDocumentId !== null &&
+    data.canManageSchema === true;
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
@@ -835,8 +846,9 @@ export function DocumentProperties({
               key={property.definition.id}
               property={property}
               documentId={documentId}
-              databaseDocumentId={databaseDocumentId}
-              canEdit={canEdit}
+              databaseDocumentId={databaseDocumentId ?? documentId}
+              canEditValues={canEditValues}
+              canManageSchema={canManageSchema}
               popoversPortalled={popoversPortalled}
               t={t}
             />
@@ -844,7 +856,7 @@ export function DocumentProperties({
         </div>
       ) : null}
 
-      {loaded && canEdit && hiddenProperties.length > 0 ? (
+      {loaded && canManageSchema && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
           databaseId={databaseId}
@@ -853,7 +865,7 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && canEdit && databaseId ? (
+      {loaded && canManageSchema && databaseId ? (
         <AddProperty
           documentId={documentId}
           databaseId={databaseId}
@@ -942,14 +954,16 @@ function PropertyRow({
   property,
   documentId,
   databaseDocumentId,
-  canEdit,
+  canEditValues,
+  canManageSchema,
   popoversPortalled,
   t,
 }: {
   property: DocumentProperty;
   documentId: string;
   databaseDocumentId: string;
-  canEdit: boolean;
+  canEditValues: boolean;
+  canManageSchema: boolean;
   popoversPortalled: boolean;
   t: TFunction;
 }) {
@@ -962,7 +976,7 @@ function PropertyRow({
 
   return (
     <div className="grid min-h-8 grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
-      {canEdit && !property.definition.systemRole ? (
+      {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
@@ -991,7 +1005,7 @@ function PropertyRow({
           )}
         </div>
       )}
-      {canEdit && property.editable ? (
+      {canEditValues && property.editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
