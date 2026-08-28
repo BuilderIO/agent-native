@@ -294,6 +294,8 @@ describe("slide image replacement", () => {
       "```",
       `\`![Inline example](${src})\``,
       `<span data-example="![Attribute example](${src})">Text</span>`,
+      `<code>![HTML code example](${src})</code>`,
+      `<pre>![HTML pre example](${src})</pre>`,
       `![Rendered image](${src})`,
     ].join("\n");
     const updated = updateImageFitInSlideHtml(
@@ -308,6 +310,8 @@ describe("slide image replacement", () => {
     expect(updated).toContain(
       `<span data-example="![Attribute example](${src})">Text</span>`,
     );
+    expect(updated).toContain(`<code>![HTML code example](${src})</code>`);
+    expect(updated).toContain(`<pre>![HTML pre example](${src})</pre>`);
     expect(updated).toContain(
       `<img data-markdown-image="true" src="${src}" alt="Rendered image"`,
     );

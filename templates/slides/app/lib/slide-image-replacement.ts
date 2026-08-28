@@ -612,6 +612,14 @@ function findHtmlTagEnd(content: string, start: number): number | null {
   return null;
 }
 
+const NON_RENDERED_HTML_ELEMENTS = new Set([
+  "code",
+  "pre",
+  "script",
+  "style",
+  "textarea",
+]);
+
 function htmlTagEndAt(content: string, start: number): number | null {
   if (content[start] !== "<" || isMarkdownCharacterEscaped(content, start)) {
     return null;
@@ -630,6 +638,31 @@ function htmlTagEndAt(content: string, start: number): number | null {
   return findHtmlTagEnd(content, start);
 }
 
+function htmlNonRenderedRangeEndAt(
+  content: string,
+  start: number,
+): number | null {
+  const tagEnd = htmlTagEndAt(content, start);
+  if (tagEnd === null) return null;
+
+  const rawTag = content.slice(start, tagEnd);
+  const element = rawTag.match(/^<([A-Za-z][\w:-]*)(?:\s|\/?>)/);
+  if (
+    !element ||
+    !NON_RENDERED_HTML_ELEMENTS.has(element[1].toLowerCase()) ||
+    /\/\s*>$/.test(rawTag)
+  ) {
+    return tagEnd;
+  }
+
+  const closingTag = new RegExp(`</${element[1]}\\s*>`, "i").exec(
+    content.slice(tagEnd),
+  );
+  return closingTag
+    ? tagEnd + closingTag.index + closingTag[0].length
+    : content.length;
+}
+
 function markdownNonRenderedRanges(content: string): SourceRange[] {
   const ranges: SourceRange[] = [];
   let start = 0;
@@ -637,7 +670,7 @@ function markdownNonRenderedRanges(content: string): SourceRange[] {
     const end =
       markdownFenceEndAt(content, start) ??
       markdownInlineCodeEndAt(content, start) ??
-      htmlTagEndAt(content, start);
+      htmlNonRenderedRangeEndAt(content, start);
     if (end === null || end <= start) {
       start += 1;
       continue;
