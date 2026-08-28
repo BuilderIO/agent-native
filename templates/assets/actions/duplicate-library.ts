@@ -15,7 +15,7 @@ import { normalizePresetReferences } from "../server/lib/preset-references.js";
 import { normalizePresetSkeletonSpec } from "../server/lib/preset-skeleton.js";
 import {
   serializeAsset,
-  serializeGenerationPreset,
+  serializeTemplate,
   serializeLibrary,
 } from "./_helpers.js";
 
@@ -117,6 +117,7 @@ export default defineAction({
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId();
 
     const db = getDb();
     const [source] = await db
@@ -141,8 +142,8 @@ export default defineAction({
         .where(eq(schema.assetFolders.libraryId, id)),
       db
         .select()
-        .from(schema.assetGenerationPresets)
-        .where(eq(schema.assetGenerationPresets.libraryId, id)),
+        .from(schema.assetTemplates)
+        .where(eq(schema.assetTemplates.libraryId, id)),
       db
         .select()
         .from(schema.assets)
@@ -231,6 +232,9 @@ export default defineAction({
       referencePolicy: preset.referencePolicy,
       settings: remapJsonText(preset.settings, allIds),
       sortOrder: preset.sortOrder,
+      ownerEmail,
+      orgId,
+      visibility: "private" as const,
       createdAt: now,
       updatedAt: now,
     }));
@@ -296,7 +300,7 @@ export default defineAction({
         await tx.insert(schema.assetFolders).values(copiedFolders);
       }
       if (copiedPresets.length) {
-        await tx.insert(schema.assetGenerationPresets).values(copiedPresets);
+        await tx.insert(schema.assetTemplates).values(copiedPresets);
       }
       if (copiedAssets.length) {
         await tx.insert(schema.assets).values(copiedAssets);
@@ -314,7 +318,7 @@ export default defineAction({
       },
       collections: copiedCollections,
       folders: copiedFolders,
-      generationPresets: copiedPresets.map(serializeGenerationPreset),
+      generationPresets: copiedPresets.map(serializeTemplate),
       assets: copiedAssets.map(serializeAsset),
     };
   },
