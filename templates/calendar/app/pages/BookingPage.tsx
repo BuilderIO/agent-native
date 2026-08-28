@@ -49,6 +49,20 @@ type Step = "duration" | "date" | "time" | "info" | "confirmed";
 
 const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
 
+function timezoneAbbreviation(date: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      timeZoneName: "short",
+    }).formatToParts(date);
+    return (
+      parts.find((part) => part.type === "timeZoneName")?.value ?? timeZone
+    );
+  } catch {
+    return timeZone;
+  }
+}
+
 function BookingPageShell({
   children,
   className,
@@ -111,6 +125,16 @@ export default function BookingPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [showTimeZones, setShowTimeZones] = useState(false);
+  // Resolved after mount only — the browser's timezone can differ from the
+  // server's, so computing it during render would cause a hydration mismatch.
+  const [browserTimezone, setBrowserTimezone] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      setBrowserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    } catch {
+      setBrowserTimezone(null);
+    }
+  }, []);
   const [confirmedBooking, setConfirmedBooking] = useState<Booking | null>(
     null,
   );
@@ -486,6 +510,11 @@ export default function BookingPage() {
                 {selectedDate ? (
                   <p className="text-sm text-muted-foreground">
                     {format(selectedDate, "EEEE, MMMM d, yyyy")}
+                    {browserTimezone && (
+                      <span className="ml-1.5 text-xs">
+                        ({timezoneAbbreviation(selectedDate, browserTimezone)})
+                      </span>
+                    )}
                   </p>
                 ) : (
                   <span />
