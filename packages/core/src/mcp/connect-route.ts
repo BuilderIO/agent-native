@@ -36,6 +36,7 @@ import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import {
+  localeDirection,
   normalizeLocaleCode,
   type LocaleCode,
 } from "../localization/shared.js";
@@ -486,6 +487,7 @@ function renderConnectPage(params: {
     userCode,
     locale,
   } = params;
+  const direction = localeDirection(locale);
   const guides = getMcpConnectGuides(locale);
   const staticTokenFallback = getMcpStaticTokenFallback(locale);
   const safeEmail = escapeHtml(email);
@@ -561,7 +563,7 @@ function renderConnectPage(params: {
           </div>
         </details>`;
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(locale)}" dir="${direction}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -237,6 +237,7 @@ describe("handleMcpConnect", () => {
       const body = await res.text();
       expect(body).toContain("Abre Customize → Connectors en Claude.");
       expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain('<html lang="es-ES" dir="ltr">');
     });
 
     it("shows the device user_code when present and well-formed", async () => {
