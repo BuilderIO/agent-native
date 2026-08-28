@@ -4215,11 +4215,7 @@ export default function SlideEditor({
       const selector = getBuilderSelector(box);
       if (selector) selectElementForStyling(box, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) {
-        onUpdateSlideRef.current({ content: html }, undefined, {
-          preserveLocalState: true,
-        });
-      }
+      if (html !== null) onUpdateSlideRef.current({ content: html });
       return true;
     },
     [
