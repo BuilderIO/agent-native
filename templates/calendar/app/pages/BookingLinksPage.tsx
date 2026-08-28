@@ -1374,7 +1374,7 @@ export default function BookingLinksPage({
                   <p className="text-xs text-muted-foreground">
                     {t("bookingLinks.durationOptionsDescription")}
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 pb-3">
                     {DURATION_PRESETS.map((minutes) => {
                       const isSelected = draft.durations.includes(minutes);
                       return (
