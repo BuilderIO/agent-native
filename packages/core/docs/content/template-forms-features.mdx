@@ -1,0 +1,154 @@
+---
+title: "Forms: Features"
+description: "Every core Forms feature, including field types, publishing, protections, responses, insights, and routing, with setup steps for each."
+---
+
+# Features
+
+Every core Forms feature: how it works, and how to set it up. See [Forms](/docs/template-forms) for the overview and [Talk to the Agent](/docs/template-forms-agent) for the full list of prompts.
+
+## Create a form
+
+Every form starts with a set of fields. Describe what you want to the agent and it builds the form for you, or start from scratch and add fields yourself in the visual builder. Both paths edit the same form, so switching between them never causes anything to fall out of sync. Once a form exists, its builder has four tabs, Edit, Responses, Settings, and Integrations, for adjusting labels, placeholders, required fields, options, and field order by hand whenever you want more direct control than describing a change in chat.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d93690182e42089cdd41c9b1eb9806?alt=media&token=da8d18fd-b0d7-4720-aabd-9e6f6edcc93a&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="A brief video showing an existing form, including adding 'required' to a field."
+  caption="A brief video showing an existing form, including adding 'required' to a field."
+  autoplay={true}
+  loop={true}
+/>
+
+### Field types {#field-types}
+
+Forms ships with 11 field types out of the box. Ask the agent for any of them by name, or just describe the question you want to ask and let it pick the right type.
+
+<Table
+  id="doc-block-forms3"
+  title="Shipped field types"
+  columns={["Type", "Needs options", "Example use"]}
+  rows={[
+    ["text", "No", "Name, company"],
+    ["email", "No", "Contact email"],
+    ["number", "No", "Age, quantity"],
+    ["textarea", "No", "Message, comments"],
+    ["select", "Yes", "Country, department"],
+    ["multiselect", "Yes", "Skills, interests"],
+    ["checkbox", "No", "Consent, opt-in"],
+    ["radio", "Yes", "Gender, preference"],
+    ["date", "No", "Birthday, deadline"],
+    ["rating", "No", "Satisfaction, quality (1-5 stars)"],
+    ["scale", "No", "NPS, likelihood (numeric range)"],
+  ]}
+/>
+
+Every field needs a label and a type. Fields like `select`, `multiselect`, and `radio` also need a list of options for people to choose from. You can mark any field as required, add validation like a minimum or maximum value, and choose whether it takes up the full width of the form or sits side by side with another field.
+
+### Conditional fields
+
+A field can stay hidden until an earlier answer matches a rule you set. For example, you could hide a "Tell us more" text field unless someone picks "Other" on an earlier question.
+
+The field you're checking against has to come earlier in the form. A rule that points at a later field, or one that doesn't exist, is rejected before it can be saved. You can check whether an earlier answer equals a value, does not equal a value, or contains a value, which also works for questions where someone can pick more than one option. If a field ends up hidden by its condition, its answer is never stored or sent anywhere, so a hidden field can't leave an old or default value in your data.
+
+Scripting form creation directly instead of describing it in chat? See the field and settings JSON reference in the [Developer Guide](/docs/template-forms-developers#data-model).
+
+## Publish your form
+
+A form moves through three statuses:
+
+| Status      | Meaning                                  | Public access          |
+| ----------- | ---------------------------------------- | ---------------------- |
+| `draft`     | Work in progress, not publicly available | No                     |
+| `published` | Live and accepting responses             | Yes                    |
+| `closed`    | No longer accepting responses            | Shows a closed message |
+
+A form can't be published if it has no fields, any field is missing a label, or a `select`, `multiselect`, or `radio` field has no options. If rejected when publishing, you'll be given a specific reason.
+
+The public URL looks like `/f/<slug>`, where the slug is generated from the title plus a short unique suffix, like `beta-signup-a1b2c3`. It regenerates automatically whenever the title changes, unless you set a custom slug.
+
+### Collect responses
+
+Every submission to a published form becomes one response: the answers, when it arrived, and, unless the form is anonymous, who sent it and where from. Open any form's Responses tab to see each one in detail, or just ask the agent:
+
+- "How many responses does the beta signup form have?"
+- "Who submitted today?"
+- "Show me the responses for the customer feedback form."
+
+If a response came in through a feedback button embedded in another app, rather than the public form page itself, the responses table also shows which page and which app it came from. These columns only show up once at least one response actually carries that information.
+
+## Settings
+
+Each form has its own settings, in the builder's Settings tab, for how it behaves and what respondents see.
+
+- **Submit button text.** Change the label on the submit button from the default "Submit" to something more specific, like "Send feedback" or "Reserve my spot."
+- **Success message.** Choose what respondents see right after they submit, instead of the default confirmation.
+- **Redirect URL.** Send respondents to another page after they submit, instead of showing a success message on the form itself.
+- **Progress bar.** Show a progress bar across the top of a longer form so respondents can see how much is left.
+- **Anonymous mode.** Turn off all tracking of who responded, so submissions never capture an IP address, email, or location.
+- **Email me for new responses.** Get an email every time someone submits, sent through your configured email provider.
+
+## Protect and brand a public form
+
+### Spam protection
+
+Public submissions can require verification through [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) before they go through. Turn this on by setting a site key and a secret key in Settings. Two protections stay on even without Turnstile: a hidden field that quietly discards bot submissions, and a check that rejects anything submitted faster than a person could reasonably fill out the form.
+
+<Callout tone="warning">
+
+Set both Turnstile keys together. The public form page only shows the verification widget when the site key is set, and the server only checks it when both keys are set. Setting just the secret key verifies nothing, and setting just the site key shows a widget the server never actually checks.
+
+</Callout>
+
+### Branding
+
+Every standalone public form shows a small "Built with Agent-Native" badge in the corner. This isn't something you turn on or off per form. It's hidden automatically only when the form is embedded inside another page, like a feedback popover, since that page already carries its own branding.
+
+### Restrict submitting origins
+
+By default, a form's submit link accepts submissions from anywhere, which is how a plain public form link is meant to behave. If you're embedding a form's submit link inside a widget on another site and want to make sure only that site can use it, you can restrict submissions to a specific list of website origins.
+
+There's no toggle for this in the builder today. Ask the agent to set it up, for example "only allow this form to be submitted from https://example.com." Give the agent the exact origin (the scheme and domain, like `https://example.com`, without a trailing path) for each site that should be allowed.
+
+## Response insights {#response-insights}
+
+Ask for trends or summaries instead of scrolling through rows. Try "submissions by day," "how many responses this week," or "summarize this week's feedback," and the agent gives you back a chart, a table, or both, instead of a wall of raw data.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc594fa6d6bfe4479a36114306401bb60?alt=media&token=fa7e9243-7a96-4418-9aeb-9eb3fa441e76&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="An example of requesting tabular data from a form, based on response themes."
+  caption="An example of requesting tabular data from a form, based on response themes."
+  autoplay={true}
+  loop={true}
+/>
+
+When you don't name a specific form, the agent looks across your most recently updated forms instead, up to 50 by default and 100 at most. This is useful for a question like "how are submissions trending across all my forms this month?" Every answer tells you whether it's showing everything or just a sample, along with how many rows that covers, so you always know what you're looking at.
+
+## Export
+
+From a form's Responses tab, click **Export CSV** to download a CSV of what's currently on screen right away, including any search or sort you've applied. This works immediately, with no setup needed.
+
+You can also ask the agent for "a CSV of this form" or "a JSON export of all responses." This always exports every response, not just what's currently filtered, and needs a file storage provider connected first. If none is connected yet, the agent will tell you and point you to Settings → File uploads, where a free Builder.io account works as a quick option. Once storage is connected, the agent hands you back a link to the file instead of downloading it directly. Each export uses your field labels as column headers (for CSV), and if someone selected more than one option in a field, those choices are joined together in one cell. Any answer that looks like it could be a spreadsheet formula is neutralized first, which protects you from a submission that tries to run code when you open the file.
+
+## Route submissions
+
+Turn on automatic delivery so new responses show up where your team already works, instead of someone checking the Responses tab. This is a per-form setting, configured in the builder's Integrations tab.
+
+| Destination   | What it needs                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Slack         | An Incoming Webhook URL for the channel you want                                                |
+| Discord       | A webhook URL for the channel you want                                                          |
+| Google Sheets | A Google Apps Script URL set up to receive submissions. A plain spreadsheet link will not work. |
+| Webhook       | Any web address that can receive the submission as data                                         |
+
+This is separate from connecting Slack for the agent to post there directly, which is covered in [Messaging](/docs/messaging). Connect that first if you want the agent itself to post updates to Slack. Every destination address is checked to make sure it isn't pointing at a private network or an internal address, both when you save it and every time a response comes in, so a form can't be turned into a way to probe your own network.
+
+You can also turn on an email notification so the form owner gets an email every time there's a new response, sent through whichever email service is already configured. Sending that email is best effort. A submission still goes through even if the notification email fails to send.
+
+## What's next
+
+- [**Forms**](/docs/template-forms) — the overview and what it replaces
+- [**Talk to the Agent**](/docs/template-forms-agent) — every prompt by task and how the agent sees your screen
+- [**Forms in a Multi-App Workspace**](/docs/template-forms-integrations) — delegation and the public submit endpoint other apps use
+- [**Developer Guide**](/docs/template-forms-developers) — the field, settings, and action reference behind these features
+- [**Sharing**](/docs/sharing) — the share-grant model form shares build on
+- [**Messaging**](/docs/messaging) — connecting Slack for the agent to post directly

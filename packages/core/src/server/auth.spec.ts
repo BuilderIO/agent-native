@@ -2392,6 +2392,86 @@ describe("server/auth", () => {
       );
     });
 
+    it("relays standalone Google provider callbacks without an app prefix", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "calendar");
+      delete process.env.APP_BASE_PATH;
+      delete process.env.VITE_APP_BASE_PATH;
+      delete process.env.AGENT_NATIVE_WORKSPACE;
+      delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+      delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+      delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      for (const provider of [
+        "gmail",
+        "google_calendar",
+        "google_docs",
+        "google_drive",
+        "google_sheets",
+        "google_slides",
+      ] as const) {
+        const state = `${Buffer.from(
+          JSON.stringify({ app: "calendar", p: provider }),
+        ).toString("base64url")}.sig`;
+        const result = await guard(
+          createMockEvent({
+            path: "/_agent-native/google/callback",
+            query: { code: "abc", state },
+          }),
+        );
+
+        expect(result).toBeInstanceOf(Response);
+        expect((result as Response).status).toBe(302);
+        expect((result as Response).headers.get("location")).toBe(
+          `/_agent-native/connections/oauth/${provider}/callback?code=abc&state=${state}`,
+        );
+      }
+    });
+
+    it("relays a workspace Google provider callback when the mount base is absent", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      delete process.env.APP_BASE_PATH;
+      delete process.env.VITE_APP_BASE_PATH;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = `${Buffer.from(
+        JSON.stringify({ app: "calendar", p: "google_calendar" }),
+      ).toString("base64url")}.sig`;
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("location")).toBe(
+        `/calendar/_agent-native/connections/oauth/google_calendar/callback?code=abc&state=${state}`,
+      );
+    });
+
     it("relays workspace Google MCP callbacks to the MCP route", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -6854,6 +6934,7 @@ describe("server/auth", () => {
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",
@@ -6921,6 +7002,7 @@ describe("server/auth", () => {
       expect(trackSignupEvent).toHaveBeenCalledWith({
         authProvider: "google",
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: "google-user-1",
         email: "user@gmail.com",
         name: "Google User",

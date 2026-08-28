@@ -13,11 +13,34 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
 } from "./first-run-status.js";
+
+const seenOnboardingEvents = new Set<string>();
+
+export function trackOnboardingEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (typeof window === "undefined") return;
+  const identityKey = getAnalyticsIdentityKey() ?? "anonymous";
+  const key = [
+    identityKey,
+    name,
+    properties.flow,
+    properties.step_id,
+    properties.extension_id,
+  ]
+    .map((value) => String(value ?? ""))
+    .join(":");
+  if (seenOnboardingEvents.has(key)) return;
+  seenOnboardingEvents.add(key);
+  trackEvent(name, properties);
+}
 
 export interface UseOnboardingResult {
   steps: OnboardingStepStatus[];
@@ -67,6 +90,7 @@ export function useOnboarding(
   const [completeFirstRunError, setCompleteFirstRunError] = useState<
     string | null
   >(null);
+  const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -99,6 +123,22 @@ export function useOnboarding(
         throw new Error(`steps: ${stepsRes.status}`);
       }
       const stepsData: OnboardingStepStatus[] = await stepsRes.json();
+      const previousSteps = stepsRef.current;
+      if (previousSteps.length > 0) {
+        for (const [stepIndex, step] of stepsData.entries()) {
+          const previousStep = previousSteps.find(
+            (previous) => previous.id === step.id,
+          );
+          if (step.complete && !previousStep?.complete) {
+            trackOnboardingEvent("onboarding_step_completed", {
+              flow: "checklist",
+              step_id: step.id,
+              step_index: stepIndex,
+            });
+          }
+        }
+      }
+      stepsRef.current = stepsData;
       setSteps(stepsData);
 
       if (!profileRes.ok) {
@@ -148,7 +188,7 @@ export function useOnboarding(
 
   const complete = useCallback(
     async (id: string) => {
-      await fetch(
+      const response = await fetch(
         agentNativePath(
           `/_agent-native/onboarding/steps/${encodeURIComponent(id)}/complete`,
         ),
@@ -158,6 +198,12 @@ export function useOnboarding(
           body: "{}",
         },
       );
+      if (!response.ok)
+        throw new Error(`onboarding step failed: ${response.status}`);
+      trackOnboardingEvent("onboarding_step_completed", {
+        flow: "checklist",
+        step_id: id,
+      });
       await fetchAll();
     },
     [fetchAll],
@@ -218,6 +264,7 @@ export function useOnboarding(
       setCompleteFirstRunError(message);
       throw new Error(message);
     }
+    trackOnboardingEvent("onboarding_completed", { flow: "first_run" });
     setFirstRun(false);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));

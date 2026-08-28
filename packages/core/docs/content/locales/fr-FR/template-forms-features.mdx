@@ -1,0 +1,155 @@
+---
+title: "Formulaires : Fonctionnalités"
+description: "Toutes les fonctionnalités principales de Forms, y compris les types de champs, la publication, les protections, les réponses, les analyses et l'acheminement, avec les étapes de configuration pour chacune."
+---
+
+# Fonctionnalités
+
+Toutes les fonctionnalités principales de Forms : comment elles fonctionnent, et comment les configurer. Consultez [Forms](/docs/template-forms) pour la vue d'ensemble et [Parler à l'agent](/docs/template-forms-agent) pour la liste complète des invites.
+
+## Créer un formulaire
+
+Chaque formulaire commence par un ensemble de champs. Décrivez ce que vous voulez à l'agent et il construit le formulaire pour vous, ou partez de zéro et ajoutez des champs vous-même dans le générateur visuel. Les deux chemins modifient le même formulaire, si bien que passer de l'un à l'autre ne désynchronise jamais rien. Une fois qu'un formulaire existe, son générateur a quatre onglets, Modifier, Réponses, Paramètres et Intégrations, pour ajuster les étiquettes, les espaces réservés, les champs obligatoires, les options et l'ordre des champs à la main chaque fois que vous voulez un contrôle plus direct que de décrire un changement dans le chat.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1d93690182e42089cdd41c9b1eb9806?alt=media&token=da8d18fd-b0d7-4720-aabd-9e6f6edcc93a&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Une brève vidéo montrant un formulaire existant, y compris l'ajout de « obligatoire » à un champ."
+  caption="Une brève vidéo montrant un formulaire existant, y compris l'ajout de « obligatoire » à un champ."
+  autoplay={true}
+  loop={true}
+/>
+
+### Types de champs {#field-types}
+
+Forms est livré avec 11 types de champs prêts à l'emploi. Demandez à l'agent l'un d'eux par son nom, ou décrivez simplement la question que vous voulez poser et laissez-le choisir le bon type.
+
+<Table
+  id="doc-block-forms3"
+  title="Types de champs livrés"
+  columns={["Type", "Nécessite des options", "Exemple d'utilisation"]}
+  rows={[
+    ["text", "Non", "Nom, entreprise"],
+    ["email", "Non", "E-mail de contact"],
+    ["number", "Non", "Âge, quantité"],
+    ["textarea", "Non", "Message, commentaires"],
+    ["select", "Oui", "Pays, service"],
+    ["multiselect", "Oui", "Compétences, centres d'intérêt"],
+    ["checkbox", "Non", "Consentement, opt-in"],
+    ["radio", "Oui", "Genre, préférence"],
+    ["date", "Non", "Anniversaire, échéance"],
+    ["rating", "Non", "Satisfaction, qualité (1 à 5 étoiles)"],
+    ["scale", "Non", "NPS, probabilité (plage numérique)"],
+  ]}
+/>
+
+Chaque champ a besoin d'une étiquette et d'un type. Les champs comme `select`, `multiselect` et `radio` ont aussi besoin d'une liste d'options parmi lesquelles choisir. Vous pouvez marquer n'importe quel champ comme obligatoire, ajouter une validation comme une valeur minimale ou maximale, et choisir s'il occupe toute la largeur du formulaire ou s'il se place côte à côte avec un autre champ.
+
+### Champs conditionnels
+
+Un champ peut rester masqué jusqu'à ce qu'une réponse précédente corresponde à une règle que vous définissez. Par exemple, vous pourriez masquer un champ texte « Dites-nous en plus » à moins que quelqu'un ne choisisse « Autre » sur une question précédente.
+
+Le champ auquel vous comparez doit venir plus tôt dans le formulaire. Une règle qui pointe vers un champ ultérieur, ou vers un champ qui n'existe pas, est rejetée avant même de pouvoir être enregistrée. Vous pouvez vérifier si une réponse précédente est égale à une valeur, n'est pas égale à une valeur, ou contient une valeur, ce qui fonctionne aussi pour les questions où quelqu'un peut choisir plusieurs options. Si un champ se retrouve masqué par sa condition, sa réponse n'est jamais stockée ni envoyée nulle part, si bien qu'un champ masqué ne peut pas laisser traîner une ancienne valeur ou une valeur par défaut dans vos données.
+
+Vous scriptez la création de formulaires directement plutôt que de la décrire dans le chat ? Consultez la référence JSON des champs et des paramètres dans le [Guide développeur](/docs/template-forms-developers#data-model).
+
+## Publier votre formulaire
+
+Un formulaire passe par trois statuts :
+
+| Statut      | Signification                              | Accès public                |
+| ----------- | ------------------------------------------- | ---------------------------- |
+| `draft`     | Travail en cours, pas disponible publiquement | Non                         |
+| `published` | En ligne et accepte les réponses            | Oui                          |
+| `closed`    | N'accepte plus de réponses                  | Affiche un message de fermeture |
+
+Un formulaire ne peut pas être publié s'il n'a aucun champ, si un champ n'a pas d'étiquette, ou si un champ `select`, `multiselect` ou `radio` n'a pas d'options. En cas de rejet lors de la publication, une raison précise vous est donnée.
+
+L'URL publique ressemble à `/f/<slug>`, où le slug est généré à partir du titre plus un court suffixe unique, comme `beta-signup-a1b2c3`. Il se régénère automatiquement chaque fois que le titre change, sauf si vous définissez un slug personnalisé.
+
+### Collecter les réponses
+
+Chaque soumission à un formulaire publié devient une réponse : les réponses aux questions, le moment où elle est arrivée, et, sauf si le formulaire est anonyme, qui l'a envoyée et d'où. Ouvrez l'onglet Réponses de n'importe quel formulaire pour voir chacune en détail, ou demandez simplement à l'agent :
+
+- « Combien de réponses a le formulaire d'inscription bêta ? »
+- « Qui a soumis aujourd'hui ? »
+- « Montre-moi les réponses du formulaire de retour client. »
+
+Si une réponse est arrivée via un bouton de retour intégré dans une autre application, plutôt que par la page publique du formulaire elle-même, le tableau des réponses montre aussi de quelle page et de quelle application elle provient. Ces colonnes n'apparaissent qu'une fois qu'au moins une réponse porte réellement cette information.
+
+## Paramètres
+
+Chaque formulaire a ses propres paramètres, dans l'onglet Paramètres du générateur, pour son comportement et ce que voient les répondants.
+
+- **Texte du bouton d'envoi.** Changez l'étiquette du bouton d'envoi de la valeur par défaut « Submit » vers quelque chose de plus spécifique, comme « Envoyer le retour » ou « Réserver ma place ».
+- **Message de succès.** Choisissez ce que voient les répondants juste après leur soumission, à la place de la confirmation par défaut.
+- **URL de redirection.** Envoyez les répondants vers une autre page après leur soumission, plutôt que d'afficher un message de succès sur le formulaire lui-même.
+- **Barre de progression.** Affichez une barre de progression en haut d'un formulaire plus long pour que les répondants voient combien il en reste.
+- **Mode anonyme.** Désactivez tout suivi de qui a répondu, pour que les soumissions ne capturent jamais d'adresse IP, d'e-mail ou de localisation.
+- **M'envoyer un e-mail pour les nouvelles réponses.** Recevez un e-mail à chaque soumission, envoyé via votre fournisseur d'e-mail configuré.
+
+## Protéger et personnaliser un formulaire public
+
+### Protection anti-spam
+
+Les soumissions publiques peuvent nécessiter une vérification via [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) avant de passer. Activez ceci en définissant une clé de site et une clé secrète dans Paramètres. Deux protections restent actives même sans Turnstile : un champ masqué qui rejette discrètement les soumissions de robots, et une vérification qui rejette tout ce qui est soumis plus vite qu'une personne ne pourrait raisonnablement remplir le formulaire.
+
+<Callout tone="warning">
+
+Définissez les deux clés Turnstile ensemble. La page publique du formulaire n'affiche le widget de vérification que lorsque la clé de site est définie, et le serveur ne la vérifie que lorsque les deux clés sont définies. Définir uniquement la clé secrète ne vérifie rien, et définir uniquement la clé de site affiche un widget que le serveur ne vérifie jamais.
+
+</Callout>
+
+### Personnalisation
+
+Chaque formulaire public autonome affiche un petit badge « Built with Agent-Native » dans le coin. Ce n'est pas quelque chose que vous activez ou désactivez par formulaire. Il est masqué automatiquement uniquement lorsque le formulaire est intégré dans une autre page, comme une fenêtre de retour, puisque cette page porte déjà sa propre identité visuelle.
+
+### Restreindre les origines autorisées à soumettre
+
+Par défaut, le lien de soumission d'un formulaire accepte les soumissions de n'importe où, ce qui correspond au comportement attendu d'un simple lien public de formulaire. Si vous intégrez le lien de soumission d'un formulaire dans un widget sur un autre site et voulez vous assurer que seul ce site peut l'utiliser, vous pouvez restreindre les soumissions à une liste précise d'origines de site.
+
+Il n'y a pas d'interrupteur pour cela dans le générateur aujourd'hui. Demandez à l'agent de le configurer, par exemple « n'autorise ce formulaire à être soumis que depuis https://example.com ». Donnez à l'agent l'origine exacte (le schéma et le domaine, comme `https://example.com`, sans chemin final) pour chaque site qui doit être autorisé.
+
+## Analyse des réponses {#response-insights}
+
+Demandez des tendances ou des résumés plutôt que de parcourir des lignes. Essayez « soumissions par jour », « combien de réponses cette semaine », ou « résume les retours de cette semaine », et l'agent vous renvoie un graphique, un tableau, ou les deux, au lieu d'un mur de données brutes.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc594fa6d6bfe4479a36114306401bb60?alt=media&token=fa7e9243-7a96-4418-9aeb-9eb3fa441e76&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Un exemple de demande de données tabulaires à partir d'un formulaire, basées sur les thèmes des réponses."
+  caption="Un exemple de demande de données tabulaires à partir d'un formulaire, basées sur les thèmes des réponses."
+  autoplay={true}
+  loop={true}
+/>
+
+Quand vous ne nommez pas de formulaire précis, l'agent regarde plutôt vos formulaires les plus récemment mis à jour, jusqu'à 50 par défaut et 100 au maximum. C'est utile pour une question comme « comment évoluent les soumissions sur tous mes formulaires ce mois-ci ? » Chaque réponse vous indique si elle montre tout ou juste un échantillon, ainsi que le nombre de lignes que cela couvre, si bien que vous savez toujours ce que vous regardez.
+
+## Export
+
+Depuis l'onglet Réponses d'un formulaire, cliquez sur **Export CSV** pour télécharger immédiatement un CSV de ce qui est actuellement affiché à l'écran, y compris toute recherche ou tout tri que vous avez appliqué. Cela fonctionne immédiatement, sans configuration nécessaire.
+
+Vous pouvez aussi demander à l'agent « un CSV de ce formulaire » ou « un export JSON de toutes les réponses ». Cela exporte toujours toutes les réponses, pas seulement ce qui est actuellement filtré, et nécessite qu'un fournisseur de stockage de fichiers soit connecté au préalable. Si aucun n'est encore connecté, l'agent vous le dira et vous orientera vers Paramètres → Téléchargements de fichiers, où un compte Builder.io gratuit constitue une option rapide. Une fois le stockage connecté, l'agent vous remet un lien vers le fichier plutôt que de le télécharger directement. Chaque export utilise vos étiquettes de champ comme en-têtes de colonne (pour le CSV), et si quelqu'un a sélectionné plusieurs options dans un champ, ces choix sont joints ensemble dans une seule cellule. Toute réponse qui ressemble à une formule de tableur est neutralisée au préalable, ce qui vous protège d'une soumission qui tenterait d'exécuter du code à l'ouverture du fichier.
+
+## Acheminer les soumissions
+
+Activez la livraison automatique pour que les nouvelles réponses apparaissent là où votre équipe travaille déjà, plutôt que quelqu'un qui vérifie l'onglet Réponses. C'est un paramètre par formulaire, configuré dans l'onglet Intégrations du générateur.
+
+| Destination   | Ce dont elle a besoin                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------- |
+| Slack         | Une URL de webhook entrant pour le canal souhaité                                                  |
+| Discord       | Une URL de webhook pour le canal souhaité                                                          |
+| Google Sheets | Une URL de script Google Apps configurée pour recevoir les soumissions. Un simple lien de feuille de calcul ne fonctionnera pas. |
+| Webhook       | N'importe quelle adresse web capable de recevoir la soumission sous forme de données               |
+
+Ceci est distinct de la connexion de Slack pour que l'agent y poste directement, ce qui est couvert dans [Messaging](/docs/messaging). Connectez cela d'abord si vous voulez que l'agent lui-même poste des mises à jour sur Slack. Chaque adresse de destination est vérifiée pour s'assurer qu'elle ne pointe pas vers un réseau privé ou une adresse interne, à la fois quand vous l'enregistrez et à chaque fois qu'une réponse arrive, si bien qu'un formulaire ne peut pas être transformé en moyen de sonder votre propre réseau.
+
+Vous pouvez aussi activer une notification par e-mail pour que le propriétaire du formulaire reçoive un e-mail à chaque nouvelle réponse, envoyé via le service d'e-mail déjà configuré. L'envoi de cet e-mail se fait au mieux. Une soumission passe quand même même si l'e-mail de notification échoue à s'envoyer.
+
+## Et ensuite
+
+- [**Forms**](/docs/template-forms) — la vue d'ensemble et ce qu'il remplace
+- [**Parler à l'agent**](/docs/template-forms-agent) — chaque invite par tâche et comment l'agent voit votre écran
+- [**Forms dans un espace de travail multi-apps**](/docs/template-forms-integrations) — la délégation et le point de soumission public que d'autres applications utilisent
+- [**Guide développeur**](/docs/template-forms-developers) — la référence des champs, des paramètres et des actions derrière ces fonctionnalités
+- [**Sharing**](/docs/sharing) — le modèle de subvention de partage sur lequel s'appuient les partages de formulaire
+- [**Messaging**](/docs/messaging) — connecter Slack pour que l'agent y poste directement
+</content>

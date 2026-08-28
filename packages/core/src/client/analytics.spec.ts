@@ -385,6 +385,26 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("uses the first-party public key and endpoint from SSR runtime config", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_ssr_config",
+      agentNativeAnalyticsEndpoint: "https://analytics.example.test/ssr-track",
+    };
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("ssr config event");
+
+    const [url, init] = analyticsCalls[0];
+    expect(url).toBe("https://analytics.example.test/ssr-track");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      publicKey: "anpk_ssr_config",
+      event: "ssr config event",
+    });
+  });
+
   it("attaches the signed-in session identity to first-party analytics", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({

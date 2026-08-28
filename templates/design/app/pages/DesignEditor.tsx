@@ -493,6 +493,7 @@ import { runAddScreen } from "./design-editor/commands/add-screen";
 import { runAlignSelection } from "./design-editor/commands/align-selection";
 import { runApplyDesignEditorCommand } from "./design-editor/commands/apply-design-editor-command";
 import { runApplyFileContentUpdate } from "./design-editor/commands/apply-file-content-update";
+import { runApplyLayoutFlow } from "./design-editor/commands/apply-layout-flow";
 import { runApplyLocalContentUpdate } from "./design-editor/commands/apply-local-content-update";
 import { runApplyPendingVisualStylesWithAgent } from "./design-editor/commands/apply-pending-visual-styles-with-agent";
 import { runApplyToSource } from "./design-editor/commands/apply-to-source";
@@ -5166,6 +5167,10 @@ function DesignEditor() {
   // edits) — so the reconcile/observe doesn't treat our own echo as external.
   const lastLocalContentRef = useRef<string | null>(null);
   const latestActiveContentRef = useRef<string | null>(null);
+  const livePreviewContentRef = useRef<{
+    fileId: string;
+    content: string;
+  } | null>(null);
   // Freshest known DB `updatedAt` for the active file, kept in a ref so the
   // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
@@ -5214,6 +5219,7 @@ function DesignEditor() {
   useEffect(() => {
     if (viewMode === "overview") {
       prevActiveFileIdRef.current = activeFileId;
+      livePreviewContentRef.current = null;
       setCollabContent(null);
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
@@ -5224,6 +5230,7 @@ function DesignEditor() {
     }
     if (activeFileId !== prevActiveFileIdRef.current) {
       prevActiveFileIdRef.current = activeFileId;
+      livePreviewContentRef.current = null;
       setCollabContent(null);
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
@@ -7272,18 +7279,28 @@ function DesignEditor() {
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return "unavailable";
-      return replaceContent(
+      const replaced = replaceContent(
         nextContent,
         selector ?? selectedCanvasSelector,
         selectedCanvasSelectorCandidates,
         {
           forceFullDocument: options.forceFullDocument === true,
         },
-      )
-        ? "applied"
-        : "unavailable";
+      );
+      if (replaced && activeFile?.id) {
+        livePreviewContentRef.current = {
+          fileId: activeFile.id,
+          content: nextContent,
+        };
+      }
+      return replaced ? "applied" : "unavailable";
     },
-    [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
+    [
+      activeFile?.id,
+      selectedCanvasSelector,
+      selectedCanvasSelectorCandidates,
+      selectedElement,
+    ],
   );
 
   // BUG-UNDO-LIVE-SNAPSHOT: undo/redo replay for a live-snapshot
@@ -9623,6 +9640,13 @@ function DesignEditor() {
       }),
     [activeContent],
   );
+  const getFreshActivePreviewContent = useCallback(
+    () =>
+      livePreviewContentRef.current?.fileId === activeFile?.id
+        ? livePreviewContentRef.current.content
+        : null,
+    [activeFile?.id],
+  );
 
   // Item 14 — `meta.breakpointReset` contract (see StyleChangeMeta's doc
   // comment): clear property's override AT maxWidthPx instead of writing a
@@ -10784,10 +10808,12 @@ function DesignEditor() {
           canvasContainerRef,
           canvasFrameGeometryById,
           getFreshActiveContent,
+          getFreshActivePreviewContent,
           getScreenContent,
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          replacePreviewContent,
           selectInsertedLayers,
           t,
           uploadImageFileForHtml,
@@ -10804,9 +10830,11 @@ function DesignEditor() {
       canEditDesign,
       canvasFrameGeometryById,
       getFreshActiveContent,
+      getFreshActivePreviewContent,
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
+      replacePreviewContent,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
@@ -10848,10 +10876,12 @@ function DesignEditor() {
           canvasContainerRef,
           canvasFrameGeometryById,
           getFreshActiveContent,
+          getFreshActivePreviewContent,
           getScreenContent,
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          replacePreviewContent,
           selectInsertedLayers,
           t,
           uploadImageFileForHtml,
@@ -10870,9 +10900,11 @@ function DesignEditor() {
       canvasContainerRef,
       canvasFrameGeometryById,
       getFreshActiveContent,
+      getFreshActivePreviewContent,
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
+      replacePreviewContent,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
@@ -11427,6 +11459,53 @@ function DesignEditor() {
       return true;
     },
     [applyLocalContentUpdate],
+  );
+
+  // The inspector's Flow control owns the same conversion Shift+A does, so it
+  // reflows the children too — writing display:grid/flex alone leaves them
+  // absolutely positioned and the new layout never renders.
+  const handleApplyLayoutFlow = useCallback(
+    (nodeId: string | null, containerStyles: Record<string, string>) => {
+      const content = getFreshActiveContent();
+      // A merged multi-selection has no single sourceId, so the inspector
+      // cannot name its targets: resolve them from the selection itself, and
+      // hand a selection that reaches beyond this file to the style path
+      // rather than reflowing only the half that lives here.
+      const selectedNodeIds = content
+        ? getActiveFileSelectedNodeIds(content)
+        : [];
+      const selectedFileIds = new Set(files.map((file) => file.id));
+      const selectableLayerIds = selectedLayerIdsState.filter(
+        (layerId) => !layerId.startsWith("__") && !selectedFileIds.has(layerId),
+      );
+      if (
+        selectableLayerIds.length > 1 &&
+        selectedNodeIds.length !== selectableLayerIds.length
+      ) {
+        return "unsupported" as const;
+      }
+      const targetIds =
+        selectedNodeIds.length > 0 ? selectedNodeIds : nodeId ? [nodeId] : [];
+      return runApplyLayoutFlow(
+        {
+          applyLocalContentUpdate,
+          canEditDesign,
+          getFreshActiveContent,
+          t,
+        },
+        targetIds,
+        containerStyles,
+      );
+    },
+    [
+      applyLocalContentUpdate,
+      canEditDesign,
+      files,
+      getActiveFileSelectedNodeIds,
+      getFreshActiveContent,
+      selectedLayerIdsState,
+      t,
+    ],
   );
 
   // Figma parity: turning auto layout off must leave a freeform container.
@@ -19214,6 +19293,7 @@ function DesignEditor() {
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
+    onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
     onEditCode: handleShaderEditCode,
   };

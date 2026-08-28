@@ -1,4 +1,5 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -666,6 +667,13 @@ export function DocumentToolbar({
 
     try {
       await navigator.clipboard.writeText(copyPageUrl);
+      if (!isLocalFileDocument) {
+        trackEvent("share_link_copied", {
+          resource_type: "document",
+          resource_id: documentId,
+          link_type: "share",
+        });
+      }
       toast.success(t("editor.toolbar.copiedPageLink"));
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
@@ -673,7 +681,7 @@ export function DocumentToolbar({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [copyPageUrl, t]);
+  }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {

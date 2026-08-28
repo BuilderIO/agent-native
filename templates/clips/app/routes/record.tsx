@@ -1,4 +1,7 @@
-import { captureClientException } from "@agent-native/core/client/analytics";
+import {
+  captureClientException,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -1904,6 +1907,12 @@ export default function RecordRoute() {
     if (!engine) return;
     try {
       await engine.start();
+      trackEvent("app.first_action", {
+        action: "recording_start",
+        surface: "recorder",
+        resource_type: "recording",
+        resource_id: pendingRef.current?.id,
+      });
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       browserDiagnosticsRef.current?.dispose();

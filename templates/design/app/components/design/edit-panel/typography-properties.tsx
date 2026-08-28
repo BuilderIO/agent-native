@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
 import {
   IconAlignCenter,
   IconAlignJustified,
@@ -523,37 +524,15 @@ export function TypographyProperties({
           dropdown instead). */}
       <InspectorGrid>
         <InspectorGridCell span={28} className="h-6 overflow-hidden">
-          <Select
+          <VisualFontFamilyPicker
+            label={t("editPanel.labels.font")}
             value={fontFamily}
-            onValueChange={(v) => onStyleChange("fontFamily", v)}
-          >
-            <SelectTrigger
-              aria-label={t("editPanel.labels.font")}
-              className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {fontFamilyIsMixed ? (
-                <SelectItem
-                  value={MIXED_VALUE}
-                  disabled
-                  className="!text-[11px] text-muted-foreground"
-                >
-                  {MIXED_VALUE}
-                </SelectItem>
-              ) : null}
-              {fontFamilyOptions.map((opt) => (
-                <SelectItem
-                  key={opt.value}
-                  value={opt.value}
-                  className="!text-[11px]"
-                >
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={fontFamilyOptions}
+            mixed={fontFamilyIsMixed}
+            mixedLabel={MIXED_VALUE}
+            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+            onChange={(value) => onStyleChange("fontFamily", value)}
+          />
         </InspectorGridCell>
       </InspectorGrid>
 

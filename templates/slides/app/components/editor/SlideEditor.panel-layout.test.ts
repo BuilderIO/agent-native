@@ -34,10 +34,28 @@ describe("editor side panels", () => {
     expect(pageSource).toContain(`useEffect(() => {
     setAnimationTarget(null);
   }, [activeSlideId]);`);
-    expect(pageSource).toContain(`const toggleAnimations = useCallback(() => {
-    setAnimationTarget(null);
-    setAnimationsOpen((open) => !open);
-  }, []);`);
+    const toggleAnimationsStart = pageSource.indexOf(
+      "const toggleAnimations = useCallback(() => {",
+    );
+    const toggleLayersStart = pageSource.indexOf(
+      "const toggleLayers = useCallback",
+      toggleAnimationsStart,
+    );
+    const toggleAnimationsSource = pageSource.slice(
+      toggleAnimationsStart,
+      toggleLayersStart,
+    );
+    expect(toggleAnimationsSource).toContain("setLayersOpen(false);");
+    expect(toggleAnimationsSource).toContain("setAnimationTarget(null);");
+    expect(toggleAnimationsSource).toContain(
+      "setAnimationsOpen((open) => !open);",
+    );
+  });
+
+  it("rounds the canvas edge consistently for either right-side panel", () => {
+    expect(editorSource).toContain(
+      'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
+    );
   });
 });
 

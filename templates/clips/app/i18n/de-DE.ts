@@ -654,6 +654,8 @@ const messages = {
     macSublabel: "Universell (Apple Silicon + Intel)",
     windowsSublabel: "64-Bit-MSI-Installationsprogramm",
     downloadFor: "Herunterladen für {{platform}}",
+    downloadStarted: "Download gestartet",
+    downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     alsoFor: "Auch verfügbar für {{platform}}",
     backToLibrary: "Zurück zur Bibliothek",
     clipsDesktop: "Clips Desktop",

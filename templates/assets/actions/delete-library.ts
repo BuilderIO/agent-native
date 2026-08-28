@@ -16,6 +16,10 @@ export default defineAction({
       .select({ id: schema.assetGenerationSessions.id })
       .from(schema.assetGenerationSessions)
       .where(eq(schema.assetGenerationSessions.libraryId, id));
+    const templates = await db
+      .select({ id: schema.assetTemplates.id })
+      .from(schema.assetTemplates)
+      .where(eq(schema.assetTemplates.libraryId, id));
     for (const session of sessions) {
       await db
         .delete(schema.assetGenerationSessionItems)
@@ -24,9 +28,14 @@ export default defineAction({
     await db
       .delete(schema.assetGenerationSessions)
       .where(eq(schema.assetGenerationSessions.libraryId, id));
+    for (const template of templates) {
+      await db
+        .delete(schema.assetTemplateShares)
+        .where(eq(schema.assetTemplateShares.resourceId, template.id));
+    }
     await db
-      .delete(schema.assetGenerationPresets)
-      .where(eq(schema.assetGenerationPresets.libraryId, id));
+      .delete(schema.assetTemplates)
+      .where(eq(schema.assetTemplates.libraryId, id));
     await db.delete(schema.assets).where(eq(schema.assets.libraryId, id));
     await db
       .delete(schema.assetGenerationRuns)

@@ -4199,8 +4199,11 @@ export function DesignCanvas({
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
           contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         }),
-        null,
-        [],
+        // Carry the host's committed selection so the bridge can re-anchor it
+        // after the morph: without it the canvas silently deselects while the
+        // inspector still shows the element.
+        selectedSelectorRef.current,
+        selectedSelectorCandidatesRef.current ?? [],
         {
           forceFullDocument: true,
           // Prop/save echoes are synchronization, not a user command. If a
