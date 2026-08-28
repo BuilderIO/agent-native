@@ -143,6 +143,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  isBuilderReconnectRunError,
   runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
@@ -5838,18 +5839,9 @@ const AssistantChatInner = forwardRef<
   const visibleRunErrorKey = visibleRunError
     ? runErrorKey(visibleRunError)
     : null;
-  const shouldShowRunError =
-    !!visibleRunError &&
-    !showRunningInUI &&
-    visibleRunErrorKey !== dismissedRunErrorKey &&
-    !matchesUserStoppedRun(
-      userStoppedRunRef.current,
-      threadId,
-      visibleRunError.runId,
-      visibleRunError.turnId,
-    );
   const providerAuthErrorKey =
     visibleRunError &&
+    !isBuilderReconnectRunError(visibleRunError) &&
     isProviderAuthenticationError(
       [visibleRunError.message, visibleRunError.details]
         .filter(Boolean)
@@ -5861,17 +5853,34 @@ const AssistantChatInner = forwardRef<
   const showProviderAuthSetup =
     providerAuthErrorKey !== null &&
     providerAuthErrorKey !== dismissedProviderAuthErrorKey &&
-    !authError &&
-    (showRunningInUI || !shouldShowRunError);
+    !authError;
+  const shouldShowRunError =
+    !!visibleRunError &&
+    !showRunningInUI &&
+    visibleRunErrorKey !== dismissedRunErrorKey &&
+    !showProviderAuthSetup &&
+    !matchesUserStoppedRun(
+      userStoppedRunRef.current,
+      threadId,
+      visibleRunError.runId,
+      visibleRunError.turnId,
+    );
   const showMissingKeySetup =
     (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupDismiss = useCallback(() => {
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [providerAuthErrorKey]);
   const handleProviderSetupConnected = useCallback(() => {
     handleBuilderConnected();
     if (providerAuthErrorKey === null) return;
     setDismissedProviderAuthErrorKey(providerAuthErrorKey);
     setDismissedRunErrorKey(providerAuthErrorKey);
     setRunErrorInfo(null);
-  }, [handleBuilderConnected, providerAuthErrorKey]);
+    retryAfterRunError();
+  }, [handleBuilderConnected, providerAuthErrorKey, retryAfterRunError]);
   // The banner covers one run; every failed turn it does not cover keeps its own
   // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
@@ -6608,11 +6617,22 @@ const AssistantChatInner = forwardRef<
                             )}
                             {showMissingKeySetup ? (
                               <BuilderSetupCard
+                                key={providerAuthErrorKey ?? "missing-provider"}
                                 fullWidth
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
+                                onDismiss={
+                                  providerAuthErrorKey !== null
+                                    ? handleProviderSetupDismiss
+                                    : undefined
+                                }
                                 onConnected={handleProviderSetupConnected}
+                                onRetry={
+                                  providerAuthErrorKey !== null
+                                    ? retryAfterRunError
+                                    : undefined
+                                }
                               />
                             ) : null}
                             {/* Input area */}

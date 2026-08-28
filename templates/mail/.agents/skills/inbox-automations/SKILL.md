@@ -1,7 +1,7 @@
 ---
 name: inbox-automations
 description: >-
-  Natural-language inbox automation rules (manage-automations,
+  Natural-language inbox automation rules (manage-email-rules,
   trigger-automations) and provider-native Gmail filters
   (manage-gmail-filters), including how the two differ. Use when the user asks
   to auto-label, auto-archive, auto-star, or otherwise handle incoming mail
@@ -12,7 +12,7 @@ description: >-
 
 ## Automation rules
 
-`manage-automations` rules match new inbound mail against a natural-language
+`manage-email-rules` rules match new inbound mail against a natural-language
 `condition` using AI, then apply `actions` (`label`, `archive`, `mark_read`,
 `star`, `trash`). Rules run on a per-minute cron automatically;
 `trigger-automations` forces immediate processing (debounced — a

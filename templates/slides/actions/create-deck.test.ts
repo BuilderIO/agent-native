@@ -32,7 +32,9 @@ const mockTables = vi.hoisted(() => ({
   },
 }));
 
-let existingDeckRow: { id: string; data: string } | undefined = undefined;
+let existingDeckRow:
+  | { id: string; data: string; updatedAt: string }
+  | undefined = undefined;
 let defaultDesignSystemId: string | undefined = undefined;
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
@@ -60,14 +62,19 @@ const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
 // db.update().set(...).where(...)
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
 
-const mockDb = { select: selectFn, insert: insertFn, update: updateFn };
+const mockDb = {
+  select: selectFn,
+  insert: insertFn,
+  update: updateFn,
+  transaction: async (run: (tx: typeof mockDb) => Promise<void>) => run(mockDb),
+};
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -201,6 +208,7 @@ describe("create-deck — aspectRatio", () => {
   it("preserves the existing aspectRatio when bulk-replacing slides without specifying it", async () => {
     existingDeckRow = {
       id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({ title: "T", slides: [], aspectRatio: "1:1" }),
     };
     await action.run({
@@ -216,6 +224,7 @@ describe("create-deck — aspectRatio", () => {
   it("overwrites the existing aspectRatio when one is provided on bulk replace", async () => {
     existingDeckRow = {
       id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({ title: "T", slides: [], aspectRatio: "16:9" }),
     };
     await action.run({

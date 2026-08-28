@@ -13,16 +13,11 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import {
-  dispatchWebhookDeliveries,
-  enqueueWebhookEvent,
-} from "../server/lib/outbound-webhooks.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -36,13 +31,15 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
-import { getDeckAppUrl } from "./_app-url.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
+  assertDeckWriteApplied,
   deckDesignSystemId,
   deckHttpError,
   deckTitle,
+  deckRevisionWhere,
+  nextDeckRevision,
   type DeckPayload,
 } from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
@@ -78,7 +75,7 @@ export default defineAction({
   }),
   http: { method: "PUT" },
   agentTool: false,
-  run: async (args, ctx) =>
+  run: async (args) =>
     withDeckLock(args.deckId, async () => {
       const deckId = args.deckId;
       const deck = args.deck as DeckPayload;
@@ -129,30 +126,22 @@ export default defineAction({
         assertHumanReadableDeckTitle(title);
         deck.title = title;
         await assertDesignSystemReadable(nextDesignSystemId);
-        const orgId = getRequestOrgId() ?? null;
-        let deliveryIds: string[];
         try {
-          deliveryIds = await db.transaction(async (tx) => {
-            await tx.insert(schema.decks).values({
-              id: deckId,
-              title,
-              data: JSON.stringify(deck),
-              designSystemId: nextDesignSystemId,
-              ownerEmail,
-              orgId,
-              createdAt: now,
-              updatedAt: now,
-            });
-            return enqueueWebhookEvent("deck.created", deck, { ownerEmail, orgId }, { db: tx });
+          await db.insert(schema.decks).values({
+            id: deckId,
+            title,
+            data: JSON.stringify(deck),
+            designSystemId: nextDesignSystemId,
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            createdAt: now,
+            updatedAt: now,
           });
         } catch {
           // Some adapters wrap duplicate-key failures in a generic query error
           // that includes bound params, so never surface the raw error here.
           throw deckHttpError(404, "Deck not found");
         }
-        notifyClients(deckId);
-        await dispatchWebhookDeliveries(deliveryIds);
-        return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
       } else if (
         access.role === "owner" ||
         access.role === "admin" ||
@@ -166,8 +155,10 @@ export default defineAction({
           ) ?? requestedTitle;
         assertHumanReadableDeckTitle(title);
         deck.title = title;
+        const updatedAt = nextDeckRevision(access.resource.updatedAt);
+        deck.updatedAt = updatedAt;
         await assertDesignSystemReadable(nextDesignSystemId);
-        const deliveryIds = await db.transaction(async (tx) => {
+        await db.transaction(async (tx: any) => {
           if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
             await createDeckVersionSnapshot(
               {
@@ -179,37 +170,32 @@ export default defineAction({
               { label: "Before editor save", db: tx },
             );
           }
-          await tx
+          const updateResult = await tx
             .update(schema.decks)
             .set({
               title,
               data: JSON.stringify(deck),
               designSystemId:
                 nextDesignSystemId ?? access.resource.designSystemId,
-              updatedAt: now,
+              updatedAt,
             })
-            .where(eq(schema.decks.id, deckId));
-          return enqueueWebhookEvent(
-            "deck.updated",
-            deck,
-            {
-              ownerEmail: access.resource.ownerEmail as string,
-              orgId:
-                typeof access.resource.orgId === "string"
-                  ? access.resource.orgId
-                  : null,
-            },
-            { db: tx },
-          );
+            .where(
+              deckRevisionWhere(
+                schema.decks,
+                deckId,
+                access.resource.updatedAt,
+              ),
+            );
+          assertDeckWriteApplied(updateResult, deckId, "deck save");
         });
-        notifyClients(deckId);
-        await dispatchWebhookDeliveries(deliveryIds);
-        return { ...deck, appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders) };
       } else {
         // Viewer-only access — same 404 as no-access so we don't leak that the
         // deck exists with restricted permissions.
         throw deckHttpError(404, "Deck not found");
       }
+
+      notifyClients(deckId);
+      return deck;
     }),
 });
 

@@ -14,7 +14,11 @@ export interface DeckSnapshotSource {
 
 export async function createDeckVersionSnapshot(
   source: DeckSnapshotSource,
-  options: { force?: boolean; label?: string; db?: any } = {},
+  options: {
+    force?: boolean;
+    label?: string;
+    db?: ReturnType<typeof getDb>;
+  } = {},
 ): Promise<{ created: boolean; id?: string; reason?: string }> {
   if (!source.ownerEmail) {
     throw new Error("Cannot snapshot deck version without an owner email");

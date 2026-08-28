@@ -18,10 +18,6 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
-import {
-  dispatchWebhookDeliveries,
-  enqueueWebhookEvent,
-} from "../server/lib/outbound-webhooks.js";
 import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
@@ -32,7 +28,12 @@ import {
   ensureUniqueSlideIds,
   rebindCreativeContextSlideLabels,
 } from "../shared/slide-ids.js";
-import { getDeckAppUrl, getDeckUrl } from "./_app-url.js";
+import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -154,19 +155,17 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (
-    {
-      title,
-      slides: rawSlides,
-      deckId,
-      aspectRatio,
-      designSystemId,
-      contextPackId,
-      contextModeOverride,
-      reuseLabels,
-    },
-    ctx,
-  ) => {
+  http: false,
+  run: async ({
+    title,
+    slides: rawSlides,
+    deckId,
+    aspectRatio,
+    designSystemId,
+    contextPackId,
+    contextModeOverride,
+    reuseLabels,
+  }) => {
     const db = getDb();
     const now = new Date().toISOString();
     const normalizedSlides = ensureUniqueSlideIds(
@@ -259,49 +258,47 @@ export default defineAction({
         repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
         resolvedTitle;
       assertHumanReadableDeckTitle(existingDeckTitle);
-      await createDeckVersionSnapshot(
-        {
-          id: existing[0].id,
-          title: existing[0].title,
-          data: existing[0].data,
-          ownerEmail: existing[0].ownerEmail,
-        },
-        { force: true, label: "Before bulk replace" },
-      );
-      const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
+      const writeNow = nextDeckRevision(existing[0].updatedAt);
+      const prevData = JSON.parse(existing[0].data);
       const data = {
         title: existingDeckTitle,
         slides,
-        updatedAt: now,
+        updatedAt: writeNow,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
         designSystemId: designSystemId ?? prevData.designSystemId,
         creativeContext: creativeContextProvenance,
       };
-      const deliveryIds = await db.transaction(async (tx) => {
-        await tx
+      await db.transaction(async (tx: any) => {
+        await createDeckVersionSnapshot(
+          {
+            id: existing[0].id,
+            title: existing[0].title,
+            data: existing[0].data,
+            ownerEmail: existing[0].ownerEmail,
+          },
+          { force: true, label: "Before bulk replace", db: tx },
+        );
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             title: existingDeckTitle,
             data: JSON.stringify(data),
             designSystemId:
-              designSystemId ?? existing[0]?.designSystemId ?? null,
-            updatedAt: now,
+              designSystemId ?? existing[0].designSystemId ?? null,
+            updatedAt: writeNow,
           })
-          .where(eq(schema.decks.id, deckId));
-        return enqueueWebhookEvent(
-          "deck.updated",
-          { id: deckId, ...data },
-          {
-            ownerEmail: existing[0].ownerEmail,
-            orgId: existing[0].orgId ?? null,
-          },
-          { db: tx },
-        );
+          .where(
+            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+          );
+        assertDeckWriteApplied(updateResult, deckId, "deck replacement");
       });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
-      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+      await writeAppState("refresh-signal", {
+        ts: writeNow,
+        source: "create-deck",
+      });
       await recordGenerationCreativeContext({
         appId: "slides",
         artifactType: "deck",
@@ -309,13 +306,11 @@ export default defineAction({
         ...creativeContextProvenance,
         ...(elementProvenance.length ? { elementProvenance } : {}),
       });
-      await dispatchWebhookDeliveries(deliveryIds);
       return {
         id: deckId,
         title: existingDeckTitle,
         slideCount: slides.length,
         url: getDeckUrl(deckId),
-        appUrl: getDeckAppUrl(deckId, ctx?.requestHeaders),
         deepLink: deckDeepLink(deckId),
         slides,
         ...creativeContextProvenance,
@@ -344,28 +339,18 @@ export default defineAction({
     if (aspectRatio) data.aspectRatio = aspectRatio;
     if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
     data.creativeContext = creativeContextProvenance;
-    const orgId = getRequestOrgId() ?? null;
-    const deliveryIds = await db.transaction(async (tx) => {
-      await tx.insert(schema.decks).values({
-        id,
-        title: resolvedTitle,
-        data: JSON.stringify(data),
-        designSystemId: resolvedDesignSystemId ?? null,
-        ownerEmail,
-        orgId,
-        createdAt: now,
-        updatedAt: now,
-      });
-      return enqueueWebhookEvent(
-        "deck.created",
-        { id, ...data },
-        { ownerEmail, orgId },
-        { db: tx },
-      );
+    await db.insert(schema.decks).values({
+      id,
+      title: resolvedTitle,
+      data: JSON.stringify(data),
+      designSystemId: resolvedDesignSystemId ?? null,
+      ownerEmail,
+      orgId: getRequestOrgId(),
+      createdAt: now,
+      updatedAt: now,
     });
 
     notifyClients(id);
-    await dispatchWebhookDeliveries(deliveryIds);
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
     await recordGenerationCreativeContext({
       appId: "slides",
@@ -379,7 +364,6 @@ export default defineAction({
       title: resolvedTitle,
       slideCount: slides.length,
       url: getDeckUrl(id),
-      appUrl: getDeckAppUrl(id, ctx?.requestHeaders),
       deepLink: deckDeepLink(id),
       slides,
       ...creativeContextProvenance,

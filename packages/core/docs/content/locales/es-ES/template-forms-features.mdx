@@ -56,11 +56,11 @@ El campo contra el que estás comprobando tiene que aparecer antes en el formula
 
 Un formulario pasa por tres estados:
 
-| Estado      | Significado                              | Acceso público                |
-| ----------- | ----------------------------------------- | ------------------------------ |
-| `draft`     | En construcción, no disponible al público | No                              |
-| `published` | Activo y aceptando respuestas             | Sí                              |
-| `closed`    | Ya no acepta respuestas                   | Muestra un mensaje de cierre    |
+| Estado      | Significado                               | Acceso público               |
+| ----------- | ----------------------------------------- | ---------------------------- |
+| `draft`     | En construcción, no disponible al público | No                           |
+| `published` | Activo y aceptando respuestas             | Sí                           |
+| `closed`    | Ya no acepta respuestas                   | Muestra un mensaje de cierre |
 
 Un formulario no se puede publicar si no tiene campos, si algún campo carece de etiqueta, o si un campo `select`, `multiselect` o `radio` no tiene opciones. Si se rechaza al publicar, se te dará una razón específica.
 
@@ -133,12 +133,12 @@ También puedes pedirle al agente "un CSV de este formulario" o "una exportació
 
 Activa la entrega automática para que las nuevas respuestas aparezcan donde tu equipo ya trabaja, en lugar de que alguien tenga que revisar la pestaña Respuestas. Esto es un ajuste por formulario, configurado en la pestaña Integraciones del creador.
 
-| Destino       | Qué necesita                                                                                        |
-| ------------- | ---------------------------------------------------------------------------------------------------- |
-| Slack         | Una URL de Incoming Webhook para el canal que quieras                                                |
-| Discord       | Una URL de webhook para el canal que quieras                                                         |
+| Destino       | Qué necesita                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Slack         | Una URL de Incoming Webhook para el canal que quieras                                                             |
+| Discord       | Una URL de webhook para el canal que quieras                                                                      |
 | Google Sheets | Una URL de Google Apps Script configurada para recibir envíos. Un enlace de hoja de cálculo simple no funcionará. |
-| Webhook       | Cualquier dirección web que pueda recibir el envío como datos                                        |
+| Webhook       | Cualquier dirección web que pueda recibir el envío como datos                                                     |
 
 Esto es distinto de conectar Slack para que el agente publique ahí directamente, lo cual se cubre en [Mensajería](/docs/messaging). Conéctalo primero si quieres que el propio agente publique actualizaciones en Slack. Cada dirección de destino se comprueba para asegurarse de que no apunte a una red privada o a una dirección interna, tanto cuando la guardas como cada vez que llega una respuesta, así que un formulario no puede convertirse en una forma de sondear tu propia red.
 
