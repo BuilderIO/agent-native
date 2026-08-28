@@ -22,6 +22,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("ThumbsFeedback localization", () => {
@@ -115,6 +116,100 @@ describe("ThumbsFeedback localization", () => {
       messageSeq: 1,
       feedbackType: "text",
       value: "The answer used the wrong source.",
+    });
+  });
+
+  it("also sends chat text feedback to the shared form with request context", async () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_FEEDBACK_URL",
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/forms/public/")) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: "form-1",
+            fields: [{ id: "feedback", type: "textarea" }],
+          }),
+        } as Response;
+      }
+      return { ok: true } as Response;
+    });
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const down = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs down"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    act(() => down.click());
+
+    const textarea = await vi.waitFor(() => {
+      const input = document.body.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+      expect(input).not.toBeNull();
+      return input!;
+    });
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set?.call(textarea, "The answer used the wrong source.");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => textarea.form?.requestSubmit());
+
+    await vi.waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).includes("/api/submit/"),
+        ),
+      ).toBe(true);
+    });
+
+    const observabilityCall = fetchMock.mock.calls.find(([input, init]) => {
+      if (!String(input).includes("/_agent-native/observability/feedback")) {
+        return false;
+      }
+      return JSON.parse(String(init?.body)).feedbackType === "text";
+    });
+    expect(observabilityCall).toBeDefined();
+    expect(JSON.parse(String(observabilityCall?.[1]?.body))).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+      messageSeq: 1,
+      feedbackType: "text",
+      value: "The answer used the wrong source.",
+    });
+
+    const formCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/api/submit/"),
+    );
+    expect(formCall).toBeDefined();
+    expect(JSON.parse(String(formCall?.[1]?.body))).toMatchObject({
+      data: { feedback: "The answer used the wrong source." },
+      _meta: {
+        chatSessionIds: ["thread-1"],
+        activeRunId: "run-1",
+        clientSurface: "web",
+      },
     });
   });
 

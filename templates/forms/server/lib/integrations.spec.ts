@@ -81,6 +81,18 @@ describe("buildSlackPayload page context", () => {
     expect(text).toContain("by *user@example.com*");
   });
 
+  it("labels the chat run identifier as a request ID", () => {
+    const text = contextText(
+      buildSlackPayload(
+        payload({ chatSessionIds: ["thread-42"], activeRunId: "run-42" }),
+      ),
+    );
+
+    expect(text).toContain("Chat session: `thread-42`");
+    expect(text).toContain("Request ID: `run-42`");
+    expect(text).not.toContain("Run: `run-42`");
+  });
+
   it("hides synthetic anonymous Agent-Native submitter emails", () => {
     const text = contextText(
       buildSlackPayload(

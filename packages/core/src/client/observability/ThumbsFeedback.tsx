@@ -5,6 +5,7 @@ import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
 import { useState, useCallback, useId, useRef } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { submitFeedbackForm } from "../FeedbackButton.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 
@@ -86,12 +87,25 @@ export function ThumbsFeedback({
   const handleTextFeedback = useCallback(() => {
     const value = textFeedback.trim();
     if (!value) return;
-    void sendFeedback("text", value).then((submitted) => {
+    void sendFeedback("text", value).then(async (submitted) => {
       if (!submitted) return;
+      try {
+        await submitFeedbackForm({
+          value,
+          chatSessionId: threadId,
+          activeRunId: runId,
+        });
+      } catch (error) {
+        console.error(
+          "[ThumbsFeedback] shared feedback form submission failed",
+          error,
+        );
+        return;
+      }
       setTextFeedback("");
       setPopoverOpen(false);
     });
-  }, [sendFeedback, textFeedback]);
+  }, [runId, sendFeedback, textFeedback, threadId]);
 
   return (
     <div className={cn("inline-flex items-center gap-0.5", className)}>

@@ -142,7 +142,7 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
     );
   }
   if (submission.activeRunId) {
-    lines.push(`Run: \`${submission.activeRunId}\``);
+    lines.push(`Request ID: \`${submission.activeRunId}\``);
   }
   if (submission.pageUrl) {
     const appLabel = appLabelFromUrl(submission.pageUrl);
