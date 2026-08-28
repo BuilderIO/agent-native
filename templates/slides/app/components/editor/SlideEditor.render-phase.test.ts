@@ -117,6 +117,20 @@ describe("SlideEditor render-phase safety", () => {
     expect(pointerDownBody).toContain("exitInlineEdit();");
   });
 
+  it("pastes plain clipboard text as a selected text box outside text editing", () => {
+    const pasteStart = source.indexOf("const pastePlainTextAsTextBox");
+    const pasteEnd = source.indexOf("const placeShapeAt", pasteStart);
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+
+    expect(pasteBody).toContain('getData("text/plain")');
+    expect(pasteBody).toContain("placeTextBoxAt(");
+    expect(pasteBody).toContain("selectElementForStyling(box, selector)");
+    expect(pasteBody).toContain(
+      'window.addEventListener("paste", onPaste, true)',
+    );
+    expect(pasteBody).toContain("text,\n        false,");
+  });
+
   it("re-measures portaled selection chrome after the editor layout moves", () => {
     const start = source.indexOf("const refreshMultiSelectionRects");
     const end = source.indexOf("// Keep cached rects fresh", start);

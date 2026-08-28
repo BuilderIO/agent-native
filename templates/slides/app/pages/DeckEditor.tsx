@@ -1304,6 +1304,7 @@ export default function DeckEditor() {
   // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
   // long ago the copy happened.
   const slideClipboardArmedAtRef = useRef<number | null>(null);
+  const slidePasteFallbackRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
   const slideClipboardStorageKey = session?.email
     ? getSlideClipboardStorageKey(session.email)
@@ -1597,8 +1598,13 @@ export default function DeckEditor() {
         !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
       )
         return;
-      e.preventDefault();
-      pasteSlideAfter(activeSlideId);
+      if (slidePasteFallbackRef.current !== null) {
+        window.clearTimeout(slidePasteFallbackRef.current);
+      }
+      slidePasteFallbackRef.current = window.setTimeout(() => {
+        slidePasteFallbackRef.current = null;
+        pasteSlideAfter(activeSlideId);
+      }, 50);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
@@ -1614,6 +1620,27 @@ export default function DeckEditor() {
     pinMode,
     drawMode,
   ]);
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (slidePasteFallbackRef.current === null) return;
+      const hasText = Boolean(e.clipboardData?.getData("text/plain")?.trim());
+      const hasImage = Array.from(e.clipboardData?.items ?? []).some(
+        (item) => item.kind === "file" && item.type.startsWith("image/"),
+      );
+      if (!e.defaultPrevented && !hasText && !hasImage) return;
+      window.clearTimeout(slidePasteFallbackRef.current);
+      slidePasteFallbackRef.current = null;
+    };
+    window.addEventListener("paste", handlePaste, true);
+    return () => {
+      window.removeEventListener("paste", handlePaste, true);
+      if (slidePasteFallbackRef.current !== null) {
+        window.clearTimeout(slidePasteFallbackRef.current);
+        slidePasteFallbackRef.current = null;
+      }
+    };
+  }, []);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
