@@ -5671,6 +5671,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@fontsource/jetbrains-mono':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/poppins':
         specifier: ^5.2.7
         version: 5.2.7
@@ -8650,6 +8653,9 @@ packages:
 
   '@fontsource-variable/vazirmatn@5.2.8':
     resolution: {integrity: sha512-2YzXfH4PNOeoZsBsgJgjbnm+IC2nonGyMLX3gXLm8FQrP+wpi1uGBIWYWlEzJ0lmntgdyAc3lRViHHfZWKvbog==}
+
+  '@fontsource/jetbrains-mono@5.3.0':
+    resolution: {integrity: sha512-fqDfB5I9f1p1TV486aUgB9t8zP84P0O1FtQR5Ol9vjwPy+S+EIGlVYm1cvj2W5shcZMTg2nZFdVMoH5wFu8a1A==}
 
   '@fontsource/poppins@5.2.7':
     resolution: {integrity: sha512-6uQyPmseo4FgI97WIhA4yWRlNaoLk4vSDK/PyRwdqqZb5zAEuc+Kunt8JTMcsHYUEGYBtN15SNkMajMdqUSUmg==}
@@ -24780,6 +24786,8 @@ snapshots:
   '@fontsource-variable/outfit@5.2.8': {}
 
   '@fontsource-variable/vazirmatn@5.2.8': {}
+
+  '@fontsource/jetbrains-mono@5.3.0': {}
 
   '@fontsource/poppins@5.2.7': {}
 

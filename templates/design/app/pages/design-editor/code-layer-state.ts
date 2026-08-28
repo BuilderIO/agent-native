@@ -905,9 +905,9 @@ export function codeLayerPatchMessage(
 }
 
 // T16: known Google Font families offered by the inspector's font-family
-// picker (FONT_FAMILY_OPTIONS in EditPanel.tsx — kept in sync manually since
-// that file isn't editable from here). Maps the exact display family name to
-// the Google Fonts CSS2 API family query param (weight range 400-700 covers
+// picker (FONT_FAMILY_OPTIONS in @agent-native/toolkit/design-tweaks). Maps
+// the exact display family name to the Google Fonts CSS2 API family query param
+// (weight range 400-700 covers
 // the FONT_WEIGHT_OPTIONS range without over-fetching every weight).
 export const KNOWN_GOOGLE_FONTS: Record<string, string> = {
   Inter: "Inter:wght@400;500;600;700",
