@@ -771,6 +771,10 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
 
 export interface GenerateWorkerEntryOptions {
   includeReactRouterSsr?: boolean;
+  analytics?: {
+    agentNativePublicKey?: string;
+    agentNativeEndpoint?: string;
+  };
 }
 
 interface ReactRouterAssetManifest {
@@ -991,6 +995,9 @@ ${["post", "put", "delete"]
   const pluginImports: string[] = [];
   const pluginCalls: string[] = [];
   const providedPluginStems = new Set<string>();
+  pluginImports.push(
+    `import { getAppConfig as getAgentNativeAppConfig } from "${EDGE_SERVER_ENTRYPOINT}";`,
+  );
 
   for (let i = 0; i < edgePlugins.length; i++) {
     const varName = `plugin_${i}`;
@@ -1013,13 +1020,13 @@ ${["post", "put", "delete"]
   for (let i = 0; i < edgeDefaultStems.length; i++) {
     const stem = edgeDefaultStems[i];
     providedPluginStems.add(stem);
-    const varName = `defaultPlugin_${i}`;
+    const varName = `defaultPlugin_${String(i)}`;
 
     const workspaceExportName = workspaceCore?.plugins?.[stem as never];
     if (workspaceCore && workspaceExportName) {
       // Workspace-core layer wins over the framework default.
       pluginImports.push(
-        `import { ${workspaceExportName} as ${varName} } from ${JSON.stringify(
+        `import { ${String(workspaceExportName)} as ${varName} } from ${JSON.stringify(
           `${workspaceCore.packageName}/server`,
         )};`,
       );
@@ -1058,6 +1065,17 @@ ${["post", "put", "delete"]
       `import { markDefaultPluginProvided as markGeneratedPluginProvided } from "${EDGE_SERVER_ENTRYPOINT}";`,
     );
   }
+
+  const builtAnalyticsPublicKey =
+    options.analytics?.agentNativePublicKey?.trim() ||
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY?.trim();
+  const builtAnalyticsEndpoint =
+    options.analytics?.agentNativeEndpoint?.trim() ||
+    process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT?.trim();
 
   return `
 // Auto-generated worker entry point for ${preset}
@@ -1313,6 +1331,42 @@ function getPostHogClientConfigScript() {
   );
 }
 
+function getAgentNativeAnalyticsClientConfigScript() {
+  const env = globalThis.process?.env || {};
+  const configuredAnalytics = getAgentNativeAppConfig().analytics;
+  const configuredEndpoint =
+    configuredAnalytics.agentNativeEndpoint ===
+    "https://analytics.agent-native.com/track"
+      ? undefined
+      : configuredAnalytics.agentNativeEndpoint;
+  const builtPublicKey = ${JSON.stringify(builtAnalyticsPublicKey)};
+  const builtEndpoint = ${JSON.stringify(builtAnalyticsEndpoint)};
+  const publicKey = firstNonEmpty(
+    configuredAnalytics.agentNativePublicKey,
+    env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    builtPublicKey,
+  );
+  if (!publicKey) return null;
+  const endpoint =
+    firstNonEmpty(
+      configuredEndpoint,
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      builtEndpoint,
+    ) || "https://analytics.agent-native.com/track";
+  const config = {
+    agentNativeAnalyticsPublicKey: publicKey,
+    agentNativeAnalyticsEndpoint: endpoint,
+  };
+  return (
+    '<script data-agent-native-analytics-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1538,6 +1592,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
+      getAgentNativeAnalyticsClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
@@ -5173,6 +5228,16 @@ export function resolveNitroBuildReplacements(
     ),
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+      env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+        env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+        "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+        env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+        "",
     ),
     "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
       env.GTM_CONTAINER_ID?.trim() || "",

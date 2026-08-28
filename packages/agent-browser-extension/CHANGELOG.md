@@ -1,5 +1,61 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.275
+
+### Patch Changes
+
+- Updated dependencies [6621544]
+- Updated dependencies
+  - @agent-native/core@0.176.1
+
+## 0.1.274
+
+### Patch Changes
+
+- Updated dependencies [3d10cb0]
+- Updated dependencies [2ee0e37]
+- Updated dependencies [e37c195]
+- Updated dependencies [a29c7ef]
+- Updated dependencies [55b7b6f]
+- Updated dependencies [5203369]
+- Updated dependencies [ca7360e]
+- Updated dependencies [f445b44]
+- Updated dependencies [04b27f9]
+- Updated dependencies [46e4ada]
+- Updated dependencies [841c741]
+- Updated dependencies [841c741]
+- Updated dependencies [841c741]
+- Updated dependencies [841c741]
+- Updated dependencies [841c741]
+- Updated dependencies [841c741]
+- Updated dependencies [7379c91]
+- Updated dependencies [0705e7f]
+- Updated dependencies [9f31e60]
+- Updated dependencies [5f9ca21]
+- Updated dependencies [0d69102]
+- Updated dependencies [7abab10]
+- Updated dependencies [6e59cdd]
+- Updated dependencies [313909c]
+- Updated dependencies [56f7bab]
+- Updated dependencies [f445b44]
+- Updated dependencies
+- Updated dependencies [b8bc6bf]
+- Updated dependencies [5c66e51]
+- Updated dependencies [292a1ac]
+- Updated dependencies [387de2d]
+- Updated dependencies [4776e61]
+- Updated dependencies [d2b314b]
+- Updated dependencies [a3d0e47]
+- Updated dependencies [2dc4b25]
+- Updated dependencies [d5ddd8c]
+- Updated dependencies [4f7f661]
+- Updated dependencies [510eb32]
+- Updated dependencies [7d89861]
+- Updated dependencies [0a0956d]
+- Updated dependencies [709f807]
+- Updated dependencies [e714047]
+  - @agent-native/core@0.176.0
+
 ## 0.1.273
 
 ### Patch Changes
@@ -856,23 +912,5 @@
 
 - Updated dependencies [c940f4c]
   - @agent-native/core@0.161.16
-
-## 0.1.175
-
-### Patch Changes
-
-- Updated dependencies [551b583]
-- Updated dependencies [551b583]
-- Updated dependencies [00025b1]
-  - @agent-native/core@0.161.15
-
-## 0.1.174
-
-### Patch Changes
-
-- Updated dependencies [96ecc13]
-- Updated dependencies [96ecc13]
-- Updated dependencies [96ecc13]
-  - @agent-native/core@0.161.14
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

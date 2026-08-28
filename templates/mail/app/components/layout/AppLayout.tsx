@@ -272,7 +272,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (!next.has(COMPOSE_FULLSCREEN_PARAM)) return;
     next.delete(COMPOSE_FULLSCREEN_PARAM);
     const search = next.toString();
-    navigate(
+    void navigate(
       {
         pathname: location.pathname,
         search: search ? `?${search}` : "",
@@ -778,9 +778,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         }
       } catch {}
     };
-    fetchNav();
+    void fetchNav();
     // Re-check when palette opens
-    if (paletteOpen) fetchNav();
+    if (paletteOpen) void fetchNav();
   }, [threadId, paletteOpen]);
 
   const targetEmail = useMemo(() => {
@@ -922,7 +922,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const nextIdx =
         (activeIdx === -1 ? 0 : activeIdx + delta + visibleTabs.length) %
         visibleTabs.length;
-      navigate(visibleTabs[nextIdx].href);
+      void navigate(visibleTabs[nextIdx].href);
     },
     [visibleTabs, navigate],
   );
@@ -1002,7 +1002,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         setSearchFocused(false);
         (document.getElementById("mail-search") as HTMLInputElement)?.blur();
         if (activeSearchQuery) {
-          navigate(restorePreSearchPath());
+          void navigate(restorePreSearchPath());
         }
       },
     },
@@ -1021,9 +1021,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     {
       keys: ["g", "i"],
       handler: () => {
-        navigate("/inbox");
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
+        void navigate("/inbox");
+        void qc.invalidateQueries({ queryKey: ["emails"] });
+        void qc.invalidateQueries({ queryKey: ["labels"] });
       },
     },
     { keys: ["g", "s"], handler: () => navigate("/starred") },
@@ -1360,7 +1360,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 setSearchFocused(false);
                 setSearchQuery("");
                 if (activeSearchQuery) {
-                  navigate(restorePreSearchPath());
+                  void navigate(restorePreSearchPath());
                 }
               }}
             />
@@ -1400,8 +1400,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
-                  qc.invalidateQueries({ queryKey: ["emails"] });
-                  qc.invalidateQueries({ queryKey: ["labels"] });
+                  void qc.invalidateQueries({ queryKey: ["emails"] });
+                  void qc.invalidateQueries({ queryKey: ["labels"] });
                   window.setTimeout(() => setIsManuallyRefreshing(false), 800);
                 }}
                 disabled={inboxIsFetching}
@@ -1962,7 +1962,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     label: "DELETE DRAFT",
                     onClick: () => {
                       if (snapshot.savedDraftId) {
-                        fetch(
+                        void fetch(
                           appApiPath(`/api/emails/${snapshot.savedDraftId}`),
                           {
                             method: "DELETE",
@@ -1997,7 +1997,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     onClick: () => {
                       for (const snap of snapshots) {
                         if (snap.savedDraftId) {
-                          fetch(
+                          void fetch(
                             appApiPath(`/api/emails/${snap.savedDraftId}`),
                             {
                               method: "DELETE",

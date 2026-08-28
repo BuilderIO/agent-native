@@ -987,7 +987,10 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     delete process.env.BUILDER_CMS_PRIVATE_KEY;
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = input instanceof URL ? input : new URL(String(input));
+      const url =
+        input instanceof URL
+          ? input
+          : new URL(typeof input === "string" ? input : input.url);
       const limit = Number(url.searchParams.get("limit"));
       const offset = Number(url.searchParams.get("offset"));
       requests.push({ limit, offset });

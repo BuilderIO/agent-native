@@ -244,7 +244,7 @@ export interface ImageAssetMetadata {
   colors?: string[];
   contentHash?: string;
   generated?: boolean;
-  intent?: "subject" | string;
+  intent?: "subject" | (string & {});
   sourceAssetId?: string;
   referenceAssetIds?: string[];
   prompt?: string;
@@ -321,6 +321,18 @@ export interface GenerationPresetSummary {
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface TemplateSummary extends Omit<
+  GenerationPresetSummary,
+  "libraryId"
+> {
+  libraryId: string | null;
+  scope: "global" | "library";
+  visibility: "private" | "org" | "public";
+  ownerEmail: string;
+  accessRole?: "viewer" | "commenter" | "editor" | "admin" | "owner";
+  libraryTitle?: string | null;
 }
 
 export interface GenerationSessionSummary {

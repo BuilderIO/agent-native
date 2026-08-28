@@ -57,7 +57,7 @@ export function EmptyState({
       if (spaceId) params.set("spaceId", spaceId);
       if (folderId) params.set("folderId", folderId);
       const qs = params.toString();
-      navigate(qs ? `/record?${qs}` : "/record");
+      void navigate(qs ? `/record?${qs}` : "/record");
     }
   };
 

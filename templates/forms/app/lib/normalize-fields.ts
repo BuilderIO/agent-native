@@ -34,7 +34,15 @@ function coerceOptionToString(raw: unknown): string | null {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(raw);
+  if (
+    typeof raw === "number" ||
+    typeof raw === "boolean" ||
+    typeof raw === "bigint" ||
+    typeof raw === "symbol"
+  ) {
+    return String(raw);
+  }
+  return JSON.stringify(raw);
 }
 
 export function normalizeFields(fields: FormField[] | undefined): FormField[] {

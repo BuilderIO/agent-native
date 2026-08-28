@@ -8,10 +8,13 @@ import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   buildPastedSlideObjects,
+  canDropSlideLayerAdjacent,
+  canDropSlideLayerInside,
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
   computeSlideObjectZOrder,
+  createSlideObjectPlacementGeometry,
   copySlideObjects,
   createSlidesSelectionState,
   ensureSlideObjectId,
@@ -21,6 +24,8 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  isValidSlideClipboardRoot,
+  resolveSlideClipboardElement,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
   isDeletableSlideElement,
@@ -28,6 +33,7 @@ import {
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
+  resizeSlideObjectMembers,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   SLIDE_OBJECT_PASTE_OFFSET,
@@ -49,6 +55,145 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  it("rejects nesting into void layer targets while keeping containers valid", () => {
+    expect(canDropSlideLayerInside(document.createElement("img"))).toBe(false);
+    expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);
+    expect(canDropSlideLayerInside(document.createElement("h2"))).toBe(false);
+    expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
+  });
+
+  it("rejects adjacent drops that would violate structural parent rules", () => {
+    const paragraph = document.createElement("p");
+    const span = document.createElement("span");
+    paragraph.append(span);
+    expect(canDropSlideLayerAdjacent(document.createElement("div"), span)).toBe(
+      false,
+    );
+
+    const list = document.createElement("ul");
+    const listItem = document.createElement("li");
+    list.append(listItem);
+    expect(
+      canDropSlideLayerAdjacent(document.createElement("div"), listItem),
+    ).toBe(false);
+    expect(
+      canDropSlideLayerAdjacent(document.createElement("li"), listItem),
+    ).toBe(true);
+  });
+
+  it("rejects structural children as direct clipboard roots", () => {
+    expect(isValidSlideClipboardRoot(document.createElement("li"))).toBe(false);
+    expect(isValidSlideClipboardRoot(document.createElement("td"))).toBe(false);
+    expect(isValidSlideClipboardRoot(document.createElement("div"))).toBe(true);
+  });
+
+  it("resizes multi-selection members proportionally from the southeast", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "a",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 20 },
+        },
+        {
+          objectId: "b",
+          element: document.createElement("div"),
+          start: { x: 50, y: 50, width: 20, height: 20 },
+        },
+      ],
+      { handle: "se", dx: 30, dy: 20 },
+    );
+
+    expect(result.get("a")).toEqual({ x: 10, y: 20, width: 30, height: 28 });
+    expect(result.get("b")).toEqual({ x: 70, y: 62, width: 30, height: 28 });
+  });
+
+  it("resizes multi-selection members from the west and honors minimum bounds", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "a",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 30 },
+        },
+      ],
+      { handle: "w", dx: 100, dy: 0, minSize: 24 },
+    );
+
+    expect(result.get("a")).toEqual({ x: 6, y: 20, width: 24, height: 30 });
+  });
+
+  it("keeps every non-uniform member above the minimum while preserving placement", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "small",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 30 },
+        },
+        {
+          objectId: "large",
+          element: document.createElement("div"),
+          start: { x: 50, y: 60, width: 100, height: 80 },
+        },
+      ],
+      { handle: "se", dx: -90, dy: -70, minSize: 24 },
+    );
+
+    expect(result.get("small")).toEqual({
+      x: 10,
+      y: 20,
+      width: 24,
+      height: 24,
+    });
+    expect(result.get("large")).toEqual({
+      x: 58,
+      y: 52,
+      width: 120,
+      height: 64,
+    });
+  });
+
+  it("keeps the minimum member size while preserving aspect-locked scaling", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "wide",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 40 },
+        },
+        {
+          objectId: "square",
+          element: document.createElement("div"),
+          start: { x: 50, y: 60, width: 40, height: 40 },
+        },
+      ],
+      { handle: "se", dx: -80, dy: -80, preserveAspectRatio: true },
+    );
+
+    expect(result.get("wide")).toEqual({
+      x: 10,
+      y: 20,
+      width: 24,
+      height: 48,
+    });
+    expect(result.get("square")).toEqual({
+      x: 58,
+      y: 68,
+      width: 48,
+      height: 48,
+    });
+  });
+
+  it("normalizes drag placement from either direction with a minimum size", () => {
+    expect(
+      createSlideObjectPlacementGeometry({ x: 160, y: 120 }, { x: 40, y: 30 }),
+    ).toEqual({ x: 40, y: 30, width: 120, height: 90 });
+    expect(
+      createSlideObjectPlacementGeometry({ x: 10, y: 20 }, { x: 10, y: 20 }),
+    ).toEqual({ x: 10, y: 20, width: 24, height: 24 });
+  });
+
   it("promotes a Markdown-rendered canvas so a new text box can persist as a freeform object", () => {
     const root = document.createElement("div");
     root.innerHTML = `
@@ -938,6 +1083,13 @@ describe("slide object interactions", () => {
     expect(label.getAttribute("for")).toBe(input.id);
   });
 
+  it("does not copy list or table children without their structural parent", () => {
+    const listItem = document.createElement("li");
+    listItem.dataset.slideObjectId = "list-item";
+
+    expect(copySlideObjects([listItem]).html).toEqual([]);
+  });
+
   it("leaves position untouched when a copied object has no inline left/top", () => {
     const object = document.createElement("div");
     object.dataset.slideObjectId = "no-position";
@@ -1105,5 +1257,28 @@ describe("findPersistedImageObject", () => {
       'data-slide-object-id="shape-1"><img src="a.png" /></div>';
     const img = root.querySelector("img") as HTMLElement;
     expect(findPersistedImageObject(img, root)).toBeNull();
+  });
+});
+
+describe("resolveSlideClipboardElement", () => {
+  it("uses the persisted image owner for a single overlay selection", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="image-owner">' +
+      '<img src="image.png" />' +
+      "</div>";
+    const img = root.querySelector("img") as HTMLImageElement;
+    const staleSelection = document.createElement("div");
+
+    expect(resolveSlideClipboardElement(staleSelection, img, root)).toBe(
+      root.firstElementChild,
+    );
+  });
+
+  it("keeps the normal selected element when no image overlay is active", () => {
+    const root = document.createElement("div");
+    const selected = document.createElement("div");
+
+    expect(resolveSlideClipboardElement(selected, null, root)).toBe(selected);
   });
 });

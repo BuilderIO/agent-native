@@ -44,9 +44,11 @@ skip or dispatch is recorded.`;
 const PR_ALIGNMENT = `## Current review-prs contract
 
 The repository's \`.agents/skills/review-prs/SKILL.md\` is authoritative.
-Before selecting work, ignore drafts and pull requests with a current,
-non-dismissed APPROVED review, including bot approvals; do not inspect or
-recap those excluded items. For every remaining PR, read the complete title,
+Before selecting work, ignore drafts and ordinary pull requests with a
+current-head, non-dismissed APPROVED review, including bot approvals; do not
+inspect or recap those excluded items. Eligible Liam PRs with only older-head
+approvals remain candidates so the current head can be approved. For every
+remaining PR, read the complete title,
 body, links, changed-file diff (including generated and migration files), all
 review summaries/comments/replies, actual check conclusions, and ownership
 boundary. Verify current BuilderIO organization membership through GitHub's
@@ -59,7 +61,17 @@ unresolved feedback for a verified BuilderIO member; record those exact states
 and never call them clean. The ultra-scary gate always remains manual for auth,
 permissions, tenant isolation, secrets, destructive data loss or migrations,
 remote code execution, SSRF, payments, deployment, or unexplained dependency
-and infrastructure risk.
+and infrastructure risk. Active credible safety findings in fresh review
+evidence remain blocking for every author, including Liam.
+
+For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, a
+current BuilderIO membership check is still required. When the current,
+non-draft PR has no current-head, non-dismissed approval, the Liam exception
+allows approval across ordinary check, review-feedback, scope, and UX-owner
+gates without authorizing a merge. It does not apply to ultra-scary changes or
+changes to review/approval policy, agent-safety instructions, membership
+verification, or CI/deployment security controls; those require independent
+human review.
 
 The verified owner exceptions are current and must be applied only after
 membership and the ultra-scary assessment: Alice (\`3mdistal\`) for Content,

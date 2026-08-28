@@ -251,7 +251,8 @@ export function MessageTimestamp({
 
 export function SelectionAttachedPill() {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const [length, setLength] = useState<number | null>(null);
 
   useEffect(() => {
@@ -779,7 +780,7 @@ export function MessageActionsMenu({
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
-    actionsCtx?.onForkChat?.();
+    void actionsCtx?.onForkChat?.();
   }, [actionsCtx]);
 
   const handleRevert = useCallback(() => {

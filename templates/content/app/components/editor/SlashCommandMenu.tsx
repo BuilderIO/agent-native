@@ -794,7 +794,7 @@ export function SlashCommandMenu({
         });
         return;
       }
-      navigate(`/page/${pageId}`, { flushSync: true });
+      void navigate(`/page/${pageId}`, { flushSync: true });
     },
   };
 
@@ -1110,7 +1110,7 @@ export function SlashCommandMenu({
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands[selectedIndex]) {
-          executeCommand(filteredCommands[selectedIndex]);
+          void executeCommand(filteredCommands[selectedIndex]);
         }
       } else if (e.key === "Escape") {
         e.stopPropagation();
@@ -1118,7 +1118,7 @@ export function SlashCommandMenu({
         setIsTurnInto(false);
         setQuery("");
         slashPosRef.current = null;
-        onDraftCommitted?.();
+        void onDraftCommitted?.();
       }
     };
 

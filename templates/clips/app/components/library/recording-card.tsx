@@ -92,7 +92,12 @@ export function RecordingCard({
   readOnly = false,
 }: RecordingCardProps) {
   const t = useT();
-  const { formatDate, formatRelativeTime } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = (date: Date) => formatters.formatDate(date);
+  const formatRelativeTime = (
+    value: number,
+    unit: Parameters<typeof formatters.formatRelativeTime>[1],
+  ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pendingTrashRef = useRef(false);

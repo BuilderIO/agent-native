@@ -260,7 +260,7 @@ function FindingRow({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-h-5 items-center gap-1">
-            <span className="truncate !text-[11px] font-medium leading-snug text-foreground">
+            <span className="design-sidebar-control-text truncate font-medium text-foreground">
               {finding.message}
             </span>
             {hasDetail && (
@@ -384,13 +384,13 @@ function A11ySection({
           <IconShieldCheck className="size-3.5 text-muted-foreground" />
           <span
             id="review-a11y-heading"
-            className="!text-[11px] font-semibold text-foreground"
+            className="design-sidebar-section-title text-foreground"
           >
             Accessibility
           </span>
           <span
             className={cn(
-              "rounded px-1 py-0.5 text-[10px] font-medium text-muted-foreground/65",
+              "design-sidebar-field-label rounded px-1 py-0.5 font-medium text-muted-foreground/65",
               !loading && !auditError && !notRun && !hasFindings
                 ? "text-emerald-500"
                 : "",
@@ -572,7 +572,7 @@ function VisualDiffSection({
         <IconArrowsLeftRight className="size-3.5 text-muted-foreground" />
         <span
           id="review-diff-heading"
-          className="!text-[11px] font-semibold text-foreground"
+          className="design-sidebar-section-title text-foreground"
         >
           Visual diff
         </span>

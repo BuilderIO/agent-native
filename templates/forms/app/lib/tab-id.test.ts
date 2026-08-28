@@ -3,7 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const STORAGE_KEY = "agent-native.forms.tab-id";
-const originalGetEntriesByType = performance.getEntriesByType;
+const originalGetEntriesByType = (entryType: string) =>
+  performance.getEntriesByType(entryType);
 
 async function loadTabId() {
   vi.resetModules();

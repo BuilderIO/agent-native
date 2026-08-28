@@ -57,7 +57,7 @@ type DatabaseRecord = NonNullable<
 
 export interface BuilderSourceExecutionRecord {
   id: string;
-  state: ContentDatabaseSourceExecutionState | string;
+  state: ContentDatabaseSourceExecutionState | (string & {});
   idempotencyKey: string;
   payloadJson: string;
   attemptToken?: string | null;

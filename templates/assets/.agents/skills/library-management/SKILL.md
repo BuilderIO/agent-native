@@ -113,7 +113,7 @@ filtered views.
 
 For a blog-to-brand-kit workflow: inspect the page, pick the strongest image
 URLs, import each URL into the target `libraryId`, then wire the returned
-`assetId`s into generation preset reference fills or call `set-canonical-logo`
+`assetId`s into associated Template reference fills or call `set-canonical-logo`
 for the exact logo. Imported assets are stored as `status: "reference"` with
 `sourceUrl` provenance, so downstream generation, preset boards, and logo
 compositing can use them like uploaded reference assets.

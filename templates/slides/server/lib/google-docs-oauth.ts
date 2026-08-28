@@ -334,7 +334,11 @@ export async function getGoogleDocsAccessToken(
   const accounts = await listGoogleProviderAccounts(owner);
   const account = options.requireDriveExportScope
     ? accounts.find((candidate) =>
-        hasGoogleDriveExportScope(String(candidate.tokens.scope ?? "")),
+        hasGoogleDriveExportScope(
+          typeof candidate.tokens.scope === "string"
+            ? candidate.tokens.scope
+            : JSON.stringify(candidate.tokens.scope ?? ""),
+        ),
       )
     : accounts[0];
   if (!account) return null;
@@ -377,7 +381,13 @@ async function listGoogleProviderAccounts(owner: string): Promise<
   );
   const seen = new Set<string>();
   return accounts.flat().filter((account) => {
-    if (!hasGoogleDriveAccessScope(String(account.tokens.scope ?? ""))) {
+    if (
+      !hasGoogleDriveAccessScope(
+        typeof account.tokens.scope === "string"
+          ? account.tokens.scope
+          : JSON.stringify(account.tokens.scope ?? ""),
+      )
+    ) {
       return false;
     }
     const key = account.accountId.toLowerCase();

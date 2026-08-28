@@ -13,6 +13,7 @@ describe("designTemplateRefinementDirectives", () => {
 
     expect(text).toContain("get-design-snapshot");
     expect(text).toContain("edit-design");
+    expect(text).toContain("import-from-url");
     expect(text).toContain("Do not call `generate-design`");
     expect(text).not.toContain("When calling `generate-design`");
     expect(text).not.toContain("Use the `generate-design");

@@ -235,7 +235,7 @@ export function resolveLocaleFromCandidates(
 }
 
 export function resolveLocaleFromPreference(
-  preference: LocalizationPreference | LocalePreference | unknown,
+  preference: unknown,
   systemCandidates: Iterable<unknown> = [],
 ): LocaleCode {
   const normalized =

@@ -34,7 +34,7 @@ const MAX_RETRY_DELAY_MS = 1_500;
 const MAX_SINGLE_RETRY_DELAY_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
-type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | string;
+type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | (string & {});
 
 export interface HubSpotTransportRequest {
   path: string;

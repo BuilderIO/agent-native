@@ -58,8 +58,8 @@ evidence, screenshots, or exact logos.
   IDs/URLs; do not follow it with `get-generation-run`,
   `refresh-generation-run`, or more generation unless the user asks for another
   direction or the returned slot has `ok: false`.
-- For repeatable deliverables, honor a `preset` @mention as `presetId` or call
-  `list-generation-presets` when choosing one. Pass the preset through
+- For repeatable deliverables, honor a `template` @mention as `templateId` or
+  call `list-templates` when choosing one. Pass the template through
   `generate-image`, `generate-image-batch`, `refine-image`, or
   `rerun-generation-run`.
 - For designer handoff, preserve `sessionId` and call
@@ -77,40 +77,40 @@ evidence, screenshots, or exact logos.
   `generate-image-batch` / `refine-image`. The design team uses the audit log
   to review quality by app, library, model, prompt, and lineage.
 
-## Composer Mentions And Tagged Presets
+## Composer Mentions And Tagged Templates
 
 - Composer `@` mentions are the source of generation inputs. Map `brand-kit`
-  references to `libraryId`, `preset` references to `presetId`, and `media-type`
+  references to `libraryId`, `template` references to `templateId`, and `media-type`
   references to choosing image (`generate-image` / `generate-image-batch`) or
   video (`generate-video`) generation.
 - The current library view auto-tags its brand kit as a visible removable chip,
-  and the generation preset editor auto-tags both its brand kit and preset.
+  and the template editor auto-tags an associated template with its brand kit.
 - The image model is the only remaining composer-side default; the image-model
   picker writes `imageGenerationModel`, which image generation actions may use
   when `model` is omitted.
-- When a `preset` is tagged, the server embeds that preset's aesthetics and
+- When a `template` is tagged, the server embeds that template's aesthetics and
   creative philosophy (brand style brief, prompt template, text/logo policy,
-  output format) into your message inside a `<tagged-generation-presets>` block.
+  output format) into your message inside a `<tagged-templates>` block.
   Study and internalize that brief before you generate — let it drive
-  composition, mood, lighting, and subject — then pass the `presetId` to
+  composition, mood, lighting, and subject — then pass the `templateId` to
   `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
   apply automatically. Do not restate those as ad-hoc args.
 
-## Preset-first Generation
+## Template-first Generation
 
-- Image requests without a tagged preset are preset-first: the user may not know
-  presets exist. Compare the request against each preset's title, description,
+- Image requests without a tagged template are template-first: the user may not know
+  templates exist. Compare the request against each template's title, description,
   and category, and if one matches the use case (e.g. "livestream poster" -> a
-  Livestream Announcement preset), generate with its `presetId` instead of
-  ad-hoc settings. Only generate presetless when nothing plausibly matches.
+  Livestream Announcement template), generate with its `templateId` instead of
+  ad-hoc settings. Only generate without a template when nothing plausibly matches.
 - Before any ad-hoc generation for a brand kit, call
-  `list-generation-presets` and scan titles/descriptions/categories for a
-  use-case match. A preset encodes the designer's format, model, layout, and
+  `list-templates` and scan titles/descriptions/categories for a use-case match.
+  A template encodes the designer's format, model, layout, and
   reference board; using it is always better than improvising.
-- If one preset clearly matches: use its `presetId`; do not restate its saved
+- If one template clearly matches: use its `templateId`; do not restate its saved
   aspect ratio/size/model/tier. If several plausibly match: pick the best and
   state which one you used; do not ask the user to choose.
-- Match named people/products/backdrops in the request to the preset's
+- Match named people/products/backdrops in the request to the template's
   reference board entry labels in `settings.presetReferences`. Fill required
   variable entries via `presetReferenceFills`: search the library for assets of
   those people first; ask the user for photos only when none exist. Never skip a
@@ -122,8 +122,9 @@ evidence, screenshots, or exact logos.
   optional `textPlacement` to `generate-image` or each `generate-image-batch`
   slot. Keep the general `prompt` for creative direction; the structured text
   fields are what allow the pipeline to render copy instead of suppressing it.
-- If nothing matches: generate ad-hoc, say that no preset fit, and mention a
-  preset could be created for this recurring use case.
+- If nothing matches: generate ad-hoc, say that no template fit, and mention a
+  template could be created for this recurring use case. The deprecated
+  `*-generation-preset` actions remain aliases for existing agent threads.
 
 ## Prompting
 
@@ -131,13 +132,13 @@ evidence, screenshots, or exact logos.
 - Let the server choose references unless the user named exact assets. Automatic
   generation uses up to 6 relevant current references, seeded by canonical
   style anchors; explicit `referenceAssetIds` are preserved.
-- Preset reference boards live on tagged presets as named entries such as a
+- Template reference boards live on tagged templates as named entries such as a
   usual host, product, backdrop, style sample, or per-event speaker. Fixed
   entries attach automatically. Variable entries may be replaced for a run with
   `presetReferenceFills`; each fill REPLACES that entry's pinned images rather
   than appending. Required variable entries block generation until you provide
   at least one image.
-- When a tagged preset brief names required variable references, collect the
+- When a tagged template brief names required variable references, collect the
   needed images from the user's attachments or the library and pass
   `presetReferenceFills: [{ referenceId, assetIds }]` to `generate-image` or
   `generate-image-batch`. Board images are additive to brand style references.

@@ -1063,7 +1063,7 @@ function findUrlForText(text: string): URL | null {
   const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
   for (const candidate of candidates) {
     try {
-      return new URL(candidate.replace(/[.,!?;:'\"]+$/, ""));
+      return new URL(candidate.replace(/[.,!?;:'"]+$/, ""));
     } catch {
       // Ignore prose that only looks like a URL.
     }

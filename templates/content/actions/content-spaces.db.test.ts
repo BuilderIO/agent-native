@@ -373,11 +373,13 @@ describe("Content space provisioning", () => {
   it("binds concurrent workspace requests to one canonical name", async () => {
     const outcomes = await Promise.allSettled(
       ["Alpha", "Beta"].map((name) =>
-        runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
-          createContentSpaceAction.run({
-            name,
-            requestId: "concurrent-name-binding",
-          }),
+        Promise.resolve(
+          runWithRequestContext({ userEmail: WORKSPACE_OWNER }, () =>
+            createContentSpaceAction.run({
+              name,
+              requestId: "concurrent-name-binding",
+            }),
+          ),
         ),
       ),
     );

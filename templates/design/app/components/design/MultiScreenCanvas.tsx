@@ -2033,9 +2033,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
     };
 
-    const clearCrossScreenPreviewGuide = (
-      targetId?: string | null | undefined,
-    ) => {
+    const clearCrossScreenPreviewGuide = (targetId?: string | null) => {
       const id = targetId ?? crossScreenPreviewTargetIdRef.current;
       postHitTestPreviewClear(id);
       if (!targetId || targetId === crossScreenPreviewTargetIdRef.current) {

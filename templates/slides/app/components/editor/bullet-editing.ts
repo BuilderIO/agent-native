@@ -35,7 +35,7 @@ export function isBulletMarker(el: Element): boolean {
 /** A leading span whose text is only bullet glyph characters (e.g. "●"). */
 function isGlyphMarker(el: Element): boolean {
   const text = (el.textContent ?? "").trim();
-  return text.length > 0 && [...text].every((c) => BULLET_GLYPHS.has(c));
+  return text.length > 0 && Array.from(text).every((c) => BULLET_GLYPHS.has(c));
 }
 
 /** An empty, small, roughly-square span drawn as a marker via border/background

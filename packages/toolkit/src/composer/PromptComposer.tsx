@@ -194,7 +194,7 @@ export interface PromptComposerProps {
 // `useLocalRuntime` needs *something* shaped like a ChatModelAdapter.
 const NOOP_ADAPTER: ChatModelAdapter = {
   async *run() {
-    return;
+    yield* [];
   },
 };
 

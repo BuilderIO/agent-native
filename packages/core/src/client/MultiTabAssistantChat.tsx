@@ -618,7 +618,6 @@ const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
-const hasOwn = Object.prototype.hasOwnProperty;
 
 // A duplicated id in `openTabIds` makes two tab-bar entries share one
 // underlying thread: closing either one filters that id out of the array
@@ -646,8 +645,10 @@ function installHistoryThreadUrlPatch(): () => void {
   if (typeof window === "undefined") return () => {};
   historyPatchRefCount += 1;
   if (historyPatchRefCount === 1) {
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
+    const originalPushState = window.history.pushState.bind(window.history);
+    const originalReplaceState = window.history.replaceState.bind(
+      window.history,
+    );
     const dispatchUrlChange = () => {
       window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
     };
@@ -711,7 +712,7 @@ function resolveThreadUrlSync(
   return {
     enabled: true,
     paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
-    ...(hasOwn.call(value, "routeThreadId")
+    ...(Object.hasOwn(value, "routeThreadId")
       ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
       : {}),
     ...(value.getPath ? { getPath: value.getPath } : {}),
@@ -846,7 +847,7 @@ export function MultiTabAssistantChat({
     threadUrlSyncEnabled &&
     threadUrlSync !== true &&
     typeof threadUrlSync === "object" &&
-    hasOwn.call(threadUrlSync, "routeThreadId");
+    Object.hasOwn(threadUrlSync, "routeThreadId");
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
@@ -1568,7 +1569,7 @@ export function MultiTabAssistantChat({
 
     // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
-      createThread().then((id) => {
+      void createThread().then((id) => {
         if (id) writeThreadUrl(null);
       });
     }
@@ -1645,7 +1646,7 @@ export function MultiTabAssistantChat({
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
       autoCreatingRef.current = true;
-      createThread().then((id) => {
+      void createThread().then((id) => {
         autoCreatingRef.current = false;
         if (id) {
           newThreadIds.current.add(id);
@@ -2463,10 +2464,10 @@ export function MultiTabAssistantChat({
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
-      generateTitle(threadId, message).then((title) => {
+      void generateTitle(threadId, message).then((title) => {
         if (title) {
           // Persist the generated title to the server
-          saveThreadData(threadId, {
+          void saveThreadData(threadId, {
             threadData: "",
             title,
             preview: message.slice(0, 120),
@@ -2488,7 +2489,7 @@ export function MultiTabAssistantChat({
         messageCount: number;
       },
     ) => {
-      saveThreadData(threadId, data);
+      void saveThreadData(threadId, data);
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
@@ -2508,7 +2509,7 @@ export function MultiTabAssistantChat({
       switch (command) {
         case "clear":
         case "new":
-          addTab();
+          void addTab();
           break;
         case "history":
           setShowHistory(true);

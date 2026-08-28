@@ -179,12 +179,22 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(38);
+    expect(entry?.panelCount).toBe(42);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(42);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(42);
+    expect(config.panels).toHaveLength(46);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(46);
+    for (const id of [
+      "activation-funnel",
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      expect(config.panels.find((panel) => panel.id === id)).toEqual(
+        buildPanel(id),
+      );
+    }
     expect(
       config.filters?.find((filter) => filter.id === "emailFilter"),
     ).toMatchObject({ default: "exclude_builder" });
@@ -650,6 +660,7 @@ describe("dashboard catalog", () => {
       const seedPanel = seedPanels.find((panel) => panel.id === id);
       expect(seedPanel?.sql).toContain("{{timeRange}}");
       expect(seedPanel?.sql).toContain("{{emailFilter}}");
+      expect(seedPanel?.sql).toContain("{{appFilter}}");
     }
   });
 

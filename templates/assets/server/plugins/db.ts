@@ -4,7 +4,9 @@ import {
   runMigrations,
 } from "@agent-native/core/db";
 
+import { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
+import { ensureDefaultTemplatesForScopes } from "../lib/generation-presets.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -330,6 +332,91 @@ export const runAssetsMigrations = runMigrations(
       version: 34,
       sql: `CREATE INDEX IF NOT EXISTS image_assets_library_created_idx
             ON image_assets (library_id, created_at)`,
+    },
+    {
+      version: 35,
+      name: "asset-templates-table",
+      sql: `CREATE TABLE IF NOT EXISTS asset_templates (
+    id TEXT PRIMARY KEY,
+    library_id TEXT,
+    collection_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL DEFAULT 'style-only',
+    media_type TEXT NOT NULL DEFAULT 'image',
+    prompt_template TEXT,
+    aspect_ratio TEXT NOT NULL DEFAULT '16:9',
+    image_size TEXT NOT NULL DEFAULT '2K',
+    model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image',
+    text_policy TEXT NOT NULL DEFAULT '',
+    reference_policy TEXT NOT NULL DEFAULT 'auto',
+    settings TEXT NOT NULL DEFAULT '{}',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  )`,
+    },
+    {
+      version: 36,
+      name: "asset-template-shares-table",
+      sql: `CREATE TABLE IF NOT EXISTS asset_template_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS asset_template_shares_resource_principal_idx
+    ON asset_template_shares (resource_id, principal_type, principal_id)`,
+    },
+    {
+      version: 37,
+      name: "asset-templates-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS asset_templates_owner_org_sort_idx
+    ON asset_templates (owner_email, org_id, sort_order);
+  CREATE INDEX IF NOT EXISTS asset_templates_library_sort_idx
+    ON asset_templates (library_id, sort_order)`,
+    },
+    {
+      version: 38,
+      name: "asset-templates-backfill-from-generation-presets",
+      // guard:allow-unscoped — this one-time migration copies every legacy preset into its owner/org-scoped template row.
+      sql: `INSERT INTO asset_templates (
+      id, library_id, collection_id, title, description, category, media_type,
+      prompt_template, aspect_ratio, image_size, model, text_policy,
+      reference_policy, settings, sort_order, created_at, updated_at,
+      owner_email, org_id, visibility
+    )
+    SELECT p.id, p.library_id, p.collection_id, p.title, p.description,
+           p.category, p.media_type, p.prompt_template, p.aspect_ratio,
+           p.image_size, p.model, p.text_policy, p.reference_policy,
+           p.settings, p.sort_order, p.created_at, p.updated_at,
+           COALESCE(l.owner_email, 'migration-orphan@invalid.local'), l.org_id, 'private'
+    FROM image_generation_presets p
+    LEFT JOIN image_libraries l ON l.id = p.library_id
+    WHERE NOT EXISTS (SELECT 1 FROM asset_templates t WHERE t.id = p.id)`,
+    },
+    {
+      version: 39,
+      name: "asset-template-global-defaults",
+      sql: {},
+      run: async () => {
+        // guard:allow-unscoped — this one-time migration enumerates every existing owner/org scope to add missing global defaults.
+        const { rows } = await getDbExec().execute(
+          `SELECT DISTINCT owner_email AS "ownerEmail", org_id AS "orgId"
+             FROM image_libraries`,
+        );
+        await ensureDefaultTemplatesForScopes({
+          db: getDb(),
+          scopes: rows,
+          now: new Date().toISOString(),
+        });
+      },
     },
   ],
   // Preserve the legacy migration table name so existing Images deployments do

@@ -8,7 +8,14 @@ function stringifyError(error: unknown): string {
     const type = record.type;
     if (typeof type === "string" && type.trim()) return type;
   }
-  return String(error ?? "");
+  if (error === null || error === undefined) return "";
+  try {
+    return JSON.stringify(error);
+  } catch (serializationError) {
+    return serializationError instanceof Error
+      ? `[unserializable: ${serializationError.message}]`
+      : "[unserializable]";
+  }
 }
 
 export function formatMcpConnectError(error: unknown): string {
