@@ -61,17 +61,27 @@ async function resolveDocumentAccess(id: string) {
 }
 
 export default defineAction({
-  description: "Get a single document by ID with full content.",
+  description:
+    "Read one access-scoped document by its stable ID, including the full Markdown body and metadata. Use list-documents or search-documents first when the ID is unknown.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
-    id: z.string().optional().describe("Document ID (required)"),
+    id: z
+      .string()
+      .optional()
+      .describe("Stable document ID returned by a Content discovery action."),
     databaseId: z
       .string()
       .optional()
-      .describe("Exact Database context for membership-local data"),
+      .describe(
+        "Exact database ID when reading membership-local properties for a database item.",
+      ),
     databaseDocumentId: z
       .string()
       .optional()
-      .describe("Backing document ID for the exact Database context"),
+      .describe(
+        "Backing database document ID; only use with databaseId for the exact database context.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,

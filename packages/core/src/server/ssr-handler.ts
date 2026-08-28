@@ -477,7 +477,7 @@ async function rewriteMountedResponse(
  * Create an h3 catch-all that hands page routes to React Router and
  * returns 404 for framework / asset paths that React Router doesn't own.
  */
-export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
+export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();

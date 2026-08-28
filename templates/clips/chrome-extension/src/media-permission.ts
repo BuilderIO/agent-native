@@ -76,7 +76,9 @@ export function isMediaPermissionDeniedError(error: unknown): boolean {
   const text =
     error instanceof Error
       ? `${error.name}: ${error.message}`
-      : String(error ?? "");
+      : typeof error === "string"
+        ? error
+        : "";
   if (/\bdenied by system\b/i.test(text)) return false;
   return (
     /\bNotAllowedError\b/.test(text) ||

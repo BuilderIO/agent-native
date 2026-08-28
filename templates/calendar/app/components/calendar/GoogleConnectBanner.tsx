@@ -157,7 +157,7 @@ export function GoogleConnectBanner({
 
   // Check if credentials are already configured on mount
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   // When auth URL is ready, open it and poll for connection.
@@ -218,7 +218,7 @@ export function GoogleConnectBanner({
       setWantAuthUrl(false);
       if (canOfferOAuthSetup) {
         setShowWizard(true);
-        fetchStatus();
+        void fetchStatus();
       } else {
         setDesktopAuthIssue({
           code: "managed_credentials_unavailable",
@@ -236,7 +236,7 @@ export function GoogleConnectBanner({
       return;
     }
     setShowWizard(true);
-    fetchStatus();
+    void fetchStatus();
   }, [desktopAuthIssue, fetchStatus]);
 
   const allConfigured =
@@ -371,7 +371,7 @@ export function GoogleConnectBanner({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }
@@ -784,7 +784,7 @@ function SetupWizard({
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                !saved && setCurrentStep(i);
+                if (!saved) setCurrentStep(i);
               }
             }}
           >

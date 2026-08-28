@@ -178,7 +178,7 @@ export function useNavigationState() {
       // the calendar to its start date so the user lands on the event.
       if (cmd.eventId) {
         const eventId = cmd.eventId;
-        (async () => {
+        void (async () => {
           try {
             const evt = await callAction<CalendarEvent & { error?: string }>(
               "get-event",
@@ -205,7 +205,7 @@ export function useNavigationState() {
       // event detail editor; nothing is written to Google Calendar until the
       // user creates it.
       if (cmd.eventDraftId || cmd.calendarDraft) {
-        (async () => {
+        void (async () => {
           const draft = await loadEventDraft(cmd);
           if (!draft) return;
           if (draft.start) {

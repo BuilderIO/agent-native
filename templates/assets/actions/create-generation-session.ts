@@ -13,6 +13,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { serializeGenerationSession } from "./_helpers.js";
+import { resolveTemplateAccess } from "./_template-access.js";
 
 export default defineAction({
   description:
@@ -60,23 +61,19 @@ export default defineAction({
         throw new Error("Collection does not belong to this asset library.");
       }
     }
-    let preset: typeof schema.assetGenerationPresets.$inferSelect | null = null;
+    let preset: typeof schema.assetTemplates.$inferSelect | null = null;
     if (args.presetId) {
-      const [row] = await db
-        .select()
-        .from(schema.assetGenerationPresets)
-        .where(eq(schema.assetGenerationPresets.id, args.presetId))
-        .limit(1);
-      preset = row ?? null;
-      if (!preset || preset.libraryId !== args.libraryId) {
-        throw new Error("Generation preset does not belong to this library.");
+      preset = (await resolveTemplateAccess(args.presetId, "viewer")).resource;
+      if (!preset) throw new Error("Template not found.");
+      if (preset.libraryId && preset.libraryId !== args.libraryId) {
+        throw new Error("Template is associated to a different brand kit.");
       }
       if (
         args.collectionId &&
         preset.collectionId &&
         preset.collectionId !== args.collectionId
       ) {
-        throw new Error("Generation preset belongs to a different collection.");
+        throw new Error("Template is associated to a different collection.");
       }
     }
     const assetIds = [...new Set(args.assetIds ?? [])];

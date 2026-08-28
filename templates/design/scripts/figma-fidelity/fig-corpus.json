@@ -1,0 +1,49 @@
+[
+  {
+    "id": "fig-fixtures",
+    "file": ".tmp/figma-fidelity/fig-files/fixtures.fig",
+    "notes": "The synthetic interop fixtures in one file — auto-layout, typography, fills/effects, shapes, constraints, card grid. Each is built to isolate one Figma feature, so a defect here names itself.",
+    "fileKey": "4HW2pnM03TFDIXxyym5Qcd"
+  },
+  {
+    "id": "fig-uui-landing-mobile",
+    "file": ".tmp/figma-fidelity/fig-files/uui-landing-mobile.fig",
+    "notes": "The corpus's highest REST diff after `typography` (6.19%), and text-dominated — the case most likely to separate a layout defect from glyph noise.",
+    "fileKey": "d3nDTkCVqCqUsjtUtdXycZ"
+  },
+  {
+    "id": "fig-uui-dashboard",
+    "file": ".tmp/figma-fidelity/fig-files/uui-dashboard.fig",
+    "notes": "Data-dense dashboard: nested instances, tables and charts.",
+    "fileKey": "EjPaJnGBUzd8ogIGRx9tKF"
+  },
+  {
+    "id": "fig-whitepace",
+    "file": ".tmp/figma-fidelity/fig-files/whitepace.fig",
+    "notes": "Figma's own `Save local copy` of the same file the REST corpus imports, so the .fig path is measured against Figma's render rather than only smoke-tested. Web-exported: `Save local copy` is in the browser's File menu, not desktop-only.",
+    "fileKey": "Otm6jFZLGPiN3rZ50u8DCt"
+  },
+  {
+    "id": "fig-uui-pricing",
+    "file": ".tmp/figma-fidelity/fig-files/uui-pricing.fig",
+    "notes": "Untitled UI pricing page, component-heavy: 182 nodes across nested instances. Same file as the REST `community-untitled-ui-pricing` case.",
+    "fileKey": "t9lLn35nQEPgxAe4MtS0MD"
+  },
+  {
+    "id": "fig-interior-single-product",
+    "file": ".tmp/figma-fidelity/fig-files/interior-single-product.fig",
+    "notes": "46MB, image-heavy. The .fig container CARRIES image bytes where a clipboard paste carries only hashes, so this is the one path that can measure photo fills end to end.",
+    "fileKey": "DD5PJlfKgjcyAuvxlZCu5v"
+  },
+  {
+    "id": "fig-scratch",
+    "file": "/Users/steve/Downloads/Scratch.fig",
+    "notes": "35MB real Figma file, under the 50MB decoder cap. Decode + render smoke coverage for the .fig walker."
+  },
+  {
+    "id": "fig-over-cap",
+    "file": "/Users/steve/Downloads/figma-test.fig",
+    "notes": "127MB. Expected to be refused by MAX_FIG_FILE_BYTES — the cap is a product limit, and this case pins that it is refused loudly rather than truncated.",
+    "expectRefusal": ".fig file is too large (max 50 MB)."
+  }
+]

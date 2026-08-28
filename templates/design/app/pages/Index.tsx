@@ -100,6 +100,7 @@ interface Design {
   projectType: ProjectType;
   designSystemId?: string | null;
   ownerEmail?: string | null;
+  ownerName?: string | null;
   createdAt?: string;
   updatedAt?: string;
   /** Preview HTML for the thumbnail. Only present when the list query asks
@@ -483,7 +484,7 @@ export default function Index() {
         })
         .catch((error) => {
           clearPendingGeneration(id);
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
           throw error;
@@ -554,7 +555,7 @@ export default function Index() {
             templateId: selectedTemplate.id,
             title,
             designSystemId,
-            ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
+            ...(trimmedPrompt ? { prompt } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
@@ -567,7 +568,7 @@ export default function Index() {
               )?.title ?? t("promptDialog.designSystem");
             writePendingGeneration(result.id, {
               prompt:
-                trimmedPrompt ||
+                prompt.trim() ||
                 t("promptDialog.reskinTemplatePrompt", {
                   title: selectedTemplate.title,
                   system: effectiveSystemTitle,
@@ -594,7 +595,7 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
-          navigate(`/design/${result.id}`);
+          void navigate(`/design/${result.id}`);
           return;
         } catch (error) {
           setNewDesignHandoffPending(false);
@@ -646,8 +647,9 @@ export default function Index() {
             // which owns the connect-Builder card flow, keeping the user's
             // prompt so nothing is lost.
             sendToDesignAgentChat({
-              message: `I want to build this design as a full app: ${prompt}`,
+              message: prompt,
               context:
+                `The user's request is to build this design as a full app. ` +
                 `create-fusion-app returned status "not-configured" for design ` +
                 `${id}. ${result?.message ?? ""} Help the user connect ` +
                 `Builder.io (see connect-builder-app), then retry ` +
@@ -661,8 +663,9 @@ export default function Index() {
                 ? error.message
                 : String(error);
             sendToDesignAgentChat({
-              message: `I want to build this design as a full app: ${prompt}`,
+              message: prompt,
               context:
+                `The user's request is to build this design as a full app. ` +
                 `Starting the full-app build for design ${id} failed: ` +
                 `${message}. Check whether the design row exists, Builder is ` +
                 `connected, and create-fusion-app can be retried safely.`,
@@ -697,13 +700,14 @@ export default function Index() {
 
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
-      navigate(`/design/${id}`);
+      void navigate(`/design/${id}`);
     },
     [
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
       designSystems,
+      fullAppBuildingEnabled,
       handleGenerateDesignTitle,
       navigate,
       newDesignMode,
@@ -738,7 +742,7 @@ export default function Index() {
       // marker to keep the editor polling across its route remount. Wait for the
       // row to persist so the first get-design read cannot briefly return 404.
       await ready;
-      navigate(`/design/${id}`);
+      void navigate(`/design/${id}`);
       return false;
     } catch (error) {
       skipToEditorPendingRef.current = false;
@@ -794,12 +798,12 @@ export default function Index() {
         });
       },
       onError: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
     });
-  }, [deleteId, listDesignsParams, queryClient, deleteMutation]);
+  }, [deleteId, listDesignsParams, page, queryClient, deleteMutation]);
 
   const handleBulkDelete = useCallback(() => {
     const ids = Array.from(selectedDesignIds);
@@ -840,21 +844,21 @@ export default function Index() {
     void Promise.allSettled(
       ids.map((id) => deleteMutation.mutateAsync({ id } as any)),
     ).then(() => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-designs"],
       });
     });
-  }, [listDesignsParams, selectedDesignIds, queryClient, deleteMutation]);
+  }, [listDesignsParams, page, selectedDesignIds, queryClient, deleteMutation]);
 
   const handleDuplicate = useCallback(
     (id: string) => {
       duplicateMutation.mutate({ id } as any, {
         onSuccess: (data: any) => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
           if (data?.id) {
-            navigate(`/design/${data.id}`);
+            void navigate(`/design/${data.id}`);
           }
         },
       });
@@ -897,7 +901,7 @@ export default function Index() {
         });
       },
       onError: () => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-designs"],
         });
       },
@@ -1108,7 +1112,10 @@ export default function Index() {
                         {showAuthors && design.ownerEmail ? (
                           <>
                             <span aria-hidden>·</span>
-                            <DesignAuthorByline email={design.ownerEmail} />
+                            <DesignAuthorByline
+                              email={design.ownerEmail}
+                              name={design.ownerName}
+                            />
                           </>
                         ) : null}
                       </div>
@@ -1306,7 +1313,7 @@ export default function Index() {
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
         creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
         onCreationModeChange={
@@ -1405,8 +1412,14 @@ export default function Index() {
 }
 
 /** Who created a design, shown on its library card in shared workspaces. */
-function DesignAuthorByline({ email }: { email: string }) {
-  const name = emailToName(email);
+function DesignAuthorByline({
+  email,
+  name: profileName,
+}: {
+  email: string;
+  name?: string | null;
+}) {
+  const name = profileName?.trim() || emailToName(email);
   const avatarUrl = useAvatarUrl(email);
 
   return (

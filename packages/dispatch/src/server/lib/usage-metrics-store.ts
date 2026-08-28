@@ -178,7 +178,12 @@ function numberField(row: Record<string, unknown>, key: string): number {
 }
 
 function stringField(row: Record<string, unknown>, key: string): string {
-  return String(row[key] ?? "");
+  const value = row[key];
+  return typeof value === "string" || typeof value === "number"
+    ? String(value)
+    : value == null
+      ? ""
+      : JSON.stringify(value);
 }
 
 function nullableNumberField(

@@ -16,7 +16,20 @@ import {
 } from "./playback-comment-overlay";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useAvatarUrl: () => null,
+  useAvatarUrl: () => "https://lh3.googleusercontent.com/avatar.jpg",
+}));
+
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div {...props}>{children}</div>
+  ),
+  AvatarImage: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
+    <img {...props} />
+  ),
+  AvatarFallback: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
 }));
 
 const comment: PlaybackComment = {
@@ -84,6 +97,199 @@ describe("PlaybackCommentOverlay", () => {
 
     expect(container.textContent).toContain("Madison");
     expect(container.textContent).toContain("Please take a look at this.");
+    expect(
+      container.querySelector("[data-player-playback-comment]")?.className,
+    ).toContain("bottom-[6.5rem]");
+    expect(
+      container.querySelector("[data-player-playback-comment]")?.className,
+    ).toContain("z-40");
+    expect(
+      container
+        .querySelector("[data-player-comment-preview] img")
+        ?.getAttribute("src"),
+    ).toBe("https://lh3.googleusercontent.com/avatar.jpg");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("anchors the highlighted comment to its timeline position", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[comment]}
+          currentMs={12_500}
+          durationMs={60_000}
+          getTimelinePositionMs={() => 15_000}
+          getTimelineLane={() => 1}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLElement>("[data-player-comment-preview]")
+        ?.parentElement?.style.left,
+    ).toBe("25%");
+    expect(
+      container.querySelector<HTMLElement>("[data-player-comment-preview]")
+        ?.parentElement?.style.bottom,
+    ).toBe("1.75rem");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("keeps highlighted comments aligned with higher marker lanes", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[comment]}
+          currentMs={12_500}
+          durationMs={60_000}
+          getTimelinePositionMs={() => 15_000}
+          getTimelineLane={() => 2}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLElement>("[data-player-comment-preview]")
+        ?.parentElement?.style.bottom,
+    ).toBe("3.5rem");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("anchors near-edge highlighted cards inward", async () => {
+    class TestResizeObserver {
+      constructor(private readonly callback: () => void) {}
+
+      observe(target: Element): void {
+        const width = target.hasAttribute("data-player-playback-comment")
+          ? 320
+          : 100;
+        Object.defineProperty(target, "getBoundingClientRect", {
+          configurable: true,
+          value: () => ({ width }),
+        });
+        this.callback();
+      }
+
+      disconnect(): void {}
+    }
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, videoTimestampMs: 600 }]}
+          currentMs={600}
+          durationMs={10_000}
+        />,
+      );
+    });
+
+    let card = container.querySelector<HTMLElement>(
+      "[data-player-comment-preview]",
+    );
+    expect(card?.parentElement?.className).toContain("left-0");
+
+    await act(async () => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, videoTimestampMs: 9_400 }]}
+          currentMs={9_400}
+          durationMs={10_000}
+        />,
+      );
+    });
+
+    card = container.querySelector<HTMLElement>(
+      "[data-player-comment-preview]",
+    );
+    expect(card?.parentElement?.className).toContain("right-0");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("keeps highlighted comments inside the player at either timeline edge", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, videoTimestampMs: 0 }]}
+          currentMs={0}
+          durationMs={60_000}
+        />,
+      );
+    });
+
+    const startCard = container.querySelector<HTMLElement>(
+      "[data-player-comment-preview]",
+    );
+    expect(startCard?.parentElement?.className).toContain("left-0");
+    expect(startCard?.parentElement?.style.left).toBe("0%");
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, videoTimestampMs: 60_000 }]}
+          currentMs={60_000}
+          durationMs={60_000}
+        />,
+      );
+    });
+
+    const endCard = container.querySelector<HTMLElement>(
+      "[data-player-comment-preview]",
+    );
+    expect(endCard?.parentElement?.className).toContain("right-0");
+    expect(endCard?.parentElement?.style.right).toBe("0%");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("does not render comments mapped into an excluded edit range", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[comment]}
+          currentMs={12_500}
+          durationMs={60_000}
+          getTimelinePositionMs={() => null}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-player-playback-comment]"),
+    ).toBeNull();
 
     act(() => root.unmount());
     container.remove();

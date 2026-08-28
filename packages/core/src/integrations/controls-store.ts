@@ -89,18 +89,19 @@ export function _resetIntegrationControlsStoreForTests(): void {
 
 function rowToControl(row: Record<string, unknown>): IntegrationControl {
   return {
-    id: String(row.id),
+    id: stringifyValue(row.id),
     action: row.action as IntegrationControlAction,
-    ownerEmail: String(row.owner_email),
-    orgId: row.org_id == null ? null : String(row.org_id),
-    requesterId: String(row.requester_id),
-    teamId: String(row.team_id),
-    apiAppId: row.api_app_id == null ? null : String(row.api_app_id),
-    channelId: String(row.channel_id),
-    messageTs: String(row.message_ts),
-    runId: row.run_id == null ? null : String(row.run_id),
-    approvalKey: row.approval_key == null ? null : String(row.approval_key),
-    incoming: JSON.parse(String(row.incoming_json)) as IncomingMessage,
+    ownerEmail: stringifyValue(row.owner_email),
+    orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+    requesterId: stringifyValue(row.requester_id),
+    teamId: stringifyValue(row.team_id),
+    apiAppId: row.api_app_id == null ? null : stringifyValue(row.api_app_id),
+    channelId: stringifyValue(row.channel_id),
+    messageTs: stringifyValue(row.message_ts),
+    runId: row.run_id == null ? null : stringifyValue(row.run_id),
+    approvalKey:
+      row.approval_key == null ? null : stringifyValue(row.approval_key),
+    incoming: JSON.parse(stringifyValue(row.incoming_json)) as IncomingMessage,
     status: row.status as IntegrationControl["status"],
     expiresAt: Number(row.expires_at),
   };
@@ -184,4 +185,14 @@ export async function claimIntegrationControl(input: {
     args: [input.id],
   });
   return rows[0] ? rowToControl(rows[0] as Record<string, unknown>) : null;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

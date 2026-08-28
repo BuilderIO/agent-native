@@ -10,6 +10,9 @@ const mockLoadAgentBrowserDiagnostics = vi.hoisted(() => vi.fn());
 const mockLoadAgentBugReport = vi.hoisted(() => vi.fn());
 const mockParseAgentChapters = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockHydrateCommentAuthorNames = vi.hoisted(() =>
+  vi.fn(async (rows: unknown[]) => rows),
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -34,6 +37,11 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
 }));
 
+vi.mock("../../lib/user-identities.js", () => ({
+  hydrateCommentAuthorNames: (rows: unknown[]) =>
+    mockHydrateCommentAuthorNames(rows),
+}));
+
 vi.mock("../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
@@ -42,6 +50,7 @@ vi.mock("../../db/index.js", () => ({
       recordingId: "comments.recordingId",
       threadId: "comments.threadId",
       parentId: "comments.parentId",
+      authorEmail: "comments.authorEmail",
       authorName: "comments.authorName",
       content: "comments.content",
       videoTimestampMs: "comments.videoTimestampMs",
@@ -154,7 +163,7 @@ describe("/api/agent-context route", () => {
       }),
     );
     expect(limitValues).toEqual([101, 101]);
-    expect(db.select.mock.calls[0][0]).not.toHaveProperty("authorEmail");
+    expect(db.select.mock.calls[0][0]).toHaveProperty("authorEmail");
     expect(db.select.mock.calls[1][0]).not.toHaveProperty("viewerEmail");
   });
 });

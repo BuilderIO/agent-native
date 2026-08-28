@@ -199,7 +199,7 @@ export function MakeRealDialog({
                 Cancel
               </Button>
               <Button
-                onClick={() => void onConfirm()}
+                onClick={() => onConfirm()}
                 disabled={pending}
                 className="cursor-pointer"
               >

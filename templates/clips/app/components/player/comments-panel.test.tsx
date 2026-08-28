@@ -139,6 +139,9 @@ describe("CommentsPanel reply composer", () => {
     );
 
     expect(composer?.className).toContain("px-3 py-2");
+    expect(composer?.parentElement?.className).toContain(
+      "border border-border",
+    );
   });
 
   it("renders inline Markdown while flattening headings", () => {

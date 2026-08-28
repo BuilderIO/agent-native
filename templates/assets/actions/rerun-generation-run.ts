@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
 import { normalizePresetReferences } from "../server/lib/preset-references.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
+import { resolveTemplateAccess } from "./_template-access.js";
 import generateImage from "./generate-image.js";
 
 export default defineAction({
@@ -84,11 +85,8 @@ export default defineAction({
     // the designer's current board definition.
     const boardAssignments = metadata.settingsUsed?.boardAssignments;
     if (run.presetId && boardAssignments) {
-      const [preset] = await db
-        .select()
-        .from(schema.assetGenerationPresets)
-        .where(eq(schema.assetGenerationPresets.id, run.presetId))
-        .limit(1);
+      const preset = (await resolveTemplateAccess(run.presetId, "viewer"))
+        .resource;
       const presetSettings = parseJson<{ presetReferences?: unknown }>(
         preset?.settings,
         {},

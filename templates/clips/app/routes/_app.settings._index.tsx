@@ -134,7 +134,7 @@ export default function SettingsIndexRoute() {
     useState<ClipsDefaultVisibility>(DEFAULT_CLIPS_RECORDING_VISIBILITY);
   useEffect(() => {
     let cancelled = false;
-    loadSettings().then((v) => {
+    void loadSettings().then((v) => {
       if (cancelled) return;
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);

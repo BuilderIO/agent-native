@@ -60,6 +60,18 @@ In a workspace, every app inherits the root `DATABASE_URL` by default. Set
 
 </Callout>
 
+## Email delivery is optional, but recommended {#email-provider}
+
+An email provider is not required for email/password authentication. Without
+one, a deployed app uses email/password signup and login, skips signup email
+verification, and does not offer magic-link authentication.
+
+Connect Resend or SendGrid before deploying if you want magic links, email
+verification, password resets, invitations, or share notifications. Set
+`RESEND_API_KEY` or `SENDGRID_API_KEY` in the deployment environment; SendGrid
+also needs `EMAIL_FROM`. See [Authentication](/docs/authentication) for the
+available authentication modes.
+
 ## Supported deployment targets
 
 Set a Nitro preset for the target you choose. The app code and database

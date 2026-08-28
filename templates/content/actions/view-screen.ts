@@ -178,8 +178,11 @@ function propertyValueTextForScreen(
   ) {
     return (
       property.definition.options.options?.find(
-        (option) => option.id === String(value),
-      )?.name ?? String(value)
+        (option) =>
+          option.id ===
+          (typeof value === "string" ? value : (JSON.stringify(value) ?? "")),
+      )?.name ??
+      (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     );
   }
   if (property.definition.type === "checkbox") {
@@ -483,7 +486,12 @@ function propertyNumberValueForScreen(property: DocumentProperty) {
   const value =
     typeof property.value === "number"
       ? property.value
-      : Number(String(property.value).trim());
+      : Number(
+          (typeof property.value === "string"
+            ? property.value
+            : (JSON.stringify(property.value) ?? "")
+          ).trim(),
+        );
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
@@ -670,6 +678,7 @@ interface NavigationState {
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns bounded navigation, document previews, and the current database window; use get-document for full page content.",
+  deferLoading: false,
   schema: z.object({}),
   http: false,
   run: async () => {

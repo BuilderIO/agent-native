@@ -33,6 +33,7 @@ describe("ai-services Git read client", () => {
               user: { login: "reviewer" },
               state: "APPROVED",
               submittedAt: "2026-07-31T10:00:00.000Z",
+              commitId: "sha-1",
               comments: [],
             },
           ],
@@ -72,6 +73,7 @@ describe("ai-services Git read client", () => {
       changedFiles: ["src/a.ts"],
       diffLines: 6,
       coverage: "complete",
+      reviews: [{ author: "reviewer", state: "approved", commitSha: "sha-1" }],
       comments: [],
       commentsTruncated: false,
     });

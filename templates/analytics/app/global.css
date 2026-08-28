@@ -140,17 +140,7 @@
 
 .analytics-dashboard-panel-skeleton {
   background-color: hsl(var(--muted-foreground) / 0.12);
-  animation: analytics-dashboard-skeleton-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes analytics-dashboard-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.74;
-  }
+  animation: skeleton-pulse 2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

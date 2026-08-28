@@ -206,7 +206,7 @@ export default function ImportRoute() {
             duration: 12_000,
           });
           await writeNavigateAppState(recordingId);
-          navigate(`/r/${recordingId}`);
+          void navigate(`/r/${recordingId}`);
           return;
         }
 

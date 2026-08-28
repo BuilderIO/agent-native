@@ -80,6 +80,7 @@ export function runScreenVisualStyleChange(
   styles: Record<string, string>,
   elementInfo?: ElementInfo,
   metadata?: {
+    phase?: "preview" | "commit";
     originalStyles?: Record<string, string>;
     preserveSelection?: boolean;
   },
@@ -88,6 +89,10 @@ export function runScreenVisualStyleChange(
     handleVisualStyleChange(selector, styles, elementInfo, metadata);
     return;
   }
+  // Overview iframes already paint preview edits locally. Persisting their
+  // preview packets here makes every non-active screen write on every drag
+  // tick; only the pointer-up commit belongs in the source document.
+  if (metadata?.phase === "preview") return;
   // §gesture-persistence — mirror handleVisualStyleChange's source-type
   // branch for overview screens other than the active one: localhost
   // still queues for agent apply, inline/fusion screens persist the

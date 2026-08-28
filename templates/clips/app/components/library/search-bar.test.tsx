@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   searchParams: new URLSearchParams(),
   setSearchParams: vi.fn(),
+  useRecordingSearch: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -39,7 +40,7 @@ vi.mock("@/components/ui/popover", () => {
 });
 
 vi.mock("@/hooks/use-library", () => ({
-  useRecordingSearch: () => ({ data: { results: [] }, isFetching: false }),
+  useRecordingSearch: mocks.useRecordingSearch,
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -64,6 +65,10 @@ describe("SearchBar command-menu handoff", () => {
     mocks.navigate.mockReset();
     mocks.searchParams = new URLSearchParams();
     mocks.setSearchParams.mockReset();
+    mocks.useRecordingSearch.mockReset().mockReturnValue({
+      data: { results: [] },
+      isFetching: false,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -72,6 +77,10 @@ describe("SearchBar command-menu handoff", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    if (vi.isFakeTimers()) {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
     vi.unstubAllGlobals();
   });
 
@@ -112,5 +121,44 @@ describe("SearchBar command-menu handoff", () => {
 
     expect(container.textContent).toContain("/");
     expect(container.textContent).not.toContain("cmd+k");
+  });
+
+  it("searches only the latest query after 200ms", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<SearchBar />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input).not.toBeNull();
+
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    expect(inputValueSetter).toBeDefined();
+
+    const enterQuery = (query: string) => {
+      act(() => {
+        if (!input || !inputValueSetter) return;
+        inputValueSetter.call(input, query);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+
+    enterQuery("c");
+    act(() => vi.advanceTimersByTime(100));
+    enterQuery("cl");
+    act(() => vi.advanceTimersByTime(100));
+    enterQuery("clip");
+
+    expect(input?.value).toBe("clip");
+    expect(mocks.useRecordingSearch).not.toHaveBeenCalledWith("c");
+    expect(mocks.useRecordingSearch).not.toHaveBeenCalledWith("cl");
+    expect(mocks.useRecordingSearch).not.toHaveBeenCalledWith("clip");
+
+    act(() => vi.advanceTimersByTime(199));
+    expect(mocks.useRecordingSearch).not.toHaveBeenCalledWith("clip");
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(mocks.useRecordingSearch).toHaveBeenLastCalledWith("clip");
   });
 });

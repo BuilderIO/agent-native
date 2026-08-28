@@ -386,7 +386,7 @@ export function CreateAppFlow({
             preserveDraftOnSubmit
             onSubmit={(text) => {
               setPrompt(text);
-              submit(text);
+              void submit(text);
             }}
           />
         </>

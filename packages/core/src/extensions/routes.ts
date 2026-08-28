@@ -495,7 +495,7 @@ async function extensionResponse(
 async function localExtensionSqlOnlyResponse(
   event: H3Event,
   extensionId: string,
-): Promise<unknown | null> {
+): Promise<unknown> {
   const localExtension = await getLocalExtension(extensionId);
   if (!localExtension) return null;
   setResponseStatus(event, 400);
@@ -921,9 +921,9 @@ async function captureCliOutput(
   await previousCapture;
 
   const logs: string[] = [];
-  const origLog = console.log;
-  const origError = console.error;
-  const origStdoutWrite = process.stdout.write;
+  const origLog = console.log.bind(console);
+  const origError = console.error.bind(console);
+  const origStdoutWrite = process.stdout.write.bind(process.stdout);
   console.log = (...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   };

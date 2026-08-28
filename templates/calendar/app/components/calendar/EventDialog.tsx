@@ -100,13 +100,13 @@ export function EventDialog({
         !isTyping(e)
       ) {
         e.preventDefault();
-        handleDelete();
+        void handleDelete();
         return;
       }
       // Save with Cmd/Ctrl+Enter when editing
       if (editing && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        handleSave();
+        void handleSave();
         return;
       }
     }

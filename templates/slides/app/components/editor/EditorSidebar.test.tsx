@@ -59,7 +59,7 @@ vi.stubGlobal(
   vi.fn(() => Promise.resolve({})),
 );
 
-import EditorSidebar from "./EditorSidebar";
+import EditorSidebar, { getSlideSelection } from "./EditorSidebar";
 
 afterEach(() => {
   cleanup();
@@ -93,6 +93,9 @@ describe("EditorSidebar thumbnail scroll cue", () => {
     const thumbnailScrollArea = container.querySelector<HTMLElement>(
       "[data-slides-thumbnail-scroll] > div",
     );
+    expect(thumbnailScrollArea?.classList.contains("overflow-x-hidden")).toBe(
+      true,
+    );
     expect(thumbnailPane?.dataset.slidesThumbnailScroll).toBe("top");
 
     act(() => {
@@ -108,6 +111,46 @@ describe("EditorSidebar thumbnail scroll cue", () => {
       fireEvent.scroll(thumbnailScrollArea);
     });
     expect(thumbnailPane?.dataset.slidesThumbnailScroll).toBe("top");
+  });
+});
+
+describe("slide thumbnail selection", () => {
+  const slideIds = ["slide-1", "slide-2", "slide-3", "slide-4"];
+
+  it("selects a shift-clicked range from the anchor", () => {
+    expect(
+      getSlideSelection({
+        slideIds,
+        selectedSlideIds: ["slide-2"],
+        anchorSlideId: "slide-2",
+        targetSlideId: "slide-4",
+        shiftKey: true,
+      }),
+    ).toEqual({
+      selectedSlideIds: ["slide-2", "slide-3", "slide-4"],
+      anchorSlideId: "slide-2",
+    });
+  });
+
+  it("toggles a cmd/ctrl-clicked slide", () => {
+    expect(
+      getSlideSelection({
+        slideIds,
+        selectedSlideIds: ["slide-1", "slide-3"],
+        anchorSlideId: "slide-3",
+        targetSlideId: "slide-3",
+        metaKey: true,
+      }).selectedSlideIds,
+    ).toEqual(["slide-1"]);
+    expect(
+      getSlideSelection({
+        slideIds,
+        selectedSlideIds: ["slide-1"],
+        anchorSlideId: "slide-1",
+        targetSlideId: "slide-3",
+        ctrlKey: true,
+      }).selectedSlideIds,
+    ).toEqual(["slide-1", "slide-3"]);
   });
 });
 

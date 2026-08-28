@@ -111,7 +111,8 @@ export function CoreComposerRuntimeProvider({
   children: ReactNode;
 }) {
   const translate = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const adapters = useMemo(
     () => ({ ...coreComposerAdapters, formatNumber, translate }),
     [formatNumber, translate],

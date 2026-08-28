@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 
+import { ensureNativeDependencies } from "../packages/core/src/cli/native-dependencies.ts";
+
 type ProfileName = "test" | "typecheck";
 
 type Profile = {
@@ -80,6 +82,15 @@ console.error(
 if (parsedArgs.dryRun) {
   console.log([command, ...pnpmArgs.map(quoteArg)].join(" "));
   process.exit(0);
+}
+
+// Test files can import better-sqlite3 before an app startup preflight runs.
+if (profileName === "test") {
+  ensureNativeDependencies({
+    fromDirectory: process.cwd(),
+    label: "workspace-test",
+    repair: true,
+  });
 }
 
 const child = spawn(command, pnpmArgs, {
