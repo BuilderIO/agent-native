@@ -71,10 +71,27 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const SHIPPING_CHURN_RE = /\b(?:don['’]?t|do not|only|stop)\b[\s\S]{0,220}\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|only|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
+
+const SHIPPING_CHURN_REGEX_CASES = [
+  [true, "don't merge main 100 times unless there is a clear conflict."],
+  [true, "only push up commits if there are clear CI errors or PR feedback."],
+  [true, "Do not create or push a routine chore: publish branch work commit."],
+  [true, "I don't want those chore commits unless absolutely necessary."],
+  [true, "Do not run ship:push on a clean or merely behind branch."],
+  [false, "The build completed successfully."],
+  [false, "The branch contains a useful chore commit."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+  );
+  failures.push(
+    ...SHIPPING_CHURN_REGEX_CASES.filter(
+      ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
+    ),
   );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
@@ -95,7 +112,7 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy:
       ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
-    re: /\b(?:don['’]?t|do not|only|stop)\b[^.!?]{0,180}\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- ])?commits?|(?:push|commit)(?:ing)?\s+(?:up|and)?\s*(?:commits?|changes?))\b|\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- ])?commits?)\b[^.!?]{0,180}\b(?:unless|only|unnecessary|necessary|clear)\b/i,
+    re: SHIPPING_CHURN_RE,
   },
   {
     key: "branch-moves",

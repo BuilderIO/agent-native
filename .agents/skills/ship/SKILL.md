@@ -258,15 +258,18 @@ branch, stay on it.
    record the exact failure, keep pushing stable slices, and let GitHub Actions
    be the validation gate that `/babysit-pr` monitors.
 
-4. **Publish the branch snapshot**: run `corepack pnpm ship:push` to stage,
-   commit, and push all nonignored current-branch work. Never add
-   `Co-Authored-By` or other agent attribution.
+4. **Publish the branch snapshot**: for the requested initial handoff, run
+   `corepack pnpm ship:push` to stage, commit, and push all nonignored
+   current-branch work. For later snapshots, run it only for an actionable fix
+   required by failing CI, PR feedback, a real merge conflict, or an explicit
+   user request. Never add `Co-Authored-By` or other agent attribution.
 
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or
-   additional concurrent work. Later commits update that same PR and let CI
-   and review run in parallel with the rest of the ship workflow. Push each
-   later coherent branch snapshot as soon as it is available.
+   additional concurrent work. An actionable later commit updates that same PR
+   and lets CI and review run in parallel with the rest of the ship workflow.
+   Do not create or push a later snapshot for a clean tree, `origin/main` drift,
+   queued checks, or a babysit timer tick.
 
 5. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
@@ -281,8 +284,9 @@ branch, stay on it.
 
 6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 publishes the current nonignored branch snapshot, then
-   checks mergeability, every unaddressed review comment by reply state, and CI.
+   the PR. Its Step 0 checks the current nonignored branch snapshot and
+   publishes only actionable work, then checks mergeability, every unaddressed
+   review comment by reply state, and CI.
    Keep going until the PR is either merged/closed or the user explicitly tells
    you to stop.
 

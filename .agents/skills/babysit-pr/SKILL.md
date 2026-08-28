@@ -45,7 +45,8 @@ merging, except when the user explicitly invokes `/ship-now`.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
-  and publish all nonignored changes in the current branch snapshot.
+  to detect actionable changes, but publish only the fixes allowed by the
+  Branch-wide Snapshot Rule above.
 
 ## Each tick
 
