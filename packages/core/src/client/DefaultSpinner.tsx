@@ -1,4 +1,4 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
 
 /**
  * Full-screen loading spinner rendered during SSR and initial hydration.
@@ -23,7 +23,7 @@ export function DefaultSpinner({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Spinner aria-label={ariaLabel} className="size-6" />
+        <CubeLoader aria-label={ariaLabel} className="size-6" />
         <span
           style={{
             fontFamily: "ui-sans-serif, system-ui, sans-serif",

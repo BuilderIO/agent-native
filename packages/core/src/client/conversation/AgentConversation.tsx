@@ -1,4 +1,3 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconAlertTriangle,
   IconArrowDown,
@@ -7,6 +6,7 @@ import {
   IconCircleX,
   IconClock,
   IconExternalLink,
+  IconLoader2,
   IconTool,
 } from "@tabler/icons-react";
 import React from "react";
@@ -80,7 +80,12 @@ export function AgentConversation({
               {loading && messages.length === 0 ? (
                 <MessageScrollerItem>
                   <ConversationEmpty
-                    icon={<Spinner aria-hidden="true" size={17} />}
+                    icon={
+                      <IconLoader2
+                        size={17}
+                        className="agent-conversation-spin"
+                      />
+                    }
                     title="Loading session..."
                   />
                 </MessageScrollerItem>
@@ -426,7 +431,7 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
   const hasDetails = Boolean(tool.input || tool.result || tool.mcpApp);
   const icon =
     tool.state === "running" || tool.state === "activity" ? (
-      <Spinner aria-hidden="true" size={14} />
+      <IconLoader2 size={14} className="agent-conversation-spin" />
     ) : tool.state === "errored" ? (
       <IconCircleX size={14} />
     ) : (

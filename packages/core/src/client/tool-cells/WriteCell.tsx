@@ -2,8 +2,11 @@
  * WriteCell — renders a write tool call as a new-file view with added-line styling.
  */
 
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { IconChevronDown, IconFilePlus } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconFilePlus,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { memo, useState } from "react";
 
 import { AnimatedCollapse } from "../chat/tool-call-display.js";
@@ -91,7 +94,7 @@ export function WriteCell({ meta, isRunning }: WriteCellProps) {
       >
         <span className="shrink-0">
           {isRunning ? (
-            <Spinner aria-hidden="true" className="h-3 w-3" />
+            <IconLoader2 className="h-3 w-3 animate-spin" />
           ) : (
             <IconFilePlus className="h-3 w-3 text-emerald-500" />
           )}

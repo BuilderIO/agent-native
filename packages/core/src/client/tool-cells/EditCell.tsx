@@ -9,8 +9,12 @@
  * Collapsed by default beyond MAX_COLLAPSED_LINES; expand button shows all.
  */
 
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { IconChevronDown, IconFile, IconFileDiff } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconFile,
+  IconFileDiff,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { memo, useMemo, useState } from "react";
 
 import { AnimatedCollapse } from "../chat/tool-call-display.js";
@@ -234,7 +238,7 @@ export function EditCell({ meta, isRunning }: EditCellProps) {
       >
         <span className="shrink-0">
           {isRunning ? (
-            <Spinner aria-hidden="true" className="h-3 w-3" />
+            <IconLoader2 className="h-3 w-3 animate-spin" />
           ) : (
             <IconFileDiff className="h-3 w-3 text-amber-500" />
           )}

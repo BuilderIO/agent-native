@@ -31,7 +31,7 @@ describe("DefaultSpinner", () => {
 
     expect(container.querySelector("span")?.textContent).toBe("Churning");
     expect(
-      container.querySelectorAll("[data-agent-native-spinner] rect"),
+      container.querySelectorAll("[data-agent-native-cube-loader] rect"),
     ).toHaveLength(9);
     expect(container.textContent).not.toContain("2m");
   });

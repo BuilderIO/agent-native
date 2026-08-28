@@ -1,4 +1,3 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconActivity,
   IconMessages,
@@ -13,6 +12,7 @@ import {
   IconMessageReport,
   IconChevronRight,
   IconArrowLeft,
+  IconLoader2,
   IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -164,7 +164,7 @@ function EmptyState({ message }: { message: string }) {
 function LoadingState() {
   return (
     <div className="flex items-center justify-center py-12">
-      <Spinner aria-hidden="true" size={20} className="text-muted-foreground" />
+      <IconLoader2 size={20} className="animate-spin text-muted-foreground" />
     </div>
   );
 }

@@ -1,5 +1,4 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { IconAlertTriangle } from "@tabler/icons-react";
+import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { trackEvent } from "./analytics.js";
@@ -417,7 +416,11 @@ export function RunStuckBanner({
             className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busyType === "retry" ? (
-              <Spinner aria-hidden="true" size={12} />
+              <IconLoader2
+                size={12}
+                className="animate-spin"
+                aria-hidden="true"
+              />
             ) : null}
             Retry
           </button>
@@ -428,7 +431,11 @@ export function RunStuckBanner({
             className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busyType === "cancel" ? (
-              <Spinner aria-hidden="true" size={12} />
+              <IconLoader2
+                size={12}
+                className="animate-spin"
+                aria-hidden="true"
+              />
             ) : null}
             Cancel
           </button>

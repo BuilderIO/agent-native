@@ -1,4 +1,4 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconLoader2 } from "@tabler/icons-react";
 import React from "react";
 
 import { captureError } from "./analytics.js";
@@ -223,7 +223,7 @@ function AssistantUiRecoverableRenderFallback() {
       className="flex min-h-8 items-center justify-center text-muted-foreground"
       role="status"
     >
-      <Spinner aria-hidden="true" className="size-3.5" />
+      <IconLoader2 className="size-3.5 animate-spin" aria-hidden="true" />
       <span className="sr-only">Updating chat...</span>
     </div>
   );

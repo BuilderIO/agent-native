@@ -329,7 +329,7 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Asking Analytics...");
     expect(container.textContent).not.toContain("Asked Analytics");
     expect(
-      container.querySelector("[data-agent-native-spinner]"),
+      container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
   });
 
@@ -349,7 +349,7 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Asking Analytics...");
     expect(container.textContent).not.toContain("Asked Analytics");
     expect(
-      container.querySelector("[data-agent-native-spinner]"),
+      container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
   });
 
@@ -370,7 +370,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(
-      container.querySelector("[data-agent-native-spinner]"),
+      container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
     expect(
       container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
@@ -393,7 +393,9 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("generate design");
-    expect(container.querySelector("[data-agent-native-spinner]")).toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-cube-loader]"),
+    ).toBeNull();
     expect(
       container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
     ).toBeNull();
@@ -416,7 +418,9 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("may or may not have completed");
     expect(container.querySelector(".text-destructive")).toBeNull();
-    expect(container.querySelector("[data-agent-native-spinner]")).toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-cube-loader]"),
+    ).toBeNull();
   });
 
   it("does not animate a tool row that mounts already resolved", () => {
@@ -563,7 +567,7 @@ describe("ToolCallDisplay native renderers", () => {
 
       expect(container.querySelectorAll(".agent-tool-call")).toHaveLength(1);
       expect(
-        container.querySelectorAll("[data-agent-native-spinner]"),
+        container.querySelectorAll("[data-agent-native-cube-loader]"),
       ).toHaveLength(1);
       expect(container.textContent).toContain("Asking Analytics...");
       expect(container.textContent).not.toContain("call agent");
@@ -1154,7 +1158,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(
-      container.querySelector("[data-agent-native-spinner]"),
+      container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
   });
 
@@ -1182,7 +1186,9 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("update extension");
-    expect(container.querySelector("[data-agent-native-spinner]")).toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-cube-loader]"),
+    ).toBeNull();
   });
 
   it("renders explicit native widgets ahead of MCP Apps metadata", async () => {

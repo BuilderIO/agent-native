@@ -3,8 +3,8 @@
 // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
 // by AssistantChatInner.
 
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
+  IconLoader2,
   IconCheck,
   IconCopy,
   IconX,
@@ -269,7 +269,7 @@ export function BuilderConnectCta({
         >
           {connecting ? (
             <>
-              <Spinner aria-hidden="true" size={10} />
+              <IconLoader2 size={10} className="animate-spin" />
               {t("agentChat.common.waiting")}
             </>
           ) : (
@@ -329,7 +329,7 @@ export function BuilderConnectCta({
       >
         {connecting ? (
           <>
-            <Spinner aria-hidden="true" size={10} />
+            <IconLoader2 size={10} className="animate-spin" />
             {t("agentChat.common.waiting")}
           </>
         ) : (
@@ -722,7 +722,7 @@ export function RunErrorRecoveryCard({
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
           >
             {builderReconnect.connecting ? (
-              <Spinner aria-hidden="true" size={13} />
+              <IconLoader2 size={13} className="animate-spin" />
             ) : null}
             {builderReconnect.connecting
               ? t("agentChat.recovery.connectingBuilder")
@@ -780,7 +780,7 @@ export function RunErrorRecoveryCard({
               className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-70"
             >
               {forking ? (
-                <Spinner aria-hidden="true" size={14} />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
                 <IconGitFork size={14} />
               )}
@@ -990,7 +990,7 @@ export function LoopLimitContinueCard({
           className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
         >
           {saving ? (
-            <Spinner aria-hidden="true" size={12} />
+            <IconLoader2 size={12} className="animate-spin" />
           ) : saved ? (
             <IconCheck size={12} />
           ) : (

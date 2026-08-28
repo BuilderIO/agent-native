@@ -1,6 +1,5 @@
 ---
 "@agent-native/core": patch
-"@agent-native/dispatch": patch
 "@agent-native/toolkit": patch
 ---
 

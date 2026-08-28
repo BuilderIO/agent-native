@@ -510,6 +510,16 @@
   color: hsl(var(--muted-foreground) / 0.7);
 }
 
+.agent-conversation-spin {
+  animation: agent-conversation-spin 1s linear infinite;
+}
+
+@keyframes agent-conversation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ─── ReasoningCell streaming tail clamp ────────────────────────────────────── */
 /* While a reasoning cell is actively streaming and open, clamp the body to
    roughly the last ~6 lines instead of letting it grow and push the rest of

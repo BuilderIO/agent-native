@@ -3,12 +3,12 @@ import {
   Spinner as DesignSystemSpinner,
   Tooltip as DesignSystemTooltip,
 } from "@agent-native/toolkit/design-system";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconAlertCircle,
   IconCheck,
   IconClock,
   IconExternalLink,
+  IconLoader2,
   IconPlayerStop,
   IconSubtask,
   IconX,
@@ -94,7 +94,7 @@ interface RunsTrayState {
   failedCount: number;
   terminalCount: number;
   triggerLabel: string;
-  TriggerIcon: typeof IconSubtask;
+  TriggerIcon: typeof IconLoader2;
   triggerTone: string;
   dismissRun: (runId: string) => void;
   stopRun: (runId: string) => void;
@@ -244,7 +244,12 @@ function useRunsTrayState({
         : hasRuns
           ? t("runsTray.recentRuns")
           : t("runsTray.noRecentRuns");
-  const TriggerIcon = failedCount > 0 ? IconAlertCircle : IconSubtask;
+  const TriggerIcon =
+    activeCount > 0
+      ? IconLoader2
+      : failedCount > 0
+        ? IconAlertCircle
+        : IconSubtask;
   const triggerTone =
     activeCount > 0
       ? "text-primary"
@@ -441,11 +446,11 @@ export function RunsTrayMenuItem({
           }
         }}
       >
-        {activeCount > 0 ? (
-          <Spinner aria-hidden="true" size={14} className={triggerTone} />
-        ) : (
-          <TriggerIcon size={14} className={triggerTone} aria-hidden />
-        )}
+        <TriggerIcon
+          size={14}
+          className={cn(triggerTone, activeCount > 0 && "animate-spin")}
+          aria-hidden
+        />
         <span className="min-w-0 flex-1 truncate">
           {t("runsTray.agentRuns")}
         </span>
@@ -830,6 +835,7 @@ function StatusPill({
     );
   }
   const { Icon, className } = STATUS_GLYPHS[status];
+  const spinClass = status === "running" ? " animate-spin" : "";
   return (
     <span
       className={cn(
@@ -837,11 +843,7 @@ function StatusPill({
         STATUS_PILL_STYLES[status],
       )}
     >
-      {status === "running" ? (
-        <Spinner aria-hidden="true" size={12} className={className} />
-      ) : (
-        <Icon size={12} className={className} aria-hidden />
-      )}
+      <Icon size={12} className={`${className}${spinClass}`} aria-hidden />
       {t(STATUS_COPY_KEYS[status])}
     </span>
   );
@@ -875,9 +877,9 @@ function isBackgroundStatus(
 // (e.g. success green isn't in shadcn's default palette).
 const STATUS_GLYPHS: Record<
   ProgressStatus,
-  { Icon: typeof IconSubtask; className: string }
+  { Icon: typeof IconLoader2; className: string }
 > = {
-  running: { Icon: IconSubtask, className: "text-primary" },
+  running: { Icon: IconLoader2, className: "text-primary" },
   succeeded: {
     Icon: IconCheck,
     className: "text-emerald-600 dark:text-emerald-400",
