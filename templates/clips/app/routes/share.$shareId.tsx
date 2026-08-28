@@ -1161,7 +1161,7 @@ export default function ShareRoute() {
             )}
           </div>
 
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1 sm:w-auto sm:justify-end">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={viewCount}
