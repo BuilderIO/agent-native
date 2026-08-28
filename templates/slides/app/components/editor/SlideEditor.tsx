@@ -12,10 +12,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AgentPresenceChip,
-  RecentEditHighlights,
-} from "@agent-native/toolkit/collab-ui";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
@@ -6834,16 +6831,11 @@ export default function SlideEditor({
                               outlineOnly
                             />
                           )}
-                          {(agentActive || passivePresentUsers.length > 0) && (
-                            <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                              <AgentPresenceChip
-                                active={Boolean(agentActive)}
+                          {passivePresentUsers.length > 0 && (
+                            <div className="absolute right-2 top-2 z-10">
+                              <SameSlidePresenceIndicator
+                                users={passivePresentUsers}
                               />
-                              {passivePresentUsers.length > 0 && (
-                                <SameSlidePresenceIndicator
-                                  users={passivePresentUsers}
-                                />
-                              )}
                             </div>
                           )}
                           {overflowInfo &&
