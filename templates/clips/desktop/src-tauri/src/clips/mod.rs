@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -30,9 +30,8 @@ use crate::util::{
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
-/// Guards `start_topmost_reassert_loop` for the toolbar — see that function's
-/// doc comment. Windows-only in effect; harmless idle flag elsewhere.
-static TOOLBAR_TOPMOST_REASSERT: AtomicBool = AtomicBool::new(false);
+/// Supersedes stale toolbar topmost loops after window recreation.
+static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 // Geometry of the two circular cancel/skip buttons that flank the countdown
 // number. These MUST stay in sync with the CSS in
 // `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
@@ -1048,7 +1047,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
-        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_REASSERT);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -1085,7 +1084,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_REASSERT);
+    start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
     // Deliberately NOT shown here. The pill owns its visibility through
     // `toolbar_set_visible`: it stays hidden through pre-record and the
     // countdown and appears only once the recorder reports capture live —
@@ -1106,7 +1105,7 @@ pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), St
     };
     if visible {
         raise_to_status_level(&win);
-        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_REASSERT);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         crate::util::show_without_activation(&win);
     } else {
         let _ = win.hide();

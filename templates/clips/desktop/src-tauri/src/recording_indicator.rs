@@ -26,7 +26,7 @@
 //!     position so the next show reopens at the same spot.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -41,9 +41,8 @@ use crate::util::{
 };
 
 const PILL_LABEL: &str = "recording-pill";
-/// Guards `start_topmost_reassert_loop` for the pill — see that function's
-/// doc comment. Windows-only in effect; harmless idle flag elsewhere.
-static PILL_TOPMOST_REASSERT: AtomicBool = AtomicBool::new(false);
+/// Supersedes stale pill topmost loops after window recreation.
+static PILL_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Detached-mode flag. Toggled from JS via `recording_pill_set_detached` —
 /// the renderer flips it when the main app loses focus. We store it as a
@@ -524,7 +523,7 @@ pub async fn recording_pill_show(
         show_without_activation(&existing);
         raise_to_status_level(&existing);
         start_pill_hover_tracking(&app);
-        start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_REASSERT);
+        start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_GENERATION);
         return Ok(());
     }
 
@@ -534,7 +533,7 @@ pub async fn recording_pill_show(
     show_without_activation(&win);
     raise_to_status_level(&win);
     start_pill_hover_tracking(&app);
-    start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_REASSERT);
+    start_topmost_reassert_loop(&app, PILL_LABEL, &PILL_TOPMOST_GENERATION);
 
     // Tell the freshly-mounted React side which mode + meeting_id to render.
     use tauri::Emitter;
