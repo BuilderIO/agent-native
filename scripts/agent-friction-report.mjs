@@ -72,7 +72,7 @@ const FEEDBACK_REGEX_CASES = [
 ];
 
 const SHIPPING_CHURN_RE =
-  /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[\s\S]{0,220}\b(?:unless|unnecessary|necessary|routine|repeated|again|100\s+times|only|merely|clear|conflict|CI|feedback|clean|behind|timer)\b)[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance)\s+(?:ship|publish)\s+commits?|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[\s\S]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
+  /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[\s\S]{0,220}\b(?:(?:routine|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[\s\S]{0,60}\b(?:conflict\w*|necessary|routine|chore|clear)\b))[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance)\s+(?:ship|publish)\s+commits?|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[\s\S]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
@@ -90,6 +90,11 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [false, "Only commit relevant changes."],
   [false, "Do not merge main when every required check passes."],
   [false, "Should we merge main after the checks pass?"],
+  [
+    false,
+    "Do not commit or push changes unless they belong to this requested fix.",
+  ],
+  [false, "Do not merge main after CI passes."],
 ];
 
 if (process.argv.includes("--self-test")) {
