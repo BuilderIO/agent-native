@@ -3,6 +3,14 @@ import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/u
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DeckProvider, useDecks, type Deck } from "./DeckContext";
@@ -120,13 +128,13 @@ function setupFetch() {
 
 function listCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
-    String(url).includes("/_agent-native/actions/list-decks"),
+    requestString(url).includes("/_agent-native/actions/list-decks"),
   ).length;
 }
 
 function deckCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
-    String(url).includes("/_agent-native/actions/get-deck"),
+    requestString(url).includes("/_agent-native/actions/get-deck"),
   ).length;
 }
 

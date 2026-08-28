@@ -15,6 +15,18 @@ vi.mock("./MermaidRenderer", () => ({
   MermaidRenderer: () => <div data-mermaid-diagram="true" />,
 }));
 
+vi.mock("./ExcalidrawSlide", () => ({
+  ExcalidrawThumbnail: () => <div data-excalidraw-thumbnail="true" />,
+  parseExcalidrawData: (json?: string) => {
+    if (!json) return null;
+    try {
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  },
+}));
+
 function rect(left: number, top: number, width: number, height: number) {
   return {
     x: left,
@@ -234,6 +246,12 @@ describe("SlideInner autofit", () => {
         if (this.classList.contains("fmd-freeform-object")) {
           return rect(156, 254, 740, 200);
         }
+        if (this.classList.contains("layout-wrapper")) {
+          return rect(110, 80, 740, 500);
+        }
+        if (this.classList.contains("inner-content")) {
+          return rect(110, 80, 740, 380);
+        }
         return rect(110, 80, 740, 500);
       },
     );
@@ -268,6 +286,47 @@ describe("SlideInner autofit", () => {
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
+    });
+  });
+
+  it("ignores a spilling flow wrapper when its inner content fits", async () => {
+    const slide: Slide = {
+      id: "wrapper-spill",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><div class="layout-wrapper"><div class="inner-content">Fits</div></div></div>',
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          verticalOverflow: 0,
+          horizontalOverflow: 0,
+        }),
+      );
+    });
+  });
+
+  it("measures direct text in a container instead of skipping its children", async () => {
+    const slide: Slide = {
+      id: "visible-container",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><div class="visible-container">Visible label <div class="inner-content">Fits</div></div></div>',
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenLastCalledWith(
         expect.objectContaining({ verticalOverflow: 120 }),
       );
     });
@@ -434,6 +493,36 @@ describe("SlideInner autofit", () => {
       expect(onOverflowChange).toHaveBeenCalledWith(
         expect.objectContaining({ horizontalOverflow: 46 }),
       );
+    });
+  });
+
+  it("reports finite fit geometry for Excalidraw slides", async () => {
+    const onOverflowChange = vi.fn();
+    const onAutofitSettled = vi.fn();
+    render(
+      <SlideInner
+        slide={{
+          id: "excalidraw-fit",
+          layout: "blank",
+          notes: "",
+          content: "",
+          excalidrawData: '{"elements":[{"type":"rectangle"}]}',
+        }}
+        onOverflowChange={onOverflowChange}
+        onAutofitSettled={onAutofitSettled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenCalledWith({
+        contentHeight: 540,
+        contentWidth: 960,
+        viewportHeight: 540,
+        viewportWidth: 960,
+        verticalOverflow: 0,
+        horizontalOverflow: 0,
+      });
+      expect(onAutofitSettled).toHaveBeenCalled();
     });
   });
 

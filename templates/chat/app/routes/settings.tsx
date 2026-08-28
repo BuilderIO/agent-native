@@ -1,4 +1,3 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
@@ -13,8 +12,6 @@ import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 
 import { APP_TITLE } from "@/lib/app-config";
-
-import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
   return [{ title: `Settings - ${APP_TITLE}` }];
@@ -69,11 +66,6 @@ export default function SettingsRoute() {
             showTitle={false}
             createOrgDescription={t("pages.teamCreateOrgDescription")}
           />
-        </div>
-      }
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
         </div>
       }
     />

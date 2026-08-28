@@ -125,7 +125,10 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
+import {
+  DESKTOP_DEEP_LINK_PROTOCOL,
+  DESKTOP_RELEASE_CHANNEL,
+} from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -329,6 +332,7 @@ import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
+  releaseChannel: DESKTOP_RELEASE_CHANNEL,
   appDataPath: app.getPath("appData"),
   defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
@@ -1225,7 +1229,7 @@ function reloadAllWebviews() {
 app.on("open-url", (event, url) => {
   event.preventDefault();
   if (app.isReady()) {
-    handleDeepLink(url);
+    void handleDeepLink(url);
   } else {
     pendingDeepLink = url;
   }
@@ -1764,10 +1768,10 @@ function createWindow(): BrowserWindow {
 
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    void win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
     // DevTools will be opened for the active webview via Cmd+Shift+I
   } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
+    void win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
   mainWindow = win;
@@ -6334,7 +6338,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
     getCodeAgentGoal(getRecordString(currentRunRecord, "goalId")) ??
     CODE_AGENT_GOALS[0];
   if (goal.surfaceKind === "native") {
-    spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
+    void spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
   }
   return {
     ok: true,
@@ -6510,7 +6514,7 @@ async function controlDesktopCodeBackgroundAgentRun(
       source: "desktop",
       command: "resume",
     });
-    spawnCodeAgentRunner(input.runId, cwd);
+    void spawnCodeAgentRunner(input.runId, cwd);
     return {
       ok: true,
       runId: input.runId,
@@ -6958,7 +6962,7 @@ async function createCodeAgentRun(
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.surfaceKind === "native" && !worktreeRunQueued) {
-      spawnCodeAgentRunner(runId, cwd, permissionMode);
+      void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
     return {
@@ -12001,7 +12005,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   });
   const cwd =
     getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-  spawnCodeAgentRunner(runId, cwd, permissionMode);
+  void spawnCodeAgentRunner(runId, cwd, permissionMode);
   return {
     ok: true,
     run: readDesktopCodeAgentRun(runId) ?? undefined,
@@ -13015,7 +13019,7 @@ function openOAuthWindow(
     },
   });
 
-  oauthWin.loadURL(url);
+  void oauthWin.loadURL(url);
 
   // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
   // Firebase, and Firebase signs the user into Google via `window.open()`.
@@ -13081,7 +13085,7 @@ function openOAuthWindow(
       }
       // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -13099,7 +13103,7 @@ function openOAuthWindow(
     (event: Electron.Event, navUrl: string) => {
       if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
         event.preventDefault();
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     },
@@ -13852,7 +13856,7 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   if (isDesktopSsoEnabled()) {
     // Create the optional broker without blocking startup. The first eligible
     // app asks it to refresh status, which keeps a slow identity authority
@@ -13869,7 +13873,7 @@ app.whenReady().then(async () => {
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink);
+    void handleDeepLink(pendingDeepLink);
     pendingDeepLink = null;
   }
 

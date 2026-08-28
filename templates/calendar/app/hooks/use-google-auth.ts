@@ -47,9 +47,9 @@ const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
 
 function newDesktopOAuthVerifier(): string | null {
   const cryptoApi = globalThis.crypto;
-  const randomUuid = cryptoApi?.randomUUID;
+  const randomUuid = cryptoApi?.randomUUID?.bind(cryptoApi);
   if (typeof randomUuid === "function") {
-    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
+    return `${randomUuid()}${randomUuid()}`;
   }
   if (typeof cryptoApi?.getRandomValues === "function") {
     const bytes = new Uint8Array(32);
@@ -179,7 +179,7 @@ export function useGoogleAuthUrl(enabled = false) {
   // Clear cached error when disabled so next enable triggers a fresh fetch
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-auth-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-auth-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -205,7 +205,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -431,7 +431,7 @@ export function useDisconnectGoogle() {
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["google-status"] });
     },
   });
 }
@@ -445,7 +445,9 @@ export function useSyncGoogle() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }

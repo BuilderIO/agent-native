@@ -51,7 +51,7 @@ export function Header({
   const actions = useHeaderActions();
 
   function openRunThread(threadId: string) {
-    navigate("/chat", {
+    void navigate("/chat", {
       state: {
         dispatchThread: {
           id: `${Date.now()}-${threadId}`,

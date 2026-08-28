@@ -72,7 +72,7 @@ export function runObserveCollabText({
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
   const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
-    const next = ytext.toString();
+    const next = ytext.toJSON();
     // Item 5 (edit-flash): capture what the preview already reflects BEFORE
     // this observe fires, so a remote-origin transaction that merely ECHOES
     // content we already rendered (e.g. update-file's own applyText/

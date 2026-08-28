@@ -12,7 +12,9 @@ describe("recording share popover", () => {
     const videoPlayerSource = readSource("./video-player.tsx");
 
     expect(videoPlayerSource).toContain("absolute inset-0 z-10");
-    expect(videoPlayerSource).toContain("absolute inset-x-0 bottom-0 z-20");
+    expect(videoPlayerSource).toContain(
+      "absolute inset-x-0 bottom-0 opacity-100 transition-opacity duration-200",
+    );
     expect(shareDialogSource).toContain("z-[260] w-[440px]");
   });
 

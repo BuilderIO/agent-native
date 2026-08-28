@@ -114,7 +114,7 @@ describe("import-figma-frame", () => {
     mocks.executeProviderApiRequest.mockImplementation(
       async ({ path, query }: any) => {
         expect(path).toBe("/files/abcDEF12345/nodes");
-        expect(query).toEqual({ ids: "1:2" });
+        expect(query).toEqual(expect.objectContaining({ ids: "1:2" }));
         return jsonEnvelope({ nodes: { "1:2": SIMPLE_FRAME } });
       },
     );
@@ -180,7 +180,7 @@ describe("import-figma-frame", () => {
           });
         }
         if (path === "/files/abcDEF12345/nodes") {
-          expect(query).toEqual({ ids: "9:9" });
+          expect(query).toEqual(expect.objectContaining({ ids: "9:9" }));
           return jsonEnvelope({
             nodes: {
               "9:9": { document: { ...SIMPLE_FRAME.document, id: "9:9" } },

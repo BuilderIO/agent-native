@@ -299,9 +299,7 @@ export function buildAuthenticatedAgentA2ASkills(
   });
 }
 
-export function resolveArtifactBaseUrl(
-  event: any | undefined,
-): string | undefined {
+export function resolveArtifactBaseUrl(event: any): string | undefined {
   // An artifact link is user-facing, so the canonical URL wins; the platform's
   // per-deploy URLs are the fallback, not the other way round (that ordering
   // belongs to self-dispatch, which has to reach *this* deploy).

@@ -200,7 +200,7 @@ export function VideoBlock({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [selected, sourcePanelOpen]);
+  }, [selected, setSourcePanelOpen, sourcePanelOpen]);
 
   function handleComment() {
     if (!options.onVideoComment) return;

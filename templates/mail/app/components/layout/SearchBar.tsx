@@ -123,7 +123,7 @@ export function SearchBar({
       const trimmed = q.trim();
       if (trimmed && trimmed !== lastSyncedQueryRef.current) {
         lastSyncedQueryRef.current = trimmed;
-        navigate(`/all?q=${encodeURIComponent(trimmed)}`);
+        void navigate(`/all?q=${encodeURIComponent(trimmed)}`);
       }
     },
     [navigate],
@@ -134,7 +134,7 @@ export function SearchBar({
       const q = contact.email;
       setQuery(q);
       lastSyncedQueryRef.current = q;
-      navigate(`/all?q=${encodeURIComponent(q)}`);
+      void navigate(`/all?q=${encodeURIComponent(q)}`);
       inputRef.current?.blur();
     },
     [navigate],
@@ -145,7 +145,7 @@ export function SearchBar({
       const email = thread.latestMessage;
       const targetThreadId = email.threadId || email.id;
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
-      navigate(`/all/${targetThreadId}`);
+      void navigate(`/all/${targetThreadId}`);
       inputRef.current?.blur();
     },
     [navigate],

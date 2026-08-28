@@ -1,4 +1,5 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -617,8 +618,8 @@ export function DocumentToolbar({
         });
       } catch (err) {
         setPendingHideFromSearch(previous);
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         toast.error(t("editor.toolbar.failedToUpdateSharing"), {
@@ -628,8 +629,8 @@ export function DocumentToolbar({
         throw err;
       } finally {
         setPendingHideFromSearch(null);
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       }
@@ -666,6 +667,13 @@ export function DocumentToolbar({
 
     try {
       await navigator.clipboard.writeText(copyPageUrl);
+      if (!isLocalFileDocument) {
+        trackEvent("share_link_copied", {
+          resource_type: "document",
+          resource_id: documentId,
+          link_type: "share",
+        });
+      }
       toast.success(t("editor.toolbar.copiedPageLink"));
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
@@ -673,7 +681,7 @@ export function DocumentToolbar({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [copyPageUrl, t]);
+  }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
@@ -710,7 +718,7 @@ export function DocumentToolbar({
       toast.success(t("editor.toolbar.shareableCopyReady"), {
         description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
-      navigate(`/page/${result.id}?share=1`);
+      void navigate(`/page/${result.id}?share=1`);
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCreateShareableCopy"), {
         description:
@@ -725,9 +733,12 @@ export function DocumentToolbar({
       const params = new URLSearchParams(location.search);
       params.delete("share");
       const nextSearch = params.toString();
-      navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`, {
-        replace: true,
-      });
+      void navigate(
+        `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
+        {
+          replace: true,
+        },
+      );
     },
     [location.pathname, location.search, navigate, openShareOnLoad],
   );
@@ -890,7 +901,7 @@ export function DocumentToolbar({
               onOpenBreadcrumbItem(id);
               return;
             }
-            navigate(`/page/${id}`, { flushSync: true });
+            void navigate(`/page/${id}`, { flushSync: true });
           }}
         />
 

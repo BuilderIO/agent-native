@@ -58,7 +58,7 @@ export function useReplayStorageStatus(options?: { enabled?: boolean }) {
 export function usePrefetchReplayStorageStatus() {
   const qc = useQueryClient();
   useEffect(() => {
-    qc.prefetchQuery({
+    void qc.prefetchQuery({
       queryKey: REPLAY_STORAGE_STATUS_KEY,
       queryFn: fetchReplayStorageStatus,
       staleTime: 60_000,

@@ -28,4 +28,4 @@ async function test() {
     }
   }
 }
-test();
+void test();

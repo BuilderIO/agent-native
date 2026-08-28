@@ -76,6 +76,9 @@ export function createAiServicesGitReadClient(
             user: { login: string };
             state: string;
             submittedAt: string;
+            commitId?: string | null;
+            htmlUrl?: string | null;
+            body?: string | null;
             comments?: Array<{
               id: number;
               user: { login: string };
@@ -112,6 +115,9 @@ export function createAiServicesGitReadClient(
         reviews.reviews.map((review) => ({
           author: review.user.login,
           state: normalizeReviewState(review.state),
+          commitSha: review.commitId,
+          htmlUrl: review.htmlUrl,
+          body: review.body,
           observedAt: review.submittedAt || observedAt,
         }));
       const reviewComments: ReviewCommentObservation[] =

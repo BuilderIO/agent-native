@@ -37,12 +37,12 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-  type SlideFitResult,
-} from "./_await-fit-check.js";
+  createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
+  hashSlideContent,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -202,6 +202,7 @@ const PatchDeckFieldsOp = z.object({
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
       starred: z.boolean().optional(),
+      generationContext: z.record(z.string(), z.unknown()).optional(),
     })
     .passthrough(),
 });
@@ -350,8 +351,14 @@ export function applyOperation(deck: any, op: Operation): void {
       if (idx === -1) return; // slide was concurrently deleted — ignore
       const slide = slides[idx];
       const fields = op.fields;
+      const previousFitFields = {
+        content: slide.content,
+        layout: slide.layout,
+        excalidrawData: slide.excalidrawData,
+      };
       if (fields.content !== undefined) {
-        slide.content = normalizeSlidePadding(fields.content);
+        const nextContent = normalizeSlidePadding(fields.content);
+        slide.content = nextContent;
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
       if (fields.background !== undefined) slide.background = fields.background;
@@ -366,6 +373,9 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.transition !== undefined) slide.transition = fields.transition;
       if (fields.animations !== undefined) slide.animations = fields.animations;
       if (fields.skipped !== undefined) slide.skipped = fields.skipped;
+      if (slideFitRenderFieldsChanged(previousFitFields, slide)) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+      }
       break;
     }
 
@@ -419,6 +429,7 @@ export function applyOperation(deck: any, op: Operation): void {
           typeof fields.content === "string"
             ? normalizeSlidePadding(fields.content)
             : "",
+        layoutFitRevision: createLayoutFitRevision(),
         notes: fields.notes ?? "",
         layout: fields.layout ?? "content",
       };
@@ -458,6 +469,8 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
       if (fields.starred !== undefined) deck.starred = fields.starred;
+      if (fields.generationContext !== undefined)
+        deck.generationContext = fields.generationContext;
       break;
     }
   }
@@ -598,7 +611,9 @@ export default defineAction({
     "then patch content and the complete ordered animations list together; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
-    "count, and animation metadata before reporting success.",
+    "count, and animation metadata before reporting success. Content writes " +
+    "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
+    "get-layout-overflows later when you need the browser's fit result.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     requireAllSourceSlides: z
@@ -647,6 +662,10 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
       const existingContext = storedCreativeContext(deck.creativeContext);
+      const previousDeckFitFields = {
+        aspectRatio: deck.aspectRatio,
+        designSystemId: deck.designSystemId,
+      };
 
       const existingSlideIds = new Set(
         (Array.isArray(deck.slides) ? deck.slides : []).map(
@@ -692,8 +711,54 @@ export default defineAction({
         });
       }
 
+      const layoutFitSlideIds = new Set<string>();
       for (const op of operations) {
+        const previousSlide =
+          op.op === "patch-slide" || op.op === "add-slide"
+            ? (
+                deck.slides as Array<{
+                  id?: string;
+                  content?: unknown;
+                  layout?: unknown;
+                  excalidrawData?: unknown;
+                }>
+              ).find((slide) => slide.id === op.slideId)
+            : undefined;
+        const previousFitFields = previousSlide
+          ? {
+              content: previousSlide.content,
+              layout: previousSlide.layout,
+              excalidrawData: previousSlide.excalidrawData,
+            }
+          : null;
         applyOperation(deck, op);
+        if (op.op === "add-slide" && !previousSlide) {
+          layoutFitSlideIds.add(op.slideId);
+        } else if (op.op === "patch-slide" && previousFitFields) {
+          const nextSlide = (
+            deck.slides as Array<{
+              id?: string;
+              content?: unknown;
+              layout?: unknown;
+              excalidrawData?: unknown;
+            }>
+          ).find((slide) => slide.id === op.slideId);
+          if (
+            nextSlide &&
+            slideFitRenderFieldsChanged(previousFitFields, nextSlide)
+          ) {
+            layoutFitSlideIds.add(op.slideId);
+          }
+        }
+      }
+      if (deckFitRenderFieldsChanged(previousDeckFitFields, deck)) {
+        for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+          if (typeof slide.id !== "string") continue;
+          if (!layoutFitSlideIds.has(slide.id)) {
+            slide.layoutFitRevision = createLayoutFitRevision();
+          }
+          layoutFitSlideIds.add(slide.id);
+        }
       }
       if (isAgentCaller) {
         clearOmittedAnimationsForAgentContentPatches(deck, operations, {
@@ -862,11 +927,6 @@ export default defineAction({
         }
       });
 
-      // Start the freshness window right after the SQL write and before
-      // notifying editors — same ordering as add-slide/update-slide — so a
-      // fast render landing before this line isn't discarded as stale.
-      const fitSince = Date.now();
-
       const updatedSlideIds = [
         ...new Set(
           operations.flatMap((operation) =>
@@ -891,68 +951,42 @@ export default defineAction({
         notifyClients(deckId);
       }
 
-      // Only slides whose HTML actually changed can newly overflow — an
-      // add-slide always sets content; a patch-slide only when this batch's
-      // operation included `fields.content`. Re-check every one of them in
-      // parallel: a deck-wide restyle can touch dozens of slides, and polling
-      // them one at a time would serialize N fit-check timeouts.
-      const contentChangedSlideIds = [
-        ...new Set(
-          operations.flatMap((operation) =>
-            operation.op === "add-slide" ||
-            (operation.op === "patch-slide" &&
-              operation.fields.content !== undefined)
-              ? [operation.slideId]
-              : [],
-          ),
-        ),
-      ];
-      const finalSlides: Array<{ id?: unknown; content?: unknown }> =
-        Array.isArray(deck.slides) ? deck.slides : [];
-      const fitResults: SlideFitResult[] = await Promise.all(
-        contentChangedSlideIds.map((slideId) => {
-          const slide = finalSlides.find((s) => s.id === slideId);
-          return awaitLayoutFitCheck(
-            slideId,
-            fitSince,
-            5000,
-            hashSlideContent(
-              typeof slide?.content === "string" ? slide.content : "",
-            ),
-          );
-        }),
-      );
-      const overflows = fitResults.filter(
-        (fit): fit is Extract<SlideFitResult, { status: "overflows" }> =>
-          fit.status === "overflows",
-      );
-
+      // Only slides whose rendered geometry actually changed can newly overflow. The editor
+      // measures these asynchronously; return their hashes so a later
+      // get-layout-overflows call can reject stale browser measurements.
+      const layoutFitSlideIdList = [...layoutFitSlideIds];
+      const finalSlides: Array<{
+        id?: unknown;
+        content?: unknown;
+        layoutFitRevision?: unknown;
+      }> = Array.isArray(deck.slides) ? deck.slides : [];
       const base = {
         ok: true,
         deckId,
         updatedAt: now,
         updatedSlideIds,
+        ...(layoutFitSlideIdList.length
+          ? {
+              layoutFit: {
+                status: "pending" as const,
+                slides: layoutFitSlideIdList.map((slideId) => {
+                  const slide = finalSlides.find((s) => s.id === slideId);
+                  return {
+                    slideId,
+                    contentHash: hashSlideContent(
+                      typeof slide?.content === "string" ? slide.content : "",
+                    ),
+                    layoutFitRevision:
+                      typeof slide?.layoutFitRevision === "string"
+                        ? slide.layoutFitRevision
+                        : undefined,
+                  };
+                }),
+              },
+            }
+          : {}),
       };
-
-      if (overflows.length === 0) return base;
-
-      return {
-        ...base,
-        layoutOverflow: {
-          overflows: overflows.map(({ measurement }) => ({
-            slideId: measurement.slideId,
-            verticalOverflow: measurement.verticalOverflow,
-            horizontalOverflow: measurement.horizontalOverflow ?? 0,
-            contentWidth: measurement.contentWidth,
-            contentHeight: measurement.contentHeight,
-            viewportWidth: measurement.viewportWidth,
-            viewportHeight: measurement.viewportHeight,
-          })),
-        },
-        message: overflows
-          .map(({ measurement }) => formatOverflowForTool(deckId, measurement))
-          .join("\n\n"),
-      };
+      return base;
     });
   },
 });

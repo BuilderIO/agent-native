@@ -39,7 +39,7 @@ describe("GitHub triage client", () => {
           state: "open",
           draft: false,
           html_url: "https://github.test/pull/7",
-          user: { login: "author" },
+          user: { id: 17, login: "author" },
           head: { sha: "sha-7", ref: "fix" },
           base: { ref: "main" },
           created_at: "2026-08-04T00:00:00Z",
@@ -54,7 +54,11 @@ describe("GitHub triage client", () => {
       fetchImpl,
     }).listOpenPullRequests(repository);
 
-    expect(pullRequests[0]).toMatchObject({ number: 7, headSha: "sha-7" });
+    expect(pullRequests[0]).toMatchObject({
+      number: 7,
+      headSha: "sha-7",
+      userId: 17,
+    });
     expect(
       new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get(
         "per_page",
@@ -100,6 +104,8 @@ describe("GitHub triage client", () => {
           },
         ]);
       }
+      if (path === "/users/reviewer")
+        return response({ id: 17, login: "reviewer" });
       if (path.endsWith("/permission")) return response({ permission: "push" });
       if (path.includes("/orgs/")) return emptyResponse(204);
       if (path.endsWith("/reviews"))
@@ -139,8 +145,23 @@ describe("GitHub triage client", () => {
       permission: null,
     });
     await expect(
-      client.approvePullRequest(repository, 2),
+      client.checkOrganizationMemberById("BuilderIO", 17, "reviewer"),
+    ).resolves.toEqual({
+      username: "reviewer",
+      isMember: true,
+      permission: null,
+    });
+    await expect(
+      client.approvePullRequest(repository, 2, "Factory approval", "head-sha"),
     ).resolves.toMatchObject({ id: 9, state: "APPROVED" });
+    const approvalRequest = fetchImpl.mock.calls.find(([input]) =>
+      new URL(String(input)).pathname.endsWith("/reviews"),
+    );
+    expect(JSON.parse(String(approvalRequest?.[1]?.body))).toMatchObject({
+      event: "APPROVE",
+      body: "Factory approval",
+      commit_id: "head-sha",
+    });
     await expect(
       client.createIssueComment(repository, 2, "@builderio-bot please fix"),
     ).resolves.toEqual({

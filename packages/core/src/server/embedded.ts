@@ -33,6 +33,7 @@ type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentNativeEmbeddedHostSession {
   email?: string | null;
+  emailVerified?: boolean | null;
   userId?: string | null;
   token?: string | null;
   name?: string | null;
@@ -126,6 +127,9 @@ export function normalizeAgentNativeEmbeddedSession(
 
   return {
     email,
+    ...(typeof session.emailVerified === "boolean"
+      ? { emailVerified: session.emailVerified }
+      : {}),
     userId,
     token: readString(session.token),
     name: readString(session.name),
@@ -190,7 +194,7 @@ export async function mountAgentNativeEmbedded(
   // factory call here: with default Better Auth, its DB bootstrap can be the
   // thing that is unavailable while public liveness routes still need to
   // mount below.
-  createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
+  void createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
     nitroApp,
   );
 

@@ -82,7 +82,9 @@ function toInventoryItem(
 }
 
 function inventoryError(message: unknown): MailInventoryError {
-  const bounded = String(message ?? "Provider request failed")
+  const bounded = (
+    typeof message === "string" ? message : "Provider request failed"
+  )
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(
       /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,

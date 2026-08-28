@@ -457,7 +457,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   // Expose the in-editor state so the agent can read "the user is editing and scrubbed to X".
   useEffect(() => {
-    writeAppStateClient("editor-draft", {
+    void writeAppStateClient("editor-draft", {
       recordingId,
       playheadMs: Math.round(playheadMs),
       playbackSpeed,
@@ -480,7 +480,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   useEffect(() => {
     if (!waveformMediaUrl) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       // 1) Try cached peaks.
       const cached = await readAppStateClient<WaveformPeaks>(
         `waveform-${recordingId}`,

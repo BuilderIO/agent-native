@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   addMetadata: vi.fn(),
   addPage: vi.fn(),
   domToJpeg: vi.fn(async () => "data:image/jpeg;base64,AA=="),
+  link: vi.fn(),
   setFontSize: vi.fn(),
   text: vi.fn(),
 }));
@@ -19,6 +20,7 @@ vi.mock("jspdf", () => ({
     addImage = mocks.addImage;
     addMetadata = mocks.addMetadata;
     addPage = mocks.addPage;
+    link = mocks.link;
     // jsPDF's px unit: coordinates are scaled by 96/72, font sizes are not.
     internal = { scaleFactor: 96 / 72 };
     output = () => new Blob();
@@ -119,6 +121,7 @@ describe("exportDeckAsPdf", () => {
     mocks.addImage.mockClear();
     mocks.addMetadata.mockClear();
     mocks.text.mockClear();
+    mocks.link.mockClear();
     mocks.setFontSize.mockClear();
     mocks.domToJpeg.mockClear();
   });
@@ -265,6 +268,44 @@ describe("exportDeckAsPdf", () => {
     // replacement bytes, and text that extracts as mojibake is worse than text
     // that is absent. The sidecar carries it either way.
     expect(drawn).not.toContain("売上高");
+  });
+
+  it("preserves safe slide links as PDF annotations", async () => {
+    const canvas = renderSlide("s1");
+    const safeLink = document.createElement("a");
+    safeLink.setAttribute("href", "https://example.com/docs");
+    safeLink.textContent = "Read more";
+    safeLink.getBoundingClientRect = () =>
+      ({ width: 160, height: 24, left: 120, top: 90 }) as DOMRect;
+    const unsafeLink = document.createElement("a");
+    unsafeLink.setAttribute("href", "javascript:alert(1)");
+    unsafeLink.textContent = "Unsafe";
+    unsafeLink.getBoundingClientRect = () =>
+      ({ width: 80, height: 24, left: 300, top: 90 }) as DOMRect;
+    canvas.append(safeLink, unsafeLink);
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.link).toHaveBeenCalledTimes(1);
+    expect(mocks.link).toHaveBeenCalledWith(120, 90, 160, 24, {
+      url: "https://example.com/docs",
+    });
+  });
+
+  it("clips link annotations to the rendered slide bounds", async () => {
+    const canvas = renderSlide("s1");
+    const link = document.createElement("a");
+    link.setAttribute("href", "https://example.com/docs");
+    link.textContent = "Read more";
+    link.getBoundingClientRect = () =>
+      ({ width: 120, height: 40, left: 900, top: 520 }) as DOMRect;
+    canvas.append(link);
+
+    await exportDeckAsPdf("Q3 review", [{ id: "s1", content: "<div></div>" }]);
+
+    expect(mocks.link).toHaveBeenCalledWith(900, 520, 60, 20, {
+      url: "https://example.com/docs",
+    });
   });
 
   it("sizes the text layer from the slide's own layout, not its on-screen scale", async () => {

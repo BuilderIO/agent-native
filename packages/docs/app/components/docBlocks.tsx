@@ -49,12 +49,17 @@ import { badgeBlock } from "./blocks/badge";
 import { bannerBlock } from "./blocks/banner";
 import { cardsBlock } from "./blocks/cards";
 import { comparisonBlock } from "./blocks/comparison";
+import { gettingStartedPathsBlock } from "./blocks/getting-started-paths";
 import { imageBlock } from "./blocks/image";
 import { noticeBlock } from "./blocks/notice";
 import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
 import { videoBlock } from "./blocks/video";
-import { DEFAULT_DOCS_LOCALE, type DocsLocale } from "./docs-locale";
+import {
+  DEFAULT_DOCS_LOCALE,
+  localizeDocsHref,
+  type DocsLocale,
+} from "./docs-locale";
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 export {
@@ -85,6 +90,7 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(gettingStartedPathsBlock);
   registry.register(signatureBlock);
   registry.register(imageBlock);
   registry.register(videoBlock);
@@ -131,6 +137,7 @@ function useDocBlockContext(locale: DocsLocale): BlockRenderContext {
       textDirection: "ltr",
       visualFrame: "hide",
       showCodeAnnotationOverlays: false,
+      localizeHref: (href) => localizeDocsHref(href, locale),
       renderMarkdown: (markdown) => (
         <MarkdownInline markdown={markdown} locale={locale} />
       ),

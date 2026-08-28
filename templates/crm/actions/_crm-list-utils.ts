@@ -498,7 +498,7 @@ export async function initialCrmEntryValues(input: {
           attribute: attribute.apiSlug,
           from: row.fieldName,
           applied: false,
-          reason: `The record's "${String(value)}" is not a live option of this list's "${attribute.label}". Add the option, or set the entry's value explicitly.`,
+          reason: `The record's "${typeof value === "string" ? value : (JSON.stringify(value) ?? "")}" is not a live option of this list's "${attribute.label}". Add the option, or set the entry's value explicitly.`,
         });
         continue;
       }

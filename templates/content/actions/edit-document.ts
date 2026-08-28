@@ -45,18 +45,30 @@ const reuseLabelSchema = z.object({
 
 export default defineAction({
   description:
-    "Surgically edit document content using search-and-replace. Preferred over update-document for modifications.",
+    "Surgically edit an existing document's Markdown with exact search-and-replace operations. Prefer this over update-document when preserving the rest of the document; every find string must match exactly.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
-    id: z.string().optional().describe("Document ID (required)"),
-    find: z.string().optional().describe("Text to find (single edit mode)"),
+    id: z
+      .string()
+      .optional()
+      .describe("Stable ID of the document to edit (required)."),
+    find: z
+      .string()
+      .optional()
+      .describe("Exact non-empty text to replace in single-edit mode."),
     replace: z
       .string()
       .optional()
-      .describe('Replacement text (single edit mode, default: "")'),
+      .describe(
+        'Replacement text in single-edit mode; omit to delete the matched text (default: "").',
+      ),
     edits: z
       .string()
       .optional()
-      .describe("JSON array of {find, replace} objects (batch mode)"),
+      .describe(
+        "JSON array of {find, replace} objects for an ordered batch; use instead of find/replace.",
+      ),
     contextPackId: z
       .string()
       .optional()

@@ -393,11 +393,23 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toBeInstanceOf(Response);
     expect(fetch).toHaveBeenCalledTimes(1);
     const [requestUrl, requestInit] = vi.mocked(fetch).mock.calls[0];
-    expect(requestUrl.toString()).toBe(sourceUrl);
+    expect(
+      requestUrl instanceof URL
+        ? requestUrl.toString()
+        : requestUrl instanceof Request
+          ? requestUrl.url
+          : requestUrl,
+    ).toBe(sourceUrl);
     expect(new Headers(requestInit?.headers).get("range")).toBe(
       "bytes=100-199",
     );
-    expect(requestUrl.toString()).not.toContain("/compressed");
+    expect(
+      requestUrl instanceof URL
+        ? requestUrl.toString()
+        : requestUrl instanceof Request
+          ? requestUrl.url
+          : requestUrl,
+    ).not.toContain("/compressed");
   });
 
   it("accepts a protected media cookie when the query token is expired", async () => {

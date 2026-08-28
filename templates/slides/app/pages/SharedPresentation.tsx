@@ -33,7 +33,7 @@ export default function SharedPresentation({
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deck?.title]);
+  }, [deck]);
 
   useEffect(() => {
     if (!token) return;

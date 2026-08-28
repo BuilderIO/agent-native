@@ -7,7 +7,6 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
-  IconPaperclip,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
@@ -41,17 +40,6 @@ import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
-import type { UploadedFile } from "./PromptDialog";
-
-const promptFileIcons: Record<string, typeof IconPaperclip> = {
-  pdf: IconFileTypePdf,
-  ppt: IconPresentation,
-  pptx: IconPresentation,
-  doc: IconFileText,
-  docx: IconFileText,
-  txt: IconFileText,
-};
-
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
@@ -99,7 +87,6 @@ interface NewDeckReferenceStepProps {
   skipLabel: string;
   searchDecksLabel: string;
   promptSummary?: string;
-  promptFiles?: UploadedFile[];
 }
 
 export function NewDeckReferenceStep({
@@ -122,7 +109,6 @@ export function NewDeckReferenceStep({
   skipLabel,
   searchDecksLabel,
   promptSummary,
-  promptFiles,
 }: NewDeckReferenceStepProps) {
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
@@ -136,6 +122,8 @@ export function NewDeckReferenceStep({
   const [selectedSource, setSelectedSource] =
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
+  const [continuing, setContinuing] = useState(false);
+  const busy = importing || continuing;
 
   const deckById = new Map(decks.map((deck) => [deck.id, deck]));
   const sortedDecks = sortDecksByRecency(decks);
@@ -151,6 +139,10 @@ export function NewDeckReferenceStep({
     setSelectedSource(null);
     setReferenceDeckSearchOpen(false);
   }, [open, defaultDesignSystemId, defaultReferenceDeckId]);
+
+  useEffect(() => {
+    if (open) setContinuing(false);
+  }, [open]);
 
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -168,22 +160,38 @@ export function NewDeckReferenceStep({
   };
 
   const handleContinue = async () => {
+    if (busy) return;
     const trimmedSource =
       selectedSource && selectedSource.value.trim()
         ? { ...selectedSource, value: selectedSource.value.trim() }
         : null;
 
-    if (trimmedSource?.kind === "google-docs") {
-      const imported = await onImportSource(trimmedSource);
-      if (imported) applyImportedReference(imported);
-      return;
-    }
+    setContinuing(true);
+    try {
+      if (trimmedSource?.kind === "google-docs") {
+        const imported = await onImportSource(trimmedSource);
+        if (imported) applyImportedReference(imported);
+        return;
+      }
 
-    onSelect({
-      designSystemId: selectedDesignSystemId,
-      referenceDeckId: selectedReferenceDeckId,
-      referenceSource: trimmedSource,
-    });
+      await onSelect({
+        designSystemId: selectedDesignSystemId,
+        referenceDeckId: selectedReferenceDeckId,
+        referenceSource: trimmedSource,
+      });
+    } finally {
+      setContinuing(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    if (busy) return;
+    setContinuing(true);
+    try {
+      await onSkip();
+    } finally {
+      setContinuing(false);
+    }
   };
 
   const chooseSource = (
@@ -234,6 +242,7 @@ export function NewDeckReferenceStep({
         <button
           type="button"
           onClick={() => onOpenChange(false)}
+          disabled={busy}
           className="inline-flex items-center gap-2 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IconArrowLeft className="size-4" />
@@ -251,30 +260,6 @@ export function NewDeckReferenceStep({
               “{promptSummary.trim()}”
             </p>
           )}
-          {promptFiles && promptFiles.length > 0 && (
-            <div className="mt-4">
-              <span className="text-xs font-medium text-muted-foreground">
-                {t("home.attachedFiles")}
-              </span>
-              <ul className="mt-2 flex flex-wrap gap-2">
-                {promptFiles.map((file) => {
-                  const extension =
-                    file.originalName.toLowerCase().split(".").pop() ?? "";
-                  const FileIcon = promptFileIcons[extension] ?? IconPaperclip;
-                  return (
-                    <li
-                      key={file.path}
-                      className="flex max-w-full items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-sm"
-                    >
-                      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{file.originalName}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-
           <div className="mt-10 space-y-6">
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-3">
@@ -301,7 +286,7 @@ export function NewDeckReferenceStep({
               >
                 <SelectTrigger
                   className="w-full"
-                  disabled={designSystems.length === 0}
+                  disabled={designSystems.length === 0 || busy}
                 >
                   <SelectValue placeholder={designSystemLabel} />
                 </SelectTrigger>
@@ -321,8 +306,10 @@ export function NewDeckReferenceStep({
                 {referenceDeckLabel}
               </span>
               <Popover
-                open={referenceDeckSearchOpen}
-                onOpenChange={setReferenceDeckSearchOpen}
+                open={referenceDeckSearchOpen && !busy}
+                onOpenChange={(open) =>
+                  !busy && setReferenceDeckSearchOpen(open)
+                }
               >
                 <PopoverTrigger asChild>
                   <button
@@ -330,7 +317,7 @@ export function NewDeckReferenceStep({
                     role="combobox"
                     aria-expanded={referenceDeckSearchOpen}
                     aria-label={referenceDeckLabel}
-                    disabled={decks.length === 0}
+                    disabled={decks.length === 0 || busy}
                     className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="truncate">
@@ -350,12 +337,16 @@ export function NewDeckReferenceStep({
                         : 0
                     }
                   >
-                    <CommandInput placeholder={searchDecksLabel} />
+                    <CommandInput
+                      placeholder={searchDecksLabel}
+                      disabled={busy}
+                    />
                     <CommandList className="max-h-72">
                       <CommandEmpty>{t("home.noMatchingDecks")}</CommandEmpty>
                       <CommandGroup>
                         <CommandItem
                           value={`none ${t("home.none")}`}
+                          disabled={busy}
                           onSelect={() => {
                             setSelectedReferenceDeckId(null);
                             setImportedReference(null);
@@ -377,6 +368,7 @@ export function NewDeckReferenceStep({
                           <CommandItem
                             key={deck.id}
                             value={`${deck.title} ${deck.id}`}
+                            disabled={busy}
                             onSelect={() => {
                               setSelectedReferenceDeckId(deck.id);
                               setImportedReference(null);
@@ -415,6 +407,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}
+                  disabled={busy}
                   onChange={handleImport}
                 />
                 <FileImportOption
@@ -425,6 +418,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}
+                  disabled={busy}
                   onChange={handleImport}
                 />
                 <FileImportOption
@@ -435,6 +429,7 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing}
                   importingLabel={importingLabel}
+                  disabled={busy}
                   onChange={handleImport}
                 />
                 <ImportOption
@@ -446,6 +441,7 @@ export function NewDeckReferenceStep({
                     selectedSource?.kind === "google-docs" ||
                     importedReference?.source === "google-slides"
                   }
+                  disabled={busy}
                   onClick={() => chooseSource("google-docs")}
                 />
                 <ImportOption
@@ -453,6 +449,7 @@ export function NewDeckReferenceStep({
                   label="Website"
                   confirmedLabel={t("home.imported")}
                   selected={selectedSource?.kind === "website"}
+                  disabled={busy}
                   onClick={() => chooseSource("website")}
                 />
                 <ImportOption
@@ -460,6 +457,7 @@ export function NewDeckReferenceStep({
                   label="Figma"
                   confirmedLabel={t("home.imported")}
                   selected={selectedSource?.kind === "figma"}
+                  disabled={busy}
                   onClick={() => chooseSource("figma")}
                 />
               </div>
@@ -470,6 +468,7 @@ export function NewDeckReferenceStep({
                   value={selectedSource.value}
                   placeholder={`Paste a ${selectedSourceLabel} link`}
                   aria-label={`${selectedSourceLabel} link`}
+                  disabled={busy}
                   onChange={(event) =>
                     setSelectedSource({
                       ...selectedSource,
@@ -479,7 +478,12 @@ export function NewDeckReferenceStep({
                 />
               )}
               {selectedSource?.kind === "google-docs" && (
-                <div className="mt-3">
+                <div
+                  className={cn(
+                    "mt-3",
+                    busy && "pointer-events-none opacity-60",
+                  )}
+                >
                   <GoogleDriveConnectionCta />
                 </div>
               )}
@@ -513,20 +517,20 @@ export function NewDeckReferenceStep({
         <Button
           type="button"
           variant="ghost"
-          onClick={onSkip}
-          disabled={importing}
+          onClick={() => void handleSkip()}
+          disabled={busy}
         >
           {skipLabel}
         </Button>
         <Button
           type="button"
           onClick={() => void handleContinue()}
-          aria-busy={importing}
+          aria-busy={busy}
           disabled={
-            importing || Boolean(selectedSource && !selectedSource.value.trim())
+            busy || Boolean(selectedSource && !selectedSource.value.trim())
           }
         >
-          {importing
+          {importing || continuing
             ? importingLabel
             : importedReference
               ? t("home.continueToGenerate")
@@ -546,6 +550,7 @@ function FileImportOption({
   importedLabel,
   importing,
   importingLabel,
+  disabled = false,
   onChange,
 }: {
   accept: string;
@@ -555,13 +560,14 @@ function FileImportOption({
   importedLabel: string;
   importing: boolean;
   importingLabel: string;
+  disabled?: boolean;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
     <label
       className={cn(
         "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
-        importing && "pointer-events-none opacity-60",
+        (importing || disabled) && "pointer-events-none opacity-60",
       )}
       aria-label={imported ? `${label} - ${importedLabel}` : label}
     >
@@ -572,7 +578,7 @@ function FileImportOption({
         className="sr-only"
         accept={accept}
         multiple
-        disabled={importing}
+        disabled={importing || disabled}
         onChange={onChange}
       />
     </label>
@@ -585,6 +591,7 @@ function ImportOption({
   confirmed = false,
   confirmedLabel,
   selected = false,
+  disabled = false,
   onClick,
 }: {
   icon: ReactNode;
@@ -592,17 +599,20 @@ function ImportOption({
   confirmed?: boolean;
   confirmedLabel?: string;
   selected?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
         "flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected
           ? "border-primary/50 bg-primary/5 text-primary"
           : "border-border hover:bg-accent",
+        disabled && "pointer-events-none opacity-60",
       )}
       aria-label={
         confirmed && confirmedLabel ? `${label} - ${confirmedLabel}` : label

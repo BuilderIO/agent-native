@@ -4,7 +4,13 @@ import { schema } from "../db/index.js";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function stripCrlf(value: unknown): string {
-  return String(value ?? "")
+  return (
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value)
+  )
     .replace(/[\r\n]+/g, " ")
     .trim();
 }
