@@ -1748,7 +1748,13 @@ describe("content database soft-delete actions and reads", () => {
       title: "Shared Personal row",
       content: "Keep this nonempty Personal body.",
       accessRole: "editor",
-      databaseMembership: { databaseId },
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+      contextPath: [],
     });
     const contextFreeDocument = await runWithRequestContext(
       { userEmail: COLLABORATOR },
@@ -1758,6 +1764,28 @@ describe("content database soft-delete actions and reads", () => {
       id: sharedDocumentId,
       content: "Keep this nonempty Personal body.",
       accessRole: "editor",
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
+      contextPath: [],
+    });
+
+    const listed = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () => listDocumentsAction.run({}),
+    );
+    expect(
+      listed.documents.find((document) => document.id === sharedDocumentId),
+    ).toMatchObject({
+      databaseMembership: {
+        databaseId: null,
+        databaseDocumentId: null,
+        databaseTitle: null,
+        position: null,
+      },
     });
 
     const shared = await runWithRequestContext(
@@ -1770,7 +1798,7 @@ describe("content database soft-delete actions and reads", () => {
     );
     expect(shared).toMatchObject({
       documentId: sharedDocumentId,
-      databaseId,
+      databaseId: null,
       canEditValues: false,
       canManageSchema: false,
       properties: expect.arrayContaining([
@@ -1778,6 +1806,7 @@ describe("content database soft-delete actions and reads", () => {
           definition: expect.objectContaining({
             id: propertyId,
             name: "Status",
+            databaseId: null,
           }),
           value: "Shared only",
           editable: false,

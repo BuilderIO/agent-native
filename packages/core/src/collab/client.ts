@@ -205,9 +205,6 @@ const POLL_RING_BUFFER_SIZE = 200;
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
 
-/** Retry transient initial-state failures without leaving passive consumers stuck. */
-const INITIAL_STATE_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
-
 function calcBackoff(consecutiveErrors: number): number {
   const exp = Math.min(consecutiveErrors, 10);
   const delay = BACKOFF_BASE_MS * Math.pow(2, exp);
@@ -353,8 +350,6 @@ class CollabDocConnection {
   private disposeTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   private docMissing = false;
-  private initialStateRetryCount = 0;
-  private initialStateRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private requestSource: string | undefined;
   private lastSetUser: CollabUser | null = null;
 
@@ -478,10 +473,6 @@ class CollabDocConnection {
     if (this.disposeTimer) {
       clearTimeout(this.disposeTimer);
       this.disposeTimer = null;
-    }
-    if (this.initialStateRetryTimer) {
-      clearTimeout(this.initialStateRetryTimer);
-      this.initialStateRetryTimer = null;
     }
     this.stopSync();
     this.unsubscribeAwarenessEvents?.();
@@ -731,7 +722,6 @@ class CollabDocConnection {
           isSynced: true,
           initialization: { status: "ready" },
         });
-        this.initialStateRetryCount = 0;
         this.startTransport();
       },
       () => {
@@ -764,23 +754,14 @@ class CollabDocConnection {
       isSynced: false,
       initialization: { status: "error", category },
     });
-    if (
-      (category === "network" || category === "server") &&
-      this.initialStateRetryCount < INITIAL_STATE_RETRY_DELAYS_MS.length
-    ) {
-      const delay = INITIAL_STATE_RETRY_DELAYS_MS[this.initialStateRetryCount]!;
-      this.initialStateRetryCount++;
-      this.initialStateRetryTimer = setTimeout(() => {
-        this.initialStateRetryTimer = null;
-        this.retryInitialization();
-      }, delay);
-    }
   }
 
   private retryInitialization(): void {
-    if (this.disposed || this.snapshot.initialization.status !== "error") {
-      return;
-    }
+    if (this.disposed) return;
+    this.detachUpdateHandler();
+    this.stopSync();
+    this.unsubscribeAwarenessEvents?.();
+    this.unsubscribeAwarenessEvents = null;
     this.docMissing = false;
     this.setSnapshot({
       isLoading: true,
@@ -791,10 +772,6 @@ class CollabDocConnection {
   }
 
   retry = (): void => {
-    if (this.initialStateRetryTimer) {
-      clearTimeout(this.initialStateRetryTimer);
-      this.initialStateRetryTimer = null;
-    }
     this.retryInitialization();
   };
 
@@ -1376,7 +1353,15 @@ export function useCollaborativeDoc(
     isLoading: snapshot.isLoading,
     isSynced: snapshot.isSynced,
     initialization: snapshot.initialization,
-    retry: conn ? conn.retry : () => {},
+    retry: conn
+      ? () => {
+          if (conn.disposed) {
+            setGeneration((current) => current + 1);
+            return;
+          }
+          conn.retry();
+        }
+      : () => {},
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

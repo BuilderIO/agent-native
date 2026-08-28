@@ -466,6 +466,7 @@ export function documentEditorBreadcrumbItems(
   const membership = document.databaseMembership;
   if (
     !membership ||
+    !membership.databaseDocumentId ||
     pageItems.some((item) => item.id === membership.databaseDocumentId)
   ) {
     return pageItems;
@@ -895,7 +896,6 @@ function DocumentEditorBody({
     awareness,
     isSynced: collabSynced,
     initialization: collabInitialization,
-    retry: retryCollabInitialization,
     activeUsers,
     agentActive,
     agentPresent,
@@ -2459,7 +2459,7 @@ function DocumentEditorBody({
                             <div data-collab-initialization-error role="alert">
                               <QueryErrorState
                                 compact
-                                onRetry={retryCollabInitialization}
+                                onRetry={() => globalThis.location.reload()}
                               />
                             </div>
                           ) : null}

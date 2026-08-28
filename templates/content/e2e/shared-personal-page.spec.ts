@@ -62,6 +62,27 @@ async function getAction(
   );
 }
 
+async function getCollabState(page: Page, documentId: string) {
+  const response = await page.request.get(
+    `/_agent-native/collab/${documentId}/state`,
+  );
+  expect(response.ok(), `collab state should load (${response.status()})`).toBe(
+    true,
+  );
+  return response.text();
+}
+
+async function getStableCollabState(page: Page, documentId: string) {
+  let previous = await getCollabState(page, documentId);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await page.waitForTimeout(250);
+    const current = await getCollabState(page, documentId);
+    if (current === previous) return current;
+    previous = current;
+  }
+  throw new Error("collaboration state did not settle");
+}
+
 async function registerRecipient(
   context: BrowserContext,
   baseURL: string,
@@ -95,7 +116,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
   browser,
   baseURL,
 }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(360_000);
   const marker = `QA shared Personal bc4a2441 ${Date.now()}`;
   const originalBody = `${marker} original body`;
   const editedBody = `${marker} recipient edit`;
@@ -181,6 +202,13 @@ test("an editor can read and edit one shared Personal page without gaining its p
     });
     expect(sharedRead.ok).toBe(true);
     expect(sharedRead.result.content).toContain(editedBody);
+    await owner.reload({ waitUntil: "domcontentloaded" });
+    await expect(owner.locator(".ProseMirror")).toContainText(marker);
+    await expect(owner.locator(".ProseMirror")).toContainText("recipient edit");
+    const persistedCollabBaseline = await getStableCollabState(
+      owner,
+      documentId,
+    );
 
     const siblingRead = await getAction(recipient, "get-document", {
       id: siblingId,
@@ -197,36 +225,56 @@ test("an editor can read and edit one shared Personal page without gaining its p
     expect(visibleIds).not.toContain(siblingId);
 
     for (const status of [403, 404, 500]) {
-      const collabFailureRoute = async (route: Route) => {
-        await route.fulfill({
-          status,
-          body: "injected initialization failure",
+      await test.step(`collaboration ${status} fails closed and recovers explicitly`, async () => {
+        let failureActive = true;
+        const collabFailureRoute = async (route: Route) => {
+          if (!failureActive) return route.fallback();
+          await route.fulfill({
+            status,
+            headers: { "cache-control": "no-store" },
+            body: "injected initialization failure",
+          });
+        };
+        await recipient.route(
+          `**/_agent-native/collab/${documentId}/state**`,
+          collabFailureRoute,
+        );
+        await recipient.reload({ waitUntil: "domcontentloaded" });
+        await expect(
+          recipient.locator("[data-collab-initialization-error]"),
+        ).toBeVisible();
+        await expect(recipient.locator(".ProseMirror")).toHaveAttribute(
+          "contenteditable",
+          "false",
+        );
+        const unchanged = await getAction(owner, "get-document", {
+          id: documentId,
         });
-      };
-      await recipient.route(
-        `**/_agent-native/collab/${documentId}/state**`,
-        collabFailureRoute,
-      );
-      await recipient.reload({ waitUntil: "domcontentloaded" });
-      await expect(
-        recipient.locator("[data-collab-initialization-error]"),
-      ).toBeVisible();
-      await expect(recipient.locator(".ProseMirror")).toHaveAttribute(
-        "contenteditable",
-        "false",
-      );
-      const unchanged = await getAction(owner, "get-document", {
-        id: documentId,
+        expect(unchanged.result.content).toContain(editedBody);
+        expect(await getCollabState(owner, documentId)).toBe(
+          persistedCollabBaseline,
+        );
+        failureActive = false;
+        await recipient.getByRole("button", { name: "Retry" }).click();
+        await expect(
+          recipient.locator("[data-collab-initialization-error]"),
+        ).not.toBeVisible();
+        await expect(recipient.locator(".ProseMirror")).toHaveAttribute(
+          "contenteditable",
+          "true",
+        );
+        await expect(recipient.locator(".ProseMirror")).toContainText(
+          editedBody,
+        );
+        await recipient.unrouteAll({ behavior: "wait" });
       });
-      expect(unchanged.result.content).toContain(editedBody);
-      await recipient.unroute(
-        `**/_agent-native/collab/${documentId}/state**`,
-        collabFailureRoute,
-      );
     }
 
+    let collabNetworkFailureActive = true;
     const collabNetworkFailureRoute = async (route: Route) =>
-      route.abort("connectionfailed");
+      collabNetworkFailureActive
+        ? route.abort("connectionfailed")
+        : route.fallback();
     await recipient.route(
       `**/_agent-native/collab/${documentId}/state**`,
       collabNetworkFailureRoute,
@@ -243,10 +291,10 @@ test("an editor can read and edit one shared Personal page without gaining its p
       id: documentId,
     });
     expect(unchanged.result.content).toContain(editedBody);
-    await recipient.unroute(
-      `**/_agent-native/collab/${documentId}/state**`,
-      collabNetworkFailureRoute,
+    expect(await getCollabState(owner, documentId)).toBe(
+      persistedCollabBaseline,
     );
+    collabNetworkFailureActive = false;
 
     await recipient.getByRole("button", { name: "Retry" }).click();
     await expect(recipient.locator(".ProseMirror")).toHaveAttribute(
@@ -254,14 +302,18 @@ test("an editor can read and edit one shared Personal page without gaining its p
       "true",
     );
     await expect(recipient.locator(".ProseMirror")).toContainText(editedBody);
+    await recipient.unrouteAll({ behavior: "wait" });
 
     for (const failure of [403, 404, 500, "network"] as const) {
+      let propertyFailureActive = true;
       const propertyRoute = async (route: Route) => {
+        if (!propertyFailureActive) return route.fallback();
         if (failure === "network") {
           await route.abort("connectionfailed");
         } else {
           await route.fulfill({
             status: failure,
+            headers: { "cache-control": "no-store" },
             body: "injected property initialization failure",
           });
         }
@@ -274,14 +326,20 @@ test("an editor can read and edit one shared Personal page without gaining its p
       await expect(
         recipient.locator('[data-block-fields-state="error"]'),
       ).toBeVisible();
-      await recipient.unroute(
-        "**/_agent-native/actions/list-document-properties**",
-        propertyRoute,
-      );
+      propertyFailureActive = false;
+      await recipient.getByRole("button", { name: "Retry" }).click();
+      await expect(
+        recipient.locator('[data-block-fields-state="error"]'),
+      ).toHaveCount(0);
       const propertyFailureUnchanged = await getAction(owner, "get-document", {
         id: documentId,
       });
       expect(propertyFailureUnchanged.result.content).toContain(editedBody);
+      expect(await getCollabState(owner, documentId)).toBe(
+        persistedCollabBaseline,
+      );
+      await expect(recipient.locator(".ProseMirror")).toContainText(editedBody);
+      await recipient.unrouteAll({ behavior: "wait" });
     }
   } finally {
     await recipientContext.close();

@@ -162,8 +162,8 @@ function tWithFallback(
 
 interface DocumentPropertiesProps {
   documentId: string;
-  databaseId: string;
-  databaseDocumentId: string;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
   canEdit: boolean;
   popoversPortalled?: boolean;
 }
@@ -811,8 +811,17 @@ export function DocumentProperties({
     databaseId,
     data,
   );
-  const canEditValues = canEdit && loaded && data.canEditValues === true;
-  const canManageSchema = canEdit && loaded && data.canManageSchema === true;
+  const canEditValues =
+    canEdit &&
+    loaded &&
+    databaseDocumentId !== null &&
+    data.canEditValues === true;
+  const canManageSchema =
+    canEdit &&
+    loaded &&
+    databaseId !== null &&
+    databaseDocumentId !== null &&
+    data.canManageSchema === true;
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
@@ -837,7 +846,7 @@ export function DocumentProperties({
               key={property.definition.id}
               property={property}
               documentId={documentId}
-              databaseDocumentId={databaseDocumentId}
+              databaseDocumentId={databaseDocumentId ?? documentId}
               canEditValues={canEditValues}
               canManageSchema={canManageSchema}
               popoversPortalled={popoversPortalled}

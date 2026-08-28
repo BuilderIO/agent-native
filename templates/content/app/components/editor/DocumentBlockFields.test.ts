@@ -323,7 +323,7 @@ describe("property-query failure UI", () => {
     );
     expect(source).toContain('data-block-fields-state="error"');
     expect(source).toContain("<QueryErrorState");
-    expect(source).toContain("onRetry={() => void query.refetch()}");
+    expect(source).toContain("onRetry={() => globalThis.location.reload()}");
     expect(source.indexOf("if (query.isError)")).toBeLessThan(
       source.indexOf("const loaded = isLoadedForDocument"),
     );

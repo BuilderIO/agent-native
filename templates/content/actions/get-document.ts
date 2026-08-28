@@ -158,6 +158,11 @@ export default defineAction({
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
       : new Set<string>();
+    const properties = await listPropertiesForDocument(doc, args.databaseId, {
+      // A share authorizes the exact page and its membership-local fields,
+      // not the private database document that owns those definitions.
+      requireDatabaseAccess: propertyDatabaseAccess !== null,
+    });
 
     return {
       id: doc.id,
@@ -184,7 +189,14 @@ export default defineAction({
         ? serializeDatabase(database, doc.description)
         : undefined,
       databaseMembership: databaseMembership
-        ? serializeDatabaseMembership(databaseMembership)
+        ? propertyDatabaseAccess
+          ? serializeDatabaseMembership(databaseMembership)
+          : {
+              databaseId: null,
+              databaseDocumentId: null,
+              databaseTitle: null,
+              position: null,
+            }
         : undefined,
       bodyHydration: bodyHydrationMembership
         ? {
@@ -210,14 +222,18 @@ export default defineAction({
         : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: await listPropertiesForDocument(doc, args.databaseId, {
-        // A share authorizes the exact page and its membership-local fields,
-        // not the private database document that owns those definitions.
-        requireDatabaseAccess: propertyDatabaseAccess !== null,
-      }),
-      contextPath: await getDocumentContextPath(doc, {
-        databaseId: args.databaseId,
-      }),
+      properties: propertyDatabaseAccess
+        ? properties
+        : properties.map((property) => ({
+            ...property,
+            definition: { ...property.definition, databaseId: null },
+          })),
+      contextPath:
+        databaseMembership && !propertyDatabaseAccess
+          ? []
+          : await getDocumentContextPath(doc, {
+              databaseId: args.databaseId,
+            }),
     };
   },
   link: ({ result }) => {

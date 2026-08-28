@@ -614,13 +614,12 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("initialization: collabInitialization");
-    expect(source).toContain("retry: retryCollabInitialization");
     expect(source).toContain('collabInitialization.status === "error"');
     expect(source).toContain('collabInitialization.status === "ready"');
     expect(source).toContain("collabSynced &&");
     expect(source).toContain("!collabInitializationFailed");
     expect(source).toContain("data-collab-initialization-error");
-    expect(source).toContain("onRetry={retryCollabInitialization}");
+    expect(source).toContain("onRetry={() => globalThis.location.reload()}");
     expect(source).toContain("ydoc={collabEditorEnabled ? ydoc : null}");
   });
 

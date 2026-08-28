@@ -273,42 +273,6 @@ describe("useCollaborativeDoc connection registry", () => {
     ).toHaveLength(1);
   });
 
-  it("automatically retries transient initial-state failures for passive consumers", async () => {
-    let attempts = 0;
-    const mock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (/\/collab\/[^/]+\/state/.test(url)) {
-        attempts++;
-        return attempts === 1
-          ? new Response("error", { status: 500 })
-          : emptyStateResponse();
-      }
-      if (url.includes("/_agent-native/poll")) {
-        return new Response(JSON.stringify({ version: 1, events: [] }));
-      }
-      return new Response(JSON.stringify({ states: [] }));
-    });
-    vi.stubGlobal("fetch", mock);
-
-    let result: UseCollaborativeDocResult | undefined;
-    mount(<Probe docId="automatic-retry-doc" onResult={(r) => (result = r)} />);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(result?.initialization).toEqual({
-      status: "error",
-      category: "server",
-    });
-    expect(result?.ydoc).toBeNull();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_000);
-    });
-    expect(attempts).toBe(2);
-    expect(result?.initialization).toEqual({ status: "ready" });
-    expect(result?.ydoc?.getText("content").toString()).toBe("seed");
-  });
-
   it("discards partial Yjs mutations before retrying malformed initial state", async () => {
     let attempts = 0;
     const mock = vi.fn(async (input: RequestInfo | URL) => {

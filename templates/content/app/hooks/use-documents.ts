@@ -218,7 +218,7 @@ export async function fetchCompleteDocumentList(
 
 export function documentPropertiesQueryKey(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
 ) {
   return [
     "action",

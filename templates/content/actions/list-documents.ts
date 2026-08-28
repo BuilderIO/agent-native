@@ -290,6 +290,7 @@ export default defineAction({
       }
     }
 
+    const visibleDocumentIds = new Set(documents.map((document) => document.id));
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
@@ -338,7 +339,14 @@ export default defineAction({
             }
           : undefined,
         databaseMembership: databaseMembership
-          ? serializeDatabaseMembership(databaseMembership)
+          ? visibleDocumentIds.has(databaseMembership.database.documentId)
+            ? serializeDatabaseMembership(databaseMembership)
+            : {
+                databaseId: null,
+                databaseDocumentId: null,
+                databaseTitle: null,
+                position: null,
+              }
           : undefined,
         accessRole,
         canComment: canCommentRole(accessRole),

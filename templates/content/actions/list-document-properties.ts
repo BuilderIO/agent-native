@@ -44,17 +44,28 @@ export default defineAction({
       databaseAccess?.role === "editor";
     const canManageSchema = canEditValues;
 
-    return {
-      documentId,
-      databaseId: database?.id ?? null,
-      canEditValues,
-      canManageSchema,
-      properties: await listPropertiesForDocument(access.resource, databaseId, {
+    const properties = await listPropertiesForDocument(
+      access.resource,
+      databaseId,
+      {
         // The page share authorizes this page's definitions and values. The
         // supplied database is checked only as this page's exact membership;
         // its backing document remains private for container operations.
         requireDatabaseAccess: databaseAccess !== null,
-      }),
+      },
+    );
+
+    return {
+      documentId,
+      databaseId: databaseAccess ? (database?.id ?? null) : null,
+      canEditValues,
+      canManageSchema,
+      properties: databaseAccess
+        ? properties
+        : properties.map((property) => ({
+            ...property,
+            definition: { ...property.definition, databaseId: null },
+          })),
     };
   },
 });
