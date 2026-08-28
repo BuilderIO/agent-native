@@ -151,6 +151,23 @@ function replaceImageSrc(
   return serializeFragment(doc);
 }
 
+/** Replace one optimistic preview, or remove it when its upload failed. */
+export function replaceOptimisticImagePreview(
+  content: string,
+  previewSrc: string,
+  finalSrc: string | null,
+): string {
+  const doc = parseFragment(content);
+  const image = Array.from(
+    doc.body.querySelectorAll<HTMLImageElement>("img"),
+  ).find((img) => img.getAttribute("src") === previewSrc);
+  if (!image) return content;
+
+  if (finalSrc) image.setAttribute("src", finalSrc);
+  else image.remove();
+  return serializeFragment(doc);
+}
+
 export function insertImageIntoSlideHtml(
   content: string,
   newSrc: string,

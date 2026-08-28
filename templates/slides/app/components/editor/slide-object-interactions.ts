@@ -692,6 +692,47 @@ export function resizeSlideObject(
   });
 }
 
+export function resizeSlideObjectMembers(
+  members: readonly SlideObjectMoveMember[],
+  {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio = false,
+    minSize = MIN_SLIDE_OBJECT_SIZE,
+  }: {
+    handle: ResizeHandle;
+    dx: number;
+    dy: number;
+    preserveAspectRatio?: boolean;
+    minSize?: number;
+  },
+): Map<string, SlideObjectGeometry> {
+  const bounds = unionSlideObjectGeometries(
+    members.map((member) => member.start),
+  );
+  if (!bounds) return new Map();
+
+  const resized = resizeSlideObject(bounds, {
+    handle,
+    dx,
+    dy,
+    preserveAspectRatio,
+    minSize,
+  });
+  const plan = new Map<string, SlideObjectGeometry>();
+  for (const member of members) {
+    const { start } = member;
+    plan.set(member.objectId, {
+      x: resized.x + ((start.x - bounds.x) / bounds.width) * resized.width,
+      y: resized.y + ((start.y - bounds.y) / bounds.height) * resized.height,
+      width: (start.width / bounds.width) * resized.width,
+      height: (start.height / bounds.height) * resized.height,
+    });
+  }
+  return plan;
+}
+
 export type SlideObjectZOrderTarget = "front" | "back";
 
 function readSlideObjectZIndex(element: HTMLElement): number {

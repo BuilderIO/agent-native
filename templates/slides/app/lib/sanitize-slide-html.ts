@@ -148,6 +148,11 @@ export function sanitizeSlideUrl(
       : null;
   }
 
+  // Local object URLs power optimistic image previews while their durable
+  // upload finishes. They are safe as image sources and are stripped before
+  // slide content is persisted.
+  if (lower.startsWith("blob:")) return kind === "image" ? value : null;
+
   if (value.startsWith("/") || value.startsWith("#")) return value;
   if (value.startsWith("./") || value.startsWith("../")) return value;
 

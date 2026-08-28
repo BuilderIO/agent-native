@@ -28,6 +28,7 @@ import {
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
+  resizeSlideObjectMembers,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   SLIDE_OBJECT_PASTE_OFFSET,
@@ -49,6 +50,42 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  it("resizes multi-selection members proportionally from the southeast", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "a",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 20 },
+        },
+        {
+          objectId: "b",
+          element: document.createElement("div"),
+          start: { x: 50, y: 50, width: 20, height: 20 },
+        },
+      ],
+      { handle: "se", dx: 30, dy: 20 },
+    );
+
+    expect(result.get("a")).toEqual({ x: 10, y: 20, width: 30, height: 28 });
+    expect(result.get("b")).toEqual({ x: 70, y: 62, width: 30, height: 28 });
+  });
+
+  it("resizes multi-selection members from the west and honors minimum bounds", () => {
+    const result = resizeSlideObjectMembers(
+      [
+        {
+          objectId: "a",
+          element: document.createElement("div"),
+          start: { x: 10, y: 20, width: 20, height: 30 },
+        },
+      ],
+      { handle: "w", dx: 100, dy: 0, minSize: 24 },
+    );
+
+    expect(result.get("a")).toEqual({ x: 6, y: 20, width: 24, height: 30 });
+  });
+
   it("promotes a Markdown-rendered canvas so a new text box can persist as a freeform object", () => {
     const root = document.createElement("div");
     root.innerHTML = `

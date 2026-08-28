@@ -65,6 +65,15 @@ describe("sanitizeSlideUrl", () => {
     );
     expect(sanitizeSlideUrl("javascript:alert(1)", "image")).toBeNull();
   });
+
+  it("allows blob urls for optimistic image previews only", () => {
+    expect(sanitizeSlideUrl("blob:https://example.com/preview", "image")).toBe(
+      "blob:https://example.com/preview",
+    );
+    expect(
+      sanitizeSlideUrl("blob:https://example.com/preview", "link"),
+    ).toBeNull();
+  });
 });
 
 describe("sanitizeCssValue", () => {

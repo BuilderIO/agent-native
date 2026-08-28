@@ -5,6 +5,7 @@ import {
   createPlaceholderImageTarget,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
+  replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
 } from "./slide-image-replacement";
 
@@ -15,6 +16,38 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("replaces only the optimistic preview image", () => {
+    const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/placeholder.png" alt="Placeholder"><div class="fmd-img-placeholder">Image</div></div>`;
+
+    const updated = replaceOptimisticImagePreview(
+      html,
+      "blob:preview",
+      "/uploads/final.png",
+    );
+    const doc = new DOMParser().parseFromString(updated, "text/html");
+
+    expect(doc.querySelector('img[src="/uploads/final.png"]')).not.toBeNull();
+    expect(doc.querySelector('img[src="/placeholder.png"]')).not.toBeNull();
+    expect(doc.querySelector(".fmd-img-placeholder")).not.toBeNull();
+  });
+
+  it("removes the optimistic preview when upload fails", () => {
+    const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/other.png" alt="Other"></div>`;
+
+    const updated = replaceOptimisticImagePreview(html, "blob:preview", null);
+
+    expect(updated).not.toContain("blob:preview");
+    expect(updated).toContain("/other.png");
+  });
+
+  it("is a no-op when the preview source is absent", () => {
+    const html = `<div class="fmd-slide"><img src="/other.png" alt="Other"></div>`;
+
+    expect(
+      replaceOptimisticImagePreview(html, "blob:preview", "/final.png"),
+    ).toBe(html);
+  });
+
   it("replaces a clicked placeholder target with an uploaded image", () => {
     const html = `<div class="fmd-slide"><div class="fmd-img-placeholder" style="width: 100%; height: 100%;">Hero image</div></div>`;
     const updated = replaceImageTargetInSlideHtml(
