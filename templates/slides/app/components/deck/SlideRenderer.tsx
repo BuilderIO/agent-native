@@ -62,7 +62,9 @@ function LazyImage({
 }: React.ImgHTMLAttributes<HTMLImageElement>) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
-  const safeSrc = sanitizeSlideUrl(src, "image");
+  const safeSrc = sanitizeSlideUrl(src, "image", {
+    allowBlob: typeof window !== "undefined",
+  });
 
   if (src === "PLACEHOLDER_IMAGE" || !safeSrc) {
     return (
@@ -824,7 +826,10 @@ function BlankSlideContent({ content }: { content: string }) {
             return before + ' style="filter:brightness(0) invert(1);"' + close;
           },
         ),
-        { scopeSelector },
+        {
+          scopeSelector,
+          allowBlobImages: typeof window !== "undefined",
+        },
       );
       const { html: processed, hrefs } = prepareImportedFonts(sanitized);
 

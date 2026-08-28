@@ -2,10 +2,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyOptimisticImagePreview,
   createPlaceholderImageTarget,
+  hasOptimisticImagePreview,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
+  replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  stripOptimisticImagePreviews,
 } from "./slide-image-replacement";
 
 function firstImage(html: string): HTMLImageElement | null {
@@ -15,6 +19,87 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("replaces only the optimistic preview image", () => {
+    const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/placeholder.png" alt="Placeholder"><div class="fmd-img-placeholder">Image</div></div>`;
+
+    const updated = replaceOptimisticImagePreview(
+      html,
+      "blob:preview",
+      "/uploads/final.png",
+    );
+    const doc = new DOMParser().parseFromString(updated, "text/html");
+
+    expect(doc.querySelector('img[src="/uploads/final.png"]')).not.toBeNull();
+    expect(doc.querySelector('img[src="/placeholder.png"]')).not.toBeNull();
+    expect(doc.querySelector(".fmd-img-placeholder")).not.toBeNull();
+  });
+
+  it("removes the optimistic preview when upload fails", () => {
+    const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/other.png" alt="Other"></div>`;
+
+    const updated = replaceOptimisticImagePreview(html, "blob:preview", null);
+
+    expect(updated).not.toContain("blob:preview");
+    expect(updated).toContain("/other.png");
+  });
+
+  it("is a no-op when the preview source is absent", () => {
+    const html = `<div class="fmd-slide"><img src="/other.png" alt="Other"></div>`;
+
+    expect(
+      replaceOptimisticImagePreview(html, "blob:preview", "/final.png"),
+    ).toBe(html);
+  });
+
+  it("rebases an optimistic preview onto the latest slide content", () => {
+    const preview = {
+      previewSrc: "blob:preview",
+      replaceSrc: null,
+      alt: "preview.png",
+      position: { x: 200, y: 120 },
+      objectId: "preview-object",
+    };
+    const latest = `<div class="fmd-slide"><h1>Edited while uploading</h1></div>`;
+    const withPreview = applyOptimisticImagePreview(latest, preview);
+
+    expect(withPreview).toContain("Edited while uploading");
+    expect(hasOptimisticImagePreview(withPreview, "blob:preview")).toBe(true);
+    expect(applyOptimisticImagePreview(withPreview, preview)).toBe(withPreview);
+  });
+
+  it("strips concurrent previews without dropping the latest slide edit", () => {
+    const previews = [
+      { previewSrc: "blob:first", replaceSrc: null },
+      { previewSrc: "blob:second", replaceSrc: null },
+    ];
+    const withPreviews = previews.reduce(
+      (content, preview) => applyOptimisticImagePreview(content, preview),
+      `<div class="fmd-slide"><p>Later edit</p></div>`,
+    );
+    const persisted = stripOptimisticImagePreviews(withPreviews, previews);
+
+    expect(persisted).toContain("Later edit");
+    expect(persisted).not.toContain("blob:first");
+    expect(persisted).not.toContain("blob:second");
+  });
+
+  it("restores an existing image while persisting edits made during replacement", () => {
+    const preview = {
+      previewSrc: "blob:replacement",
+      replaceSrc: "/old.png",
+      alt: "replacement.png",
+    };
+    const withPreview = applyOptimisticImagePreview(
+      `<div class="fmd-slide"><p>Edited copy</p><img src="/old.png" alt="Old"></div>`,
+      preview,
+    );
+    const persisted = stripOptimisticImagePreviews(withPreview, [preview]);
+
+    expect(persisted).toContain("Edited copy");
+    expect(persisted).toContain('src="/old.png"');
+    expect(persisted).not.toContain("blob:replacement");
+  });
+
   it("replaces a clicked placeholder target with an uploaded image", () => {
     const html = `<div class="fmd-slide"><div class="fmd-img-placeholder" style="width: 100%; height: 100%;">Hero image</div></div>`;
     const updated = replaceImageTargetInSlideHtml(
