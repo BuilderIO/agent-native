@@ -9,6 +9,8 @@ Ease
 Ease In
 Ease In/Out
 Ease Out
+JetBrains Mono
+Playfair Display
 ~/.claude/ on a local disk
 302 + signed JWT
 401 · WWW-Authenticate

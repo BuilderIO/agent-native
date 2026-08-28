@@ -635,6 +635,12 @@ describe("imported deck webfonts", () => {
     );
   });
 
+  it("serves the shared picker's JetBrains Mono family", () => {
+    expect(resolveImportedFont("JetBrains Mono")?.href).toBe(
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    );
+  });
+
   it("maps a PPTX weight-suffixed typeface onto its base family", () => {
     expect(resolveImportedFont("Work Sans Medium")?.family).toBe("Work Sans");
     expect(resolveImportedFont("Open Sans SemiBold")?.family).toBe("Open Sans");
@@ -667,6 +673,17 @@ describe("imported deck webfonts", () => {
     expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
     expect(hrefs).toEqual([
       "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    ]);
+  });
+
+  it("rewrites CSSOM-serialized double-quoted picker values", () => {
+    const { html, hrefs } = prepareImportedFonts(
+      `<span style='font-family: "Playfair Display", serif;'>a</span>`,
+    );
+
+    expect(html).toContain('font-family: "Playfair Display", serif');
+    expect(hrefs).toEqual([
+      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap",
     ]);
   });
 

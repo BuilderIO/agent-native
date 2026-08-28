@@ -31,6 +31,7 @@ function snapshot(
     slideWidth: 1280,
     slideHeight: 720,
     color: "#ffffff",
+    fontFamily: "'Poppins', sans-serif",
     backgroundColor: "transparent",
     fontSize: 40,
     fontWeight: "700",
@@ -121,6 +122,15 @@ describe("multi-selection style snapshots", () => {
     expect(merged?.fontSize).toBe(40);
     expect(merged?.mixedTextStyles).toEqual(["fontSize"]);
     expect(merged?.isAbsolute).toBe(false);
+  });
+
+  it("marks font family as mixed when selected text uses different families", () => {
+    const merged = mergeSlideStyleSnapshots([
+      snapshot({ fontFamily: "'Poppins', sans-serif" }),
+      snapshot({ fontFamily: "'Inter', sans-serif" }),
+    ]);
+
+    expect(merged?.mixedTextStyles).toEqual(["fontFamily"]);
   });
 
   it("does not expose one style toolbar for mixed object kinds", () => {
