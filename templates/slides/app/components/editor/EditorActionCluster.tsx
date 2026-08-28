@@ -4,7 +4,7 @@ import {
   IconCircle,
   IconLine,
   IconPlus,
-  IconShape2,
+  IconShape,
   IconSquare,
   IconTextSize,
   IconTriangle,
@@ -158,7 +158,7 @@ export function EditorActionCluster({
                       shapeMenuOpen || shapeType ? ACTIVE_CLASS : IDLE_CLASS,
                     )}
                   >
-                    <IconShape2 className="size-4" />
+                    <IconShape className="size-4" />
                   </button>
                 </PopoverTrigger>
               </TooltipTrigger>
