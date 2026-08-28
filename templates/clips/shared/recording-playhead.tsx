@@ -8,6 +8,7 @@ import type {
   CSSProperties,
   FocusEvent,
   MouseEventHandler,
+  PointerEvent,
   ReactNode,
   TransitionEvent,
 } from "react";
@@ -393,6 +394,7 @@ export function RecordingPlayhead({
       if (event.key !== "Escape" || !confirmIntent) return;
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
       closeConfirm(false);
     };
     window.addEventListener("keydown", onKeyDown);
@@ -431,6 +433,21 @@ export function RecordingPlayhead({
     if (!confirmIntent) updateExpanded(false);
   }
 
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (
+      (event.pointerType !== "touch" && event.pointerType !== "pen") ||
+      confirmIntent ||
+      expanded
+    ) {
+      return;
+    }
+    // Touch and pen have no reliable hover state. Use the first tap to reveal
+    // the actions and keep it from becoming a drag on the recorder shell.
+    event.preventDefault();
+    event.stopPropagation();
+    updateExpanded(true);
+  }
+
   const timer = formatTimer(elapsedMs);
   const isConfirming = confirmIntent !== null;
   const classNames = ["recording-playhead", className]
@@ -448,6 +465,7 @@ export function RecordingPlayhead({
       onMouseLeave={handleMouseLeave}
       onFocusCapture={handleFocusCapture}
       onBlurCapture={handleBlurCapture}
+      onPointerDown={handlePointerDown}
       className={classNames}
       style={style}
     >
@@ -525,6 +543,7 @@ export function RecordingPlayhead({
             data-recording-playhead-button
             onClick={confirmAction}
             disabled={pendingAction !== null}
+            tabIndex={isConfirming ? 0 : -1}
             data-intent={confirmIntent ?? "delete"}
             className="recording-playhead__confirm-action"
           >
@@ -545,6 +564,7 @@ export function RecordingPlayhead({
             type="button"
             data-recording-playhead-button
             onClick={() => closeConfirm(true)}
+            tabIndex={isConfirming ? 0 : -1}
             className="recording-playhead__resume-action"
           >
             {labels.resumeConfirm}

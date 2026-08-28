@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -30,7 +30,23 @@ const labels: RecordingPlayheadLabels = {
   deleteConfirm: "Delete",
   resumeConfirm: "Resume",
 };
-const clipsRoot = resolve(process.cwd());
+function findClipsRoot(): string {
+  let current = resolve(process.cwd());
+  while (true) {
+    for (const candidate of [current, resolve(current, "templates/clips")]) {
+      if (existsSync(resolve(candidate, "shared/recording-playhead.tsx"))) {
+        return candidate;
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      throw new Error("Could not locate the Clips template from the test CWD");
+    }
+    current = parent;
+  }
+}
+
+const clipsRoot = findClipsRoot();
 
 describe("the recording playhead has a shared visual source", () => {
   let root: Root | null = null;
@@ -117,6 +133,78 @@ describe("the recording playhead has a shared visual source", () => {
       enteredPaused: false,
       resume: false,
     });
+  });
+
+  it("reveals actions on the first touch or pen interaction", async () => {
+    let expanded = false;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(RecordingPlayhead, {
+          elapsedMs: 1_000,
+          paused: false,
+          meter: createElement("span"),
+          labels,
+          onStop: () => {},
+          onTogglePause: () => {},
+          onConfirmAction: () => {},
+          onExpandedChange: (next) => {
+            expanded = next;
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const event = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerType: "touch",
+    });
+    await act(async () => {
+      container
+        ?.querySelector<HTMLElement>('[role="toolbar"]')
+        ?.dispatchEvent(event);
+      await Promise.resolve();
+    });
+
+    expect(expanded).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("keeps hidden confirmation actions out of tab navigation", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(RecordingPlayhead, {
+          elapsedMs: 1_000,
+          paused: false,
+          meter: createElement("span"),
+          labels,
+          onStop: () => {},
+          onTogglePause: () => {},
+          onConfirmAction: () => {},
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".recording-playhead__confirm-action",
+      )?.tabIndex,
+    ).toBe(-1);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".recording-playhead__resume-action",
+      )?.tabIndex,
+    ).toBe(-1);
   });
 
   it("guards native layout reports while a playhead transition is pending", () => {
