@@ -1016,6 +1016,10 @@ const messages = {
       "此操作無法復原,目前為止的錄製內容將被永久刪除。",
     resume: "繼續",
     discardRecording: "捨棄錄製",
+    restart: "重新錄製",
+    restartShortcut: "重新開始 (⌥⇧R)",
+    restartQuestion: "要開始新的錄製嗎?",
+    restartConfirm: "重新開始",
   },
   countdownOverlay: {
     startsIn: "錄製將在 {{count}} 後開始",

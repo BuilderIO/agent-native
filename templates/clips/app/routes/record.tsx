@@ -802,6 +802,7 @@ export default function RecordRoute() {
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const playheadConfirmOpenRef = useRef(false);
   // Tracks whether opening the discard-confirm dialog paused the recording
   // itself (vs. the user having already paused) — so "Resume" only resumes
   // when we're the ones who paused it, and the dialog never gets captured in
@@ -2388,6 +2389,44 @@ export default function RecordRoute() {
     }
   }, [doCancel, startFlow]);
 
+  const handlePlayheadConfirmChange = useCallback(
+    (
+      change: import("@shared/recording-playhead").RecordingPlayheadConfirmChange,
+    ) => {
+      playheadConfirmOpenRef.current = change.type === "open";
+      if (change.type === "open") {
+        if (!change.enteredPaused) {
+          const engine = engineRef.current;
+          engine?.pause();
+          liveTranscription.pause();
+          setIsPaused(true);
+        }
+        return;
+      }
+      if (change.resume || !change.enteredPaused) {
+        const engine = engineRef.current;
+        if (engine?.getState() === "paused") {
+          engine.resume();
+          liveTranscription.resume();
+          setIsPaused(false);
+        }
+      }
+    },
+    [liveTranscription],
+  );
+
+  const handlePlayheadConfirmAction = useCallback(
+    (intent: import("@shared/recording-playhead").RecordingPlayheadIntent) => {
+      playheadConfirmOpenRef.current = false;
+      if (intent === "restart") {
+        void restart();
+      } else {
+        void doCancel();
+      }
+    },
+    [doCancel, restart],
+  );
+
   const fireConfetti = useCallback(() => {
     confettiRef.current?.burst();
   }, []);
@@ -2397,7 +2436,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (discardConfirmOpen) return;
+      if (discardConfirmOpen || playheadConfirmOpenRef.current) return;
       const alt = e.altKey;
       const shift = e.shiftKey;
       const meta = e.metaKey;
@@ -2731,6 +2770,8 @@ export default function RecordRoute() {
           onTogglePause={togglePause}
           onStop={() => void doStop()}
           onCancel={requestDiscard}
+          onConfirmAction={handlePlayheadConfirmAction}
+          onConfirmChange={handlePlayheadConfirmChange}
         />
       )}
 

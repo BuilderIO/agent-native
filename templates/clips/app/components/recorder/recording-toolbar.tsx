@@ -1,17 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconPlayerPause,
-  IconPlayerPlay,
-  IconPlayerStop,
-  IconTrash,
-} from "@tabler/icons-react";
+import { LiveWaveform } from "@shared/live-waveform";
+import type {
+  RecordingPlayheadConfirmChange,
+  RecordingPlayheadIntent,
+} from "@shared/recording-playhead";
+import { RecordingPlayhead } from "@shared/recording-playhead";
 import { useEffect, useRef, useState } from "react";
-
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 
@@ -24,22 +18,22 @@ export interface RecordingToolbarProps {
   isPaused: boolean;
   onTogglePause: () => void;
   onStop: () => void;
+  /** Used by the upload/compress state, where delete still opens the route's
+   * existing confirmation dialog even though the playhead is not live. */
   onCancel: () => void;
+  onConfirmAction: (intent: RecordingPlayheadIntent) => void;
+  onConfirmChange: (change: RecordingPlayheadConfirmChange) => void;
 }
 
-const TOOLBAR_WIDTH = 232;
+// The shared playhead's resting width is the desktop pill's measured width.
+// Keep the drag anchor the same size so the web pill opens from its left edge
+// instead of centering an expanded capsule inside an invisible old toolbar.
+const TOOLBAR_WIDTH = 150;
 const TOOLBAR_HEIGHT = 56;
 // Drop the toolbar just below the centered "Recording your screen…" status
 // text (which sits at the viewport's vertical center) so the controls don't
 // overlap it.
 const TOOLBAR_TOP_OFFSET = 48;
-
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
 
 export function RecordingToolbar({
   active,
@@ -48,6 +42,8 @@ export function RecordingToolbar({
   onTogglePause,
   onStop,
   onCancel,
+  onConfirmAction,
+  onConfirmChange,
 }: RecordingToolbarProps) {
   const t = useT();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -63,6 +59,7 @@ export function RecordingToolbar({
     }, 250);
     return () => window.clearInterval(id);
   }, [active]);
+
   const [pos, setPos] = useState<BubblePosition>(() =>
     typeof window === "undefined"
       ? { left: 16, top: 16, corner: "tl" }
@@ -101,7 +98,7 @@ export function RecordingToolbar({
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
-    if (target.closest("[data-toolbar-btn]")) return;
+    if (target.closest("[data-recording-playhead-button]")) return;
     if (!rootRef.current) return;
     const rect = rootRef.current.getBoundingClientRect();
     dragOffsetRef.current = {
@@ -115,11 +112,9 @@ export function RecordingToolbar({
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragging) return;
     const { dx, dy } = dragOffsetRef.current;
-    const left = e.clientX - dx;
-    const top = e.clientY - dy;
     const clamped = clampRectToViewport(
-      left,
-      top,
+      e.clientX - dx,
+      e.clientY - dy,
       { width: TOOLBAR_WIDTH, height: TOOLBAR_HEIGHT },
       { width: window.innerWidth, height: window.innerHeight },
     );
@@ -128,106 +123,59 @@ export function RecordingToolbar({
 
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     if (!rootRef.current) return;
-    rootRef.current.releasePointerCapture(e.pointerId);
+    if (rootRef.current.hasPointerCapture(e.pointerId)) {
+      rootRef.current.releasePointerCapture(e.pointerId);
+    }
     setDragging(false);
   }
-
-  const bg = isPaused ? "bg-white text-black" : "bg-black/85 text-white";
 
   return (
     <div
       ref={rootRef}
-      role="toolbar"
-      aria-label={t("recordingToolbar.controls")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       className={
-        "fixed z-[95] flex items-center gap-1 rounded-full px-3 py-2 shadow-2xl backdrop-blur " +
-        bg +
-        (dragging ? " cursor-grabbing" : " cursor-grab")
+        dragging ? "fixed z-[95] cursor-grabbing" : "fixed z-[95] cursor-grab"
       }
       style={{
         left: pos.left,
         top: pos.top,
-        minWidth: TOOLBAR_WIDTH,
-        height: TOOLBAR_HEIGHT,
+        width: TOOLBAR_WIDTH,
+        minHeight: TOOLBAR_HEIGHT,
         touchAction: "none",
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            data-toolbar-btn
-            type="button"
-            onClick={onTogglePause}
-            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-            aria-label={
-              isPaused
-                ? t("recordingToolbar.resumeRecording")
-                : t("recordingToolbar.pauseRecording")
-            }
-          >
-            {isPaused ? (
-              <IconPlayerPlay className="h-4 w-4" />
-            ) : (
-              <IconPlayerPause className="h-4 w-4" />
-            )}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {isPaused
-            ? t("recordingToolbar.resumeShortcut")
-            : t("recordingToolbar.pauseShortcut")}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            data-toolbar-btn
-            type="button"
-            onClick={onStop}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black hover:bg-white/85"
-            aria-label={t("recordingToolbar.stop")}
-          >
-            <IconPlayerStop className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{t("recordingToolbar.stop")}</TooltipContent>
-      </Tooltip>
-
-      <div
-        className="mx-2 flex h-9 items-center gap-2 rounded-full bg-white/10 px-3 text-sm font-mono tabular-nums"
-        aria-label={t("recordingToolbar.elapsed")}
-      >
-        <span
-          className="inline-block h-2 w-2 rounded-full bg-white"
-          style={{
-            animation: isPaused ? "none" : "pulse 1s ease-in-out infinite",
-          }}
-        />
-        {formatElapsed(elapsedMs)}
-        {isPaused && (
-          <span className="text-[10px] uppercase tracking-wide">Paused</span>
-        )}
-      </div>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            data-toolbar-btn
-            type="button"
-            onClick={onCancel}
-            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
-            aria-label={t("recordingToolbar.cancel")}
-          >
-            <IconTrash className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{t("recordingToolbar.cancelShortcut")}</TooltipContent>
-      </Tooltip>
+      <RecordingPlayhead
+        elapsedMs={elapsedMs}
+        paused={isPaused}
+        enabled={active}
+        meter={<LiveWaveform level={null} dimmed={!active || isPaused} />}
+        labels={{
+          controls: t("recordingToolbar.controls"),
+          stop: t("recordingToolbar.stop"),
+          pause: t("recordingToolbar.pauseRecording"),
+          resume: t("recordingToolbar.resumeRecording"),
+          pauseShortcut: t("recordingToolbar.pauseShortcut"),
+          resumeShortcut: t("recordingToolbar.resumeShortcut"),
+          restart: t("recordingToolbar.restart"),
+          restartShortcut: t("recordingToolbar.restartShortcut"),
+          delete: t("recordingToolbar.cancel"),
+          deleteShortcut: t("recordingToolbar.cancelShortcut"),
+          restartQuestion: t("recordingToolbar.restartQuestion"),
+          deleteQuestion: () => t("recordingToolbar.discardConfirmTitle"),
+          restartConfirm: t("recordingToolbar.restartConfirm"),
+          deleteConfirm: t("recordingToolbar.discardRecording"),
+          resumeConfirm: t("recordingToolbar.resume"),
+        }}
+        onStop={onStop}
+        onTogglePause={onTogglePause}
+        onConfirmAction={onConfirmAction}
+        onDeleteRequest={onCancel}
+        onConfirmChange={onConfirmChange}
+        className={active ? undefined : "opacity-80"}
+      />
     </div>
   );
 }
