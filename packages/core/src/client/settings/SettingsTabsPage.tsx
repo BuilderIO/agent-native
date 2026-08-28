@@ -417,10 +417,14 @@ function SettingsTabsPageContent({
 
   useEffect(() => {
     if (isControlled) return;
-    const syncLocation = () => {
-      const pathname = routerLocation?.pathname ?? window.location.pathname;
-      const hash = routerLocation?.hash ?? window.location.hash;
-      const fromPath = activeTabFromLocation(tabs, fallbackTab, routerLocation);
+    const syncLocation = (event?: Event) => {
+      // Native history events carry the live browser URL. Reading the
+      // render-captured router location here would re-canonicalize the same
+      // legacy hash before BrowserRouter has rerendered.
+      const location = event ? undefined : routerLocation;
+      const pathname = location?.pathname ?? window.location.pathname;
+      const hash = location?.hash ?? window.location.hash;
+      const fromPath = activeTabFromLocation(tabs, fallbackTab, location);
       if (fromPath) setInternalTab(fromPath);
       if (appLocalPathname(pathname).startsWith("/settings/")) return;
       const hashValue = hash.replace(/^#/, "");

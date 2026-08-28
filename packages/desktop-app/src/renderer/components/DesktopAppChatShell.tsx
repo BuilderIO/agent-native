@@ -76,6 +76,7 @@ export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
   children: ReactNode;
+  onOpenSettings?: (section?: string) => void;
   desktopIdentityUnauthenticated?: boolean;
   desktopIdentityAuthenticated?: boolean;
   desktopIdentityStatus?: DesktopIdentityStatus | "checking";
@@ -90,6 +91,34 @@ export interface DesktopAppChatShellProps {
 
 const DESKTOP_APP_CHAT_OPEN_STORAGE_KEY =
   "agent-native.desktop-app-chat.sidebar-open";
+
+export function desktopSettingsTabForSection(section?: string | null): string {
+  const normalized = section?.replace(/^#/, "").trim().toLowerCase() ?? "";
+  if (normalized === "terminal") return "terminal";
+  if (normalized === "llm" || normalized === "app-models") return "providers";
+  if (
+    normalized === "integrations" ||
+    normalized === "connections" ||
+    normalized.startsWith("secrets:") ||
+    normalized === "secrets" ||
+    normalized === "email" ||
+    normalized === "browser"
+  ) {
+    return "connections";
+  }
+  if (
+    normalized === "hosting" ||
+    normalized === "database" ||
+    normalized === "uploads" ||
+    normalized === "auth" ||
+    normalized === "demo-mode" ||
+    normalized === "workspace" ||
+    normalized === "workspace-settings"
+  ) {
+    return "workspace";
+  }
+  return "general";
+}
 
 function wasDesktopAppChatSidebarOpenBeforeMount(): boolean {
   if (typeof window === "undefined") return false;
@@ -145,6 +174,7 @@ export default function DesktopAppChatShell({
   appId,
   appName,
   children,
+  onOpenSettings,
   desktopIdentityUnauthenticated = false,
   desktopIdentityAuthenticated = false,
   desktopIdentityStatus,
@@ -297,6 +327,11 @@ export default function DesktopAppChatShell({
     () =>
       localAgentId ? createDesktopLocalAgentRuntime(localAgentId) : undefined,
     [localAgentId],
+  );
+  const openDesktopSettings = useCallback(
+    (section?: string) =>
+      onOpenSettings?.(desktopSettingsTabForSection(section)),
+    [onOpenSettings],
   );
 
   installDesktopChatFetchRelay();
@@ -552,6 +587,9 @@ export default function DesktopAppChatShell({
                 contextKey: `desktop-app:${appId}`,
               }}
               toggleScopeId={toggleScopeId}
+              onOpenSettings={
+                onOpenSettings && isActive ? openDesktopSettings : undefined
+              }
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"

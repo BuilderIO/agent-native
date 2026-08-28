@@ -185,6 +185,25 @@ export function settingsRouteHashForSection(
 ): string {
   const raw = section?.replace(/^#/, "").trim() ?? "";
   const normalized = raw.toLowerCase();
+  if (
+    [
+      "llm",
+      "app-models",
+      "limits",
+      "demo-mode",
+      "hosting",
+      "database",
+      "uploads",
+      "auth",
+      "email",
+      "browser",
+      "background",
+      "a2a",
+      "usage",
+    ].includes(normalized)
+  ) {
+    return `#${normalized}`;
+  }
   if (normalized === "voice") return "#voice";
   if (normalized.startsWith("secrets:")) {
     return `#secrets:${raw.slice("secrets:".length)}`;
@@ -200,9 +219,7 @@ export function settingsRouteHashForSection(
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
     normalized === "integrations" ||
-    normalized === "connections" ||
-    normalized === "email" ||
-    normalized === "browser"
+    normalized === "connections"
   ) {
     return "#integrations";
   }
@@ -211,29 +228,40 @@ export function settingsRouteHashForSection(
     normalized === "workspace" ||
     normalized === "workspace-settings" ||
     normalized === "organization" ||
-    normalized === "org" ||
-    normalized === "hosting" ||
-    normalized === "database" ||
-    normalized === "uploads" ||
-    normalized === "auth" ||
-    normalized === "demo-mode"
+    normalized === "org"
   ) {
     return "#workspace";
   }
   return "#agent";
 }
 
-export function AgentPanelSettingsNavigation() {
+export function AgentPanelSettingsNavigation({
+  onOpenSettings,
+}: {
+  onOpenSettings?: (section?: string) => void;
+} = {}) {
   const navigate = useNavigate();
 
   useEffect(() => {
     function handleOpenSettings(event: Event) {
       const section = (event as CustomEvent<{ section?: string }>).detail
         ?.section;
-      void navigate({
+      if (onOpenSettings) {
+        onOpenSettings(section);
+        return;
+      }
+      const navigation = navigate({
         pathname: appPath("/settings"),
         hash: settingsRouteHashForSection(section, window.location.hash),
       });
+      const notifyLocationChange = () => {
+        window.dispatchEvent(new Event("popstate"));
+        window.dispatchEvent(new Event("hashchange"));
+      };
+      void Promise.resolve(navigation).then(
+        notifyLocationChange,
+        () => undefined,
+      );
     }
     window.addEventListener(
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
@@ -244,7 +272,7 @@ export function AgentPanelSettingsNavigation() {
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [navigate]);
+  }, [navigate, onOpenSettings]);
 
   return null;
 }
@@ -796,6 +824,8 @@ export interface AgentPanelProps extends Omit<
   isWideDrawer?: boolean;
   /** Called when the user returns the wide drawer to the normal layout. */
   onExitWideDrawer?: () => void;
+  /** Route settings requests to a host-owned settings surface. */
+  onOpenSettings?: (section?: string) => void;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
   /** Restore the previously active chat thread on mount. Default: true. */
@@ -967,6 +997,7 @@ function AgentPanelInner({
   onSnapTo75Percent,
   isWideDrawer,
   onExitWideDrawer,
+  onOpenSettings,
   storageKey,
   restoreActiveThread = true,
   scope,
@@ -2207,7 +2238,7 @@ function AgentPanelInner({
 
   return (
     <ThinkingDisplayProvider value={assistantChatProps.thinkingDisplay}>
-      <AgentPanelSettingsNavigation />
+      <AgentPanelSettingsNavigation onOpenSettings={onOpenSettings} />
       <div
         className={cn(
           "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
@@ -3105,6 +3136,8 @@ export interface AgentSidebarProps {
   openOnChatRunning?: boolean;
   /** Called when the user selects the full-view action from the chat sidebar. */
   onFullscreenRequest?: () => void;
+  /** Route settings requests to a host-owned settings surface. */
+  onOpenSettings?: (section?: string) => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Identity used to route host-scoped sidebar toggle events. */
@@ -3174,6 +3207,7 @@ export function AgentSidebar({
   composerPlaceholder,
   openOnChatRunning = false,
   onFullscreenRequest,
+  onOpenSettings,
   scope,
   toggleScopeId,
   isolateHistoryByScope = false,
@@ -3996,6 +4030,7 @@ export function AgentSidebar({
             isWideDrawer={isMobile ? false : isWideDrawer}
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
             onFullViewRequest={onFullscreenRequest}
+            onOpenSettings={onOpenSettings}
             storageKey={storageKey}
             restoreActiveThread={restoreActiveThread}
             scope={scope}

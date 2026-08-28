@@ -176,10 +176,61 @@ describe("AgentPanel header tab visibility", () => {
       "#agent:automations",
     );
     expect(settingsRouteHashForSection("voice")).toBe("#voice");
+    for (const section of [
+      "llm",
+      "uploads",
+      "hosting",
+      "database",
+      "auth",
+      "demo-mode",
+      "limits",
+      "app-models",
+      "background",
+      "a2a",
+      "email",
+      "browser",
+      "usage",
+    ]) {
+      expect(settingsRouteHashForSection(section)).toBe(`#${section}`);
+    }
   });
 });
 
 describe("AgentPanel settings navigation", () => {
+  it("routes settings requests to a host-owned settings surface", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const onOpenSettings = vi.fn();
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation, {
+              onOpenSettings,
+            }),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "voice" },
+          }),
+        );
+      });
+
+      expect(onOpenSettings).toHaveBeenCalledWith("voice");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
   it("routes a mounted settings request to an existing secret-specific hash", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -260,6 +311,44 @@ describe("AgentPanel settings navigation", () => {
       act(() => root.unmount());
       container.remove();
       window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("notifies mounted settings sections after browser navigation", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const popstate = vi.fn();
+    const hashchange = vi.fn();
+    window.addEventListener("popstate", popstate);
+    window.addEventListener("hashchange", hashchange);
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+          ),
+        );
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "uploads" },
+          }),
+        );
+      });
+
+      expect(popstate).toHaveBeenCalledTimes(1);
+      expect(hashchange).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("popstate", popstate);
+      window.removeEventListener("hashchange", hashchange);
+      act(() => root.unmount());
+      container.remove();
     }
   });
 });

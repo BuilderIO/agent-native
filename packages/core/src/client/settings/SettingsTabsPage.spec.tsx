@@ -496,6 +496,8 @@ describe("SettingsTabsPage", () => {
       );
     });
 
+    expect(window.location.pathname).toBe("/settings/agent");
+    expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Agent content");
     const navigateButton = container.querySelector("button");
     expect(navigateButton).not.toBeNull();
@@ -507,7 +509,7 @@ describe("SettingsTabsPage", () => {
   });
 
   it("keeps BrowserRouter in sync when a tab updates native history", () => {
-    window.history.replaceState(null, "", "/settings/agent");
+    window.history.replaceState(null, "", "/settings#agent");
 
     act(() => {
       root.render(
