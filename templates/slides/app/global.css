@@ -1,4 +1,4 @@
-/* Self-hosted via @fontsource-variable/inter and @fontsource/poppins — no render-blocking Google Fonts request */
+/* Self-hosted via Fontsource; no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 /* Poppins has no variable-font Fontsource package; use static weights */
 @import "@fontsource/poppins/300.css";
@@ -7,6 +7,11 @@
 @import "@fontsource/poppins/600.css";
 @import "@fontsource/poppins/700.css";
 @import "@fontsource/poppins/800.css";
+/* JetBrains Mono is offered by the shared font-family picker. */
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";

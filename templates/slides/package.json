@@ -24,6 +24,7 @@
     "@excalidraw/excalidraw": "^0.18.0",
     "@excalidraw/mermaid-to-excalidraw": "^2.2.2",
     "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/poppins": "^5.2.7",
     "@google/genai": "^1.42.0",
     "@libsql/client": "^0.15.0",

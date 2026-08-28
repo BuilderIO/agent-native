@@ -676,6 +676,7 @@ const STATIC_WEIGHT_GOOGLE_FONTS = [
   "Inconsolata",
   "Instrument Sans",
   "Josefin Sans",
+  "JetBrains Mono",
   "Kanit",
   "Karla",
   "Lato",

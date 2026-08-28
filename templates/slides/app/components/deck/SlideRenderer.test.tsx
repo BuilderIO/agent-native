@@ -617,6 +617,12 @@ describe("imported deck webfonts", () => {
     );
   });
 
+  it("serves the shared picker's JetBrains Mono family", () => {
+    expect(resolveImportedFont("JetBrains Mono")?.href).toBe(
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    );
+  });
+
   it("maps a PPTX weight-suffixed typeface onto its base family", () => {
     expect(resolveImportedFont("Work Sans Medium")?.family).toBe("Work Sans");
     expect(resolveImportedFont("Open Sans SemiBold")?.family).toBe("Open Sans");
