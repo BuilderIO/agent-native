@@ -1358,6 +1358,7 @@ describe("server/auth", () => {
     it("opts the current browser out and forwards Better Auth logout cookies", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
@@ -1406,6 +1407,9 @@ describe("server/auth", () => {
 
       const setCookie = event.res.headers.get("set-cookie") ?? "";
       expect(setCookie).toContain("agent-native-first-run=; Max-Age=0");
+      expect(setCookie).toContain(
+        "agent-native-first-run=; Max-Age=0; Domain=.example.com",
+      );
       expect(setCookie).toContain("_auth_disabled_opt_out=1");
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=None");
@@ -3390,6 +3394,13 @@ describe("server/auth", () => {
       const results = (await Promise.all([first, second])) as Response[];
 
       expect(results.every((result) => result.status === 302)).toBe(true);
+      expect(
+        results.every((result) =>
+          (result.headers.get("set-cookie") ?? "").includes(
+            "agent-native-first-run=1",
+          ),
+        ),
+      ).toBe(true);
       expect(results.map((result) => result.headers.get("location"))).toEqual([
         "/dispatch/overview",
         "/dispatch/overview",
@@ -3702,6 +3713,9 @@ describe("server/auth", () => {
       expect(signInEmail).toHaveBeenCalledWith({
         body: { email: "user@example.com", password: "secret-password" },
       });
+      expect(event.res.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
     });
 
     it("rejects register emails that Better Auth would reject before signup", async () => {
@@ -4534,6 +4548,9 @@ describe("server/auth", () => {
       await baHandler(event);
 
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
+      expect(event.res.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
     });
 
     it("carries browser signup attribution through the direct Better Auth handler", async () => {
@@ -7765,6 +7782,7 @@ describe("server/auth", () => {
   describe("local dev auth convenience", () => {
     it("mounts the route and reuses the existing auto dev account session", async () => {
       vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("COOKIE_DOMAIN", ".example.com");
       delete process.env.AUTH_DISABLED;
       delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
 
@@ -7831,6 +7849,9 @@ describe("server/auth", () => {
       expect(signUpEmail).not.toHaveBeenCalled();
       expect(event.res.headers.get("set-cookie")).toContain(
         "better-auth-dev-session",
+      );
+      expect(event.res.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1; Max-Age=86400; Domain=.example.com",
       );
 
       mockExecute.mockImplementation(async (query: { sql?: string }) => ({
