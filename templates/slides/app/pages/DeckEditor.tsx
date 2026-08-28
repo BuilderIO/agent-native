@@ -911,6 +911,7 @@ export default function DeckEditor() {
         objectFit?: "cover" | "contain";
         objectPosition?: ImageObjectPosition;
       },
+      imageOccurrence?: number,
     ) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
@@ -918,6 +919,7 @@ export default function DeckEditor() {
         slide.content,
         imgSrc,
         updates,
+        imageOccurrence,
       );
       if (updatedContent !== slide.content) {
         updateSlide(id, slide.id, { content: updatedContent });
@@ -928,15 +930,19 @@ export default function DeckEditor() {
 
   // Toggle object-fit on an image in the current slide
   const toggleObjectFit = useCallback(
-    (imgSrc: string, newFit: "cover" | "contain") => {
-      updateImageFit(imgSrc, { objectFit: newFit });
+    (imgSrc: string, newFit: "cover" | "contain", imageOccurrence?: number) => {
+      updateImageFit(imgSrc, { objectFit: newFit }, imageOccurrence);
     },
     [updateImageFit],
   );
 
   const updateObjectPosition = useCallback(
-    (imgSrc: string, objectPosition: ImageObjectPosition) => {
-      updateImageFit(imgSrc, { objectPosition });
+    (
+      imgSrc: string,
+      objectPosition: ImageObjectPosition,
+      imageOccurrence?: number,
+    ) => {
+      updateImageFit(imgSrc, { objectPosition }, imageOccurrence);
     },
     [updateImageFit],
   );

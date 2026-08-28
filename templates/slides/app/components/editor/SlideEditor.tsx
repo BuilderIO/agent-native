@@ -634,10 +634,15 @@ interface SlideEditorProps {
     url: string,
     position?: SlideImageDropPosition,
   ) => void;
-  onToggleObjectFit: (imgSrc: string, newFit: "cover" | "contain") => void;
+  onToggleObjectFit: (
+    imgSrc: string,
+    newFit: "cover" | "contain",
+    imageOccurrence?: number,
+  ) => void;
   onChangeObjectPosition: (
     imgSrc: string,
     objectPosition: ImageObjectPosition,
+    imageOccurrence?: number,
   ) => void;
   /** Current user display info for cursor caret */
   collabUser?: { name: string; color: string };
@@ -1159,6 +1164,7 @@ export default function SlideEditor({
     src: string;
     objectFit: "cover" | "contain";
     objectPosition: ImageObjectPosition;
+    imageOccurrence: number;
   } | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
@@ -5088,12 +5094,21 @@ export default function SlideEditor({
         const position = normalizeImageObjectPosition(
           img.style.objectPosition || computedStyle.objectPosition,
         );
+        const imageOccurrence = Math.max(
+          0,
+          Array.from(
+            getSlideContent()?.querySelectorAll<HTMLImageElement>("img") ?? [],
+          )
+            .filter((candidate) => candidate.getAttribute("src") === src)
+            .indexOf(img),
+        );
         setSelectedImg(img);
         setImageOverlay({
           rect,
           src,
           objectFit: fit,
           objectPosition: position,
+          imageOccurrence,
         });
         publishImageSelection(img);
         return;
@@ -5110,11 +5125,12 @@ export default function SlideEditor({
           src: getPlaceholderTarget(placeholder),
           objectFit: "cover",
           objectPosition: "center center",
+          imageOccurrence: 0,
         });
         publishImageSelection(placeholder);
       }
     },
-    [buildSelectionState, getPlaceholderTarget],
+    [buildSelectionState, getPlaceholderTarget, getSlideContent],
   );
 
   // Browsers put the dragged element's outerHTML on the "text/html" data
@@ -6151,11 +6167,19 @@ export default function SlideEditor({
           onToggleObjectFit={() => {
             const newFit =
               imageOverlay.objectFit === "cover" ? "contain" : "cover";
-            onToggleObjectFit(imageOverlay.src, newFit);
+            onToggleObjectFit(
+              imageOverlay.src,
+              newFit,
+              imageOverlay.imageOccurrence,
+            );
             setImageOverlay({ ...imageOverlay, objectFit: newFit });
           }}
           onChangeObjectPosition={(objectPosition) => {
-            onChangeObjectPosition(imageOverlay.src, objectPosition);
+            onChangeObjectPosition(
+              imageOverlay.src,
+              objectPosition,
+              imageOverlay.imageOccurrence,
+            );
             setImageOverlay({ ...imageOverlay, objectPosition });
           }}
           onClose={() => setImageOverlay(null)}

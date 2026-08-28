@@ -7,7 +7,7 @@ import {
   IconMaximize,
   IconMinimize,
 } from "@tabler/icons-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -44,6 +44,7 @@ export default function ImageOverlay({
 }: ImageOverlayProps) {
   const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
+  const [menuHeight, setMenuHeight] = useState(0);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -62,6 +63,11 @@ export default function ImageOverlay({
     };
   }, [onClose]);
 
+  useLayoutEffect(() => {
+    const height = menuRef.current?.getBoundingClientRect().height;
+    if (height && height !== menuHeight) setMenuHeight(height);
+  }, [anchorRect, menuHeight, objectFit]);
+
   const menuWidth = 180;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -70,13 +76,14 @@ export default function ImageOverlay({
 
   if (vw < 640) {
     left = Math.max(8, (vw - menuWidth) / 2);
-    top = Math.min(anchorRect.bottom + 8, vh - 260);
+    top = anchorRect.bottom + 8;
   } else {
     left = anchorRect.left - menuWidth - 8;
     top = anchorRect.top + anchorRect.height / 2 - 100;
     if (left < 8) left = 8;
   }
-  top = Math.max(8, Math.min(top, vh - 220));
+  const maxTop = Math.max(8, vh - (menuHeight || 220) - 8);
+  top = Math.max(8, Math.min(top, maxTop));
 
   return createPortal(
     <div

@@ -80,6 +80,14 @@ export function normalizeImageObjectPosition(
     right: "right center",
     top: "center top",
     bottom: "center bottom",
+    "top left": "left top",
+    "top center": "center top",
+    "top right": "right top",
+    "center left": "left center",
+    "center right": "right center",
+    "bottom left": "left bottom",
+    "bottom center": "center bottom",
+    "bottom right": "right bottom",
     "0% 0%": "left top",
     "50% 0%": "center top",
     "100% 0%": "right top",
@@ -194,27 +202,84 @@ function replaceImageSrc(
   return serializeFragment(doc);
 }
 
-export function updateImageFitInSlideHtml(
-  content: string,
-  src: string,
-  updates: {
-    objectFit?: "cover" | "contain";
-    objectPosition?: ImageObjectPosition;
-  },
-): string {
-  const doc = parseFragment(content);
-  const image = Array.from(
-    doc.body.querySelectorAll<HTMLImageElement>("img"),
-  ).find((candidate) => candidate.getAttribute("src") === src);
-  if (!image) return content;
+type ImageStyleUpdates = {
+  objectFit?: "cover" | "contain";
+  objectPosition?: ImageObjectPosition;
+};
 
+function applyImageStyle(
+  image: HTMLImageElement,
+  updates: ImageStyleUpdates,
+): void {
   if (updates.objectFit) {
     image.style.setProperty("object-fit", updates.objectFit);
   }
   if (updates.objectPosition) {
+    if (!updates.objectFit) image.style.setProperty("object-fit", "cover");
     image.style.setProperty("object-position", updates.objectPosition);
   }
-  return serializeFragment(doc);
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+const MARKDOWN_IMAGE_PATTERN =
+  /!\[([^\]]*)\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+
+function updateMarkdownImage(
+  content: string,
+  src: string,
+  updates: ImageStyleUpdates,
+  imageOccurrence: number,
+): string {
+  let matchingImage = 0;
+  let updated = false;
+  const nextContent = content.replace(
+    MARKDOWN_IMAGE_PATTERN,
+    (match, alt: string, rawSrc: string, rawTitle?: string) => {
+      const markdownSrc = rawSrc.startsWith("<") ? rawSrc.slice(1, -1) : rawSrc;
+      if (markdownSrc !== src || matchingImage++ !== imageOccurrence) {
+        return match;
+      }
+
+      const style = [
+        updates.objectFit && `object-fit: ${updates.objectFit}`,
+        updates.objectPosition && `object-position: ${updates.objectPosition}`,
+      ]
+        .filter(Boolean)
+        .join("; ");
+      const title = rawTitle
+        ? ` title="${escapeHtmlAttribute(rawTitle.slice(1, -1))}"`
+        : "";
+      updated = true;
+      return `<img src="${escapeHtmlAttribute(markdownSrc)}" alt="${escapeHtmlAttribute(alt)}"${title} style="${style};">`;
+    },
+  );
+  return updated ? nextContent : content;
+}
+
+export function updateImageFitInSlideHtml(
+  content: string,
+  src: string,
+  updates: ImageStyleUpdates,
+  imageOccurrence = 0,
+): string {
+  const doc = parseFragment(content);
+  const matchingImages = Array.from(
+    doc.body.querySelectorAll<HTMLImageElement>("img"),
+  ).filter((candidate) => candidate.getAttribute("src") === src);
+  const image = matchingImages[imageOccurrence];
+  if (image) {
+    applyImageStyle(image, updates);
+    return serializeFragment(doc);
+  }
+
+  return updateMarkdownImage(content, src, updates, imageOccurrence);
 }
 
 export function insertImageIntoSlideHtml(

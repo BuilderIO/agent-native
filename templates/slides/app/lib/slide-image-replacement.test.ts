@@ -5,6 +5,7 @@ import {
   createPlaceholderImageTarget,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
+  normalizeImageObjectPosition,
   replaceImageTargetInSlideHtml,
   updateImageFitInSlideHtml,
 } from "./slide-image-replacement";
@@ -58,6 +59,48 @@ describe("slide image replacement", () => {
     expect(img?.getAttribute("src")).toBe(src);
     expect(img?.style.objectFit).toBe("cover");
     expect(img?.style.objectPosition).toBe("right bottom");
+  });
+
+  it("updates the selected duplicate image", () => {
+    const src = "https://cdn.example.com/shared.png";
+    const html = `<div class="fmd-slide"><img src="${src}" style="object-fit: contain;"><img src="${src}" style="object-fit: contain;"></div>`;
+    const doc = new DOMParser().parseFromString(
+      updateImageFitInSlideHtml(
+        html,
+        src,
+        { objectFit: "cover", objectPosition: "right bottom" },
+        1,
+      ),
+      "text/html",
+    );
+    const images = doc.querySelectorAll("img");
+
+    expect(images[0]?.style.objectFit).toBe("contain");
+    expect(images[1]?.style.objectFit).toBe("cover");
+    expect(images[1]?.style.objectPosition).toBe("right bottom");
+  });
+
+  it("persists fit and position for a Markdown image", () => {
+    const src = "https://cdn.example.com/chart.png?width=800&height=400";
+    const updated = updateImageFitInSlideHtml(`![Chart](${src})`, src, {
+      objectFit: "cover",
+      objectPosition: "right bottom",
+    });
+    const img = firstImage(updated);
+
+    expect(img?.getAttribute("src")).toBe(src);
+    expect(img?.getAttribute("alt")).toBe("Chart");
+    expect(img?.style.objectFit).toBe("cover");
+    expect(img?.style.objectPosition).toBe("right bottom");
+  });
+
+  it.each([
+    ["top left", "left top"],
+    ["top right", "right top"],
+    ["bottom left", "left bottom"],
+    ["bottom right", "right bottom"],
+  ])("normalizes vertical-first position %s", (value, expected) => {
+    expect(normalizeImageObjectPosition(value)).toBe(expected);
   });
 
   it("drops into the first placeholder when no target is selected", () => {

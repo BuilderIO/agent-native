@@ -1153,6 +1153,8 @@ button[title="Open agent sidebar"] {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   animation: overlay-fade-in 0.12s ease-out;
 }
 
