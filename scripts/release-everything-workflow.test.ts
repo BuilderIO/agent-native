@@ -151,7 +151,9 @@ describe("release everything workflow", () => {
     );
     assert.match(source, /wasSupersededPendingRun/);
     assert.match(source, /retryIfSupersededPending/);
+    assert.match(source, /candidate\.id !== run\.id/);
     assert.match(source, /candidate\.event === "push"/);
+    assert.match(source, /candidateCreatedAt >= runCreatedAt/);
     assert.match(source, /candidateCreatedAt <= runUpdatedAt/);
     assert.match(source, /Number\.isFinite\(runCreatedAt\)/);
     assert.match(source, /Math\.min\(pollIntervalMs, remaining\)/);

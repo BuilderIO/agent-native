@@ -150,13 +150,14 @@ jobs:
               ) {
                 return false;
               }
-              return (await listAutoPublishRuns()).some(
+                return (await listAutoPublishRuns()).some(
                 (candidate) => {
                   const candidateCreatedAt = Date.parse(candidate.created_at || "");
                   return (
+                    candidate.id !== run.id &&
                     candidate.event === "push" &&
                     Number.isFinite(candidateCreatedAt) &&
-                    candidateCreatedAt > runCreatedAt &&
+                    candidateCreatedAt >= runCreatedAt &&
                     candidateCreatedAt <= runUpdatedAt
                   );
                 },
