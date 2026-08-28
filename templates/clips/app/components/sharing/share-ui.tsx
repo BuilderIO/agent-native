@@ -190,7 +190,7 @@ export function useResourceVisibilityMutation(
           if (previous) {
             queryClient.setQueryData(shareQueryKey, previous);
           } else {
-            queryClient.invalidateQueries({ queryKey: shareQueryKey });
+            void queryClient.invalidateQueries({ queryKey: shareQueryKey });
           }
         },
       },
@@ -519,7 +519,7 @@ export function InvitePeopleField({
       {
         onSuccess: () => {
           setEmail("");
-          sharesQuery.refetch();
+          void sharesQuery.refetch();
         },
         onError: (err: unknown) => onError?.(err),
       },

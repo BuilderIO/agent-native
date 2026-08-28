@@ -127,7 +127,7 @@ export function useDbAdminAgentSync({
         key: TABLE_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteSelectedObjectIfOwned(source);
+      void deleteSelectedObjectIfOwned(source);
       return;
     }
 
@@ -158,7 +158,7 @@ export function useDbAdminAgentSync({
         key: TABLE_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteSelectedObjectIfOwned(source);
+      void deleteSelectedObjectIfOwned(source);
     };
   }, [enabled, table, mode]);
 }

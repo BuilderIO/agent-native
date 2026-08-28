@@ -61,7 +61,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const onImportRef = useRef(onImport);
   onImportRef.current = onImport;
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const importSource = useActionMutation("import-design-source");
@@ -129,7 +130,9 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       } else {
         toast.success(notification.title);
       }
-      navigate(`/design/${result?.designId ?? context.designId}?view=overview`);
+      void navigate(
+        `/design/${result?.designId ?? context.designId}?view=overview`,
+      );
     },
     [context.designId, formatNumber, navigate, queryClient, t],
   );

@@ -234,7 +234,13 @@ export function FieldRenderer({
             />
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
               <span>{field.validation?.min || 1}</span>
-              <span>{String(value ?? "-")}</span>
+              <span>
+                {typeof value === "object"
+                  ? JSON.stringify(value)
+                  : String(
+                      (value as string | number | boolean | bigint) ?? "-",
+                    )}
+              </span>
               <span>{field.validation?.max || 10}</span>
             </div>
           </div>

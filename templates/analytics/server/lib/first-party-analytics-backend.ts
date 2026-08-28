@@ -533,7 +533,7 @@ function bindSqlArguments(sql: string, args: Array<string | null>): string {
 }
 
 function maskSqlLiterals(sql: string): string {
-  const chars = [...sql];
+  const chars = Array.from(sql);
   let inLiteral = false;
   for (let index = 0; index < chars.length; index++) {
     if (chars[index] !== "'") continue;

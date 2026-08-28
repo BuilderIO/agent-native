@@ -934,7 +934,7 @@ export function useActionMutation<
       // Most mutations change app data broadly. High-volume background
       // mutations can opt out and perform narrower invalidation in onSuccess.
       if (!skipActionQueryInvalidation) {
-        queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries({ queryKey: ["action"] });
       }
       return (onSuccess as Function)?.(...args);
     },

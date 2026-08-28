@@ -93,13 +93,13 @@ export default function BookingPage() {
   // Handle slug redirects (old URL → new URL)
   useEffect(() => {
     if (bookingLink?.redirectPath) {
-      navigate(bookingLink.redirectPath, { replace: true });
+      void navigate(bookingLink.redirectPath, { replace: true });
       return;
     }
     if (!bookingLink?.redirect) return;
     const newSlug = bookingLink.redirect;
     const path = username ? `/book/${username}/${newSlug}` : `/book/${newSlug}`;
-    navigate(path, { replace: true });
+    void navigate(path, { replace: true });
   }, [bookingLink?.redirect, bookingLink?.redirectPath, username, navigate]);
 
   const [step, setStep] = useState<Step>("date");

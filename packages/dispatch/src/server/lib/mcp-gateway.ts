@@ -284,7 +284,7 @@ function isTransientDispatchAskAppStatusError(err: unknown): boolean {
 function dispatchAskAppStatusErrorCategory(
   err: unknown,
 ): DispatchAskAppStatusErrorCategory | null {
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message = err instanceof Error ? err.message : safeJson(err);
   const causeCode = dispatchAskAppStatusErrorCauseCode(err) ?? "";
   const diagnostic = `${message} ${causeCode}`;
   if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
@@ -490,6 +490,15 @@ function safeAppPath(raw: unknown): string | null {
   }
   if (parsed.pathname !== rawPath) return null;
   return value;
+}
+
+function safeJson(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "[unserializable]";
+  }
 }
 
 function appendParamsToPath(
@@ -985,7 +994,7 @@ function isRetryableTargetMcpError(error: unknown): boolean {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : safeJson(error);
   if (
     /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
       message,
@@ -1004,7 +1013,7 @@ function isTargetMcpAuthError(error: unknown): boolean {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : safeJson(error);
   return /\b401\b|\b403\b|unauthorized|forbidden|invalid(?: or expired)? (?:a2a )?token|authentication required/i.test(
     message,
   );
@@ -1016,7 +1025,7 @@ function targetMcpErrorStatus(error: unknown): number | undefined {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : safeJson(error);
   const status = message.match(/\b([45]\d{2})\b/)?.[1];
   return status ? Number(status) : undefined;
 }

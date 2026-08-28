@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Internal Better Auth instance — lazily created, not exported to templates.
  *
@@ -1835,7 +1845,7 @@ async function createBetterAuthInstance(
               return;
             }
 
-            const path = String(context?.path ?? "").toLowerCase();
+            const path = stringifyValue(context?.path ?? "").toLowerCase();
             const requestUrl = context?.request?.url ?? "";
             const providerValues = [
               path,

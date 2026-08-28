@@ -2564,7 +2564,15 @@ function markerFields(
 ): Array<{ label: string; value: string }> | undefined {
   const fields = entries.flatMap(([label, value]) => {
     if (value === undefined || value === null || value === "") return [];
-    return [{ label, value: String(value) }];
+    const text =
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      typeof value === "bigint" ||
+      typeof value === "symbol"
+        ? String(value)
+        : (JSON.stringify(value) ?? "");
+    return text ? [{ label, value: text }] : [];
   });
   return fields.length ? fields : undefined;
 }

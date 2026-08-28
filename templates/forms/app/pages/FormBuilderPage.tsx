@@ -568,7 +568,7 @@ export function FormBuilderPage() {
       {
         onSuccess: () => {
           toast.success(t("forms.movedToArchive"));
-          navigate("/forms");
+          void navigate("/forms");
         },
       },
     );
@@ -1247,7 +1247,12 @@ function BuilderContent({
 function responseValueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
   if (Array.isArray(val)) return val.join(", ");
-  return String(val);
+  return typeof val === "string" ||
+    typeof val === "number" ||
+    typeof val === "boolean" ||
+    typeof val === "bigint"
+    ? String(val)
+    : JSON.stringify(val);
 }
 
 function compareResponseValues(a: unknown, b: unknown): number {
@@ -1271,7 +1276,8 @@ function compareResponseValues(a: unknown, b: unknown): number {
 
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { data, isLoading, error, refetch } = useFormResponses(formId);
   const [search, setSearch] = useState("");
   // `_submitted` is the synthetic Submitted column. Field columns sort by id.

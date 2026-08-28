@@ -258,22 +258,22 @@ export async function ensureTable(): Promise<void> {
 }
 
 function toRun(row: Record<string, unknown>, now: number): AutomationRun {
-  const stored = String(row.status) as AutomationRunStatus;
+  const stored = stringifyValue(row.status) as AutomationRunStatus;
   const startedAt = Number(row.started_at);
   const status: AutomationRunStatus =
     stored === "running" && now - startedAt > resolveRunLivenessCeilingMs()
       ? "interrupted"
       : stored;
   return {
-    id: String(row.id),
-    owner: String(row.owner),
-    automation: String(row.automation),
-    path: String(row.path),
-    scope: row.scope == null ? null : String(row.scope),
-    orgId: row.org_id == null ? null : String(row.org_id),
-    appId: row.app_id == null ? null : String(row.app_id),
-    runId: row.run_id == null ? null : String(row.run_id),
-    threadId: row.thread_id == null ? null : String(row.thread_id),
+    id: stringifyValue(row.id),
+    owner: stringifyValue(row.owner),
+    automation: stringifyValue(row.automation),
+    path: stringifyValue(row.path),
+    scope: row.scope == null ? null : stringifyValue(row.scope),
+    orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+    appId: row.app_id == null ? null : stringifyValue(row.app_id),
+    runId: row.run_id == null ? null : stringifyValue(row.run_id),
+    threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
     status,
     startedAt,
     finishedAt: row.finished_at == null ? null : Number(row.finished_at),
@@ -282,13 +282,13 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         ? INTERRUPTED_RUN_MESSAGE
         : row.error == null
           ? null
-          : String(row.error),
+          : stringifyValue(row.error),
     errorCode:
       row.error_code == null && status === "interrupted"
         ? INTERRUPTED_RUN_ERROR_CODE
         : row.error_code == null
           ? null
-          : String(row.error_code),
+          : stringifyValue(row.error_code),
   };
 }
 
@@ -379,6 +379,16 @@ export async function listUnclaimedAutomationRuns(options?: {
   );
 }
 
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Drop the oldest rows for one automation once it exceeds the retention cap.
  *
@@ -435,19 +445,19 @@ export async function finishAutomationRun(
       "automation.run.finished",
       {
         automationRunId: id,
-        owner: String(row.owner),
-        automation: String(row.automation),
-        path: String(row.path),
-        orgId: row.org_id == null ? null : String(row.org_id),
-        runId: row.run_id == null ? null : String(row.run_id),
-        threadId: row.thread_id == null ? null : String(row.thread_id),
+        owner: stringifyValue(row.owner),
+        automation: stringifyValue(row.automation),
+        path: stringifyValue(row.path),
+        orgId: row.org_id == null ? null : stringifyValue(row.org_id),
+        runId: row.run_id == null ? null : stringifyValue(row.run_id),
+        threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
         status,
         error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
         errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
         durationMs:
           startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },
-      { owner: String(row.owner) },
+      { owner: stringifyValue(row.owner) },
     );
   } catch (eventError) {
     // History is the source of truth. A subscriber must never turn a recorded

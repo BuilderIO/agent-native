@@ -85,7 +85,13 @@ async function globalSetup(_config: FullConfig) {
   // eslint-disable-next-line no-console
   console.log("[content global-setup] auth:", JSON.stringify(result));
   await ctx.storageState({ path: ".auth/state.json" });
-  writeFileSync(".auth/email.txt", String(result.sessionEmail || EMAIL).trim());
+  writeFileSync(
+    ".auth/email.txt",
+    (typeof result.sessionEmail === "string"
+      ? result.sessionEmail
+      : EMAIL
+    ).trim(),
+  );
   await browser.close();
   if (!result.sessionEmail) {
     // eslint-disable-next-line no-console

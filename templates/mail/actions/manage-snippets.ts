@@ -100,7 +100,7 @@ export default defineAction({
       }
 
       default:
-        throw new Error(`Unknown operation "${args.operation}"`);
+        throw new Error(`Unknown operation "${String(args.operation)}"`);
     }
   },
 });

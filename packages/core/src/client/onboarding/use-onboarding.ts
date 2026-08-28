@@ -170,11 +170,11 @@ export function useOnboarding(
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchAll();
+    void fetchAll();
     // Refetch when the tab regains focus — picks up any changes the agent
     // made while the user was away (or that another tab made).
     const onVisibility = () => {
-      if (document.visibilityState === "visible") fetchAll();
+      if (document.visibilityState === "visible") void fetchAll();
     };
     const onFocus = () => fetchAll();
     document.addEventListener("visibilitychange", onVisibility);

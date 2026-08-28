@@ -10,11 +10,12 @@ import {
 import actionsRegistry from "../../.generated/actions-registry.js";
 
 function fallbackOwner(incoming: IncomingMessage): string {
-  const tenant = String(
+  const tenantValue =
     incoming.platformContext.teamId ??
-      incoming.platformContext.channelId ??
-      incoming.externalThreadId,
-  );
+    incoming.platformContext.channelId ??
+    incoming.externalThreadId;
+  const tenant =
+    typeof tenantValue === "string" ? tenantValue : JSON.stringify(tenantValue);
   const digest = crypto
     .createHash("sha256")
     .update(`${incoming.platform}:${tenant}:${incoming.senderId ?? ""}`)
