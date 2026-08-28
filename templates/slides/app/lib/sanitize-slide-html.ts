@@ -311,6 +311,92 @@ function cleanNode(
   return out;
 }
 
+/**
+ * Elements whose unclosed start tag swallows the rest of the document in a real
+ * parser. `embed` is deliberately absent: it is void, so it never has a closing
+ * tag and requiring one would truncate every slide that contains a valid one.
+ */
+const SWALLOWING_ELEMENTS = /^(script|style|textarea|iframe|object|svg|math)$/i;
+
+/** Elements whose children the HTML parser reads as text rather than markup. */
+const RAW_TEXT_ELEMENTS = /^(script|style|textarea|title)$/i;
+
+/**
+ * Start-tag positions in `html`, skipping comments and anything inside a quoted
+ * attribute value.
+ *
+ * Scanning the serialized string with a bare regex cannot tell a tag from text:
+ * `<p title="Use <style> here">` reads as a `<style>` start tag, and truncating
+ * there drops the rest of a perfectly valid slide.
+ */
+function startTagPositions(html: string): { name: string; index: number }[] {
+  const found: { name: string; index: number }[] = [];
+  for (let i = 0; i < html.length; i++) {
+    if (html[i] !== "<") continue;
+    if (html.startsWith("<!--", i)) {
+      const end = html.indexOf("-->", i + 4);
+      i = end === -1 ? html.length : end + 2;
+      continue;
+    }
+    const name = /^<([a-z][a-z0-9-]*)/i.exec(html.slice(i, i + 32))?.[1];
+    // Walk to this tag's `>`, stepping over quoted values so a `<` or `>`
+    // inside one is not read as markup.
+    let cursor = i + 1;
+    let quote = "";
+    while (cursor < html.length) {
+      const char = html[cursor];
+      if (quote) {
+        if (char === quote) quote = "";
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === ">") {
+        break;
+      }
+      cursor++;
+    }
+    if (!name) {
+      i = cursor;
+      continue;
+    }
+    const lower = name.toLowerCase();
+    found.push({ name: lower, index: i });
+    if (RAW_TEXT_ELEMENTS.test(lower)) {
+      // A raw-text element's body is text, not markup — `content: "<script>"`
+      // inside a stylesheet is a CSS string, and reading it as a start tag
+      // truncated everything after it. Skip to the close tag; no close tag is
+      // the unclosed case the caller is looking for, and everything past it is
+      // swallowed anyway, so there is nothing further to find.
+      const closing = new RegExp(`</\\s*${lower}\\s*>`, "i").exec(
+        html.slice(cursor),
+      );
+      if (!closing) return found;
+      i = cursor + closing.index + closing[0].length - 1;
+      continue;
+    }
+    i = cursor;
+  }
+  return found;
+}
+
+/**
+ * Truncates at the first swallowing element that never closes.
+ *
+ * The regex path has to drop the remainder to agree with `cleanNode`. It must
+ * check for the closing tag to do that: the sweep used to match any of these
+ * tags and cut to the end of the string unconditionally, which ate the
+ * sanitized `<style>` block the pass above it had just emitted — and every
+ * heading and paragraph after it. A deck with one stylesheet rendered as an
+ * empty slide on the SSR'd share and present pages.
+ */
+function dropFromFirstUnclosedRawText(html: string): string {
+  for (const { name, index } of startTagPositions(html)) {
+    if (!SWALLOWING_ELEMENTS.test(name)) continue;
+    const closing = new RegExp(`</\\s*${name}\\s*>`, "i");
+    if (!closing.test(html.slice(index))) return html.slice(0, index);
+  }
+  return html;
+}
+
 function sanitizeHtmlString(
   html: string,
   scopeSelector?: string,
@@ -335,10 +421,7 @@ function sanitizeHtmlString(
       // twin runs instead of cleanNode(). An unclosed raw-text or embedding
       // element swallows the rest of the document in a real parser, so dropping
       // the remainder is what keeps this path agreeing with the DOM path.
-      .replace(
-        /<(script|style|textarea|iframe|object|embed|svg|math)\b[\s\S]*$/i,
-        "",
-      )
+      .replace(/[\s\S]*/, dropFromFirstUnclosedRawText)
       .replace(
         /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
         "",
