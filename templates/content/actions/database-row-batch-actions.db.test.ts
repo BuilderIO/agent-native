@@ -25,6 +25,7 @@ let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").loc
 let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceMockSourceRows;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let nextPosition: typeof import("./_database-row-mutation.js").nextPosition;
 let spaceId: string;
 
 const OWNER = "owner@example.com";
@@ -48,6 +49,7 @@ beforeAll(async () => {
   ({ lockDatabaseMemberships } =
     await import("./_database-membership-lock.js"));
   ({ replaceMockSourceRows } = await import("./_database-source-utils.js"));
+  ({ nextPosition } = await import("./_database-row-mutation.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
     .default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
@@ -1310,11 +1312,13 @@ describe("database row batch actions", () => {
     const concurrentAdds = 6;
     const results = await Promise.all(
       Array.from({ length: concurrentAdds }, (_, index) =>
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          createRowThroughMutationContract(
-            databaseId,
-            `Concurrent ${index}`,
-            `concurrent-add-${index}`,
+        Promise.resolve(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            createRowThroughMutationContract(
+              databaseId,
+              `Concurrent ${index}`,
+              `concurrent-add-${index}`,
+            ),
           ),
         ),
       ),
@@ -1361,5 +1365,23 @@ describe("database row batch actions", () => {
         .map((row: { position: number }) => row.position)
         .sort((a: number, b: number) => a - b),
     ).toEqual(Array.from({ length: concurrentAdds }, (_, index) => index));
+  });
+
+  it("normalizes string MAX results before assigning the next position", () => {
+    expect(nextPosition("41")).toBe(42);
+    expect(nextPosition(-1)).toBe(0);
+    expect(nextPosition(2_147_483_646)).toBe(2_147_483_647);
+    expect(() => nextPosition(2_147_483_647)).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextPosition("")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextPosition(true)).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextPosition("not-a-position")).toThrow(
+      "Database position is outside the supported range.",
+    );
   });
 });

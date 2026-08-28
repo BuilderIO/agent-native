@@ -12,12 +12,24 @@
 const DEFAULT_MAX_CAUSE_LINKS = 4;
 const MAX_CAUSE_LINK_CHARS = 200;
 
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
 export function describeErrorWithCauses(
   err: unknown,
   maxLinks: number = DEFAULT_MAX_CAUSE_LINKS,
 ): string {
   const head =
-    err instanceof Error ? err.message : String(err ?? "Unknown error");
+    err instanceof Error
+      ? err.message
+      : stringifyUnknown(err) || "Unknown error";
   const links: string[] = [];
   const seen = new Set<unknown>([err]);
   let cause: unknown = (err as { cause?: unknown } | null)?.cause;
@@ -25,7 +37,8 @@ export function describeErrorWithCauses(
     if (seen.has(cause)) break;
     seen.add(cause);
     const code = (cause as { code?: unknown }).code;
-    const message = cause instanceof Error ? cause.message : String(cause);
+    const message =
+      cause instanceof Error ? cause.message : stringifyUnknown(cause);
     const text = (typeof code === "string" ? `${code} ${message}` : message)
       .trim()
       .slice(0, MAX_CAUSE_LINK_CHARS);
@@ -97,14 +110,16 @@ export function isContextOverflowMessage(message: string): boolean {
 /**
  * The Builder gateway's own 500 envelope, which is the whole message: an
  * apology sentence plus a correlation id, e.g. "Sorry, we ran into an issue
- * processing your request. ERROR ID: 0f3c...". The apology prose varies; the
- * correlation id does not, so that is what the predicate below anchors on.
+ * processing your request. ERROR ID: 0f3c...". Require the known apology
+ * prefix as well as the id so an unrelated provider message cannot match.
  */
 export const BUILDER_GATEWAY_INTERNAL_ERROR_CODE =
   "builder_gateway_internal_error";
 
 const BUILDER_GATEWAY_ERROR_ID_PATTERN = /\berror id:\s*([0-9a-f]+)\b/i;
 const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
+const BUILDER_GATEWAY_ERROR_PREFIX_PATTERN =
+  /^sorry,\s+(?:we ran into an issue processing your request|this was caused by an internal error)\b/i;
 
 /**
  * The gateway attaches that envelope to an unhandled 500, and it arrives two
@@ -118,8 +133,21 @@ const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
 export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   const match = BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message);
   return (
-    match !== null && match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
+    BUILDER_GATEWAY_ERROR_PREFIX_PATTERN.test(message) &&
+    match !== null &&
+    match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
   );
+}
+
+/** Preserve the canonical code only for the gateway's generic error envelope. */
+export function canonicalizeBuilderGatewayErrorCode(
+  code: string | undefined,
+  message: string,
+): string | undefined {
+  return (code === undefined || code === "provider_internal_error") &&
+    isBuilderGatewayInternalErrorMessage(message)
+    ? BUILDER_GATEWAY_INTERNAL_ERROR_CODE
+    : code;
 }
 
 /** The overflow codes a provider or gateway may report instead of prose. */
@@ -185,7 +213,7 @@ export function classifyProviderError(
       isProviderConnectionErrorMessage(
         typeof providerError?.message === "string"
           ? providerError.message
-          : String(providerError),
+          : stringifyUnknown(providerError),
       ));
 
   const providerRetryable =

@@ -269,7 +269,7 @@ const messages = {
     },
     comparison: {
       titleLine1: "不必在 app 和 agent 之間二選一。",
-      titleAccent: "Agent-native apps 二者兼備。",
+      titleAccent: "Agent-Native apps 二者兼備。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
@@ -417,6 +417,109 @@ const messages = {
     source: "來源",
     readDocs: "閱讀檔案",
     signIn: "登入",
+    tryTemplateFree: "免費試用 {{name}}",
+    designForFree: "免費設計",
+    recordForFree: "免費錄製",
+    getStarted: "開始使用",
+    freeAndOpenSource: "100% 免費 • 開放原始碼",
+    viewAllApps: "查看所有應用",
+  },
+  homepage: {
+    hero: {
+      title: "面向 agentic 應用的框架",
+      bodyLine1: "為 agent 建置，不必為使用者另外打造第二個產品。",
+      bodyLine2: "使用你自己的 LLM，隨處部署。",
+      tryAnApp: "試用應用程式",
+    },
+    install: {
+      copyCommand: "複製安裝指令",
+    },
+    actions: {
+      title: "一個 Action 驅動所有能力面",
+      bodyLine1: "Action 是 Agent-Native 應用的基礎構建區塊。",
+      bodyLine2:
+        "只需定義一次功能，即可在 UI、agent 對話、HTTP API、MCP、A2A 或 CLI 中使用。",
+      diagramAlt: "一個 Action 驅動 UI、MCP、Agent 對話、A2A、HTTP API 和 CLI",
+    },
+    builtIn: {
+      title: "每個 Agent-Native 應用都內建這些能力",
+      body: "使用者和 AI agent 協同工作所需的一切，已經整合到同一個應用中。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "為使用者提供熟悉的畫面，用於瀏覽、編輯和審閱工作。",
+        },
+        agentChat: {
+          title: "內嵌 agent 對話",
+          body: "讓使用者不必離開應用即可委派工作、提問和查看結果。",
+        },
+        sharedState: {
+          title: "共用的應用狀態",
+          body: "agent 知道使用者正在查看、選取和編輯的內容。",
+        },
+        sharedSql: {
+          title: "共用的 SQL 資料",
+          body: "使用者和 agent 讀取並更新同一份可信資料來源。",
+        },
+        skillsMemory: {
+          title: "Skills 與 memory",
+          body: "為 agent 提供可重複使用的專業知識和持久脈絡。",
+        },
+        automations: {
+          title: "自動化",
+          body: "按排程或應用事件自動執行 agent 工作。",
+        },
+        agentTeams: {
+          title: "Agent 團隊",
+          body: "在應用內部或跨應用把工作委派給專業 agent。",
+        },
+        auth: {
+          title: "身分驗證與組織",
+          body: "登入、使用者帳號和組織成員關係均已內建。",
+        },
+        sharing: {
+          title: "分享與權限",
+          body: "控制誰可以查看、留言、編輯或管理每一項資源。",
+        },
+      },
+    },
+    stack: {
+      title: "適配你的技術堆疊",
+      body: "帶上你自己的 LLM、資料庫、工具和基礎設施，Agent-Native 是開放原始碼的 TypeScript，你的應用始終歸你所有。",
+      exploreApps: "探索用 Agent-Native 打造的應用",
+    },
+    showcase: {
+      title: "你能用 Agent-Native 打造什麼？",
+      body: "能理解你的工作、採取行動並與你協作的智慧代理應用。打造自己的應用，或試用其中一個開源應用。",
+      browseApps: "瀏覽應用",
+      scrollLeft: "向左捲動應用",
+      scrollRight: "向右捲動應用",
+    },
+    bottomCta: {
+      title: "打造你的第一個 Agent-Native 應用",
+      body: "為使用者和 AI agent 打造同一個應用。使用你自己的 LLM，隨處部署。",
+    },
+    footer: {
+      tagline: "面向 agentic 應用的框架。",
+      framework: "框架",
+      ecosystem: "生態系",
+      community: "社群",
+      legal: "法律",
+      docs: "文件",
+      download: "下載",
+      apps: "應用",
+      privacyPolicy: "隱私權政策",
+      saasTerms: "SaaS 條款",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "不在本機建置？",
+      exploreApp: "先試用線上應用程式",
+      between: "或",
+      joinWaitlist: "加入候補名單",
+      end: "改為在瀏覽器中建置。",
+    },
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
@@ -442,7 +545,7 @@ const messages = {
     description: "從框架指南開始，或使用 Builder.io 的雲端編碼代理在線上建置。",
     readDocs: "閱讀文件",
     buildOnline: "線上建置",
-    popoverTitle: "使用 Builder.io 線上建置",
+    popoverTitle: "在瀏覽器中建置",
     popoverBody:
       "Builder.io 可以在雲端啟動並自訂 agent-native app — 包含 actions、auth、SQL 狀態與 agent chat。加入等候名單以取得早期存取權。",
     emailLabel: "電子郵件",
@@ -469,8 +572,7 @@ const messages = {
   templates: {
     clips: {
       replaces: "替代或增強 Loom、Granola 和 Wisprflow",
-      description:
-        "帶有瀏覽器偵錯捕獲、行事曆同步會議紀錄和 Fn-hold 語音聽寫的螢幕錄製 — 所有這些都經過轉錄、總結和搜尋，代理可以編輯其中任何內容。",
+      description: "錄製螢幕、會議和語音筆記，讓代理了解發生了什麼並採取行動。",
     },
     plan: {
       replaces: "面向 Codex、Claude Code 和編碼代理的視覺化計畫模式",
@@ -480,27 +582,27 @@ const messages = {
     design: {
       replaces: "替代或增強設計原型工具",
       description:
-        "Agent-Native HTML 原型工作室。生成互動式 Alpine/Tailwind 設計，比較變體，即時微調控制項，並匯出結果。",
+        "將提示轉化為符合你的設計系統的互動式設計，同時由代理根據回饋完善每個畫面。",
     },
     content: {
       replaces: "替換或增強 Obsidian 為 MDX、Notion、Google Docs",
       description:
-        "編輯本機 Markdown/MDX 檔案（如 Obsidian），生成豐富的互動式自訂塊，並使用 AI 代理來起草、重寫和發布。",
+        "處理你的文件，同時由代理以你的語氣草擬內容、建立互動式內容並發布到你的網站。",
     },
     slides: {
       replaces: "替換或增強 Google Slides、Pitch",
       description:
-        "根據提示產生完整的簡報。視覺或對話方式編輯。 AI 圖片生成、8 種布局和內建簡報模式。",
+        "根據提示或現有投影片建立符合品牌且可編輯的簡報，代理可以建立、編輯和完善。",
     },
     analytics: {
       replaces: "Amplitude 和 FullStory 的開放原始碼替代品",
       description:
-        "連線任何資料來源、提示任何圖表、建置可重用的儀表板。代理編寫 SQL、生成視覺化並改進應用程式。",
+        "連接你的資料，讓代理以淺白語言回答問題，並將結果轉化為圖表和儀表板。",
     },
     mail: {
       replaces: "替換或增強 Superhuman、Gmail",
       description:
-        "Superhuman 風格的電子郵件用戶端，具有鍵盤快速鍵、AI 分類、多帳戶支援和電子郵件自動化。擁有您的收件箱工作流程。",
+        "一個鍵盤優先的收件匣，代理可以排列郵件優先順序、草擬回覆、摘要對話串並持續跟進。",
     },
     forms: {
       replaces: "替換或增強 Typeform、Google Forms",
@@ -510,12 +612,12 @@ const messages = {
     assets: {
       replaces: "替換或增強 DAMs、品牌資產庫和 AI 媒體生成器",
       description:
-        "用於上傳、品牌庫、可搜尋參考和品牌圖片/影片產生的數位資產管理器，其他應用程式可以透過 A2A 呼叫或嵌入為選取器。",
+        "為代理提供共用的品牌指南、圖片和影片庫，以便在各個應用程式中建立和選擇符合品牌的媒體。",
     },
     calendar: {
       replaces: "替換或增強 Google Calendar、Calendly",
       description:
-        "具有 Google 同步、可用性管理和公開預訂頁面的完整行事曆。該代理會尋找空閒時段、建立活動並管理您的日程安排。",
+        "整合你的多個 Google 日曆，讓代理尋找空檔、安排或重新安排活動，並管理預約。",
     },
     dispatch: {
       replaces: "Agent-Native 應用程式的工作控制",
@@ -1208,7 +1310,7 @@ const messages = {
       s026: "可分享的連結",
       s027: "每個計畫都有一個公開 URL。與團隊成員共用以進行非同步審閱、評論和核准。",
       s028: "桌面檔案同步",
-      s029: "將託管計畫從 Agent Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
+      s029: "將託管計畫從 Agent-Native Desktop 鏡像到本機 MDX 檔案，無需克隆應用程式或執行 CLI。",
       s030: "，因此審查位於程式碼旁邊。",
       s031: "它是如何運作的",
       s032: "規劃存在於共用應用程式中 - 您和代理都可以在功能的整個生命週期中讀取和更新它。",
@@ -1242,7 +1344,7 @@ const messages = {
       s060: "檢視所有範本",
       s061: "VS Code 交接",
       s062: "使用以下擴充功能在 VS Code 側邊面板中開啟計畫連結：",
-      s063: "Agent Native Plans 擴充功能",
+      s063: "Agent-Native Plans 擴充功能",
       s064: "線框圖 — 帶元件插槽的草圖式 UI 模型",
       s065: "帶註解的程式碼 — 帶逐行註解的來源檔案",
       s066: "圖表 — 流程圖、序列圖或架構圖",
@@ -1269,7 +1371,7 @@ const messages = {
           "plan mode 是終端中的文字，只對一個人可見，核准後就會消失。Plans 是視覺化的，包含線框圖、圖表和帶註解的差異；它可分享、可持久保存，代理能在功能的整個生命週期中建立、讀取和更新計畫。",
         question5: "我可以在程式碼旁邊查看計畫嗎？",
         answer5:
-          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
+          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent-Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
         question6: "Plans 免費嗎？",
         answer6:
           "免費、開放原始碼，並採用 MIT 授權。Plans 提供託管的分享連結，你也可以把所有內容鏡像到本機檔案。",
@@ -1490,9 +1592,9 @@ const messages = {
     },
   },
   downloadPage: {
-    title: "下載 Agent Native",
+    title: "下載 Agent-Native",
     body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
-    openDesktop: "開啟 Agent Native",
+    openDesktop: "開啟 Agent-Native",
     downloadInstaller: "下載安裝程式",
     downloadStarted: "已開始下載",
     downloadAgain: "沒有成功？再試一次下載",
@@ -1646,6 +1748,55 @@ const messages = {
       links: {
         builderPrivacy: "隱私政策",
         builderPrivacyFull: "Builder.io 隱私政策",
+      },
+    },
+    about: {
+      eyebrow: "關於 Agent-Native",
+      title: "為 agents 與人打造的開放原始碼應用程式",
+      intro:
+        "Agent-Native 是開放原始碼框架，用來建立讓 AI agents 與使用者介面共用相同 actions、資料和應用程式狀態的應用程式。",
+      sections: {
+        project: {
+          title: "共用的執行模型",
+          body: "Agent-Native 將 agent 與介面視為平等夥伴。同一個 action 可以提供 UI 控制項、agent 工具、HTTP 端點、MCP 或 A2A 能力、CLI 指令和可稽核流程。共用的 SQL 狀態讓人的視圖和 agent 的視圖保持一致，而不是另外建立隱藏系統。",
+        },
+        openSource: {
+          title: "預設開放原始碼",
+          body: "原始碼以 MIT 授權發布於 BuilderIO/agent-native 儲存庫。開發者可以檢查實作、在本機執行、選擇資料庫和模型供應商，並依產品需要調整。託管服務與 fork 及自託管部署分開營運。",
+        },
+        hosted: {
+          title: "託管與自託管",
+          body: "Builder.io 在 agent-native.com 營運 Agent-Native 託管應用程式和文件。框架也為想要部署及維護自己應用程式的團隊而設計。相同的 action 合約、存取邊界、agent 指示和公開協定都能在原始碼和文件中檢查。",
+        },
+        community: {
+          title: "公開建置",
+          body: "專案透過 GitHub issue、pull request、文件和 Agent-Native 社群公開開發。閱讀文件了解架構，檢查原始碼驗證實作，或加入社群討論使用情境並貢獻改動。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "聯絡",
+      title: "聯絡 Builder.io 了解 Agent-Native",
+      intro:
+        "使用以下支援、原始碼和社群管道提問、回報問題、建議改善，或提出 Agent-Native 的安全疑慮。",
+      emailLabel: "寄信至 support@builder.io",
+      sections: {
+        support: {
+          title: "產品與託管服務支援",
+          body: "如果你對託管應用程式、帳戶存取、文件問題或無法解決的行為有疑問，請寄信至 support@builder.io。請提供公開 URL、最小可重現描述和相關請求或執行識別碼。請勿在支援訊息中傳送密碼、API 金鑰、Bearer token 或私人客戶資料。",
+        },
+        source: {
+          title: "開放原始碼專案與社群",
+          body: "使用 GitHub 儲存庫回報原始碼錯誤、提出功能建議、提交 pull request 或討論實作。Discord 適合需要和其他開發者交流的問題。請先搜尋既有 issue 和文件，讓維護者取得必要背景。",
+        },
+        security: {
+          title: "安全性回報",
+          body: "不要在公開 issue 或聊天中揭露尚未修補的漏洞。請透過可用的安全管道聯絡 Builder.io，只提供重現和評估所需的資訊。請勿在一般支援請求中提供憑證、私人資料或漏洞利用材料。",
+        },
+        legal: {
+          title: "法律與隱私",
+          body: "隱私問題請先閱讀 Agent-Native 隱私政策和 Builder.io 法律資源，再聯絡支援團隊。Builder.io, Inc. 地址為 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States。託管服務條款和自託管責任載於服務條款。",
+        },
       },
     },
     terms: {
@@ -1867,6 +2018,7 @@ const messages = {
     externalAgents: "外部 Agents（連線主機）",
     externalAgentsCatalog: "外部 Agents 目錄",
     mcpApps: "MCP Apps（行內 UI）",
+    webMcp: "WebMCP（瀏覽器工具）",
     crossAppSso: "跨應用 SSO",
     notifications: "通知",
     automationConnectors: "工作流程連接器",
@@ -1891,8 +2043,8 @@ const messages = {
     calendar: "行事曆",
     calendarOverview: "總覽",
     calendarAgent: "與 Agent 對話",
-    calendarScheduling: "排程與可用時間",
-    calendarBookingLinks: "預約連結",
+    calendarFeatures: "功能",
+    calendarIntegrations: "跨應用使用",
     calendarDevelopers: "開發者指南",
     content: "內容",
     contentOverview: "總覽",
@@ -1951,8 +2103,9 @@ const messages = {
     dispatchDevelopers: "開發者指南",
     forms: "表單",
     formsOverview: "總覽",
-    formsBuildingPublishing: "建置與發布",
-    formsResponses: "回應與洞察",
+    formsFeatures: "功能",
+    formsAgent: "與 Agent 對話",
+    formsIntegrations: "跨應用使用",
     docsComponents: "Docs Components",
     formsDevelopers: "開發者指南",
   },

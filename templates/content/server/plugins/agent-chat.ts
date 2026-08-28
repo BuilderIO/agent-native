@@ -11,19 +11,10 @@ import {
   resolvePublicViewerOwner,
 } from "../lib/public-documents.js";
 
-const INITIAL_TOOL_NAMES = [
-  "view-screen",
-  "list-documents",
-  "search-documents",
-  "get-document",
-  "create-document",
-  "edit-document",
-  "update-document",
-  "add-comment",
-  "list-comments",
-  "refresh-list",
-  "navigate",
-  "connect-notion-status",
+// These tools are injected by the framework/provider layer, so they cannot
+// declare `deferLoading` beside a Content action. Content-owned starter tools
+// carry `deferLoading: false` in their own definitions.
+const INJECTED_INITIAL_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
   "provider-api-request",
@@ -35,9 +26,9 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
-  initialToolNames: INITIAL_TOOL_NAMES,
+  initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
-    connectorCatalog: ["list-content-databases", "describe-content-database"],
+    externalAgents: { writes: "allowlisted" },
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
@@ -67,9 +58,16 @@ Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_
         search: async (query: string) => {
           const db = getDb();
           const ownerEmail = getCurrentOwnerEmail();
+          // Project only id/title/parentId — documents.content is the full
+          // page body and must not be pulled into this per-keystroke search.
+          const mentionColumns = {
+            id: documents.id,
+            title: documents.title,
+            parentId: documents.parentId,
+          };
           const rows = query
             ? await db
-                .select()
+                .select(mentionColumns)
                 .from(documents)
                 .where(
                   and(
@@ -79,7 +77,7 @@ Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_
                 )
                 .limit(15)
             : await db
-                .select()
+                .select(mentionColumns)
                 .from(documents)
                 .where(eq(documents.ownerEmail, ownerEmail))
                 .orderBy(desc(documents.updatedAt))

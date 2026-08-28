@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 import {
   Table,
   TableBody,
@@ -12,6 +12,7 @@ import {
 
 export interface TopCreatorRow {
   email: string;
+  name?: string | null;
   recordings: number;
   views: number;
   engagement: number;
@@ -54,29 +55,41 @@ export function TopCreatorsTable({ rows }: TopCreatorsTableProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.email}>
-              <TableCell>
-                <div className="flex items-center gap-2 min-w-0">
-                  <Avatar className="h-7 w-7 flex-shrink-0">
-                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                      {initials(row.email)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="truncate">{row.email}</span>
-                </div>
-              </TableCell>
-              <TableCell className="text-end tabular-nums">
-                {row.recordings.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-end tabular-nums">
-                {row.views.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-end tabular-nums">
-                {row.engagement.toLocaleString()}
-              </TableCell>
-            </TableRow>
-          ))}
+          {rows.map((row) => {
+            const displayName = row.name?.trim() || row.email;
+            return (
+              <TableRow key={row.email}>
+                <TableCell>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ClipsAvatar
+                      email={row.email}
+                      alt={displayName}
+                      fallback={initials(displayName)}
+                      className="h-7 w-7 flex-shrink-0"
+                      fallbackClassName="text-xs bg-primary text-primary-foreground"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate">{displayName}</div>
+                      {displayName !== row.email ? (
+                        <div className="truncate text-xs text-muted-foreground">
+                          {row.email}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-end tabular-nums">
+                  {row.recordings.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-end tabular-nums">
+                  {row.views.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-end tabular-nums">
+                  {row.engagement.toLocaleString()}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

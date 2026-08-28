@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, lt, notInArray, or } from "drizzle-orm";
 import { z } from "zod";
@@ -57,7 +57,7 @@ type DatabaseRecord = NonNullable<
 
 export interface BuilderSourceExecutionRecord {
   id: string;
-  state: ContentDatabaseSourceExecutionState | string;
+  state: ContentDatabaseSourceExecutionState | (string & {});
   idempotencyKey: string;
   payloadJson: string;
   attemptToken?: string | null;

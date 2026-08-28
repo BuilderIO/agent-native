@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { and, desc, eq, gte, lte, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -23,7 +23,12 @@ const RUN_SOURCES = ["chat", "ui", "a2a"] as const;
  */
 function csv(value: unknown): string {
   if (value === null || value === undefined) return "";
-  const s = String(value);
+  const s =
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value);
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }

@@ -14,11 +14,19 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionContractError,
+  isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import { getAppConfig } from "../app-config/index.js";
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  MAX_TURN_WALL_CLOCK_MS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
@@ -187,11 +195,13 @@ import {
   countRunsForTurn,
   RUN_DIAG_STAGE,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+  turnRunLedgerExhausted,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
@@ -249,6 +259,10 @@ export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
  */
 export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
+/** Keep an alive-but-unclaimed worker out of the unclaimed-run reaper. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
+/** Stop extending an unclaimed row so a stuck setup remains recoverable. */
+export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -260,19 +274,29 @@ export type BackgroundDispatchOutcome =
 
 /**
  * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
- * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
- * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
- * (defensive — legacy rows or tests may store a bare stage).
+ * `recordRunDiagnostic`. Extract the stage and timestamp so the stage can be
+ * compared to `RUN_DIAG_STAGE` constants and its deadline enforced. Falls back
+ * to the raw value when it is not JSON (defensive — legacy rows or tests may
+ * store a bare stage).
  */
-function parseRunDiagStage(raw: string | null | undefined): string | null {
-  if (!raw) return null;
+function parseRunDiagnostic(raw: string | null | undefined): {
+  stage: string | null;
+  at: number | null;
+} {
+  if (!raw) return { stage: null, at: null };
   try {
-    const parsed = JSON.parse(raw) as { stage?: unknown };
-    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+    const parsed = JSON.parse(raw) as { stage?: unknown; at?: unknown };
+    return {
+      stage: typeof parsed.stage === "string" ? parsed.stage : null,
+      at:
+        typeof parsed.at === "number" && Number.isFinite(parsed.at)
+          ? parsed.at
+          : null,
+    };
   } catch {
     // Not JSON — treat the raw value as the stage name.
   }
-  return typeof raw === "string" ? raw : null;
+  return { stage: raw, at: null };
 }
 
 /**
@@ -282,8 +306,10 @@ function parseRunDiagStage(raw: string | null | undefined): string | null {
  * generated wrapper fails to import/hand off to the route, the worker never
  * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
  *
- * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run
+ * and keep polling while it proves that setup is still progressing:
  *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - alive in setup               → keep polling (the foreground still owns recovery)
  *   - dispatch failed OR no claim  → recover inline by atomically claiming the
  *       run ourselves: if we win → "inline"; if a (delayed) worker already won
  *       it → "subscribe" (never double-run).
@@ -301,12 +327,15 @@ export async function resolveBackgroundDispatchOutcome(opts: {
    * provided, the foreground may keep waiting PAST `graceMs` while the worker is
    * provably alive and still in setup — but it recovers inline before the run has
    * been unclaimed this long (minus the safety margin), so it always claims
-   * before the reaper can fire. Omit to disable the extension (behaves exactly
-   * like the base grace).
+   * before the reaper can fire. The worker's pre-claim diagnostic deadline is a
+   * second hard cap. Omit to disable the extension (behaves exactly like the
+   * base grace).
    */
   reaperGraceMs?: number;
   /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
   reaperSafetyMarginMs?: number;
+  /** Return the durable stream as soon as the worker proves it entered setup. */
+  streamWhenWorkerAlive?: boolean;
   pollIntervalMs: number;
   readClaim: (runId: string) => Promise<{
     dispatchMode: string | null;
@@ -349,6 +378,7 @@ export async function resolveBackgroundDispatchOutcome(opts: {
     const reaperGraceMs = opts.reaperGraceMs;
     const reaperMargin =
       opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
+    let preclaimDeadlineAt: number | null = null;
     for (;;) {
       const claim = await opts.readClaim(opts.runId).catch(() => null);
       if (
@@ -360,10 +390,25 @@ export async function resolveBackgroundDispatchOutcome(opts: {
       }
       // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
       // bare stage name, not the raw payload.
-      const stage = parseRunDiagStage(claim?.diagStage);
+      const diagnostic = parseRunDiagnostic(claim?.diagStage);
+      const stage = diagnostic.stage;
+      if (
+        preclaimDeadlineAt == null &&
+        diagnostic.at != null &&
+        ALIVE_IN_SETUP.has(stage ?? "")
+      ) {
+        const diagnosticDeadline =
+          diagnostic.at + BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS;
+        preclaimDeadlineAt = diagnosticDeadline;
+      }
       // Worker recorded a pre-claim death — no point waiting out the grace.
       if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
       const elapsedNow = now();
+      // Heartbeats stop at the worker-entry deadline. Do not let the stale
+      // diagnostic marker extend the foreground wait beyond that same window.
+      if (preclaimDeadlineAt != null && elapsedNow >= preclaimDeadlineAt) {
+        break;
+      }
       // The unclaimed-reaper errors any still-`background` row once it has been
       // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
       // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
@@ -385,6 +430,9 @@ export async function resolveBackgroundDispatchOutcome(opts: {
         claim?.status === "running" &&
         !!stage &&
         ALIVE_IN_SETUP.has(stage);
+      if (aliveInSetup && opts.streamWhenWorkerAlive) {
+        return { action: "stream" };
+      }
       if (elapsedNow >= baseDeadline && !aliveInSetup) break;
       await sleep(opts.pollIntervalMs);
     }
@@ -673,10 +721,7 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
-  run: (
-    args: any,
-    context?: import("../action.js").ActionRunContext,
-  ) => Promise<any> | any;
+  run: (args: any, context?: import("../action.js").ActionRunContext) => any;
   /** Standard Schema input validator when declared through defineAction. */
   schema?: unknown;
   /** HTTP exposure config. `false` = agent-only. Omitted = auto-inferred from name. */
@@ -693,6 +738,21 @@ export interface ActionEntry {
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
    *  Set by `defineAction`'s `agentTool` option. */
   agentTool?: boolean;
+  /** Whether the action is exposed to EXTERNAL agents over MCP and the direct
+   *  A2A action surface. Defaults to `agentTool`. `false` is a hard veto on
+   *  every MCP tier (including the `--full-catalog` opt-in) while the in-app
+   *  agent keeps calling it; `true` declares curated connector-catalog
+   *  membership, and with `agentTool: false` makes the action MCP-only. Read
+   *  it through `isActionExposedToExternalAgents`, never as a raw field.
+   *  Set by `defineAction`'s `mcpTool` option. */
+  mcpTool?: boolean;
+  /** Whether the action's schema is held back from the agent's first-request
+   *  tool list — the action-owned form of the plugin's `initialToolNames`.
+   *  `false` always includes it (and narrows the derived default to the
+   *  actions that opted in); `true` keeps it out of the DERIVED set, reachable
+   *  through `tool-search`. Context cost, not access. Set by `defineAction`'s
+   *  `deferLoading` option. */
+  deferLoading?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -758,6 +818,11 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * Whether a user-scoped action preference may satisfy `needsApproval`
+   * without prompting for this call. Defaults to true.
+   */
+  allowPersistentApproval?: boolean;
   /**
    * The action hands control back to the user: once it succeeds the loop stops
    * the turn instead of asking the model for another step, and any remaining
@@ -1416,9 +1481,6 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
-const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
-const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -1493,7 +1555,18 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
-const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
+/**
+ * Read-only source/search tool calls one turn may make before the convergence
+ * guard tells the agent to stop sweeping and answer from what it gathered.
+ *
+ * Resolved per call rather than captured at module load: the value is declared
+ * config, so a deployment can raise it for research-shaped apps that legitimately
+ * inspect many records, and a module-level read would freeze whichever value was
+ * resolved before the app's config plugin loaded.
+ */
+export function resolveSourceSweepToolCallThreshold(): number {
+  return getAppConfig().agent.sourceSweepToolCallThreshold;
+}
 /**
  * Serialized-byte threshold at which a run reports how much tool schema
  * `expandActiveTools` has loaded on top of its starting set. Expansion is
@@ -1847,6 +1920,7 @@ export function buildUserContentWithAttachments(opts: {
   let remainingTextAttachmentChars = MAX_TEXT_ATTACHMENTS_TOTAL_CHARS;
 
   for (const att of opts.attachments ?? []) {
+    if (att.displayOnly === true) continue;
     const uploadedUrl = (att as any).url as string | undefined;
     if ((att as any).referenceOnly === true && uploadedUrl) {
       const label = att.name ? `"${att.name}"` : "A file";
@@ -2848,6 +2922,11 @@ async function applyObservationalMemoryToContext(
   }
 }
 
+type CachedReadOnlyToolResult = {
+  content: string;
+  images?: EngineToolResultPart["images"];
+};
+
 /**
  * Cross-chunk read-only result cache seed.
  *
@@ -2872,8 +2951,8 @@ async function applyObservationalMemoryToContext(
 function seedReadOnlyToolResultsFromJournal(
   journal: ToolCallJournal | null,
   actions: Record<string, ActionEntry>,
-): Map<string, string> {
-  const cache = new Map<string, string>();
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>();
   if (!journal) return cache;
   for (const entry of journal.completed) {
     const action = actions[entry.tool];
@@ -2894,7 +2973,7 @@ function seedReadOnlyToolResultsFromJournal(
     ) {
       continue;
     }
-    cache.set(toolCallCacheKey(entry.tool, entry.input), result);
+    cache.set(toolCallCacheKey(entry.tool, entry.input), { content: result });
   }
   return cache;
 }
@@ -2902,9 +2981,9 @@ function seedReadOnlyToolResultsFromJournal(
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
-  seed?: Map<string, string>,
-): Map<string, string> {
-  const cache = new Map<string, string>(seed);
+  seed?: Map<string, CachedReadOnlyToolResult>,
+): Map<string, CachedReadOnlyToolResult> {
+  const cache = new Map<string, CachedReadOnlyToolResult>(seed);
   if (!isInternalContinuationTurn(messages)) return cache;
 
   // Scoped to the current turn only (same slice as
@@ -2948,7 +3027,10 @@ function seedReadOnlyToolResultsFromHistory(
       // cached — every call must execute fresh, seeded or not.
       if (!call.dedupe) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(toolCallCacheKey(call.name, call.input), part.content);
+      cache.set(toolCallCacheKey(call.name, call.input), {
+        content: part.content,
+        ...(part.images?.length ? { images: part.images } : {}),
+      });
     }
   }
 
@@ -3047,6 +3129,16 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   if (part.isError) return false;
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
+  // The ledger persists only the note, not image bytes. Re-execute an image
+  // read when its payload is unavailable so a continuation can restore vision.
+  if (
+    !part.images?.length &&
+    /\[image(?:\s+#\d+|\s*:)[^\n\]]*\battached(?:\s+#\d+|:)[^\n\]]*\]/i.test(
+      part.content,
+    )
+  ) {
+    return false;
+  }
   return !(
     lower.startsWith("skipped duplicate read-only call to ") ||
     lower.startsWith("invalid action parameters for ") ||
@@ -3272,6 +3364,7 @@ export interface ExecuteAgentToolCallOptions {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -3293,7 +3386,10 @@ export async function executeAgentToolCall(
   options: ExecuteAgentToolCallOptions,
 ): Promise<AgentToolCallExecutionResult> {
   const entry = options.actions[options.name];
-  if (!entry || entry.agentTool === false) {
+  // The caller's registry is the surface: A2A hands this the external one, so
+  // reject only what no surface may run — an MCP-only action is `agentTool:
+  // false` and still legitimately callable here.
+  if (!entry || isActionHiddenFromEveryAgentSurface(entry)) {
     return {
       status: "failed",
       output: `Unknown or unavailable tool: ${options.name}`,
@@ -3303,7 +3399,7 @@ export async function executeAgentToolCall(
   let streamCalls = 0;
   const engine: AgentEngine = {
     name: "agent-native:single-tool",
-    label: "Agent Native tool runtime",
+    label: "Agent-Native tool runtime",
     defaultModel: "agent-native:single-tool",
     supportedModels: ["agent-native:single-tool"],
     capabilities: {
@@ -3351,7 +3447,7 @@ export async function executeAgentToolCall(
     await runAgentLoop({
       engine,
       model: engine.defaultModel,
-      systemPrompt: "Execute the selected Agent Native tool call.",
+      systemPrompt: "Execute the selected Agent-Native tool call.",
       tools,
       availableTools: tools,
       messages: [
@@ -3381,6 +3477,7 @@ export async function executeAgentToolCall(
       approvedToolCalls: options.approvedToolCalls,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
+      isToolAlwaysAllowed: options.isToolAlwaysAllowed,
     });
   } catch (error) {
     return {
@@ -3625,7 +3722,7 @@ function stableStringify(value: unknown): string {
 }
 
 export function toolCallCacheKey(toolName: string, input: unknown): string {
-  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
+  return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input, toolName))}`;
 }
 
 export function findApprovedStructuredToolCall(
@@ -3908,7 +4005,7 @@ function hasExhaustedSourceSweepBudget(opts: {
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   return (
     opts.priorToolCalls.filter((call) =>
       isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
@@ -3987,14 +4084,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
  * tool error, and the breakers key on that text: a message that reports its own
  * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
  * decline that exists to stop a spiral becomes the one thing nothing can count.
- * The fixed threshold below says the same thing without varying.
+ * The threshold is fixed for the turn, so it says the same thing without
+ * varying.
  */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const target =
     opts.scope === "aggregate"
       ? "read-only source/search tools"
@@ -4028,7 +4126,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
-  const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const threshold = opts.threshold ?? resolveSourceSweepToolCallThreshold();
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
@@ -4077,7 +4175,7 @@ function seedSourceSweepToolCallsFromHistory(
       if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
       seeded.push({
         name: part.name,
-        input: normalizeToolCallInputForHistory(part.input),
+        input: normalizeToolCallInputForHistory(part.input, part.name),
       });
     }
   }
@@ -4086,9 +4184,18 @@ function seedSourceSweepToolCallsFromHistory(
 
 function normalizeToolCallInputForHistory(
   input: unknown,
+  toolName?: string,
 ): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
+    const record = input as Record<string, unknown>;
+    if (toolName !== "docs-search" || typeof record.query !== "string") {
+      return record;
+    }
+    // docs-search lowercases and splits queries on whitespace before matching.
+    return {
+      ...record,
+      query: record.query.trim().replace(/\s+/g, " ").toLowerCase(),
+    };
   }
   return { rawInput: input };
 }
@@ -4583,6 +4690,14 @@ export async function runAgentLoop(opts: {
    * App-level default limits applied to every tool call unless the individual
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
+  /**
+   * The chunk's REAL soft-timeout budget, when the caller has one.
+   *
+   * Only `runToolTimeoutCeilingMs` reads it, and only so a per-tool timeout
+   * stays under the budget it actually runs inside. Absent, the generic hosted
+   * ceiling is used — right for callers that have no chunk of their own.
+   */
+  runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
     maxResultChars?: number;
@@ -4605,6 +4720,8 @@ export async function runAgentLoop(opts: {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  /** User-scoped action-type policy, checked only after needsApproval. */
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
    * streamed chunks, observe model responses around tool execution, and
@@ -4707,13 +4824,23 @@ export async function runAgentLoop(opts: {
       : 0;
   // A per-tool timeout above the chunk's own soft timeout can never fire — the
   // chunk boundary always wins — so the 12-minute default is dead code on a
-  // ~40s hosted foreground chunk. Background-function runs resolve to a ~13min
-  // ceiling and keep the default unchanged.
+  // ~40s hosted foreground chunk.
+  //
+  // TAKEN FROM THE CALLER'S ACTUAL BUDGET, not re-derived. Re-deriving it asked
+  // `resolveRunSoftTimeoutMs` for the generic background ceiling (13 min) even
+  // when the caller was a background AUTOMATION, whose real budget is its own
+  // hard abort minus headroom (10 min − 20s = 9m40s via
+  // `resolveBackgroundAutomationSoftTimeoutMs`). The ceiling came out ABOVE the
+  // run budget, so every per-tool timeout on that path was dead code and the
+  // chunk boundary won instead — which is the exact failure
+  // `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to prevent, reintroduced by guessing
+  // at a number the caller already knew.
   const runToolTimeoutCeilingMs = resolveRunToolTimeoutCeilingMs(
-    resolveRunSoftTimeoutMs(undefined, {
-      useHostedDefault: true,
-      backgroundFunction: isInBackgroundFunctionRuntime(),
-    }),
+    opts.runSoftTimeoutMs ??
+      resolveRunSoftTimeoutMs(undefined, {
+        useHostedDefault: true,
+        backgroundFunction: isInBackgroundFunctionRuntime(),
+      }),
   );
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
@@ -4978,14 +5105,7 @@ export async function runAgentLoop(opts: {
           lastProgressAt: number;
           bytes: number;
         };
-        type ZeroByteToolInputRestart = {
-          toolName: string;
-          firstStartedAt: number;
-          lastStartedAt: number;
-          count: number;
-        };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
-        let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
         // Bracket the engine call for the run manager's no-progress backstop
         // (`inFlightWorkDelta` in run-manager.ts). That backstop measures the
@@ -5004,7 +5124,11 @@ export async function runAgentLoop(opts: {
         const closeModelStreamBracket = () => {
           if (!modelStreamBracketOpen) return;
           modelStreamBracketOpen = false;
-          send({ type: "model_stream", status: "end" });
+          send({
+            type: "model_stream",
+            status: "end",
+            ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+          });
         };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been
@@ -5043,63 +5167,59 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const actionPreparationDeadlineAt = () => {
-          let deadlineAt = Number.POSITIVE_INFINITY;
-          if (zeroByteToolInputRestart) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              zeroByteToolInputRestart.firstStartedAt +
-                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          let earliestStartedAt = Number.POSITIVE_INFINITY;
-          let latestPositiveProgressAt = 0;
-          for (const active of activeToolInputs.values()) {
-            if (active.startedAt < earliestStartedAt) {
-              earliestStartedAt = active.startedAt;
-            }
-            if (
-              active.bytes > 0 &&
-              active.lastProgressAt > latestPositiveProgressAt
-            ) {
-              latestPositiveProgressAt = active.lastProgressAt;
-            }
-          }
-          const progressAt =
-            latestPositiveProgressAt > 0
-              ? latestPositiveProgressAt
-              : earliestStartedAt;
-          if (Number.isFinite(progressAt)) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
-        };
-        const modelStreamNoProgressDeadlineAt = () => {
-          const baseDeadlineAt =
-            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
-          // FIX 2: cap the FIRST event's deadline tighter on the clamped
-          // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
-          // for the ordering invariant this protects.
+        /**
+         * The ONLY in-loop stall bound left, and it covers exactly one thing:
+         * a model call whose stream opened and produced NOTHING AT ALL.
+         *
+         * WHAT WAS HERE, AND WHY IT IS GONE. Two 90s watchdogs used to run for
+         * the whole stream — one on silence between engine frames, one on a
+         * tool input whose byte count stopped growing — plus a zero-byte
+         * restart tripwire. Each inferred death from the ABSENCE of a
+         * particular event, and that inference is unsound on this transport:
+         * the Anthropic SDK drops the provider's `ping` keepalives before they
+         * reach any consumer (`core/streaming.js`: `if (sse.event === 'ping')
+         * continue;`, with no opt-out), so a healthy stream mid-generation is
+         * byte-for-byte indistinguishable from a wedged one.
+         *
+         * That is not an edge case, it is normal operation. A tool whose input
+         * is not eagerly streamed emits no `input_json_delta` at all while the
+         * provider composes its arguments, so writing a large file or filing a
+         * long structured result is a content-silent window whose length is set
+         * by the size of the argument. Production bore it out: of 27 one-shot
+         * analyst runs, 2 completed. Guards added for reliability were the
+         * thing taking it away.
+         *
+         * WHAT STILL CATCHES A REAL WEDGE — none of which can fire on
+         * slow-but-healthy work:
+         *   • the engine's own first-event abort
+         *     (`FIRST_STREAM_EVENT_TIMEOUT_MS`, 120s): a connection that opens
+         *     and never speaks
+         *   • the engine's total-stream deadline (`STREAM_TOTAL_TIMEOUT_MS`,
+         *     14min): one model call end to end, which is what bounds a socket
+         *     that wedges MID-stream on the runtimes with no outer budget
+         *     (local dev and self-hosted resolve the soft timeout to 0)
+         *   • the run-manager backstop, for the segments OUTSIDE the stream
+         *     (`inFlightWorkDelta` suspends it while the stream is open)
+         *   • the per-tool timeout, which bounds tool EXECUTION at the tool
+         *   • the chunk / run budget, which bounds COST rather than health
+         *   • the stale reaper, which bounds worker liveness
+         *
+         * The cap below survives only because it guards the "nothing has
+         * happened yet" window on the clamped hosted FOREGROUND runtime, where
+         * the ~57s platform wall arrives before the engine's 120s bound could.
+         * The first real frame releases it, so long thinking, long tool inputs
+         * and long outputs are all past it by construction.
+         */
+        const noProgressDeadlineAt = () => {
           if (
             hasReceivedFirstEngineEvent ||
             !isClampedForegroundRuntimeForThisCall
           ) {
-            return baseDeadlineAt;
+            return Number.POSITIVE_INFINITY;
           }
-          return Math.min(
-            baseDeadlineAt,
-            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS,
+          return (
+            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
           );
-        };
-        const noProgressDeadlineAt = () => {
-          const actionDeadlineAt = actionPreparationDeadlineAt();
-          const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
-          return actionDeadlineAt === undefined
-            ? modelDeadlineAt
-            : Math.min(actionDeadlineAt, modelDeadlineAt);
         };
         const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
         const checkpointNoProgress = () => {
@@ -5137,10 +5257,17 @@ export async function runAgentLoop(opts: {
           iterator: AsyncIterator<EngineEvent>,
         ): Promise<IteratorResult<EngineEvent>> => {
           const deadlineAt = noProgressDeadlineAt();
+          // No deadline at all is the COMMON case now — every runtime except a
+          // clamped hosted foreground call that has not yet seen its first
+          // frame. Await the iterator directly rather than racing it: a
+          // `setTimeout` of Infinity is coerced to 1ms by Node and would
+          // checkpoint instantly, turning "no bound" into "the tightest bound
+          // there is".
+          if (!Number.isFinite(deadlineAt)) return iterator.next();
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointNoProgress();
-            requestEventIteratorReturn(iterator, false);
+            void requestEventIteratorReturn(iterator, false);
             return { done: true, value: undefined };
           }
           let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -5153,7 +5280,7 @@ export async function runAgentLoop(opts: {
             const result = await Promise.race([next, timeout]);
             if (result === "timeout") {
               checkpointNoProgress();
-              requestEventIteratorReturn(iterator, false);
+              void requestEventIteratorReturn(iterator, false);
               return { done: true, value: undefined };
             }
             return result;
@@ -5176,36 +5303,6 @@ export async function runAgentLoop(opts: {
             lastProgressAt: now,
             bytes,
           });
-        };
-        const resetZeroByteToolInputRestart = (toolName?: string) => {
-          if (!zeroByteToolInputRestart) return;
-          if (!toolName || zeroByteToolInputRestart.toolName === toolName) {
-            zeroByteToolInputRestart = undefined;
-          }
-        };
-        const noteZeroByteToolInputStart = (toolName?: string) => {
-          if (!toolName) return false;
-          const now = Date.now();
-          if (zeroByteToolInputRestart?.toolName === toolName) {
-            zeroByteToolInputRestart = {
-              ...zeroByteToolInputRestart,
-              lastStartedAt: now,
-              count: zeroByteToolInputRestart.count + 1,
-            };
-          } else {
-            zeroByteToolInputRestart = {
-              toolName,
-              firstStartedAt: now,
-              lastStartedAt: now,
-              count: 1,
-            };
-          }
-          return (
-            zeroByteToolInputRestart.count >=
-              ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
-            now - zeroByteToolInputRestart.firstStartedAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-          );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
         let eventIteratorDone = false;
@@ -5248,7 +5345,6 @@ export async function runAgentLoop(opts: {
               }
             }
             if (event.type === "text-delta") {
-              resetZeroByteToolInputRestart();
               streamedAssistantText += event.text;
               send({ type: "text", text: event.text });
             } else if (event.type === "thinking-delta") {
@@ -5270,17 +5366,12 @@ export async function runAgentLoop(opts: {
                 ...(event.id ? { id: event.id } : {}),
               });
               sendToolInputActivity(event.name, key, undefined, true);
-              if (noteZeroByteToolInputStart(event.name)) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "tool-input-delta") {
               const key = event.id ?? event.name;
               const toolName =
                 event.name ??
                 (event.id ? toolInputNames.get(event.id) : undefined);
               let progressBytes: number | undefined;
-              let startedZeroByteInput = false;
               if (key) {
                 const hadByteRecord = toolInputBytes.has(key);
                 const previous = hadByteRecord
@@ -5292,11 +5383,6 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, progressBytes);
                 if (!hadByteRecord || progressBytes > previous) {
                   trackActiveToolInput(key, toolName, progressBytes);
-                  if (progressBytes > 0) {
-                    resetZeroByteToolInputRestart();
-                  } else if (!hadByteRecord) {
-                    startedZeroByteInput = true;
-                  }
                 }
               }
               if (event.text) {
@@ -5308,14 +5394,6 @@ export async function runAgentLoop(opts: {
                 });
               }
               sendToolInputActivity(toolName, key, progressBytes);
-              if (
-                startedZeroByteInput &&
-                toolName &&
-                noteZeroByteToolInputStart(toolName)
-              ) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "gateway-heartbeat") {
               send({ type: "stream_keepalive" });
             } else if (event.type === "tool-call") {
@@ -5529,7 +5607,7 @@ export async function runAgentLoop(opts: {
       part.type === "tool-call"
         ? {
             ...part,
-            input: normalizeToolCallInputForHistory(part.input),
+            input: normalizeToolCallInputForHistory(part.input, part.name),
           }
         : part,
     );
@@ -5754,6 +5832,7 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
+        toolCall.name,
       );
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
@@ -5972,6 +6051,19 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
+        if (
+          mustApprove &&
+          actionEntry.allowPersistentApproval !== false &&
+          opts.isToolAlwaysAllowed
+        ) {
+          try {
+            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
+          } catch {
+            // Fail closed: an unreadable policy must leave the approval gate in
+            // place instead of turning a storage outage into authorization.
+            mustApprove = true;
+          }
+        }
         if (mustApprove) {
           // `askId` identifies THIS gate hit, distinct from any earlier ask
           // for the same approvalKey/toolCallId. A failed resume (expired
@@ -5993,6 +6085,9 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(actionEntry.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
             ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
@@ -6034,6 +6129,12 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
           });
           recordToolResult(result, false);
+          // Control is genuinely handed to the user here — the result above
+          // tells the model "the turn is paused". `requestedActionStop` alone
+          // does not stop anything until after the tool loop drains, so
+          // without this the *rest* of this assistant message still executes
+          // while the human is still looking at the approval card.
+          turnYieldedToUser = true;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
@@ -6337,8 +6438,11 @@ export async function runAgentLoop(opts: {
           actionEntry.readOnly === true && actionEntry.dedupe !== false
             ? toolCallCacheKey(toolCall.name, toolCall.input)
             : null;
-        if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-          const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+        const cachedResult = cacheKey
+          ? readOnlyToolResultCache.get(cacheKey)
+          : undefined;
+        if (cacheKey && cachedResult) {
+          const previousResult = cachedResult.content;
           // `contextMessages` (not `messages`) is what the model actually sees
           // this iteration — context-xray eviction/summarization and
           // observational-memory trimming can drop the earlier result from
@@ -6387,6 +6491,9 @@ export async function runAgentLoop(opts: {
             toolName: toolCall.name,
             toolInput: wireToolInput,
             content: result,
+            ...(cachedResult.images?.length
+              ? { images: cachedResult.images }
+              : {}),
           };
         }
 
@@ -6618,7 +6725,17 @@ export async function runAgentLoop(opts: {
             };
           } else {
             const message = sanitizeToolErrorValue(err);
-            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+            // A code the action chose is worth more to the model than the
+            // prose alone: it can branch on `not_found` without parsing a
+            // sentence. `action_failed` is what `fail()` fills in when the
+            // author picked nothing, so it says only "it failed" — which the
+            // word "Error" already said. Appending it would be noise the
+            // breaker then has to key on.
+            const errorCode =
+              isActionContractError(err) && err.errorCode !== "action_failed"
+                ? ` (errorCode: ${err.errorCode})`
+                : "";
+            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message)}`;
           }
           isError = true;
         }
@@ -6685,7 +6802,10 @@ export async function runAgentLoop(opts: {
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
-            readOnlyToolResultCache.set(cacheKey, result);
+            readOnlyToolResultCache.set(cacheKey, {
+              content: result,
+              ...(toolResultImages?.length ? { images: toolResultImages } : {}),
+            });
           } else if (actionEntry.readOnly !== true) {
             // A genuine write invalidates all cached reads. A dedupe:false
             // read-only tool also has a null cacheKey (see above) but must NOT
@@ -6733,6 +6853,16 @@ export async function runAgentLoop(opts: {
       // alongside genuine reads, which can reorder it ahead of a later mutating
       // call and break the model's intended sequencing.
       if (!entry) return null;
+      // A call that can pause the turn must not share a batch. `flushParallelBatch`
+      // dispatches through `Promise.all`, so a gated call and its siblings all
+      // start before the gate is reached, and `turnYieldedToUser` would then be
+      // set too late to stop a sibling that already ran. Serializing here is what
+      // makes that flag mean anything for the calls after it. `needsApproval` may
+      // be an async predicate, so this cannot resolve whether approval is truly
+      // required — declaring it at all is enough to serialize.
+      if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
       if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
@@ -6762,7 +6892,8 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
+        `(an action that ends the turn, or one waiting on the user's approval). ` +
         `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
       send({
         type: "tool_start",
@@ -7327,30 +7458,10 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
   );
 }
 
-/**
- * Hard cap on server-driven background→background continuation chunks for a
- * single logical turn. A `backgroundFunction` run gets a ~13-min soft timeout,
- * so reaching this boundary at all is the rare exception (most turns finish in
- * one chunk). The cap bounds a pathological turn that would otherwise chain
- * background invocations forever, mirroring `MAX_AGENT_TEAM_CONTINUATIONS`.
- */
-export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
-
-/**
- * Consecutive chunks allowed to end on the SAME terminal error code having
- * produced nothing before the chain stops.
- *
- * Two, because two independent recovery layers multiply here and neither can
- * see the other: the engine already retried this identical request 3x with
- * backoff before the error was ever emitted, and a recoverable error is also a
- * continuation boundary, so every chunk that fails costs 4 gateway attempts
- * and dispatches a fresh one. A production turn spent 27 background runs and
- * 15 minutes on one message this way. The first repeat is the retry this path
- * exists for; a second identical failure that moved nothing is evidence the
- * retrying itself is what is broken, not the request.
- */
-export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
-
+// Defined in `app-config/run-lifecycle-invariants.ts`, the neutral home for
+// lifecycle bounds that participate in a cross-module relationship: the durable
+// run ledger in `run-store.ts` derives its ceiling from this, and importing
+// back from there would be circular.
 /**
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress
@@ -7651,59 +7762,91 @@ export async function claimBackgroundWorkerRunEarly(opts: {
         ? opts.requestTurnId.trim()
         : opts.runId;
 
-  await record(
-    opts.runId,
-    RUN_DIAG_STAGE.workerEntered,
-    [
-      `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
-      `continuationCount=${opts.continuationCount}`,
-      opts.backgroundRuntimeDetail,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  ).catch(() => {});
+  let preclaimHeartbeatInFlight = false;
+  let preclaimHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  const preclaimHeartbeatStartedAt = Date.now();
+  const heartbeatWhileUnclaimed = () => {
+    if (
+      Date.now() - preclaimHeartbeatStartedAt >=
+      BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS
+    ) {
+      stopPreclaimHeartbeat();
+      return;
+    }
+    if (preclaimHeartbeatInFlight) return;
+    preclaimHeartbeatInFlight = true;
+    void heartbeat(opts.runId)
+      .catch(() => {})
+      .finally(() => {
+        preclaimHeartbeatInFlight = false;
+      });
+  };
+  const stopPreclaimHeartbeat = () => {
+    if (preclaimHeartbeatTimer !== undefined) {
+      clearInterval(preclaimHeartbeatTimer);
+      preclaimHeartbeatTimer = undefined;
+    }
+  };
 
-  // A failed durable abort read must surface as infrastructure failure. It is
-  // not evidence that the user stopped the turn.
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+  // The foreground subscribes as soon as this worker proves it is alive, so
+  // the worker must keep the still-unclaimed row fresh while its abort checks
+  // and atomic claim are in flight. Once claimed, run-manager owns the timer.
+  preclaimHeartbeatTimer = setInterval(
+    heartbeatWhileUnclaimed,
+    BACKGROUND_PRECLAIM_HEARTBEAT_MS,
+  );
+  // Close the gap before the first interval tick when the row is already near
+  // the unclaimed-reaper cutoff.
+  heartbeatWhileUnclaimed();
+  try {
+    await record(
+      opts.runId,
+      RUN_DIAG_STAGE.workerEntered,
+      [
+        `runsInBackgroundFunction=${opts.runsInBackgroundFunction}`,
+        `continuationCount=${opts.continuationCount}`,
+        opts.backgroundRuntimeDetail,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    ).catch(() => {});
 
-  if (opts.continuationCount > 0) {
-    await insert(opts.runId, threadId, turnId, {
-      dispatchMode: "background",
-    }).catch(() => {});
-  }
+    // A failed durable abort read must surface as infrastructure failure. It is
+    // not evidence that the user stopped the turn.
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
-  }
+    if (opts.continuationCount > 0) {
+      await insert(opts.runId, threadId, turnId, {
+        dispatchMode: "background",
+      }).catch(() => {});
+    }
 
-  const won = await claim(opts.runId);
-  if (!won) {
-    await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
-    return { claimed: false, skipped: "already-claimed" };
-  }
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
 
-  await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
-  await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId)) {
-    await abortRun(opts.runId, "user").catch(() => {});
-    return { claimed: false, skipped: "turn-aborted" };
+    const won = await claim(opts.runId);
+    stopPreclaimHeartbeat();
+    if (!won) {
+      await record(opts.runId, RUN_DIAG_STAGE.workerClaimLost).catch(() => {});
+      return { claimed: false, skipped: "already-claimed" };
+    }
+
+    await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
+    await heartbeat(opts.runId).catch(() => {});
+    if (await turnAborted(threadId, turnId)) {
+      await abortRun(opts.runId, "user").catch(() => {});
+      return { claimed: false, skipped: "turn-aborted" };
+    }
+    return { claimed: true };
+  } finally {
+    stopPreclaimHeartbeat();
   }
-  return { claimed: true };
 }
-
-/**
- * Wall-clock ceiling on a single logical turn. The run-count ledger alone is
- * not a time bound: in durable mode each of the ~25 permitted chunks may burn
- * ~780s, so the ledger's real worst case is over five hours (production has an
- * observed 2h34m turn). Nobody is waiting that long, and every minute past
- * this point is spend on a request the user has abandoned.
- */
-export const MAX_TURN_WALL_CLOCK_MS = 90 * 60_000;
 
 /**
  * Request-body field carrying the turn's running input-token total across
@@ -8080,10 +8223,7 @@ export async function chainServerDrivenContinuation(opts: {
     }
   };
 
-  if (
-    turnRunCount !== null &&
-    turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
-  ) {
+  if (turnRunCount !== null && turnRunLedgerExhausted(turnRunCount)) {
     await stopTurn(
       "turn_continuation_budget_exhausted",
       `turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
@@ -8834,7 +8974,9 @@ export function createProductionAgentHandler(
     if (
       hasAttachments &&
       requestAttachments.some(
-        (a) => a.type === "image" || a.type === "file" || a.type === "document",
+        (a) =>
+          a.displayOnly !== true &&
+          (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
       try {
@@ -9607,6 +9749,14 @@ export function createProductionAgentHandler(
         if (!ownerEmail) return false;
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
+      isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return isAgentToolAlwaysAllowed({
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          toolName: binding.toolName,
+        });
+      },
     };
     const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
@@ -9838,13 +9988,17 @@ export function createProductionAgentHandler(
       // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
       // row sits at `dispatch_mode='background'` until the reaper errors it
       // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
-      // polls briefly for the claim and decides:
-      //   - "stream":    a worker claimed the run → subscribe to it.
+      // polls briefly for the claim or a live setup marker and decides:
+      //   - "stream":    a worker claimed or entered setup → subscribe to it.
       //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
       //                  run a second copy.
       //   - "inline":    dispatch failed OR no worker claimed within grace → we
       //                  atomically own the run; recover by running it inline so a
       //                  dead worker degrades to a working synchronous turn.
+      // Once the worker has entered setup, the SQL stream opens immediately and
+      // the worker continues setup in the background. The bounded preclaim
+      // heartbeat keeps the reaper from racing that setup; the reaper owns
+      // recovery if the worker later fails before claiming the run.
       const backgroundOutcome = await resolveBackgroundDispatchOutcome({
         dispatched,
         backgroundRowInserted,
@@ -9854,6 +10008,7 @@ export function createProductionAgentHandler(
         pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
         readClaim: readBackgroundRunClaim,
         claim: claimBackgroundRun,
+        streamWhenWorkerAlive: true,
       });
 
       if (
@@ -10262,6 +10417,24 @@ export function createProductionAgentHandler(
         )
       : null;
 
+    // The budget this run ACTUALLY executes inside, resolved once and used by
+    // both `startRun` (which arms the chunk timer with it) and the agent loop
+    // (which clamps per-tool timeouts under it). Resolving it only inside
+    // `startRun` left the loop to re-derive a generic hosted/background
+    // ceiling, so an app-configured chunk shorter than that ceiling got
+    // per-tool timeouts longer than the chunk containing them — dead code, and
+    // the chunk boundary won instead. `resolveRunSoftTimeoutMs` clamps an
+    // already-resolved number to itself, so passing it back in is a no-op.
+    const resolvedRunSoftTimeoutMs = resolveRunSoftTimeoutMs(
+      selfChainBudget && !selfChainBudget.skipToBoundary
+        ? selfChainBudget.softTimeoutMs
+        : options.runSoftTimeoutMs,
+      {
+        useHostedDefault: true,
+        backgroundFunction: runsInBackgroundFunction,
+      },
+    );
+
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -10382,6 +10555,15 @@ export function createProductionAgentHandler(
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
+                  // Same `startRun` chunk and same signal as the main loop, so
+                  // the same budget. Left off, the loop re-derives the generic
+                  // hosted/background ceiling, which can sit above the chunk
+                  // these nested calls actually run inside — and then the
+                  // per-tool timeout is unreachable and the chunk boundary
+                  // preempts it.
+                  ...(resolvedRunSoftTimeoutMs > 0
+                    ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+                    : {}),
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -10563,6 +10745,13 @@ export function createProductionAgentHandler(
           priorTurnInputTokens: turnInputTokens,
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
+          // The chunk this loop is running inside, so a per-tool timeout is
+          // clamped under the budget it can actually spend rather than under a
+          // re-derived generic ceiling. `0` (local dev) keeps the loop's own
+          // fallback.
+          ...(resolvedRunSoftTimeoutMs > 0
+            ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+            : {}),
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
@@ -10576,6 +10765,7 @@ export function createProductionAgentHandler(
             : {}),
           onApprovalRequired: approvalHooks.onApprovalRequired,
           consumeApproval: approvalHooks.consumeApproval,
+          isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -10625,6 +10815,7 @@ export function createProductionAgentHandler(
               approvedToolCalls: approvedToolCallsForExecution,
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
+              isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
             return;
@@ -10732,10 +10923,7 @@ export function createProductionAgentHandler(
         // (durable-background worker, plain foreground POST) is unaffected:
         // `selfChainBudget` is `null` for them and this falls through to the
         // exact prior value.
-        softTimeoutMs:
-          selfChainBudget && !selfChainBudget.skipToBoundary
-            ? selfChainBudget.softTimeoutMs
-            : options.runSoftTimeoutMs,
+        softTimeoutMs: resolvedRunSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
         // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
         // executing inside a real Netlify `-background` function (15-min budget,
@@ -10755,9 +10943,16 @@ export function createProductionAgentHandler(
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
         waitUntil: getRequestRunContext()?.waitUntil,
-        dispatchMode: foregroundSelfChainEligible
-          ? "foreground-self-chain"
-          : "foreground",
+        // A durable background worker reaches this same call site, so keying
+        // only on the foreground self-chain flag stamped every worker run
+        // `foreground` — the row says `background`, and the analytics said
+        // otherwise. That is the same defect this PR fixes for automations,
+        // one call site over.
+        dispatchMode: isBackgroundWorker
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this

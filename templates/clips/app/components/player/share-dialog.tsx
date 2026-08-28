@@ -6,8 +6,13 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
-import { IconExternalLink } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconDownload,
+  IconExternalLink,
+  IconMail,
+  IconPhoto,
+} from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -19,11 +24,12 @@ import {
 import { toast } from "sonner";
 
 import {
-  CopyField,
+  CopyButton,
   GeneralAccessSelect,
-  MakePublicCard,
-  SharePeopleTab,
-  copyToClipboard,
+  InvitePeopleField,
+  PeopleAccessSection,
+  ShareSectionLabel,
+  nestedLayerDismissGuards,
   useResourceVisibilityMutation,
   type SharesQuery,
   type SharesResponse,
@@ -31,6 +37,12 @@ import {
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -38,6 +50,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -47,6 +60,10 @@ import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
 import { preferredThumbnailVariant } from "../../../shared/share-meta";
+
+/** Compact pill tabs: active tab reads as a raised chip, inactive as plain text. */
+const SHARE_TAB_CLASS =
+  "h-7 rounded-md border border-transparent px-3 text-xs font-medium text-muted-foreground transition-colors data-[state=active]:border-border data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:shadow-none";
 
 function absoluteAppUrl(path: string): string {
   if (typeof window === "undefined") return "";
@@ -120,6 +137,7 @@ export function ShareRecordingPopover({
       {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
         align="end"
+        {...nestedLayerDismissGuards()}
         className="z-[260] w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         <ShareRecordingContent
@@ -253,27 +271,21 @@ function ShareRecordingContent({
           absoluteAppUrl(`/share/${recordingId}`),
           ownerViaId,
         );
+
+  const { setResourceVisibility, isPending: visibilityMutationPending } =
+    useResourceVisibilityMutation("recording", recordingId, sharesQuery);
+  const visibilityPending = visibilityMutationPending || sharesQuery.isLoading;
+
   return (
-    <>
-      <Tabs
-        defaultValue="link"
-        className={cn("min-w-0 px-4 py-3", reserveCloseButton && "pe-12")}
-      >
+    <div className={cn("min-w-0 px-4 py-3", reserveCloseButton && "pe-12")}>
+      <Tabs defaultValue="link">
         {tabCount > 1 ? (
-          <TabsList
-            className={`grid w-full rounded-xl bg-muted/70 p-1 ${tabCount === 3 ? "grid-cols-3" : "grid-cols-2"}`}
-          >
-            <TabsTrigger
-              value="link"
-              className="h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border"
-            >
+          <TabsList className="mb-1 inline-flex h-auto w-auto justify-start gap-1 rounded-none bg-transparent p-0">
+            <TabsTrigger value="link" className={SHARE_TAB_CLASS}>
               {t("shareDialog.link")}
             </TabsTrigger>
             {canEmbed ? (
-              <TabsTrigger
-                value="embed"
-                className="h-10 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border"
-              >
+              <TabsTrigger value="embed" className={SHARE_TAB_CLASS}>
                 {t("shareDialog.embed")}
               </TabsTrigger>
             ) : null}
@@ -287,6 +299,8 @@ function ShareRecordingContent({
             shareUrl={shareUrl}
             sharesQuery={sharesQuery}
             visibility={visibility}
+            visibilityPending={visibilityPending}
+            onVisibilityChange={setResourceVisibility}
             canManage={canManage}
             videoUrl={videoUrl}
             thumbnailUrl={thumbnailUrl}
@@ -309,7 +323,7 @@ function ShareRecordingContent({
           </TabsContent>
         ) : null}
       </Tabs>
-    </>
+    </div>
   );
 }
 
@@ -323,6 +337,8 @@ function LinkTab({
   shareUrl,
   sharesQuery,
   visibility,
+  visibilityPending,
+  onVisibilityChange,
   canManage,
   videoUrl,
   thumbnailUrl,
@@ -336,6 +352,11 @@ function LinkTab({
   shareUrl: string;
   sharesQuery: SharesQuery;
   visibility: Visibility | null;
+  visibilityPending: boolean;
+  onVisibilityChange: (
+    next: Visibility,
+    options?: { onSuccess?: () => void },
+  ) => void;
   canManage: boolean;
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
@@ -345,14 +366,8 @@ function LinkTab({
   canViewShares: boolean;
 }) {
   const t = useT();
-  const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
-    "recording",
-    recordingId,
-    sharesQuery,
-  );
   const isPublic = visibility === "public";
   const sharesLoaded = visibility !== null;
-  const visibilityPending = isPending || sharesQuery.isLoading;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const needsScopedAgentContext = !isPublic || hasPassword !== false;
   const publicAgentContextUrl = useMemo(
@@ -467,164 +482,182 @@ function LinkTab({
     !sharesLoaded ||
     !agentLink ||
     (needsScopedAgentContext &&
-      (isPending || createAgentLink.isPending || !agentContextUrl));
-  const agentPrompt = agentLink
+      (createAgentLink.isPending || !agentContextUrl));
+  const agentCopyValue = agentLink
     ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
-  const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
-  const showMakePublic = sharesLoaded && !isPublic && canManage;
-  const downloadButton = videoUrl ? (
-    <Button
-      variant="outline"
-      size="sm"
-      className={isLoomRecording ? "gap-1.5" : undefined}
-      onClick={() => window.open(videoUrl, "_blank", "noopener,noreferrer")}
-    >
-      {isLoomRecording ? (
-        <>
-          <IconExternalLink className="h-4 w-4" />
-          {t("shareDialog.openPlayer")}
-        </>
-      ) : (
-        t("recordRoute.downloadRecording")
-      )}
-    </Button>
-  ) : null;
-  const moveDownloadIntoMakePublicRow = showMakePublic && Boolean(videoUrl);
-
-  useEffect(() => {
-    if (isPublic) setAgentDetailsOpen(false);
-  }, [isPublic]);
+  const moreMenuItems = [
+    isLoomRecording && videoUrl
+      ? {
+          key: "open-player",
+          label: t("shareDialog.openPlayer"),
+          icon: IconExternalLink,
+          onSelect: () =>
+            window.open(videoUrl, "_blank", "noopener,noreferrer"),
+        }
+      : videoUrl
+        ? {
+            key: "download",
+            label: t("recordRoute.downloadRecording"),
+            icon: IconDownload,
+            onSelect: () =>
+              window.open(videoUrl, "_blank", "noopener,noreferrer"),
+          }
+        : null,
+    animatedThumbnailUrl
+      ? {
+          key: "gif-preview",
+          label: t("shareDialog.gifPreview"),
+          icon: IconPhoto,
+          onSelect: () => window.open(animatedThumbnailUrl, "_blank"),
+        }
+      : null,
+    emailPreviewThumbnailUrl
+      ? {
+          key: "email-preview",
+          label: t("shareDialog.copyEmailPreview"),
+          icon: IconMail,
+          onSelect: () => void copyEmailPreview(),
+        }
+      : null,
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
 
   return (
     <div className="space-y-4">
-      <CopyField
-        label={
-          isPublic
-            ? t("shareDialog.shareLink")
-            : t("shareDialog.shareWithHumans")
-        }
-        value={shareUrl}
-        disabled={visibilityPending || !sharesLoaded}
-      />
-
-      {canViewShares ? (
-        visibility ? (
-          <GeneralAccessSelect
-            visibility={visibility}
-            canManage={canManage}
-            isPending={visibilityPending}
-            onChange={(next) => setResourceVisibility(next)}
-            publicDescription={t("shareDialog.publicDescription")}
-            showDescription={false}
-          />
-        ) : (
-          <div className="space-y-2" aria-hidden>
-            <div className="h-3 w-24 animate-pulse rounded bg-muted" />
-            <div className="h-12 w-full animate-pulse rounded bg-muted" />
-          </div>
-        )
-      ) : null}
-
-      {canViewShares ? (
-        <SharePeopleTab
+      {/* `share-resource` requires owner/admin, so anyone else would only get
+          a rejected submission. */}
+      {canManage ? (
+        <InvitePeopleField
           resourceType="recording"
           resourceId={recordingId}
           resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
           sharesQuery={sharesQuery}
-          canManage={canManage}
-          roleCopy={{
-            commenter: {
-              label: t("shareUi.recordingCommenter.label"),
-              description: t("shareUi.recordingCommenter.description"),
-            },
-          }}
+          onError={(err) =>
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : t("clipsFinalRaw.inviteFailed"),
+            )
+          }
         />
       ) : null}
 
-      <ShareAgentsSection
-        label={t("shareDialog.shareWithAgents")}
-        open={agentDetailsOpen}
-        onOpenChange={setAgentDetailsOpen}
-        contentClassName="clips-collapsible-content"
-      >
-        <div className="space-y-2">
-          <CopyField
-            label={t("shareDialog.shareLink")}
-            value={agentLink}
-            disabled={agentShareDisabled}
-          />
-          {sharesLoaded ? (
-            <>
-              <p className="text-xs text-muted-foreground">
-                {t("shareDialog.agentTokenDescription")}
-              </p>
-              {agentLinkError ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                  <p className="text-xs text-muted-foreground">
-                    {t("shareDialog.agentLinkUnavailable")}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7"
-                    onClick={() => void loadAgentContextUrl()}
-                    disabled={createAgentLink.isPending}
-                  >
-                    {t("shareDialog.retryAgentLink")}
-                  </Button>
-                </div>
-              ) : null}
-              <CopyField
-                label={t("shareDialog.copyAgentPrompt")}
-                value={agentPrompt}
-                disabled={agentShareDisabled}
+      {canViewShares ? (
+        visibility ? (
+          <div className="space-y-2 pt-2">
+            <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
+            <div className="flex flex-col gap-1">
+              <PeopleAccessSection
+                resourceType="recording"
+                resourceId={recordingId}
+                sharesQuery={sharesQuery}
+                canManage={canManage}
+                roleCopy={{
+                  commenter: {
+                    label: t("shareUi.recordingCommenter.label"),
+                    description: t("shareUi.recordingCommenter.description"),
+                  },
+                }}
+                onError={(err, action) =>
+                  toast.error(
+                    err instanceof Error
+                      ? err.message
+                      : action === "permission"
+                        ? t("clipsFinalRaw.permissionUpdateFailed")
+                        : t("clipsFinalRaw.removePersonFailed"),
+                  )
+                }
               />
-            </>
-          ) : null}
-        </div>
-      </ShareAgentsSection>
-
-      {showMakePublic ? (
-        <MakePublicCard
-          isPending={isPending}
-          secondaryAction={
-            moveDownloadIntoMakePublicRow ? downloadButton : undefined
-          }
-          onMakePublic={() =>
-            setResourceVisibility("public", {
-              onSuccess: () => copyToClipboard(shareUrl),
-            })
-          }
-        />
+              <GeneralAccessSelect
+                visibility={visibility}
+                canManage={canManage}
+                isPending={visibilityPending}
+                onChange={onVisibilityChange}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2" aria-hidden>
+            <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+            <div className="h-9 w-full animate-pulse rounded bg-muted" />
+            <div className="h-9 w-full animate-pulse rounded bg-muted" />
+          </div>
+        )
       ) : null}
 
-      {emailPreviewThumbnailUrl ||
-      animatedThumbnailUrl ||
-      (videoUrl && !moveDownloadIntoMakePublicRow) ? (
-        <div className="flex flex-wrap gap-2">
-          {emailPreviewThumbnailUrl ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void copyEmailPreview()}
-            >
-              {t("shareDialog.copyEmailPreview")}
-            </Button>
-          ) : null}
-          {animatedThumbnailUrl ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(animatedThumbnailUrl, "_blank")}
-            >
-              {t("shareDialog.gifPreview")}
-            </Button>
-          ) : null}
-          {!moveDownloadIntoMakePublicRow ? downloadButton : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <CopyButton
+          value={shareUrl}
+          disabled={visibilityPending || !sharesLoaded}
+          resourceType="recording"
+          resourceId={recordingId}
+          linkType="share"
+        >
+          {t("shareUi.copyLink")}
+        </CopyButton>
+        {moreMenuItems.length > 0 ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                className="ms-auto gap-3 px-3"
+              >
+                {t("shareDialog.more")}
+                <IconChevronDown className="h-4 w-4 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {moreMenuItems.map((item) => (
+                <DropdownMenuItem key={item.key} onSelect={item.onSelect}>
+                  <item.icon size={16} aria-hidden />
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+
+      <Separator />
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            {t("shareDialog.shareWithAgents")}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {/* A public, unprotected clip hands agents its permanent public
+                context URL; everything else gets a short-lived scoped token. */}
+            {needsScopedAgentContext
+              ? t("shareDialog.agentTokenDescription")
+              : t("shareDialog.agentPublicDescription")}
+          </p>
         </div>
-      ) : null}
+        {agentLinkError ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => void loadAgentContextUrl()}
+            disabled={createAgentLink.isPending}
+          >
+            {t("shareDialog.retryAgentLink")}
+          </Button>
+        ) : (
+          <CopyButton
+            value={agentCopyValue}
+            disabled={agentShareDisabled}
+            className="shrink-0"
+            resourceType="recording"
+            resourceId={recordingId}
+            linkType="agent_context"
+          >
+            {t("shareUi.copy")}
+          </CopyButton>
+        )}
+      </div>
     </div>
   );
 }
@@ -785,6 +818,9 @@ function ClipsEmbedConfigurator({
           value={code}
           className="w-full h-20 px-3 py-2 text-xs font-mono rounded-md border border-input bg-background resize-none"
         />
+        <CopyButton value={code} className="mt-2">
+          {t("shareDialog.copyEmbedCode")}
+        </CopyButton>
       </div>
     </div>
   );

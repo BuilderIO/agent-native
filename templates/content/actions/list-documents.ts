@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -53,6 +53,8 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 export default defineAction({
   description:
     "List one bounded page of access-scoped document metadata ordered by position. Returns explicit pagination; follow nextOffset until hasMore is false. Does not return full document bodies; use get-document for one document's content.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
     limit: z.coerce
       .number()

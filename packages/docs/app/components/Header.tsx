@@ -14,6 +14,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "./ui/context-menu";
+import { useSearchModal } from "./use-search-modal";
 
 const DOCS_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
@@ -98,30 +99,6 @@ function CloseIcon() {
   );
 }
 
-function useSearchModal() {
-  const [open, setOpen] = useState(false);
-  const [everOpened, setEverOpened] = useState(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setEverOpened(true);
-        setOpen(true);
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
-  const openModal = () => {
-    setEverOpened(true);
-    setOpen(true);
-  };
-
-  return { open, setOpen, everOpened, openModal };
-}
-
 export default function Header() {
   const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -183,7 +160,7 @@ export default function Header() {
   return (
     <>
       <header
-        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
+        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
         <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <ContextMenu>
@@ -214,18 +191,18 @@ export default function Header() {
                 <img
                   src="/agent-native-logo-light.svg"
                   alt="Agent-Native"
-                  width={1023}
-                  height={120}
-                  className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+                  width={1286}
+                  height={317}
+                  className="hidden aspect-[1286/317] h-10 w-auto min-[380px]:block dark:hidden"
                   loading="lazy"
                   decoding="async"
                 />
                 <img
                   src="/agent-native-logo-dark.svg"
                   alt="Agent-Native"
-                  width={1023}
-                  height={120}
-                  className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:dark:block"
+                  width={1286}
+                  height={317}
+                  className="hidden aspect-[1286/317] h-10 w-auto min-[380px]:dark:block"
                   loading="lazy"
                   decoding="async"
                 />

@@ -5,6 +5,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  SSR_QUERY_CACHE_KEY_HEADER,
   withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
@@ -13,6 +14,8 @@ import { getMethod, getRequestURL, type H3Event } from "h3";
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import { SENSITIVE_QUERY_PARAMS } from "../../shared/page-url.js";
 import {
+  getFormCompletionMode,
+  getFormCompletionRefreshSeconds,
   toPublicFormSettings,
   type FormField,
   type FormSettings,
@@ -112,7 +115,11 @@ function toSafeString(value: unknown): string {
     if (typeof v.value === "string") return v.value;
     return "";
   }
-  return String(value);
+  return typeof value === "string"
+    ? value
+    : value == null
+      ? ""
+      : JSON.stringify(value);
 }
 
 function escapeHtml(value: unknown): string {
@@ -159,9 +166,10 @@ function normalizeOptions(options: unknown): string[] {
 }
 
 /**
- * Validate a form-author-supplied post-submit redirect URL. Returns the
- * value verbatim only if it parses as `http:` or `https:` — falls back to
- * an empty string otherwise (caller treats empty as "no redirect").
+ * Validate a form-author-supplied post-submit redirect URL. Returns a
+ * root-relative path or the value verbatim when it parses as `http:` or
+ * `https:`. Falls back to an empty string otherwise (caller treats empty as
+ * "no redirect").
  *
  * Form publishers control `settings.redirectUrl` and the rendered page
  * assigns it to `window.location.href`. Without scheme validation a
@@ -175,6 +183,7 @@ export function safeRedirectUrl(value: unknown): string {
   // Reject control characters and protocol-relative URLs outright.
   if (/[\x00-\x1f]/.test(trimmed)) return "";
   if (trimmed.startsWith("//")) return "";
+  if (trimmed.startsWith("/")) return trimmed.includes("\\") ? "" : trimmed;
   try {
     const parsed = new URL(trimmed);
     return parsed.protocol === "http:" || parsed.protocol === "https:"
@@ -321,6 +330,7 @@ export async function renderPublicForm(event: H3Event) {
     // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
     // here; relying on provider config would make templates perform differently.
     Object.assign(headers, resolveSsrCacheHeaders());
+    headers[SSR_QUERY_CACHE_KEY_HEADER] = "query";
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,
@@ -347,6 +357,9 @@ function renderFormPage(
 ): string {
   const settings: PublicFormSettings = form.settings || {};
   const fields: FormField[] = form.fields || [];
+  const completionMode = getFormCompletionMode(settings);
+  const completionRefreshMilliseconds =
+    getFormCompletionRefreshSeconds(settings.completionRefreshSeconds) * 1000;
   const turnstileSiteKey = process.env.VITE_TURNSTILE_SITE_KEY || "";
   const appBasePath = getAppBasePath();
   const submitPath = `${appBasePath}/api/submit/`;
@@ -427,7 +440,7 @@ function renderFormPage(
 
   <a href="https://agent-native.com" target="_blank" rel="noopener noreferrer" class="powered-badge">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-    Built with Agent Native
+    Built with Agent-Native
   </a>
 </div>
 
@@ -438,6 +451,8 @@ function renderFormPage(
   var FORM_ID = ${JSON.stringify(form.id)};
   var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
   var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
+  var COMPLETION_MODE = ${JSON.stringify(completionMode)};
+  var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
@@ -472,7 +487,15 @@ function renderFormPage(
 
   function revalidateFormVersion() {
     fetch(PUBLIC_FORM_API, { cache: "no-store" })
-      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(response) {
+        if (response.status === 404) {
+          var currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set("v", String(Date.now()));
+          window.location.replace(currentUrl.toString());
+          return null;
+        }
+        return response.ok ? response.json() : null;
+      })
       .then(function(latest) {
         if (!latest || typeof latest.updatedAt !== "string" || !latest.updatedAt || latest.updatedAt === FORM_VERSION) return;
         var currentUrl = new URL(window.location.href);
@@ -678,10 +701,14 @@ function renderFormPage(
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {
       if (!res.ok) { throw new Error(res.data.error || "Failed to submit"); }
-      if (REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "redirect" && REDIRECT) { window.location.href = REDIRECT; return; }
+      if (COMPLETION_MODE === "refresh") { window.location.reload(); return; }
       document.querySelector(".container").style.display = "none";
       document.getElementById("successView").style.display = "flex";
-      if (html.classList.contains("embedded") && window.parent !== window) {
+      if (COMPLETION_MODE === "message_then_refresh") {
+        window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);
+      }
+      if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded") && window.parent !== window) {
         try { window.parent.postMessage({ type: "agent-native-feedback-submitted" }, "*"); } catch (_) {}
       }
     })

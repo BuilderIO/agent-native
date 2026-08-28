@@ -10,13 +10,16 @@
  * so the reset-password flow still works end-to-end for local development.
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
 import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
-import { getAppSlug } from "./app-name.js";
-import { resolveSecret } from "./credential-provider.js";
+import {
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 import { getRequestOrgId } from "./request-context.js";
 
@@ -43,6 +46,8 @@ export interface SendEmailArgs {
   subject: string;
   html: string;
   text?: string;
+  /** Keep security-sensitive links out of provider click-tracking redirects. */
+  disableClickTracking?: boolean;
   from?: string;
   /**
    * Display-name-only override. Keeps the configured (domain-verified) sending
@@ -139,6 +144,34 @@ async function resolveEmailTransport(): Promise<EmailTransportConfig> {
   return { provider: "dev", from: resolvedFrom };
 }
 
+function classifyEmailReadiness(config: EmailTransportConfig): EmailReadiness {
+  if (config.provider === "dev") {
+    return { status: "not-configured", provider: "dev" };
+  }
+  if (config.provider === "sendgrid" && !config.from) {
+    return { status: "misconfigured", provider: "sendgrid" };
+  }
+  return { status: "ready", provider: config.provider };
+}
+
+/**
+ * Auth uses one Better Auth instance per process, so its email policy must
+ * come from deployment configuration rather than a request-scoped secret.
+ * Scoped email keys still support transactional app mail, but cannot safely
+ * configure unauthenticated magic-link or signup-verification flows.
+ */
+export function getDeploymentEmailReadiness(): EmailReadiness {
+  const provider = readDeployCredentialEnv("RESEND_API_KEY")
+    ? "resend"
+    : readDeployCredentialEnv("SENDGRID_API_KEY")
+      ? "sendgrid"
+      : "dev";
+  return classifyEmailReadiness({
+    provider,
+    from: readDeployCredentialEnv("EMAIL_FROM") || undefined,
+  });
+}
+
 export async function isEmailConfigured(): Promise<boolean> {
   return (await getEmailReadiness()).status === "ready";
 }
@@ -151,14 +184,7 @@ export async function isEmailConfigured(): Promise<boolean> {
  */
 export async function getEmailReadiness(): Promise<EmailReadiness> {
   try {
-    const config = await resolveEmailTransport();
-    if (config.provider === "dev") {
-      return { status: "not-configured", provider: "dev" };
-    }
-    if (config.provider === "sendgrid" && !config.from) {
-      return { status: "misconfigured", provider: "sendgrid" };
-    }
-    return { status: "ready", provider: config.provider };
+    return classifyEmailReadiness(await resolveEmailTransport());
   } catch {
     return { status: "unavailable", provider: "unknown" };
   }
@@ -186,7 +212,7 @@ function defaultFromAddress(config: EmailTransportConfig): string {
       "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
     );
   }
-  return "Agent Native <onboarding@resend.dev>";
+  return "Agent-Native <onboarding@resend.dev>";
 }
 
 /**
@@ -341,12 +367,17 @@ async function deliverEmail(
     const orgId = args.orgId ?? getRequestOrgId();
     const categories = [
       args.templateId,
-      args.app ?? getAppSlug(),
+      args.app ?? getAppConfig().app.slug,
       args.templateId && orgId
         ? getScopedEmailProviderCategory(args.templateId, orgId)
         : undefined,
     ].filter((value): value is string => Boolean(value));
     if (categories.length) sgPayload.categories = categories;
+    if (args.disableClickTracking) {
+      sgPayload.tracking_settings = {
+        click_tracking: { enable: false },
+      };
+    }
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;
@@ -411,7 +442,7 @@ async function sendEmailWithSignal(
   } catch (error) {
     await recordEmailSend({
       templateId: args.templateId,
-      app: args.app ?? getAppSlug() ?? "unknown",
+      app: args.app ?? getAppConfig().app.slug ?? "unknown",
       orgId: args.orgId ?? getRequestOrgId(),
       recipient: args.to,
       sender: outcome?.from ?? args.from ?? "unknown",
@@ -424,7 +455,7 @@ async function sendEmailWithSignal(
   }
   await recordEmailSend({
     templateId: args.templateId,
-    app: args.app ?? getAppSlug() ?? "unknown",
+    app: args.app ?? getAppConfig().app.slug ?? "unknown",
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
     sender: outcome.from,

@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
@@ -21,6 +22,10 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const handlePushNotificationMock = vi.hoisted(() => vi.fn());
+const verifyGoogleDocsPushNotificationMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const recordIntegrationResponseDeliveryMock = vi.hoisted(() => vi.fn());
 const handleWebhookMock = vi.hoisted(() =>
@@ -177,7 +182,8 @@ vi.mock("./integration-durable-dispatch.js", async () => {
 
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: vi.fn(),
-  handlePushNotification: vi.fn(),
+  handlePushNotification: handlePushNotificationMock,
+  verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -361,6 +367,8 @@ describe("integrations plugin routes", () => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    delete process.env.AGENT_NATIVE_INTEGRATION_PLATFORMS;
+    resetAppConfigForTests();
     process.env.NODE_ENV = originalNodeEnv;
     if (originalNetlify === undefined) {
       delete process.env.NETLIFY;
@@ -385,6 +393,10 @@ describe("integrations plugin routes", () => {
     resolveSecretMock.mockReset();
     resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    handlePushNotificationMock.mockReset();
+    handlePushNotificationMock.mockResolvedValue(undefined);
+    verifyGoogleDocsPushNotificationMock.mockReset();
+    verifyGoogleDocsPushNotificationMock.mockResolvedValue(true);
     retryStuckPendingTasksMock.mockResolvedValue({
       selected: 0,
       dispatched: 0,
@@ -447,6 +459,28 @@ describe("integrations plugin routes", () => {
     ]);
   });
 
+  it("does not mount Slack-named routes when the allow-list drops slack", async () => {
+    process.env.AGENT_NATIVE_INTEGRATION_PLATFORMS = "fake";
+    resetAppConfigForTests();
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    // No Slack handler is registered, so both paths fall past the named
+    // routes to the catch-all, which resolves an adapter and finds none.
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/slack/oauth/callback"),
+    ).resolves.toMatchObject({
+      status: 404,
+      body: { error: "Unknown platform: slack" },
+    });
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/slack/manifest"),
+    ).resolves.toMatchObject({
+      status: 404,
+      body: { error: "Unknown platform: slack" },
+    });
+  });
+
   it("serves a deployment-qualified Slack Agent View manifest", async () => {
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
@@ -458,7 +492,7 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({
-      display_information: { name: "Agent Native" },
+      display_information: { name: "Agent-Native" },
       features: {
         app_home: {
           messages_tab_enabled: true,
@@ -722,6 +756,52 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ challenge: "qa-challenge" });
+  });
+
+  it("authenticates Google Drive push notifications with channel headers", async () => {
+    process.env.NODE_ENV = "production";
+    const googleDocsAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "google-docs",
+      label: "Google Docs",
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [googleDocsAdapter] })(nitroApp);
+
+    verifyGoogleDocsPushNotificationMock.mockResolvedValueOnce(false);
+    const rejected = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/webhook",
+      "POST",
+      undefined,
+      {
+        "x-goog-channel-id": "channel-1",
+        "x-goog-channel-token": "token-1",
+        "x-goog-resource-id": "resource-1",
+      },
+    );
+    expect(rejected.status).toBe(401);
+    expect(handlePushNotificationMock).not.toHaveBeenCalled();
+
+    const accepted = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/webhook",
+      "POST",
+      undefined,
+      {
+        "x-goog-channel-id": "channel-1",
+        "x-goog-channel-token": "token-1",
+        "x-goog-resource-id": "resource-1",
+      },
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toBe("ok");
+    expect(verifyGoogleDocsPushNotificationMock).toHaveBeenLastCalledWith({
+      channelId: "channel-1",
+      channelToken: "token-1",
+      resourceId: "resource-1",
+    });
+    expect(handlePushNotificationMock).toHaveBeenCalledTimes(1);
   });
 
   it("refuses unsigned task processing in production when A2A_SECRET is missing", async () => {

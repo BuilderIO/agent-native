@@ -41,6 +41,16 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("[view, activeLabel, activeInboxTab]");
   });
 
+  it("keeps the first-use Important default on a plain inbox route", () => {
+    const source = inboxSource();
+
+    expect(source).toContain("settingsLoading");
+    expect(source).toContain("userPinnedLabels !== undefined");
+    expect(source).toContain(
+      'navigate("/inbox?label=important", { replace: true })',
+    );
+  });
+
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
@@ -86,6 +96,21 @@ describe("Inbox pagination", () => {
     expect(source).toContain("runPaginationRetry(fetchNextPage");
     expect(inboxSource()).toContain("shouldShowInboxZero");
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
+  });
+
+  it("uses a contact-scoped search and bounded follow-up pages", () => {
+    const source = inboxSource();
+
+    expect(source).toContain('useEmails("all", normalizedDisplayEmail');
+    expect(source).toContain("fetchNextPage");
+    expect(source).toContain("contactPageFetchesRef");
+    expect(source).toContain("contactGenerationRef");
+    expect(source).toContain("isError: allEmailsError");
+    expect(source).toContain("recentEmailsError={allEmailsError}");
+    expect(source).toContain(
+      "contactGenerationRef.current === contactGeneration",
+    );
+    expect(source).toContain("recentFromContact.length >= 4");
   });
 });
 

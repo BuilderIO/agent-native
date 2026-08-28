@@ -6,7 +6,11 @@ import path from "node:path";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-import { AgentActionStopError } from "../action.js";
+import { AgentActionStopError, fail } from "../action.js";
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -26,6 +30,8 @@ import {
   AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS,
+  BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
   callConnectedAgentReference,
@@ -45,8 +51,6 @@ import {
   filterActionsByAllowedNames,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
-  MAX_BACKGROUND_RUN_CONTINUATIONS,
-  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   backgroundNoProgressTerminalEvent,
   installBackgroundNoProgressTerminalEvent,
   resolveBackgroundNoProgressRepeat,
@@ -63,9 +67,11 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
+  toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
+  resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
@@ -142,6 +148,20 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("toolCallCacheKey", () => {
+  it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
+    expect(
+      toolCallCacheKey("docs-search", { query: "  Slides   generation " }),
+    ).toBe(toolCallCacheKey("docs-search", { query: "slides generation" }));
+    expect(
+      toolCallCacheKey("docs-search", { query: "slides generation" }),
+    ).not.toBe(toolCallCacheKey("docs-search", { query: "slides export" }));
+    expect(
+      toolCallCacheKey("read-file", { query: "  Slides   generation " }),
+    ).not.toBe(toolCallCacheKey("read-file", { query: "slides generation" }));
+  });
+});
 
 describe("resolveAgentRequestReasoningEffort", () => {
   it("narrates a retry the user waited through, and stays silent on a blip", async () => {
@@ -490,6 +510,29 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it("does not send display-only chat attachments to the model", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "make a deck from the reference",
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+          {
+            type: "file",
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            displayOnly: true,
+            text: "outline",
+          },
+        ],
+      }),
+    ).toEqual([{ type: "text", text: "make a deck from the reference" }]);
+  });
+
   it("preserves the prompt text when there are no attachments", () => {
     expect(buildUserContentWithAttachments({ text: "Hello" })).toEqual([
       { type: "text", text: "Hello" },
@@ -589,6 +632,39 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Embed this image" },
     ]);
+  });
+
+  it("uses inline bytes for vision while retaining URL-only references as text", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Use these image references",
+      attachments: [
+        {
+          type: "image",
+          name: "with-bytes.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+          url: "https://cdn.example.com/with-bytes.png",
+        } as any,
+        {
+          type: "image",
+          name: "url-only.png",
+          contentType: "image/png",
+          url: "https://cdn.example.com/url-only.png",
+        } as any,
+      ],
+    });
+
+    expect(parts).toContainEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: "aW1hZ2U=",
+    });
+    const text = parts
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    expect(text).toContain("https://cdn.example.com/url-only.png");
+    expect(text).toContain("not sent as a vision image");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -2604,7 +2680,17 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("checkpoints when action input preparation stops streaming bytes", async () => {
+  it("does NOT checkpoint when a tool input goes quiet — that is a big argument, not a stall", async () => {
+    // THE REGRESSION THIS FILE USED TO ASSERT THE OPPOSITE OF.
+    //
+    // Only a tool declared for eager input streaming emits `input_json_delta`
+    // while its arguments are generated. Everything else produces
+    // `tool-input-start` and then NOTHING until the whole argument blob is
+    // ready — for a large file or a long structured result that is minutes of
+    // legitimate silence. The retired action-preparation watchdog read the
+    // stalled byte counter as a dead stream and cut the turn off at 90s; on the
+    // Anthropic transport it could not have known better, because the SDK drops
+    // the provider pings that would have proved liveness.
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
@@ -2625,9 +2711,10 @@ describe("runAgentLoop", () => {
           id: "tool-edit",
           name: "edit-design",
         };
-        now += 91_000;
+        // Five minutes composing the argument, not one byte forwarded.
+        now += 5 * 60_000;
         yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
+        yield { type: "text-delta", text: "the turn continues" };
       },
     };
     const events: AgentChatEvent[] = [];
@@ -2649,109 +2736,28 @@ describe("runAgentLoop", () => {
       dateNow.mockRestore();
     }
 
+    // The preparation activity still reaches the UI — the user sees progress.
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing edit-design action",
       tool: "edit-design",
       id: "tool-edit",
     });
+    // Nothing cut the turn off DURING the quiet stretch, and the text that
+    // followed it still reached the client.
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "auto_continue", reason: "no_progress" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "the turn continues" }),
+    );
+    // The stream still ends with an undelivered tool input, which is a real
+    // truncation and keeps its own boundary — that guard reads the STREAM
+    // ENDING, not a clock, so it cannot fire on slow work.
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
-      reason: "no_progress",
+      reason: "stream_ended",
     });
-    expect(events).not.toContainEqual({ type: "stream_keepalive" });
-    expect(events).not.toContainEqual({ type: "done" });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-  });
-
-  it("continues main chat internally after a no-progress action preparation checkpoint", async () => {
-    let now = 1_000_000;
-    let attempts = 0;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        attempts++;
-        if (attempts === 1) {
-          yield {
-            type: "tool-input-start",
-            id: "tool-edit",
-            name: "edit-design",
-          };
-          now += 91_000;
-          yield { type: "gateway-heartbeat" };
-          yield { type: "text-delta", text: "should not continue" };
-          return;
-        }
-        yield { type: "text-delta", text: "continued" };
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text" as const, text: "continued" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-    const guard = vi.fn(() => null);
-    const messages = [
-      {
-        role: "user" as const,
-        content: [{ type: "text" as const, text: "go" }],
-      },
-    ];
-
-    try {
-      await runAgentLoopWithMainChatInternalContinuations({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages,
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-        finalResponseGuard: guard,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(attempts).toBe(2);
-    const continuationText = messages
-      .map((message) =>
-        message.content[0]?.type === "text" ? message.content[0].text : "",
-      )
-      .find((text) => text.includes(AGENT_INTERNAL_CONTINUE_PROMPT));
-    expect(continuationText).toContain(AGENT_INTERNAL_CONTINUE_PROMPT);
-    expect(continuationText).toContain(
-      "preparing the `edit-design` action input",
-    );
-    expect(events).toContainEqual({ type: "clear" });
-    expect(events).toContainEqual({ type: "text", text: "continued" });
-    expect(events).toContainEqual({ type: "done" });
-    expect(guard).toHaveBeenCalledTimes(1);
-    expect(guard.mock.calls[0]?.[0].requestText).toBe("go");
-    expect(events).not.toContainEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
   });
 
   it("auto-continues when a stream ends with a partial action input", async () => {
@@ -2932,31 +2938,23 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("checkpoints when zero-byte action input preparation goes silent", async () => {
+  it("does NOT checkpoint a zero-byte tool input that stays quiet", async () => {
+    // The zero-byte restart tripwire is gone with the rest of the
+    // action-preparation machinery. A tool input announced with no bytes yet is
+    // the ORDINARY opening of a non-eagerly-streamed tool call, not evidence of
+    // a wedge — and on this transport nothing distinguishes the two, because
+    // the provider's pings never reach us.
     vi.useFakeTimers({ now: 1_000_000 });
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
+    const engine = abortableHangingEngine([
+      {
+        type: "tool-input-delta",
+        id: "tool-edit",
+        name: "edit-design",
+        text: "",
       },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit",
-          name: "edit-design",
-          text: "",
-        };
-        await new Promise(() => {});
-      },
-    };
+    ]);
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
@@ -2969,31 +2967,19 @@ describe("runAgentLoop", () => {
           "edit-design": actionEntry({ readOnly: false }),
         },
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      await vi.advanceTimersByTimeAsync(0);
-      expect(events).toContainEqual({
-        type: "activity",
-        label: "Preparing edit-design action",
-        tool: "edit-design",
-        id: "tool-edit",
-        progressBytes: 0,
-      });
-
-      await vi.advanceTimersByTimeAsync(90_000);
-      await run;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "auto_continue" }),
+      );
+      controller.abort();
+      await run.catch(() => undefined);
     } finally {
       vi.useRealTimers();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
   });
 
   it("clears the action-preparation timeout when the stream rejects", async () => {
@@ -3097,6 +3083,43 @@ describe("runAgentLoop", () => {
     async *stream(): AsyncIterable<EngineEvent> {
       // Zero tokens, ever — mirrors the incident's hung first model call.
       await new Promise(() => {});
+    },
+  });
+
+  /**
+   * Hangs like `hangingFirstEventEngine`, but RETURNS when the caller aborts.
+   *
+   * Tests that assert "no bound fires" cannot let the run promise stay pending:
+   * with nothing left to settle it, the vitest worker is torn down with the
+   * fork still live and the whole FILE fails with "Worker exited unexpectedly"
+   * even though every test passed. An engine that ignores `abortSignal` is also
+   * simply not a realistic one.
+   *
+   * `prelude` events are yielded first, for the cases that need the stream to
+   * have produced something before it goes quiet.
+   */
+  const abortableHangingEngine = (
+    prelude: EngineEvent[] = [],
+  ): AgentEngine => ({
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: true,
+    },
+    async *stream(opts): AsyncIterable<EngineEvent> {
+      for (const event of prelude) yield event;
+      await new Promise<void>((resolve) => {
+        if (opts.abortSignal.aborted) return resolve();
+        opts.abortSignal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
     },
   });
 
@@ -3232,110 +3255,88 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("FIX 2: a hung FIRST model event keeps the full 90s window on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
-    // All hosted markers cleared — resolveRunSoftTimeoutMs resolves to 0
-    // here (no soft-timeout regime, no platform wall), so a genuinely slow
-    // first token (large local contexts, slow local providers) must NOT be
-    // chopped at 25s.
+  it("a hung FIRST model event has NO in-loop bound on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
+    // All hosted markers cleared — no soft-timeout regime, no platform wall.
+    // The in-loop watchdogs are gone entirely; a hung stream is the engine's
+    // own `FIRST_STREAM_EVENT_TIMEOUT_MS` to catch, not this loop's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
-        engine: hangingFirstEventEngine(),
+        engine: abortableHangingEngine(),
         model: "test-model",
         systemPrompt: "system",
         tools: [],
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
         actions: {},
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      // Past the 25s cap — a non-hosted runtime must be unaffected by it.
-      await vi.advanceTimersByTimeAsync(26_000);
+      // Well past both retired 90s watchdogs: nothing may checkpoint here.
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).toEqual([{ type: "model_stream", status: "start" }]);
-
-      // The normal 90s in-loop watchdog still applies and eventually fires.
-      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
-      await run;
+      controller.abort();
+      await run.catch(() => undefined);
     } finally {
       vi.useRealTimers();
       restoreEnv();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
   });
 
-  it("FIX 2: a hung FIRST model event does NOT fire early when proven to be running inside a background function", async () => {
+  it("a hung FIRST model event has NO in-loop bound inside a background function", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     // Hosted AND proven background-function runtime (`-background` Lambda
-    // name) — the 15-min budget applies, so the cap must stay off.
+    // name) — the 15-min budget applies, so no in-loop cap may arm.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
-        engine: hangingFirstEventEngine(),
+        engine: abortableHangingEngine(),
         model: "test-model",
         systemPrompt: "system",
         tools: [],
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
         actions: {},
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      // Past the 25s foreground cap — a proven background-function worker
-      // must be unaffected by it.
-      await vi.advanceTimersByTimeAsync(26_000);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).toEqual([{ type: "model_stream", status: "start" }]);
-
-      // The normal 90s watchdog still applies and eventually fires.
-      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
-      await run;
+      controller.abort();
+      await run.catch(() => undefined);
     } finally {
       vi.useRealTimers();
       restoreEnv();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
   });
 
-  it("FIX 2: a gap AFTER the first event keeps the normal 90s window on the HOSTED foreground runtime", async () => {
+  it("a gap AFTER the first event is NEVER bounded in-loop, even on hosted foreground", async () => {
+    // THE CASE THE RETIRED WATCHDOGS GOT WRONG. Once a model call has produced
+    // anything, a silent stretch is normal work — extended thinking, or a tool
+    // whose input is not eagerly streamed and so emits nothing at all while the
+    // provider composes its arguments. The Anthropic SDK swallows the pings
+    // that would prove liveness, so this loop cannot tell slow from wedged and
+    // must not try: it is the run budget's job to bound cost, not this one's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     vi.useFakeTimers({ now: 1_000_000 });
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        // A real first event arrives promptly...
-        yield { type: "text-delta", text: "thinking" };
-        // ...then the stream goes silent. Only the FIRST await on a fresh
-        // model call is capped at 25s — this gap must ride the normal 90s
-        // watchdog even though it also exceeds 25s.
-        await new Promise(() => {});
-      },
-    };
+    // A real first event arrives promptly, releasing the only remaining
+    // in-loop cap, then a long content-silent stretch which must survive.
+    const engine = abortableHangingEngine([
+      { type: "text-delta", text: "thinking" },
+    ]);
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
@@ -3346,25 +3347,22 @@ describe("runAgentLoop", () => {
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
         actions: {},
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      await vi.advanceTimersByTimeAsync(26_000);
+      // Ten minutes of content silence: a large tool input is exactly this
+      // shape, and nothing here may cut it off.
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).not.toContainEqual(
         expect.objectContaining({ type: "auto_continue" }),
       );
-
-      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
-      await run;
+      controller.abort();
+      await run.catch(() => undefined);
     } finally {
       vi.useRealTimers();
       restoreEnv();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
   });
 
   it("FIX 2: a stream of only gateway keepalives still trips the 25s cap on the HOSTED foreground runtime", async () => {
@@ -3609,151 +3607,6 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBe(1);
   });
 
-  it("closes the event stream after an action-preparation stall", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const returnSpy = vi.fn(async () => ({ done: true, value: undefined }));
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      stream(): AsyncIterable<EngineEvent> {
-        let step = 0;
-        return {
-          [Symbol.asyncIterator]() {
-            return {
-              async next() {
-                if (step === 0) {
-                  step += 1;
-                  return {
-                    done: false,
-                    value: {
-                      type: "tool-input-start",
-                      id: "tool-edit",
-                      name: "edit-design",
-                    },
-                  };
-                }
-                now += 91_000;
-                return {
-                  done: false,
-                  value: { type: "gateway-heartbeat" },
-                };
-              },
-              return: returnSpy,
-            };
-          },
-        };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(returnSpy).toHaveBeenCalledTimes(1);
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual({ type: "stream_keepalive" });
-  });
-
-  it("checkpoints when the model stream goes keepalive-only after a tool result", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    let streamCount = 0;
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        streamCount += 1;
-        if (streamCount === 1) {
-          yield {
-            type: "assistant-content",
-            parts: [
-              {
-                type: "tool-call" as const,
-                id: "tool-snapshot",
-                name: "get-design-snapshot",
-                input: { designId: "design-1", fileId: "file-1" },
-              },
-            ],
-          };
-          yield { type: "stop", reason: "tool_use" };
-          return;
-        }
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "get-design-snapshot": actionEntry({ readOnly: true }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "get-design-snapshot",
-      }),
-    );
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual({ type: "stream_keepalive" });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-  });
-
   it("keeps a model stream alive when non-heartbeat events continue", async () => {
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -3806,540 +3659,6 @@ describe("runAgentLoop", () => {
       type: "auto_continue",
       reason: "no_progress",
     });
-  });
-
-  it("keeps tracking a stalled action input across assistant snapshots", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-start",
-          id: "tool-edit",
-          name: "edit-design",
-        };
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text", text: "previous assistant text snapshot" }],
-        };
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual({
-      type: "activity",
-      label: "Preparing edit-design action",
-      tool: "edit-design",
-      id: "tool-edit",
-    });
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual({ type: "stream_keepalive" });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-  });
-
-  it("tracks a zero-byte action input delta without a start event", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield { type: "gateway-heartbeat" };
-        now += 10_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit",
-          name: "edit-design",
-          text: "",
-        };
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual({
-      type: "activity",
-      label: "Preparing edit-design action",
-      tool: "edit-design",
-      id: "tool-edit",
-      progressBytes: 0,
-    });
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
-  });
-
-  it("keeps tracking stalled action input after a prepared tool-call snapshot", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-start",
-          id: "tool-edit",
-          name: "edit-design",
-        };
-        now += 1_600;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit",
-          text: '{"designId":"design-1"',
-        };
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "tool-call",
-              id: "tool-edit",
-              name: "edit-design",
-              input: { designId: "design-1" },
-            },
-          ],
-        };
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual({
-      type: "activity",
-      label: "Preparing edit-design action",
-      tool: "edit-design",
-      id: "tool-edit",
-      progressBytes: 22,
-    });
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual({ type: "stream_keepalive" });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
-  });
-
-  it("checkpoints a stalled action input before accepting a delayed progress event", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-start",
-          id: "tool-edit",
-          name: "edit-design",
-        };
-        now += 91_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit",
-          text: "delayed bytes",
-        };
-        yield {
-          type: "assistant-content",
-          parts: [
-            {
-              type: "tool-call" as const,
-              id: "tool-edit",
-              name: "edit-design",
-              input: { replacementContent: "late" },
-            },
-          ],
-        };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual({
-      type: "activity",
-      label: "Preparing edit-design action",
-      tool: "edit-design",
-      id: "tool-edit",
-    });
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({
-        type: "activity",
-        progressBytes: expect.any(Number),
-      }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
-  });
-
-  it("checkpoints repeated zero-byte action input restarts", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-start",
-          id: "tool-edit-a",
-          name: "edit-design",
-        };
-        yield {
-          type: "assistant-content",
-          parts: [],
-        };
-        now += 45_000;
-        yield {
-          type: "tool-input-start",
-          id: "tool-edit-b",
-          name: "edit-design",
-        };
-        yield {
-          type: "assistant-content",
-          parts: [],
-        };
-        now += 46_000;
-        yield {
-          type: "tool-input-start",
-          id: "tool-edit-c",
-          name: "edit-design",
-        };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(
-      events.filter(
-        (event) => event.type === "activity" && event.tool === "edit-design",
-      ).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
-  });
-
-  it("checkpoints repeated zero-byte action input deltas with fresh ids", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit-a",
-          name: "edit-design",
-          text: "",
-        };
-        yield { type: "gateway-heartbeat" };
-        now += 45_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit-b",
-          name: "edit-design",
-          text: "",
-        };
-        yield { type: "gateway-heartbeat" };
-        now += 46_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit-c",
-          name: "edit-design",
-          text: "",
-        };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(
-      events.filter(
-        (event) =>
-          event.type === "activity" &&
-          event.tool === "edit-design" &&
-          event.progressBytes === 0,
-      ).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
-  });
-
-  it("does not treat fresh zero-byte action input ids as progress", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit-a",
-          name: "edit-design",
-          text: "",
-        };
-        now += 45_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit-b",
-          name: "edit-design",
-          text: "",
-        };
-        now += 44_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-edit-c",
-          name: "edit-design",
-          text: "",
-        };
-        now += 2_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(
-      events.filter(
-        (event) =>
-          event.type === "activity" &&
-          event.tool === "edit-design" &&
-          event.progressBytes === 0,
-      ).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
   });
 
   it("keeps a fresh action-input id streaming after an abandoned zero-byte id", async () => {
@@ -4570,272 +3889,6 @@ describe("runAgentLoop", () => {
       reason: "no_progress",
     });
     expect(events.at(-1)).toEqual({ type: "done" });
-  });
-
-  it("keeps parallel-safe same-action input stalls tracked while a sibling streams", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-start",
-          id: "parallel-search-a",
-          name: "search",
-        };
-        now += 45_000;
-        yield {
-          type: "tool-input-start",
-          id: "parallel-search-b",
-          name: "search",
-        };
-        now += 2_000;
-        yield {
-          type: "tool-input-delta",
-          id: "parallel-search-b",
-          name: "search",
-          text: '{"query":"healthy sibling',
-        };
-        now += 44_000;
-        yield {
-          type: "tool-input-delta",
-          id: "parallel-search-b",
-          name: "search",
-          text: ' still streaming"}',
-        };
-        yield { type: "text-delta", text: "still preparing" };
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          search: actionEntry({ readOnly: false, parallelSafe: true }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "activity",
-        tool: "search",
-        id: "parallel-search-b",
-        progressBytes: 25,
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "text", text: "still preparing" }),
-    );
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-  });
-
-  it("keeps delta-only same-action input progress alive while a sibling is silent", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-delta",
-          id: "delta-search-a",
-          name: "search",
-          text: "",
-        };
-        now += 45_000;
-        yield {
-          type: "tool-input-delta",
-          id: "delta-search-b",
-          name: "search",
-          text: "",
-        };
-        now += 2_000;
-        yield {
-          type: "tool-input-delta",
-          id: "delta-search-c",
-          name: "search",
-          text: '{"query":"healthy sibling',
-        };
-        now += 44_000;
-        yield {
-          type: "tool-input-delta",
-          id: "delta-search-c",
-          name: "search",
-          text: ' still streaming"}',
-        };
-        yield { type: "text-delta", text: "still preparing" };
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          search: actionEntry({ readOnly: true }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "activity",
-        tool: "search",
-        id: "delta-search-c",
-        progressBytes: 25,
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "text", text: "still preparing" }),
-    );
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-  });
-
-  it("tracks action-preparation stalls for multiple in-flight tool inputs", async () => {
-    let now = 1_000_000;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        yield {
-          type: "tool-input-start",
-          id: "tool-a",
-          name: "edit-design",
-        };
-        now += 30_000;
-        yield {
-          type: "tool-input-start",
-          id: "tool-b",
-          name: "generate-design",
-        };
-        now += 30_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-b",
-          text: "healthy",
-        };
-        now += 31_000;
-        yield {
-          type: "tool-input-delta",
-          id: "tool-b",
-          text: "still healthy",
-        };
-        yield { type: "text-delta", text: "still preparing" };
-        now += 91_000;
-        yield { type: "gateway-heartbeat" };
-        yield {
-          type: "text-delta",
-          text: "should not continue",
-        };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-
-    try {
-      await runAgentLoop({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-          "generate-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(events).toContainEqual({
-      type: "activity",
-      label: "Preparing edit-design action",
-      tool: "edit-design",
-      id: "tool-a",
-    });
-    expect(events).toContainEqual({
-      type: "activity",
-      label: "Preparing generate-design action",
-      tool: "generate-design",
-      id: "tool-b",
-    });
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "text", text: "still preparing" }),
-    );
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
   });
 
   it("keeps assembling a large action input while bytes keep streaming", async () => {
@@ -6700,6 +5753,137 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(events)).not.toContain("identical arguments");
   });
 
+  it("gives the model the code a fail() chose, not just the prose", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      fail("No such meeting", { errorCode: "not_found", statusCode: 404 });
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "get-meeting",
+              input: { id: "m_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-meeting": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-meeting",
+        result:
+          "Error running get-meeting: No such meeting (errorCode: not_found)",
+      }),
+    );
+  });
+
+  it("omits fail()'s stand-in code, which tells the model nothing", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      fail("No such meeting");
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "call-1",
+              name: "get-meeting",
+              input: { id: "m_1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-meeting": { ...actionEntry({ readOnly: true }), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-meeting",
+        result: "Error running get-meeting: No such meeting",
+      }),
+    );
+  });
+
   it("stops after repeated identical tool errors", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -7053,10 +6237,12 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // 12 real calls exhaust the convergence budget; the declines that follow
-    // are bounded by the existing error breaker instead of running to
-    // maxIterations.
-    expect(streamCalls).toBeLessThan(25);
+    // The threshold's worth of real calls exhausts the convergence budget; the
+    // declines that follow are bounded by the existing error breaker instead of
+    // running to maxIterations.
+    expect(streamCalls).toBeLessThan(
+      resolveSourceSweepToolCallThreshold() + 13,
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -7069,7 +6255,8 @@ describe("runAgentLoop", () => {
   });
 
   it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: "gong-calls",
       input: { company: `Account ${i + 1}` },
     }));
@@ -7082,7 +6269,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "gong-calls",
-      priorCalls: 12,
+      priorCalls: threshold,
       message: expect.stringContaining("change strategy"),
     });
 
@@ -7097,7 +6284,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "hubspot-records",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
 
     expect(
@@ -7131,7 +6318,8 @@ describe("runAgentLoop", () => {
       "read-source-file": actionEntry({ readOnly: true }),
       "search-docs": actionEntry({ readOnly: true }),
     };
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: Object.keys(actions)[i % Object.keys(actions).length],
       input: { query: `term-${i + 1}` },
     }));
@@ -7149,14 +6337,14 @@ describe("runAgentLoop", () => {
       shouldGuardRepeatedSourceSweep({
         toolName: "search-docs",
         entry: actions["search-docs"],
-        priorToolCalls: Array.from({ length: 12 }, () => ({
+        priorToolCalls: Array.from({ length: threshold }, () => ({
           name: "search-docs",
           input: {},
         })),
       }),
     ).toMatchObject({
       toolName: "search-docs",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
   });
 
@@ -7282,7 +6470,9 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(gongCalls).toHaveBeenCalledTimes(12);
+    expect(gongCalls).toHaveBeenCalledTimes(
+      resolveSourceSweepToolCallThreshold(),
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -7352,35 +6542,38 @@ describe("runAgentLoop", () => {
     };
     const gongCalls = vi.fn(async () => "should not run");
     const events: any[] = [];
-    const priorToolMessages = Array.from({ length: 12 }, (_, i) => {
-      const input = { company: `Account ${i + 1}` };
-      const toolCallId = `gong-prior-${i + 1}`;
-      return [
-        {
-          role: "assistant" as const,
-          content: [
-            {
-              type: "tool-call" as const,
-              id: toolCallId,
-              name: "gong-calls",
-              input,
-            },
-          ],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool-result" as const,
-              toolCallId,
-              toolName: "gong-calls",
-              toolInput: JSON.stringify(input),
-              content: "no Figma MCP hits",
-            },
-          ],
-        },
-      ];
-    }).flat();
+    const priorToolMessages = Array.from(
+      { length: resolveSourceSweepToolCallThreshold() },
+      (_, i) => {
+        const input = { company: `Account ${i + 1}` };
+        const toolCallId = `gong-prior-${i + 1}`;
+        return [
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool-call" as const,
+                id: toolCallId,
+                name: "gong-calls",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool-result" as const,
+                toolCallId,
+                toolName: "gong-calls",
+                toolInput: JSON.stringify(input),
+                content: "no Figma MCP hits",
+              },
+            ],
+          },
+        ];
+      },
+    ).flat();
 
     await runAgentLoop({
       engine,
@@ -10463,6 +9656,234 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  // The paused tool result tells the model "the turn is paused". That has to be
+  // true for the REST of the same assistant message too: a second call emitted
+  // alongside the gated one previously still executed while the human was
+  // looking at the approval card.
+  it("does not run later tool calls in the same message while approval is pending", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "approval-call-1",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "follow-up-call-1",
+                name: "delete-records",
+                input: { id: "42" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const sendEmail = vi.fn(async () => "delivered");
+    const deleteRecords = vi.fn(async () => "deleted");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "delete-records": {
+          ...actionEntry({ readOnly: false }),
+          run: deleteRecords,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    // The whole point: the un-gated sibling must not fire either.
+    expect(deleteRecords).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "delete-records",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+  });
+
+  // Same guarantee, but through the parallel path. A batch is dispatched with
+  // `Promise.all`, so if a gated call were batchable its siblings would already
+  // be running by the time the gate is reached — including a mutating
+  // `parallelSafe` one.
+  it("does not run parallelSafe siblings batched alongside a gated call", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "gated-1",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "sibling-1",
+                name: "bulk-write",
+                input: { id: "42" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const sendEmail = vi.fn(async () => "delivered");
+    const bulkWrite = vi.fn(async () => "written");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        // Declares BOTH parallelSafe and needsApproval — without serializing
+        // gated calls this lands in a write batch with its sibling.
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          parallelSafe: true,
+          needsApproval: true,
+          run: sendEmail,
+        },
+        "bulk-write": {
+          ...actionEntry({ readOnly: false }),
+          parallelSafe: true,
+          run: bulkWrite,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(bulkWrite).not.toHaveBeenCalled();
+  });
+
+  it("requires a fresh approval when persistent approval is disabled", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          allowPersistentApproval: false,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        tool: "send-email",
+        allowPersistentApproval: false,
+      }),
+    );
+  });
+
+  it("honors persistent approval by default", async () => {
+    const { engine } = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const isToolAlwaysAllowed = vi.fn(async () => true);
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run,
+        },
+      },
+      isToolAlwaysAllowed,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(isToolAlwaysAllowed).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
     // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();
@@ -11662,6 +11083,20 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: 0,
       }),
     ).toBe(true);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "Missing Authentication header",
+            errorCode: "http_401",
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("preserves the specific continuation reason for recoverable background errors", () => {
@@ -12134,6 +11569,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
 
     expect(d.insertRun).not.toHaveBeenCalled();
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claimed",
@@ -12145,6 +11581,68 @@ describe("claimBackgroundWorkerRunEarly", () => {
       "worker_entered",
       "runsInBackgroundFunction=true continuationCount=0",
     );
+  });
+
+  it("heartbeats a slow worker while its unclaimed claim is in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-slow",
+        threadId: "thread-slow",
+        markerTurnId: "turn-slow",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-slow");
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops extending a stuck pre-claim worker after a hard deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps();
+      let releaseAbort!: (aborted: boolean) => void;
+      d.isTurnAborted.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          releaseAbort = resolve;
+        }),
+      );
+
+      const pending = claimBackgroundWorkerRunEarly({
+        runId: "run-stuck",
+        threadId: "thread-stuck",
+        markerTurnId: "turn-stuck",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      });
+
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS);
+      const heartbeatCount = d.updateRunHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(BACKGROUND_PRECLAIM_HEARTBEAT_MS * 2);
+      expect(d.updateRunHeartbeat).toHaveBeenCalledTimes(heartbeatCount);
+
+      releaseAbort(false);
+      await expect(pending).resolves.toEqual({ claimed: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records background runtime marker diagnostics on worker entry", async () => {
@@ -12192,6 +11690,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
       { dispatchMode: "background" },
     );
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "insert",
       "claim",
@@ -12200,7 +11699,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     ]);
   });
 
-  it("records duplicate deliveries and does not heartbeat or execute the turn", async () => {
+  it("records duplicate deliveries and does not execute the turn", async () => {
     const d = deps(false);
 
     await expect(
@@ -12213,8 +11712,9 @@ describe("claimBackgroundWorkerRunEarly", () => {
       }),
     ).resolves.toEqual({ claimed: false, skipped: "already-claimed" });
 
-    expect(d.updateRunHeartbeat).not.toHaveBeenCalled();
+    expect(d.updateRunHeartbeat).toHaveBeenCalledWith("run-dupe");
     expect(d.calls).toEqual([
+      "heartbeat",
       "record:worker_entered",
       "claim",
       "record:worker_claim_lost",
@@ -12385,6 +11885,33 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(claim).not.toHaveBeenCalled();
   });
 
+  it("does not extend an alive setup marker past the pre-claim deadline", async () => {
+    let nowMs = BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS - 30;
+    const now = () => (nowMs += 10);
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("worker_entered"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now,
+    });
+
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(readClaim).toHaveBeenCalledTimes(3);
+  });
+
   it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
     // No diag stage = the generated wrapper never reached the route, so the
     // extension must not apply and it recovers inline at the base grace.
@@ -12436,6 +11963,30 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     expect(readClaim).toHaveBeenCalledTimes(1);
   });
 
+  it("streams while a live worker finishes setup when requested", async () => {
+    const claim = vi.fn();
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("worker_entered"),
+      lastLivenessAt: 0,
+    });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      reaperGraceMs: 100_000,
+      readClaim,
+      claim,
+      streamWhenWorkerAlive: true,
+      now: makeClock(),
+    });
+
+    expect(outcome).toEqual({ action: "stream" });
+    expect(readClaim).toHaveBeenCalledTimes(1);
+    expect(claim).not.toHaveBeenCalled();
+  });
+
   it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {
     // The worker stays alive in setup (auth_passed) but never claims. The
     // extension is bounded by the reaper window measured from the row's OWN
@@ -12471,22 +12022,25 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
 describe("runAgentLoop tool-result images", () => {
   it("attaches _agentImages to the tool-result part, strips the field from the text, and persists only notes", async () => {
     const oversize = "A".repeat(2_000_001);
+    const imageData = "aW1hZ2U=";
+    const screenshotAction = vi.fn(async () => ({
+      ok: true,
+      page: "dashboard",
+      _agentImages: [
+        { url: "https://cdn.example.com/shot.png", label: "before" },
+        { data: imageData, mediaType: "image/jpeg", label: "data" },
+        { data: oversize, mediaType: "image/png", label: "too-big" },
+      ],
+    }));
     const actions: Record<string, ActionEntry> = {
       screenshot: {
         ...actionEntry({ description: "Take a screenshot", readOnly: true }),
-        run: async () => ({
-          ok: true,
-          page: "dashboard",
-          _agentImages: [
-            { url: "https://cdn.example.com/shot.png", label: "before" },
-            { data: oversize, mediaType: "image/png", label: "too-big" },
-          ],
-        }),
+        run: screenshotAction,
       },
     };
     const tools = actionsToEngineTools(actions);
     let streamCalls = 0;
-    let secondCallMessages: any[] = [];
+    let finalCallMessages: any[] = [];
 
     const engine: AgentEngine = {
       name: "test",
@@ -12517,7 +12071,22 @@ describe("runAgentLoop tool-result images", () => {
           yield { type: "stop", reason: "tool_use" };
           return;
         }
-        secondCallMessages = opts.messages as any[];
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "shot-2",
+                name: "screenshot",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        finalCallMessages = opts.messages as any[];
         yield {
           type: "assistant-content",
           parts: [{ type: "text" as const, text: "looks good" }],
@@ -12538,13 +12107,15 @@ describe("runAgentLoop tool-result images", () => {
       signal: new AbortController().signal,
     });
 
-    const toolResult = secondCallMessages
+    const toolResults = finalCallMessages
       .flatMap((m: any) => m.content ?? [])
-      .find((p: any) => p.type === "tool-result");
-    expect(toolResult).toBeDefined();
+      .filter((p: any) => p.type === "tool-result");
+    expect(toolResults).toHaveLength(2);
+    const toolResult = toolResults[0];
     // Valid image rides the part; the oversize one was dropped.
     expect(toolResult.images).toEqual([
       { url: "https://cdn.example.com/shot.png", label: "before" },
+      { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
     // The field is stripped from the JSON the model reads…
     expect(toolResult.content).not.toContain("_agentImages");
@@ -12554,6 +12125,14 @@ describe("runAgentLoop tool-result images", () => {
     expect(toolResult.content).toContain("exceeds");
     // …and the base64 payload never reaches the text.
     expect(toolResult.content).not.toContain("A".repeat(100));
+
+    // A duplicate read returns the cached vision payload as well as its text
+    // pointer, so context eviction cannot silently remove the visual input.
+    expect(screenshotAction).toHaveBeenCalledOnce();
+    expect(toolResults[1].content).toContain(
+      "Skipped duplicate read-only call",
+    );
+    expect(toolResults[1].images).toEqual(toolResult.images);
 
     // The persisted tool_done event carries only the string result (with the
     // notes), never an images array.

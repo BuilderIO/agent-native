@@ -764,7 +764,7 @@ export function CanvasCommentPins({
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                           e.preventDefault();
-                          submitPin(pin);
+                          void submitPin(pin);
                         }
                         if (e.key === "Escape") {
                           // Stop propagation so the window Escape listener (which

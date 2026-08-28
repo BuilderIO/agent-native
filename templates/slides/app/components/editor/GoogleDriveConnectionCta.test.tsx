@@ -6,6 +6,14 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -14,6 +22,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("@agent-native/core/client/host", () => ({
   oauthRedirectUri: (path: string) => `https://slides.example${path}`,
+}));
+
+vi.mock("@agent-native/core/client/integrations", () => ({
+  startWorkspaceProviderOAuth: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -28,13 +40,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     })[key] ?? key,
 }));
 
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 
 describe("<GoogleDriveConnectionCta>", () => {
   beforeEach(() => {
     const statusResponses = [false, true];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = requestString(input);
       if (url.includes("/status")) {
         return new Response(
           JSON.stringify({
@@ -75,6 +89,26 @@ describe("<GoogleDriveConnectionCta>", () => {
     ).toBeTruthy();
   });
 
+  it("stays quiet until a pasted Slides link is detected", async () => {
+    render(<GoogleDriveConnectionCta active={false} />);
+
+    await waitFor(() => {
+      expect(fetch).not.toHaveBeenCalled();
+    });
+    expect(screen.queryByRole("button", { name: "Connect Google" })).toBeNull();
+  });
+
+  it("checks the connection when a pasted Slides link becomes active", async () => {
+    const { rerender } = render(<GoogleDriveConnectionCta active={false} />);
+
+    rerender(<GoogleDriveConnectionCta active />);
+
+    expect(
+      await screen.findByRole("button", { name: "Connect Google" }),
+    ).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("can be dismissed without starting OAuth", async () => {
     render(<GoogleDriveConnectionCta />);
 
@@ -107,38 +141,43 @@ describe("<GoogleDriveConnectionCta>", () => {
     ).toBeTruthy();
   });
 
-  it("opens the app-owned OAuth flow and hides the CTA after connection", async () => {
-    const openedTab = {
-      close: vi.fn(),
-      closed: false,
-      location: { href: "" },
-    };
-    vi.spyOn(window, "open").mockReturnValue(openedTab as unknown as Window);
+  it("keeps the reconnect button available when managed OAuth needs repair", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              configured: true,
+              connected: true,
+              googleSlidesUrlImportReady: false,
+              googleSlidesUrlImportError: "Google authorization expired",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
 
+    render(<GoogleDriveConnectionCta />);
+
+    expect(
+      await screen.findByText("Google authorization expired"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect Google" })).toBeTruthy();
+  });
+
+  it("starts the managed Drive OAuth flow", async () => {
     render(<GoogleDriveConnectionCta />);
     fireEvent.click(
       await screen.findByRole("button", { name: "Connect Google" }),
     );
 
     await waitFor(() => {
-      expect(window.open).toHaveBeenCalledWith(
-        "about:blank",
-        "google-docs-oauth",
-        "popup,width=520,height=720",
-      );
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "/agent/_agent-native/google-docs/auth-url?redirect_uri=",
-        ),
-        { credentials: "same-origin" },
+      expect(startWorkspaceProviderOAuth).toHaveBeenCalledWith(
+        "google_drive",
+        expect.objectContaining({ appId: "slides", scope: "user" }),
       );
     });
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("button", { name: "Connect Google" }),
-      ).toBeNull();
-    });
-    expect(openedTab.close).toHaveBeenCalledOnce();
   });
 
   it("surfaces a status failure instead of hiding the connection problem", async () => {

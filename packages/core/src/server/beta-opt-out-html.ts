@@ -1,4 +1,6 @@
 import {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -29,17 +31,22 @@ function insertBeforeClosingTag(
 const environmentSwitcherMarkup = `<div class="environment-switcher" id="environment-switcher" ${ENVIRONMENT_SWITCHER_MARKER} hidden>
   <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
+    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
     <div class="environment-popover-copy">Choose where you want to continue.</div>
     <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
+    <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
   </div>
 </div>`;
 
 const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
-  color-scheme: dark;
   .environment-switcher {
+    /* Must stay inside a rule. A bare declaration at stylesheet top level does
+       not end at its semicolon: the next qualified rule's prelude swallows it,
+       taking this selector with it, so the badge loses position/left/bottom and
+       drops into normal flow at the bottom of the page. */
+    color-scheme: dark;
     position: fixed;
-    right: max(0.75rem, env(safe-area-inset-right));
+    left: max(0.75rem, env(safe-area-inset-left));
     bottom: max(0.75rem, env(safe-area-inset-bottom));
     z-index: 100;
   }
@@ -70,15 +77,17 @@ const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
     background: color-mix(in srgb, CanvasText 85%, Canvas);
   }
   .environment-badge:focus-visible,
-  .environment-production-link:focus-visible {
+  .environment-production-link:focus-visible,
+  .environment-hide-badge:focus-visible {
     outline: 2px solid LinkText;
     outline-offset: 2px;
   }
   .environment-popover {
     position: absolute;
-    right: 0;
+    left: 0;
     bottom: calc(100% + 0.5rem);
     width: min(17.5rem, calc(100vw - 1.5rem));
+    box-sizing: border-box;
     padding: 1.25rem;
     background: Canvas;
     color: CanvasText;
@@ -103,6 +112,23 @@ const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
   .environment-production-link:hover {
     background: color-mix(in srgb, CanvasText 12%, Canvas);
   }
+  .environment-hide-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: -0.5rem;
+    padding: 0.375rem 0.75rem;
+    color: GrayText;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .environment-hide-badge:hover { color: CanvasText; }
 </style>`;
 
 const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}>
@@ -111,8 +137,18 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   var button = document.getElementById('environment-badge');
   var popover = document.getElementById('environment-popover');
   var productionLink = document.getElementById('environment-production-link');
-  if (!switcher || !button || !popover || !productionLink) return;
+  var hideButton = document.getElementById('environment-hide-badge');
+  if (!switcher || !button || !popover || !productionLink || !hideButton) return;
   if (window.parent !== window) return;
+
+  try {
+    var forceUrl = new URL(window.location.href);
+    if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
+      window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
+    }
+  } catch (error) {
+    void error;
+  }
 
   var betaHosts = ${JSON.stringify(ENVIRONMENT_BETA_HOSTS)};
   var hostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');
@@ -149,6 +185,10 @@ const environmentSwitcherScript = `<script ${ENVIRONMENT_SWITCHER_SCRIPT_MARKER}
   document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') setOpen(false);
   });
+  hideButton.addEventListener('click', function() {
+    setOpen(false);
+    switcher.hidden = true;
+  });
 })();
 </script>`;
 
@@ -156,6 +196,10 @@ const betaOptOutPersistenceScript = `<script data-agent-native-beta-opt-out>
 // ${BETA_OPT_OUT_PERSISTENCE_MARKER}.
 (function __anPersistBetaOptOut() {
   try {
+    var forceUrl = new URL(window.location.href);
+    if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
+      window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
+    }
     var optOutUrl = new URL(window.location.href);
     var optOutValue = optOutUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
     if (optOutValue === null) return;

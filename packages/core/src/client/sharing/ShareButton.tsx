@@ -24,6 +24,7 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
+import { trackEvent } from "../analytics.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -32,6 +33,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import { AgentShareSection } from "./AgentShareSection.js";
 import {
@@ -385,7 +387,14 @@ function SharePanel(
   } = controller;
   const hasInviteEmail = inviteEmail.trim().length > 0;
 
-  const isLoading = data === undefined;
+  // `data` stays undefined after a failed read, so a stuck skeleton is
+  // indistinguishable from loading unless the error comes off the query itself.
+  // `isError` alone is not that signal: it is also true when a refetch fails
+  // while React Query still holds usable data, and this panel refetches on open
+  // and after every mutation — blocking on that would swap a working panel for
+  // a retry screen on one transient failure.
+  const loadFailed = controller.sharesQuery.isError && data === undefined;
+  const isLoading = !loadFailed && data === undefined;
   const meta = visibilityMeta(visibility, t, props.visibilityCopy);
   const peopleAccessLabel =
     props.peopleAccessLabel ??
@@ -402,6 +411,9 @@ function SharePanel(
           value={props.shareUrl}
           label={props.shareUrlLabel}
           description={props.shareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="share"
         />
       ) : props.shareUrlPlaceholder ? (
         <div className="mb-4 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
@@ -419,6 +431,9 @@ function SharePanel(
           value={props.secondaryShareUrl}
           label={props.secondaryShareUrlLabel}
           description={props.secondaryShareUrlDescription}
+          resourceType={props.resourceType}
+          resourceId={props.resourceId}
+          linkType="secondary"
         />
       ) : null}
     </>
@@ -436,7 +451,33 @@ function SharePanel(
     props.shareTabs?.shareLabel ??
     t("agentChat.share.shareLink", { defaultValue: "Share link" });
 
-  const sharePanel = isLoading ? (
+  const sharePanel = loadFailed ? (
+    <div>
+      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+      <div
+        role="alert"
+        className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+      >
+        <span className="text-xs text-muted-foreground">
+          {t("agentChat.share.loadFailed", {
+            defaultValue: "Couldn't load sharing settings.",
+          })}
+        </span>
+        <button
+          type="button"
+          onClick={() => controller.sharesQuery.refetch()}
+          disabled={controller.sharesQuery.isFetching}
+          className={cn(
+            BUTTON_BASE,
+            "h-7 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      </div>
+      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+    </div>
+  ) : isLoading ? (
     <div>
       {showShareLinks ? (
         <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
@@ -606,7 +647,11 @@ function SharePanel(
         <ul className="flex list-none flex-col gap-1 p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-              <Avatar label={displayName(data.ownerEmail, knownMembers, t)} />
+              <Avatar
+                email={data.ownerEmail}
+                image={memberImage(data.ownerEmail, knownMembers)}
+                label={displayName(data.ownerEmail, knownMembers, t)}
+              />
               <span className="flex-1 min-w-0 truncate">
                 {displayName(data.ownerEmail, knownMembers, t)}
               </span>
@@ -624,6 +669,12 @@ function SharePanel(
               )}
             >
               <Avatar
+                email={s.principalType === "user" ? s.principalId : undefined}
+                image={
+                  s.principalType === "user"
+                    ? memberImage(s.principalId, knownMembers)
+                    : undefined
+                }
                 label={principalLabel(s, knownMembers, t)}
                 org={s.principalType === "org"}
                 group={s.principalType === "group"}
@@ -1049,7 +1100,14 @@ function MemberAutocomplete({
                       strokeWidth={1.8}
                       className="shrink-0 text-muted-foreground"
                     />
-                  ) : null}
+                  ) : (
+                    <Avatar
+                      email={suggestion.email}
+                      image={suggestion.image}
+                      label={suggestion.name?.trim() || suggestion.email}
+                      className="h-6 w-6 text-[10px]"
+                    />
+                  )}
                   <span className="truncate">
                     {suggestion.principalType === "group"
                       ? suggestion.name
@@ -1135,12 +1193,29 @@ function CopyLinkField({
   value,
   label,
   description,
+  resourceType,
+  resourceId,
+  linkType,
 }: {
   value: string;
   label?: string;
   description?: ReactNode;
+  resourceType: string;
+  resourceId: string;
+  linkType: "share" | "secondary";
 }) {
   const t = useT();
+  const copy = async (nextValue: string) => {
+    const copied = await writeClipboardText(nextValue);
+    if (copied) {
+      trackEvent("share_link_copied", {
+        resource_type: resourceType,
+        resource_id: resourceId,
+        link_type: linkType,
+      });
+    }
+    return copied;
+  };
   return (
     <ShareCopyRow
       value={value}
@@ -1150,7 +1225,7 @@ function CopyLinkField({
       description={description}
       copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
       copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
-      onCopy={writeClipboardText}
+      onCopy={copy}
       className="mb-4"
     />
   );
@@ -1324,21 +1399,38 @@ function VisibilitySelect(props: {
 }
 
 function Avatar({
+  email,
+  image,
   label,
   org,
   group,
+  className,
 }: {
+  email?: string;
+  image?: string | null;
   label: string;
   org?: boolean;
   group?: boolean;
+  className?: string;
 }) {
+  const profileImage = image?.trim();
+  const avatarUrl = useAvatarUrl(profileImage ? undefined : email);
   return (
     <span
       aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+      className={cn(
+        "inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[11px] font-semibold text-muted-foreground",
+        className,
+      )}
     >
       {org || group ? (
         <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : profileImage || avatarUrl ? (
+        <img
+          src={profileImage || avatarUrl || undefined}
+          alt=""
+          className="size-full object-cover"
+        />
       ) : (
         initials(label)
       )}
@@ -1387,4 +1479,12 @@ function displayName(
     : t("agentChat.share.unknownPerson", {
         defaultValue: "Unknown person",
       });
+}
+
+function memberImage(email: string, members: OrgMember[]): string | undefined {
+  const normalized = email.trim().toLowerCase();
+  const match = members.find(
+    (member) => member.email.trim().toLowerCase() === normalized,
+  );
+  return match?.image?.trim() || undefined;
 }

@@ -70,12 +70,18 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const routeRequestsFocus = hasSearchFocusRequest(searchParams);
 
-  const { data, isFetching } = useRecordingSearch(query);
+  const { data, isFetching } = useRecordingSearch(debouncedQuery);
   const results: SearchHit[] = data?.results ?? [];
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query), 200);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
 
   const focusSearchInput = useCallback(() => {
     inputRef.current?.focus();
@@ -125,7 +131,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
     }
     if (hit.matchPanel) params.set("panel", hit.matchPanel);
     const suffix = params.toString() ? `?${params.toString()}` : "";
-    navigate(`/r/${hit.id}${suffix}`);
+    void navigate(`/r/${hit.id}${suffix}`);
   }
 
   const showPopover = open && query.length >= 2;
@@ -160,7 +166,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
               </button>
             ) : (
               <span className="absolute end-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {shortcutLabel("cmd+k")}
+                {shortcutLabel("/")}
               </span>
             )}
           </div>

@@ -20,6 +20,8 @@ import {
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -1112,7 +1114,7 @@ export interface OnboardingHtmlOptions {
   requestOrigin?: string;
   /**
    * Optional email signup legal copy. Builder-hosted `*.agent-native.com`
-   * deployments get the Agent Native links automatically; self-hosted and
+   * deployments get the Agent-Native links automatically; self-hosted and
    * custom-domain apps must opt in with their own URLs.
    */
   signupLegalNotice?: SignupLegalNoticeOptions | false;
@@ -1130,20 +1132,18 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const authMode = opts.authMode ?? "password";
   const magicLinkMode = authMode === "magic-link";
   const simplifiedAuth = opts.initialPrompt === true;
-  // In a Google-only app, Google is the sole sign-in method, so always render
-  // a working button — never gate it on env vars detected at render time. The
-  // login page is a public, CDN-cacheable shell served to everyone (per-user
-  // and per-config state is resolved client-side after load), so baking a
-  // "not configured" message in here would freeze that error into the cache
-  // for every visitor. A genuinely misconfigured server instead surfaces a
-  // clear error at click time via the auth API.
-  const renderGoogleButton = showGoogle || googleOnly;
+  const renderGoogleButton = showGoogle;
   const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
   const workspaceRuntime = isWorkspaceRuntime();
+  const trackingApp =
+    getAppConfig().app.slug ??
+    getAppConfig().app.template ??
+    getAppConfig().app.id ??
+    "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -1210,6 +1210,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const t = (key: keyof typeof EN_AUTH_COPY) => defaultAuthCopy[key];
   const i18nAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n="${key}"` : "";
+  const googleUnavailableHtml =
+    googleOnly && !showGoogle
+      ? `<p class="google-error show" id="google-err" role="status"${i18nAttr("googleNotConfigured")}>${esc(t("googleNotConfigured"))}</p>`
+      : "";
   const i18nAriaAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n-aria-label="${key}"` : "";
   const i18nPlaceholderAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
@@ -1262,9 +1266,10 @@ ${localeMenuItemsHtml}
 <div class="environment-switcher" id="environment-switcher" hidden>
   <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
   <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
+    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
     <div class="environment-popover-copy">Choose where you want to continue.</div>
     <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
+    <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
   </div>
 </div>`;
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
@@ -1668,8 +1673,18 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
     var button = document.getElementById('environment-badge');
     var popover = document.getElementById('environment-popover');
     var productionLink = document.getElementById('environment-production-link');
-    if (!switcher || !button || !popover || !productionLink) return;
+    var hideButton = document.getElementById('environment-hide-badge');
+    if (!switcher || !button || !popover || !productionLink || !hideButton) return;
     if (window.parent !== window) return;
+
+    try {
+      var forceUrl = new URL(window.location.href);
+      if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
+        window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
+      }
+    } catch (error) {
+      void error;
+    }
 
     // Persist the beta opt-out before authentication replaces this cached shell.
     try {
@@ -1733,6 +1748,10 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
     });
     document.addEventListener('keydown', function(event) {
       if (event.key === 'Escape') setOpen(false);
+    });
+    hideButton.addEventListener('click', function() {
+      setOpen(false);
+      switcher.hidden = true;
     });
   })();`;
 
@@ -1880,7 +1899,7 @@ ${
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   .environment-switcher {
     position: fixed;
-    right: max(0.75rem, env(safe-area-inset-right));
+    left: max(0.75rem, env(safe-area-inset-left));
     bottom: max(0.75rem, env(safe-area-inset-bottom));
     z-index: 100;
   }
@@ -1909,15 +1928,17 @@ ${
   .environment-badge:hover,
   .environment-badge[aria-expanded="true"] { background: #4a4a4a; }
   .environment-badge:focus-visible,
-  .environment-production-link:focus-visible {
+  .environment-production-link:focus-visible,
+  .environment-hide-badge:focus-visible {
     outline: 2px solid #33c4ff;
     outline-offset: 2px;
   }
   .environment-popover {
     position: absolute;
-    right: 0;
+    left: 0;
     bottom: calc(100% + 0.5rem);
     width: min(17.5rem, calc(100vw - 1.5rem));
+    box-sizing: border-box;
     padding: 1.25rem;
     background: #141414;
     color: #fff;
@@ -1940,6 +1961,24 @@ ${
     text-decoration: none;
   }
   .environment-production-link:hover { background: #242424; }
+  .environment-hide-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: -0.5rem;
+    padding: 0.375rem 0.75rem;
+    color: inherit;
+    opacity: 0.65;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .environment-hide-badge:hover { opacity: 1; }
   .card {
     width: 100%;
     max-width: 400px;
@@ -2237,8 +2276,7 @@ ${
   .auth-mode-link { text-decoration: none; }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
-  .magic-link-submit { display: none; }
-  .magic-link-submit.is-visible { display: block; }
+  .magic-link-submit { display: block; }
   .magic-link-success { display: none; }
   .magic-link-success.is-visible { display: block; }
   .magic-link-success-copy {
@@ -2373,6 +2411,7 @@ ${marketingPanelHtml}
 ${identitySsoHtml}
 ${localDevHtml}
 <div id="full-auth-options" class="full-auth-options">
+${googleUnavailableHtml}
 ${
   renderGoogleButton
     ? `
@@ -2391,14 +2430,14 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="' + esc(t("emailPlaceholder")) + '" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" placeholder="' + esc(t("emailPlaceholder")) + '" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
 
     <form id="signup-form" class="form">
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-      <input id="s-email" type="email" autocomplete="email" autofocus placeholder="${esc(t("emailPlaceholder"))}" required />
+      <input id="s-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
     <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
@@ -2504,6 +2543,38 @@ ${signInJourneyInlineScript()}
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
     var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
+    var __AN_AUTH_APP = ${JSON.stringify(trackingApp)};
+    function __anTrackAuth(name, properties) {
+      try {
+        var config = window.__AGENT_NATIVE_CONFIG__ || {};
+        if (!config.agentNativeAnalyticsPublicKey) return;
+        var anonymousId = '';
+        // coercion-ok: privacy-restricted storage means this public event cannot be attributed
+        try { anonymousId = localStorage.getItem('agent-native.anonymous_id') || ''; } catch (e) {}
+        if (!anonymousId) return;
+        var sessionId = '';
+        // coercion-ok: privacy-restricted storage means this public event has no session id
+        try { sessionId = sessionStorage.getItem('agent-native.session_id') || ''; } catch (e) {}
+        var body = JSON.stringify({
+          publicKey: config.agentNativeAnalyticsPublicKey,
+          event: name,
+          properties: Object.assign({ app: __AN_AUTH_APP }, properties || {}),
+          anonymousId: anonymousId,
+          sessionId: sessionId || undefined,
+          timestamp: new Date().toISOString()
+        });
+        var endpoint = config.agentNativeAnalyticsEndpoint || 'https://analytics.agent-native.com/track';
+        if (navigator.sendBeacon && navigator.sendBeacon(endpoint, body)) return;
+        fetch(endpoint, {
+          method: 'POST',
+          body: body,
+          keepalive: true,
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+        // coercion-ok: analytics delivery is best effort and cannot block auth
+        }).catch(function() {});
+      // coercion-ok: analytics delivery is best effort and cannot block auth
+      } catch (e) {}
+    }
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
     }
@@ -2803,7 +2874,10 @@ ${signInJourneyInlineScript()}
       }
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
+      __anStopOAuthPopupWatch();
+      __anStopNativeOAuthAbandonment();
       __anGoogleSignInInFlight = false;
+      __anClearGoogleSignInFlow();
       __anMagicLinkInFlight = false;
       if (__anIsBuilderPreview()) {
         if (sessionToken) {
@@ -3073,8 +3147,18 @@ ${identitySsoScript}
       return __anIsAgentNativeDesktop() ? 'redirect' : 'popup';
     }
     var __anOAuthPollTimer = null;
+    var __anOAuthPopupWatchTimer = null;
+    var __anOAuthPopupCloseGraceTimer = null;
+    var __anOAuthPopupCloseGraceMs = 5000;
+    var __anNativeOAuthFlowId = null;
+    var __anNativeOAuthRequestPending = false;
+    var __anNativeOAuthReturnObserved = false;
+    var __anNativeOAuthAbandonGraceTimer = null;
+    var __anNativeOAuthAbandonGraceMs = 5000;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
+    var __anGoogleSignInFlowId = null;
+    var __anGoogleSignInRecoveryFlowId = null;
     var __anMagicLinkInFlight = false;
     var __anGoogleRecoverBound = false;
     function __anNewOAuthFlowId() {
@@ -3131,8 +3215,139 @@ ${identitySsoScript}
         __anOAuthPollTimer = null;
       }
     }
+    function __anStopOAuthPopupWatch() {
+      if (__anOAuthPopupWatchTimer) {
+        clearInterval(__anOAuthPopupWatchTimer);
+        __anOAuthPopupWatchTimer = null;
+      }
+      if (__anOAuthPopupCloseGraceTimer) {
+        clearTimeout(__anOAuthPopupCloseGraceTimer);
+        __anOAuthPopupCloseGraceTimer = null;
+      }
+    }
+    function __anStopNativeOAuthAbandonment() {
+      __anCancelNativeOAuthAbandonment();
+      __anNativeOAuthFlowId = null;
+      __anNativeOAuthRequestPending = false;
+    }
+    function __anCancelNativeOAuthAbandonment() {
+      if (__anNativeOAuthAbandonGraceTimer) {
+        clearTimeout(__anNativeOAuthAbandonGraceTimer);
+        __anNativeOAuthAbandonGraceTimer = null;
+      }
+      __anNativeOAuthReturnObserved = false;
+    }
+    function __anBeginNativeOAuth(flowId) {
+      __anStopNativeOAuthAbandonment();
+      __anNativeOAuthFlowId = flowId;
+      __anNativeOAuthRequestPending = true;
+      __anNativeOAuthReturnObserved = false;
+    }
+    function __anMarkNativeOAuthPolling(flowId) {
+      if (__anNativeOAuthFlowId !== flowId) return;
+      __anNativeOAuthRequestPending = false;
+    }
+    function __anIsCurrentNativeOAuth(flowId) {
+      return __anNativeOAuthFlowId === flowId && __anIsCurrentGoogleSignInFlow(flowId);
+    }
+    function __anFinalizeNativeOAuthAbandonment(flowId) {
+      if (!__anIsCurrentNativeOAuth(flowId) || !__anOAuthPollTimer) return;
+      if (document.visibilityState === 'hidden') {
+        __anCancelNativeOAuthAbandonment();
+        return;
+      }
+      __anStopNativeOAuthAbandonment();
+      if (__anInvalidateGoogleSignInFlow(flowId)) {
+        __anStopOAuthExchangePolling();
+        __anRecoverGoogleSignInAfterReturn(flowId);
+      }
+    }
+    function __anScheduleNativeOAuthAbandonment(flowId) {
+      // Returning focus is the only signal that the system-browser ceremony was
+      // abandoned. Preserve the exchange poll briefly for a late deep-link.
+      if (
+        !__anIsCurrentNativeOAuth(flowId) ||
+        __anNativeOAuthRequestPending ||
+        !__anNativeOAuthReturnObserved ||
+        !__anOAuthPollTimer ||
+        __anNativeOAuthAbandonGraceTimer
+      ) return;
+      __anNativeOAuthAbandonGraceTimer = setTimeout(function() {
+        __anNativeOAuthAbandonGraceTimer = null;
+        __anFinalizeNativeOAuthAbandonment(flowId);
+      }, __anNativeOAuthAbandonGraceMs);
+    }
+    function __anBeginGoogleSignInFlow(flowId) {
+      __anGoogleSignInFlowId = flowId;
+      __anGoogleSignInRecoveryFlowId = null;
+      __anGoogleSignInInFlight = true;
+    }
+    function __anIsCurrentGoogleSignInFlow(flowId) {
+      return __anGoogleSignInInFlight && __anGoogleSignInFlowId === flowId;
+    }
+    function __anClearGoogleSignInFlow() {
+      __anGoogleSignInFlowId = null;
+      __anGoogleSignInRecoveryFlowId = null;
+    }
+    function __anInvalidateGoogleSignInFlow(flowId) {
+      if (!__anIsCurrentGoogleSignInFlow(flowId)) return false;
+      __anGoogleSignInFlowId = null;
+      __anGoogleSignInRecoveryFlowId = flowId;
+      return true;
+    }
+    function __anCanRecoverGoogleSignInFlow(flowId, expectedFlowId) {
+      // Focus can return while either the system-browser exchange or the popup
+      // exchange is still active. Let that exchange finish before recovering.
+      if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;
+      if (flowId) {
+        return __anGoogleSignInInFlight &&
+          !__anGoogleSignInFlowId &&
+          __anGoogleSignInRecoveryFlowId === flowId;
+      }
+      return __anGoogleSignInInFlight && __anGoogleSignInFlowId === expectedFlowId;
+    }
+    function __anFinalizeOAuthPopupClose(flowId) {
+      if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
+      __anOAuthPopupCloseGraceTimer = null;
+      if (__anInvalidateGoogleSignInFlow(flowId)) {
+        __anStopOAuthExchangePolling();
+        __anRecoverGoogleSignInAfterReturn(flowId);
+      }
+    }
+    function __anHandleOAuthPopupClosed(flowId) {
+      __anStopOAuthPopupWatch();
+      // The success callback closes its tab 250ms after staging the token, but
+      // the opener polls once per second. Let an active exchange win that race.
+      if (__anOAuthPollTimer) {
+        __anOAuthPopupCloseGraceTimer = setTimeout(function() {
+          __anFinalizeOAuthPopupClose(flowId);
+        }, __anOAuthPopupCloseGraceMs);
+        return;
+      }
+      __anFinalizeOAuthPopupClose(flowId);
+    }
+    function __anWatchOAuthPopupClose(popup, flowId) {
+      __anStopOAuthPopupWatch();
+      __anOAuthPopupWatchTimer = setInterval(function() {
+        if (!__anIsCurrentGoogleSignInFlow(flowId)) {
+          __anStopOAuthPopupWatch();
+          return;
+        }
+        var closed = false;
+        try {
+          closed = popup.closed === true;
+        } catch(e) {
+          __anHandleOAuthPopupClosed(flowId);
+          return;
+        }
+        if (!closed) return;
+        __anHandleOAuthPopupClosed(flowId);
+      }, 500);
+    }
     function __anShowAuthExchangeError(err, btn, message, kind) {
       __anStopOAuthExchangePolling();
+      __anStopOAuthPopupWatch();
+      __anStopNativeOAuthAbandonment();
       err.textContent = message;
       err.classList.add('show', 'error');
       btn.disabled = false;
@@ -3141,38 +3356,56 @@ ${identitySsoScript}
         showMagicLinkForm();
       } else {
         __anGoogleSignInInFlight = false;
+        __anClearGoogleSignInFlow();
       }
     }
     function __anShowOAuthError(err, btn, message) {
       __anShowAuthExchangeError(err, btn, message, 'google');
     }
-    function __anRecoverGoogleSignInAfterReturn() {
+    function __anRecoverGoogleSignInAfterReturn(flowId) {
       // The user left for the Google sign-in window and came back. If the flow
       // never completed (e.g. they closed the window to switch profiles), the
       // button is stuck disabled with no error path firing for up to 5 minutes.
       // Re-enable it so they can retry. Wait briefly first so a genuinely
       // in-flight exchange can still finish and navigate without a flicker.
-      if (!__anGoogleSignInInFlight) return;
+      if (!flowId && __anNativeOAuthFlowId) {
+        __anNativeOAuthReturnObserved = true;
+        __anScheduleNativeOAuthAbandonment(__anNativeOAuthFlowId);
+        return;
+      }
+      var expectedFlowId = flowId || __anGoogleSignInFlowId;
+      if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
       setTimeout(function() {
+        if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
         __anMaybeRedirectSignedIn(__anResumeHref()).then(function(redirected) {
+          if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
           if (redirected) return;
-          if (!__anGoogleSignInInFlight) return;
           var btn = document.getElementById('google-btn');
           if (!btn || !btn.disabled) return;
-          // Keep the desktop-exchange poll alive. Agent Native Desktop opens
+          // Keep the desktop-exchange poll alive. Agent-Native Desktop opens
           // Google in the system browser, so focus can return before the
           // callback has stored the session token.
           btn.disabled = false;
           __anGoogleSignInInFlight = false;
+          __anClearGoogleSignInFlow();
         });
       }, 1200);
     }
     function __anBindGoogleRecover() {
       if (__anGoogleRecoverBound) return;
       __anGoogleRecoverBound = true;
-      window.addEventListener('focus', __anRecoverGoogleSignInAfterReturn);
+      window.addEventListener('focus', function() {
+        __anRecoverGoogleSignInAfterReturn();
+      });
+      window.addEventListener('blur', function() {
+        __anCancelNativeOAuthAbandonment();
+      });
       document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') __anRecoverGoogleSignInAfterReturn();
+        if (document.visibilityState === 'visible') {
+          __anRecoverGoogleSignInAfterReturn();
+        } else {
+          __anCancelNativeOAuthAbandonment();
+        }
       });
     }
     function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage) {
@@ -3200,6 +3433,7 @@ ${identitySsoScript}
       var isMagicLink = kind === 'magic-link';
       __anOAuthPollCount = 0;
       async function check() {
+        if (!isMagicLink && !__anIsCurrentGoogleSignInFlow(flowId)) return;
         __anOAuthPollCount++;
         try {
           var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
@@ -3209,6 +3443,7 @@ ${identitySsoScript}
           }
           var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, exchangeOptions);
           var data = await res.json().catch(function() { return {}; });
+          if (!isMagicLink && !__anIsCurrentGoogleSignInFlow(flowId)) return;
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
             __anOAuthPollTimer = null;
@@ -3272,8 +3507,7 @@ ${identitySsoScript}
       }
       return data.url;
     }
-    function __anStartPopupOAuth(ret, btn, err) {
-      var flowId = __anNewOAuthFlowId();
+    function __anStartPopupOAuth(ret, btn, err, flowId) {
       var verifier = __anNewOAuthVerifier();
       if (!verifier) {
         __anShowOAuthError(err, btn, __anT('failedToConnect'));
@@ -3290,11 +3524,13 @@ ${identitySsoScript}
           return;
         }
         try { popup.opener = null; } catch(e) {}
+        __anWatchOAuthPopupClose(popup, flowId);
       } catch(e) {
         __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect', 'Could not open Google popup.');
         return;
       }
       __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
+        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
         try {
           popup.location.href = url;
           __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
@@ -3303,24 +3539,29 @@ ${identitySsoScript}
           throw e;
         }
       }).catch(function(e) {
+        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
         try { popup.close(); } catch(closeErr) {}
         __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
       });
     }
-    function __anStartNativeDesktopOAuth(ret, btn, err) {
-      var flowId = __anNewOAuthFlowId();
+    function __anStartNativeDesktopOAuth(ret, btn, err, flowId) {
       var verifier = __anNewOAuthVerifier();
       if (!verifier) {
         __anShowOAuthError(err, btn, __anT('failedToConnect'));
         return;
       }
       var oauthReturn = ret;
+      __anBeginNativeOAuth(flowId);
       __anSetOAuthDebug('Preparing Google sign-in in system browser', flowId);
       __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
+        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
+        __anMarkNativeOAuthPolling(flowId);
         __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
         __anOpenOAuthUrl(url);
         __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
+        __anScheduleNativeOAuthAbandonment(flowId);
       }).catch(function(e) {
+        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
         __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
       });
     }
@@ -3430,8 +3671,7 @@ ${
       var button = document.getElementById('magic-link-submit');
       if (!emailInput || !button) return;
       var isValid = __anIsValidAuthEmail(emailInput.value);
-      button.classList.toggle('is-visible', isValid);
-      button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      button.disabled = !isValid;
       var googleButton = document.getElementById('google-btn');
       if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
     }
@@ -3717,7 +3957,7 @@ ${
         initial = 'login';
       } else if (path === '/signup' || path.endsWith('/signup')) {
         initial = 'signup';
-      } else {
+      } else if (__AN_AUTH_MODE !== 'magic-link') {
         var stored = localStorage.getItem(TAB_STORAGE_KEY);
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
@@ -3793,6 +4033,7 @@ ${
       __anShowEmailValidationError(emailInput, msg);
       return;
     }
+    __anTrackAuth('auth.signup_clicked', { surface: 'signup', method: 'magic_link', auth_view: __anAuthView });
     var originalLabel = btn.textContent;
     btn.disabled = true;
     __anMagicLinkInFlight = isDesktopMagicLink;
@@ -3865,6 +4106,7 @@ ${
         __anShowEmailValidationError(emailInput, msg);
         return;
       }
+      __anTrackAuth('auth.signup_clicked', { surface: 'signup', method: 'password', auth_view: __anAuthView });
       var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3890,11 +4132,25 @@ ${
           __anRedirectToSignedInApp();
           return;
         }
+        var loginData;
+        try {
+          loginData = await loginRes.json();
+        } catch (error) {
+          console.warn('[auth] Could not parse sign-in response', error);
+        }
+        var loginError = __anAuthErrorText(loginData, __anT('registrationFailed'));
+        if (loginRes.status === 403 && /not verified|verification/i.test(loginError)) {
           btn.disabled = false;
           btn.textContent = originalLabel;
           showVerificationStep(email, pass);
           return;
         }
+        msg.textContent = loginError;
+        msg.classList.add('show', 'error');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
       msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
@@ -4041,23 +4297,24 @@ ${
   renderGoogleButton
     ? `
     async function signInWithGoogle() {
+    __anTrackAuth(__anAuthView === 'login' ? 'auth.login_clicked' : 'auth.signup_clicked', { surface: __anAuthView === 'login' ? 'login' : 'signup', method: 'google', auth_view: __anAuthView });
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     var ret = __anResumeHref();
+    var flowId = __anNewOAuthFlowId();
     btn.disabled = true;
-    __anGoogleSignInInFlight = true;
+    __anBeginGoogleSignInFlow(flowId);
     __anBindGoogleRecover();
     err.classList.remove('show');
     if (__anResolveAuthFlow() === 'popup') {
-      __anStartPopupOAuth(ret, btn, err);
+      __anStartPopupOAuth(ret, btn, err, flowId);
       return;
     }
     if (__anIsAgentNativeDesktop()) {
-      __anStartNativeDesktopOAuth(ret, btn, err);
+      __anStartNativeDesktopOAuth(ret, btn, err, flowId);
       return;
     }
     if (__anIsBuilderPreview()) {
-      var flowId = __anNewOAuthFlowId();
       __anStartRedirectOAuth(ret, btn, err, flowId, 'Opening Google sign-in redirect from Builder preview');
       return;
     }
@@ -4065,6 +4322,7 @@ ${
       var authUrl = __anGoogleAuthUrlPath() + '?return=' + encodeURIComponent(ret);
       var res = await fetch(authUrl);
       var data = await res.json();
+      if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
       if (data.url) {
         __anOpenOAuthUrl(data.url);
       } else {
@@ -4072,12 +4330,14 @@ ${
         err.classList.add('show');
         btn.disabled = false;
         __anGoogleSignInInFlight = false;
+        __anClearGoogleSignInFlow();
       }
     } catch (e) {
       err.textContent = __anT('failedToConnect');
       err.classList.add('show');
       btn.disabled = false;
       __anGoogleSignInInFlight = false;
+      __anClearGoogleSignInFlow();
     }
   }`
     : ""
@@ -4106,6 +4366,13 @@ ${
   `
     : ""
 }
+  if (__anAuthView === 'signup' || __anAuthView === 'magicLink' || __anAuthView === 'googleOnly') {
+    __anTrackAuth('auth.signup_viewed', {
+      surface: 'signup',
+      auth_mode: __AN_AUTH_MODE,
+      auth_view: __anAuthView
+    });
+  }
 </script>
 </body>
 </html>`;
@@ -4155,7 +4422,7 @@ export function getResetPasswordHtml(): string {
   <p class="subtitle">Set a new password for your account.</p>
   <form id="reset-form">
     <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
+    <input id="p1" type="password" autocomplete="new-password" placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="p2">Confirm password</label>
     <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <button type="submit">Save new password</button>

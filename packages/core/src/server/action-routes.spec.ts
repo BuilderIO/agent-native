@@ -29,6 +29,8 @@ vi.mock("h3", () => ({
   getMethod: (event: any) => event._method ?? "GET",
   getQuery: (event: any) => event._query ?? {},
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
   getRequestURL: (event: any) =>
     new URL(event.req?.url ?? "http://localhost/_agent-native/actions/test"),
   setResponseStatus: (event: any, status: number) => {
@@ -382,6 +384,131 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("echoes a fail() message instead of a generic 500", async () => {
+    const { fail } = await import("../scripts/utils.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      getMeeting: {
+        run: vi.fn(async () => {
+          fail("No such meeting", { errorCode: "not_found", statusCode: 404 });
+        }),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(404);
+    expect(result).toEqual({
+      error: "No such meeting",
+      errorCode: "not_found",
+    });
+  });
+
+  it("keeps a bare thrown Error as a generic 500", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions = {
+      getMeeting: {
+        run: vi
+          .fn()
+          .mockRejectedValue(new Error('relation "meetings" does not exist')),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+  });
+
+  it("preserves safe action contract metadata for retryable server failures", async () => {
+    const { ActionContractError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const unavailable = new ActionContractError("Directory unavailable", {
+      errorCode: "workspace_feature_flag_directory",
+      details: { phase: "directory" },
+      statusCode: 503,
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(unavailable),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(503);
+    expect(result).toEqual({
+      error: "Directory unavailable",
+      errorCode: "workspace_feature_flag_directory",
+      details: { phase: "directory" },
+    });
+  });
+
+  it("preserves safe stopped-action metadata without exposing its tool result", async () => {
+    const { AgentActionStopError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const stopped = new AgentActionStopError("Verification timed out", {
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+      toolResult: "private agent-only context",
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(stopped),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(500);
+    expect(result).toEqual({
+      error: "Verification timed out",
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+    });
+    expect(JSON.stringify(result)).not.toContain("private agent-only context");
+  });
+
   it("captures uncategorized action failures with low-cardinality context", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { registerErrorCaptureProvider } = await import("./capture-error.js");
@@ -562,6 +689,89 @@ describe("mountActionRoutes", () => {
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
       clientPlatform: undefined,
+    });
+  });
+
+  it("uses the forwarded gateway origin for request context behind a dev proxy", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
+    });
+  });
+
+  it("keeps the forwarded gateway origin when workspace OAuth relay is configured", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.com");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const { getOrigin } = await import("./google-oauth.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(getOrigin(proxied as any)).toBe("https://dispatch.agent-native.com");
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
     });
   });
 
@@ -2232,5 +2442,81 @@ describe("mountActionRoutes", () => {
       anonymous: false,
       name: "A2A Caller",
     });
+  });
+});
+
+describe("mountWebMcpActionRoutes", () => {
+  it("projects eligible actions, including http:false, through the shared dispatcher", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({ caller: context.caller }));
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const resolveCaller = vi.fn(async () => ({
+      owner: "delegated@example.com",
+      anonymous: false,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run,
+          http: false,
+          readOnly: true,
+        } as any,
+        hidden: {
+          tool: { description: "Hidden", parameters: { type: "object" } },
+          run: vi.fn(),
+          agentTool: false,
+        } as any,
+        approval: {
+          tool: { description: "Approval", parameters: { type: "object" } },
+          run: vi.fn(),
+          needsApproval: true,
+        } as any,
+        "invalid name": {
+          tool: { description: "Invalid", parameters: { type: "object" } },
+          run: vi.fn(),
+        } as any,
+      },
+      { getOwnerFromEvent, actionRouteAuth: { resolveCaller } },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "eligible",
+        description: "Eligible",
+        inputSchema: { type: "object" },
+        readOnly: true,
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalled();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ caller: "webmcp" });
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ caller: "webmcp", actionName: "eligible" }),
+    );
+    expect(resolveCaller).not.toHaveBeenCalled();
   });
 });

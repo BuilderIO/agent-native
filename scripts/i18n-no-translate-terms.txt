@@ -5,17 +5,20 @@
 *.eval.ts
 `window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay
 + Drizzle query DSL
++ Slack / webhook / Sheets
 Ease
 Ease In
 Ease In/Out
 Ease Out
+JetBrains Mono
+Playfair Display
 ~/.claude/ on a local disk
 302 + signed JWT
 401 · WWW-Authenticate
 A2A
 adapter.sendResponse
-Agent Native
-Agent-native
+Agent-Native
+Agent-Native
 Agent-Native App
 Agent-Native Config
 Agent-Native sidecar
@@ -87,6 +90,7 @@ Provider registry
 publicMcp + publicAgent.expose required
 pull · push
 RBAC
+React UI
 Remote MCP OAuth
 Remotion Studio
 Request context
@@ -111,6 +115,7 @@ SQL
 SQL + application_state
 SQL row scoping
 SQL rows via Drizzle
+SQL via Drizzle
 SQLite file
 SSE push
 startFrame / easing / animatedProps

@@ -49,7 +49,8 @@ interface EditorSidebarProps {
   activeSlideId: string;
   deckId: string;
   deckTitle: string;
-  onSelectSlide: (id: string) => void;
+  selectedSlideIds?: string[];
+  onSelectSlide: (id: string, options?: SlideSelectionOptions) => void;
   /** Viewer-role decks get thumbnails only: no add, duplicate, or delete. */
   readOnly?: boolean;
   /** Presence map: slideId → list of users currently viewing that slide */
@@ -96,16 +97,67 @@ interface EditorSidebarProps {
   /** Whether a slide is currently on the cut/copy clipboard, so the rail's
    *  right-click menu can disable Paste when there's nothing to paste. */
   hasSlideClipboard?: boolean;
-  onCutSlide?: (slideId: string) => void;
-  onCopySlide?: (slideId: string) => void;
+  onCutSlide?: (slideIds: string[]) => void;
+  onCopySlide?: (slideIds: string[]) => void;
   /** Pastes the clipboard slide directly after this slide. */
   onPasteSlide?: (slideId: string) => void;
-  onDeleteSlide?: (slideId: string) => void;
+  onDeleteSlide?: (slideIds: string[]) => void;
   /** Inserts a new blank slide directly after this slide. */
   onNewSlideAfter?: (slideId: string) => void;
-  onDuplicateSlide?: (slideId: string) => void;
+  onDuplicateSlide?: (slideIds: string[]) => void;
   /** Toggles whether this slide is excluded from Present/Presenter mode. */
-  onToggleSkipSlide?: (slideId: string) => void;
+  onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
+}
+
+export interface SlideSelectionOptions {
+  shiftKey?: boolean;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+}
+
+export function getSlideSelection({
+  slideIds,
+  selectedSlideIds,
+  anchorSlideId,
+  targetSlideId,
+  shiftKey = false,
+  metaKey = false,
+  ctrlKey = false,
+}: {
+  slideIds: string[];
+  selectedSlideIds: string[];
+  anchorSlideId: string | null;
+  targetSlideId: string;
+} & SlideSelectionOptions): {
+  selectedSlideIds: string[];
+  anchorSlideId: string;
+} {
+  const targetIndex = slideIds.indexOf(targetSlideId);
+  if (targetIndex === -1) {
+    return { selectedSlideIds, anchorSlideId: targetSlideId };
+  }
+
+  const anchorIndex = slideIds.indexOf(anchorSlideId ?? "");
+  let nextIds: string[];
+  let nextAnchor = targetSlideId;
+  if (shiftKey && anchorIndex !== -1) {
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    nextIds = slideIds.slice(start, end + 1);
+    nextAnchor = anchorSlideId!;
+  } else if (metaKey || ctrlKey) {
+    const selected = new Set(selectedSlideIds);
+    if (selected.has(targetSlideId) && selected.size > 1) {
+      selected.delete(targetSlideId);
+    } else {
+      selected.add(targetSlideId);
+    }
+    nextIds = slideIds.filter((id) => selected.has(id));
+  } else {
+    nextIds = [targetSlideId];
+  }
+
+  return { selectedSlideIds: nextIds, anchorSlideId: nextAnchor };
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -130,6 +182,22 @@ function isAgentPresenceUser(user: CollabUser): boolean {
     user.email.trim().toLowerCase() ===
     DEFAULT_AGENT_IDENTITY.email.trim().toLowerCase()
   );
+}
+
+function getNextSlideId(
+  slides: Slide[],
+  activeSlideId: string,
+  key: "ArrowUp" | "ArrowDown",
+): string | null {
+  const currentIndex = slides.findIndex((s) => s.id === activeSlideId);
+  if (currentIndex === -1) return null;
+
+  const nextIndex =
+    key === "ArrowUp"
+      ? Math.max(0, currentIndex - 1)
+      : Math.min(slides.length - 1, currentIndex + 1);
+
+  return nextIndex === currentIndex ? null : (slides[nextIndex]?.id ?? null);
 }
 
 /** Small presence avatar circle with hover card showing name + email */
@@ -196,7 +264,10 @@ function SortableSlideThumb({
   slide,
   index,
   isActive,
+  isSelected,
+  selectedSlideIds = [],
   onSelect,
+  onArrowNavigate,
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
@@ -218,7 +289,10 @@ function SortableSlideThumb({
   slide: Slide;
   index: number;
   isActive: boolean;
-  onSelect: () => void;
+  isSelected: boolean;
+  selectedSlideIds?: string[];
+  onSelect: (options?: SlideSelectionOptions) => void;
+  onArrowNavigate: (key: "ArrowUp" | "ArrowDown") => void;
   readOnly?: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
@@ -233,13 +307,13 @@ function SortableSlideThumb({
   /** False when this is the deck's last remaining slide — Cut/Delete stay enabled elsewhere but must not remove it. */
   canDelete?: boolean;
   hasSlideClipboard?: boolean;
-  onCutSlide?: (slideId: string) => void;
-  onCopySlide?: (slideId: string) => void;
+  onCutSlide?: (slideIds: string[]) => void;
+  onCopySlide?: (slideIds: string[]) => void;
   onPasteSlide?: (slideId: string) => void;
-  onDeleteSlide?: (slideId: string) => void;
+  onDeleteSlide?: (slideIds: string[]) => void;
   onNewSlideAfter?: (slideId: string) => void;
-  onDuplicateSlide?: (slideId: string) => void;
-  onToggleSkipSlide?: (slideId: string) => void;
+  onDuplicateSlide?: (slideIds: string[]) => void;
+  onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
 }) {
   const t = useT();
   const {
@@ -270,6 +344,9 @@ function SortableSlideThumb({
   // post-edit highlight, which is "recently done," not "in progress." The
   // shimmer should only run while the agent is actually live on this slide.
   const showGeneratingShimmer = agentPresent || isFillingPlaceholder;
+  const actionSlideIds = selectedSlideIds.includes(slide.id)
+    ? selectedSlideIds
+    : [slide.id];
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -280,18 +357,35 @@ function SortableSlideThumb({
             type="button"
             {...(readOnly ? {} : attributes)}
             {...(readOnly ? {} : listeners)}
+            onKeyDown={(event) => {
+              listeners?.onKeyDown?.(event);
+              if (event.defaultPrevented) return;
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+              event.preventDefault();
+              event.stopPropagation();
+              onArrowNavigate(event.key);
+            }}
             onClick={(event) => {
               // Safari does not focus a button on click, and the slide copy/paste
               // and delete shortcuts are scoped to a focused thumbnail.
               event.currentTarget.focus();
-              onSelect();
+              onSelect({
+                shiftKey: event.shiftKey,
+                metaKey: event.metaKey,
+                ctrlKey: event.ctrlKey,
+              });
             }}
-            onFocus={onSelect}
+            onContextMenu={() => {
+              if (!selectedSlideIds.includes(slide.id)) onSelect({});
+            }}
+            onFocus={(event) => {
+              if (event.currentTarget.matches(":focus-visible")) onSelect({});
+            }}
             aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
             aria-current={isActive ? "true" : undefined}
             data-slide-thumbnail-id={slide.id}
             className={`w-full text-left flex items-start gap-1.5 p-1.5 rounded-lg transition-[background-color,box-shadow] duration-150 ${
-              isActive ? "bg-accent" : ""
+              isSelected ? "bg-accent" : isActive ? "bg-accent/60" : ""
             } ${
               readOnly ? "" : "cursor-grab active:cursor-grabbing"
             } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1`}
@@ -374,12 +468,12 @@ function SortableSlideThumb({
         >
           <ContextMenuItem
             disabled={!canDelete}
-            onSelect={() => onCutSlide?.(slide.id)}
+            onSelect={() => onCutSlide?.(actionSlideIds)}
           >
             {t("editorSidebar.cut")}
             <ContextMenuShortcut>{shortcutLabel("cmd+x")}</ContextMenuShortcut>
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => onCopySlide?.(slide.id)}>
+          <ContextMenuItem onSelect={() => onCopySlide?.(actionSlideIds)}>
             {t("editorSidebar.copy")}
             <ContextMenuShortcut>{shortcutLabel("cmd+c")}</ContextMenuShortcut>
           </ContextMenuItem>
@@ -394,10 +488,12 @@ function SortableSlideThumb({
           <ContextMenuItem onSelect={() => onNewSlideAfter?.(slide.id)}>
             {t("editorSidebar.newSlide")}
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => onDuplicateSlide?.(slide.id)}>
+          <ContextMenuItem onSelect={() => onDuplicateSlide?.(actionSlideIds)}>
             {t("editorSidebar.duplicateSlide")}
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => onToggleSkipSlide?.(slide.id)}>
+          <ContextMenuItem
+            onSelect={() => onToggleSkipSlide?.(actionSlideIds, !slide.skipped)}
+          >
             {slide.skipped
               ? t("editorSidebar.unskipSlide")
               : t("editorSidebar.skipSlide")}
@@ -405,7 +501,7 @@ function SortableSlideThumb({
           <ContextMenuSeparator />
           <ContextMenuItem
             disabled={!canDelete}
-            onSelect={() => onDeleteSlide?.(slide.id)}
+            onSelect={() => onDeleteSlide?.(actionSlideIds)}
             className="text-destructive focus:text-destructive"
           >
             {t("editorSidebar.deleteSlide")}
@@ -460,6 +556,7 @@ function GeneratingSlideSkeleton({
 export default function EditorSidebar({
   slides,
   activeSlideId,
+  selectedSlideIds = [],
   deckId,
   deckTitle,
   onSelectSlide,
@@ -495,7 +592,12 @@ export default function EditorSidebar({
   const measurementsRef = useRef(
     new Map<
       string,
-      { contentHash: string; info: SlideOverflowInfo; measuredAt: number }
+      {
+        contentHash: string;
+        layoutFitRevision?: string;
+        info: SlideOverflowInfo;
+        measuredAt: number;
+      }
     >(),
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -516,6 +618,9 @@ export default function EditorSidebar({
           slideId,
           {
             contentHash: measurement.contentHash,
+            ...(measurement.layoutFitRevision
+              ? { layoutFitRevision: measurement.layoutFitRevision }
+              : {}),
             contentHeight: measurement.info.contentHeight,
             contentWidth: measurement.info.contentWidth,
             viewportHeight: measurement.info.viewportHeight,
@@ -550,6 +655,9 @@ export default function EditorSidebar({
       const contentHash = hashSlideContent(slide.content);
       measurementsRef.current.set(slide.id, {
         contentHash,
+        ...(slide.layoutFitRevision
+          ? { layoutFitRevision: slide.layoutFitRevision }
+          : {}),
         info,
         measuredAt: Date.now(),
       });
@@ -603,6 +711,21 @@ export default function EditorSidebar({
     [describeSlideId],
   );
 
+  const navigateToSlide = useCallback(
+    (fromSlideId: string, key: "ArrowUp" | "ArrowDown") => {
+      const nextSlideId = getNextSlideId(slides, fromSlideId, key);
+      if (!nextSlideId) return;
+
+      onSelectSlide(nextSlideId);
+      requestAnimationFrame(() => {
+        const nextButton = slideButtonRefs.current.get(nextSlideId);
+        nextButton?.focus({ preventScroll: true });
+        nextButton?.scrollIntoView({ block: "nearest" });
+      });
+    },
+    [onSelectSlide, slides],
+  );
+
   const describeSlideIndex = describeSlideId
     ? slides.findIndex((s) => s.id === describeSlideId)
     : -1;
@@ -629,28 +752,12 @@ export default function EditorSidebar({
         return;
 
       e.preventDefault();
-      const currentIndex = slides.findIndex((s) => s.id === activeSlideId);
-      if (currentIndex === -1) return;
-
-      const nextIndex =
-        e.key === "ArrowUp"
-          ? Math.max(0, currentIndex - 1)
-          : Math.min(slides.length - 1, currentIndex + 1);
-
-      if (nextIndex !== currentIndex) {
-        const nextSlideId = slides[nextIndex].id;
-        onSelectSlide(nextSlideId);
-        requestAnimationFrame(() => {
-          const nextButton = slideButtonRefs.current.get(nextSlideId);
-          nextButton?.focus({ preventScroll: true });
-          nextButton?.scrollIntoView({ block: "nearest" });
-        });
-      }
+      navigateToSlide(activeSlideId, e.key as "ArrowUp" | "ArrowDown");
     };
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [slides, activeSlideId, onSelectSlide]);
+  }, [activeSlideId, navigateToSlide]);
 
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
@@ -661,7 +768,7 @@ export default function EditorSidebar({
         }
       >
         <div
-          className="h-full min-h-0 space-y-1 overflow-y-auto overscroll-contain p-2"
+          className="h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2"
           onScroll={(event) => {
             setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
           }}
@@ -676,7 +783,10 @@ export default function EditorSidebar({
                 slide={slide}
                 index={index}
                 isActive={slide.id === activeSlideId}
-                onSelect={() => onSelectSlide(slide.id)}
+                isSelected={selectedSlideIds.includes(slide.id)}
+                selectedSlideIds={selectedSlideIds}
+                onSelect={(options) => onSelectSlide(slide.id, options)}
+                onArrowNavigate={(key) => navigateToSlide(slide.id, key)}
                 readOnly={readOnly}
                 registerButtonRef={registerSlideButton}
                 presenceUsers={slidePresence?.get(slide.id) ?? []}
@@ -684,7 +794,12 @@ export default function EditorSidebar({
                 designSystem={designSystem}
                 aiEditing={aiEditedSlideIds.has(slide.id)}
                 isFillingPlaceholder={slide.id === aiGeneratingSlideId}
-                canDelete={slides.length > 1}
+                canDelete={
+                  slides.length >
+                  (selectedSlideIds.includes(slide.id)
+                    ? selectedSlideIds.length
+                    : 1)
+                }
                 hasSlideClipboard={hasSlideClipboard}
                 onCutSlide={onCutSlide}
                 onCopySlide={onCopySlide}
@@ -734,9 +849,7 @@ export default function EditorSidebar({
             } catch (error) {
               console.error("Failed to persist new slide:", error);
               onAddSlideGeneratingChange?.(false, null);
-              // The popover already closed (AddSlidePopover doesn't wait on
-              // this async callback), so the typed prompt is gone either
-              // way. Only remove the placeholder if it's still untouched —
+              // Only remove the placeholder if it's still untouched —
               // the save retries take long enough that the user could have
               // started editing it directly on the canvas in the meantime,
               // and deleting it would destroy that work.
@@ -748,9 +861,10 @@ export default function EditorSidebar({
                 onRemoveFailedSlide?.(describeSlideId);
               }
               toast.error(t("editorSidebar.newSlideSaveFailed"));
-              return;
+              return false;
             }
             addSlideAgentSubmit(message, context);
+            return true;
           }}
         />
       )}

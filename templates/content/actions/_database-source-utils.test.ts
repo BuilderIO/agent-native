@@ -1215,7 +1215,10 @@ describe("database source helpers", () => {
       },
     });
     const currentContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+            ""),
     );
     const change = await builderBodyChangeForLocalContent({
       row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
@@ -1385,9 +1388,18 @@ describe("database source helpers", () => {
         },
       },
     });
-    const content = String(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]);
+    const content =
+      typeof entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]
+        : (JSON.stringify(entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ??
+          "");
     const losslessContent = String(
-      entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+      typeof entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY] ===
+        "string"
+        ? entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]
+        : (JSON.stringify(
+            entry.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+          ) ?? ""),
     );
 
     expect(content).toContain("<5");
@@ -1458,7 +1470,11 @@ describe("database source helpers", () => {
     }>;
     const textHtml = blocks
       .filter((block) => block.component?.name === "Text")
-      .map((block) => String(block.component?.options?.text ?? ""))
+      .map((block) =>
+        typeof block.component?.options?.text === "string"
+          ? block.component.options.text
+          : (JSON.stringify(block.component?.options?.text ?? "") ?? ""),
+      )
       .join("\n");
     const image = blocks.find(
       (block) => block.component?.name === "Image",
@@ -1955,7 +1971,7 @@ describe("database source helpers", () => {
           sourceFieldType: "list",
           propertyOptions: {
             options: [
-              { id: "agent-native", name: "Agent Native", color: "blue" },
+              { id: "agent-native", name: "Agent-Native", color: "blue" },
               { id: "builder-sync", name: "Builder Sync", color: "green" },
             ],
           },
@@ -1984,8 +2000,8 @@ describe("database source helpers", () => {
         }),
         expect.objectContaining({
           sourceFieldKey: "data.tags",
-          proposedValue: ["Agent Native", "Builder Sync"],
-          builderValueJson: JSON.stringify(["Agent Native", "Builder Sync"]),
+          proposedValue: ["Agent-Native", "Builder Sync"],
+          builderValueJson: JSON.stringify(["Agent-Native", "Builder Sync"]),
         }),
       ]),
     );

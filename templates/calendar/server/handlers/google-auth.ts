@@ -5,11 +5,13 @@ import {
   isElectron,
   getAppUrl,
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  hasWorkspaceProviderOAuthCredentials,
   resolveGoogleSignInCredentials,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -108,6 +110,7 @@ async function exchangeIdentityCode(
   email: string;
   id?: string;
   name?: string;
+  picture?: string;
 }> {
   const credentials = resolveGoogleSignInCredentials();
   if (!credentials) {
@@ -150,6 +153,7 @@ async function exchangeIdentityCode(
     email,
     id: typeof user.id === "string" ? user.id : undefined,
     name: typeof user.name === "string" ? user.name : undefined,
+    picture: typeof user.picture === "string" ? user.picture : undefined,
   };
 }
 
@@ -400,6 +404,15 @@ export const handleGoogleCallback = defineEventHandler(
 
       if (!addAccount) {
         const identity = await exchangeIdentityCode(code, redirectUri);
+        if (!identity.id) {
+          throw new Error("Could not get Google account id");
+        }
+        const isNewUser = await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,
@@ -411,6 +424,7 @@ export const handleGoogleCallback = defineEventHandler(
               authProvider: "google",
               authUserId: identity.id,
               name: identity.name,
+              isNewUser,
             },
           },
         );
@@ -687,7 +701,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    return await getAuthStatus(session?.email, session?.orgId);
+    const status = await getAuthStatus(session?.email, session?.orgId);
+    const configured = await runWithRequestContext(
+      { userEmail: session?.email, orgId: session?.orgId },
+      () => hasWorkspaceProviderOAuthCredentials("google_calendar"),
+    );
+    return { ...status, configured };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -708,7 +727,9 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       return { error: "email is required" };
     }
     const owned = await getAuthStatus(session.email, session.orgId);
-    const isOwned = owned.accounts.some((a) => a.email === targetEmail);
+    const isOwned = owned.accounts.some(
+      (a) => a.email === targetEmail && !a.shared,
+    );
     if (!isOwned) {
       setResponseStatus(event, 403);
       return { error: "Cannot disconnect an account you don't own" };

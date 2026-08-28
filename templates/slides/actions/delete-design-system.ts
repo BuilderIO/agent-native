@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import {
   assertAccess,
@@ -9,6 +9,11 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function canEditDeckRole(role: "owner" | ShareRole) {
@@ -40,6 +45,7 @@ function unlinkDeck(
       .select({
         designSystemId: schema.decks.designSystemId,
         data: schema.decks.data,
+        updatedAt: schema.decks.updatedAt,
       })
       .from(schema.decks)
       .where(eq(schema.decks.id, deckId));
@@ -49,14 +55,15 @@ function unlinkDeck(
 
     const data = JSON.parse(deck.data);
     if ("designSystemId" in data) delete data.designSystemId;
-    await db
+    const updateResult = await db
       .update(schema.decks)
       .set({
         designSystemId: null,
         data: JSON.stringify(data),
-        updatedAt: new Date().toISOString(),
+        updatedAt: nextDeckRevision(deck.updatedAt),
       })
-      .where(eq(schema.decks.id, deckId));
+      .where(deckRevisionWhere(schema.decks, deckId, deck.updatedAt));
+    assertDeckWriteApplied(updateResult, deckId, "design-system unlink");
     return { deckId, status: "unlinked" };
   });
 }

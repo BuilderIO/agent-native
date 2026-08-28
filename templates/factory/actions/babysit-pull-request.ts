@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { resolveConnectorSecret } from "../server/connectors/credentials.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -105,6 +106,11 @@ export function createBabysitPullRequestAction(
     run: async (input, context): Promise<BabysitProposal> => {
       const { userEmail, orgId } = await requireWorkspaceMember(
         workspaceMemberIdentityFromContext(context),
+      );
+      await requireFactoryAutomation(
+        context,
+        { userEmail, orgId },
+        "prBabysit",
       );
       const { comments, truncated } = await fetchComments({
         repo: input.repo,

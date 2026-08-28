@@ -74,6 +74,7 @@ export interface ChatFirstAppRailProps {
   onLayoutError?: (reason: "unavailable" | "write-failed") => void;
   onRetry?: () => void;
   onOpenApp: (app: ChatFirstAppItem) => void;
+  onReloadApp?: (app: ChatFirstAppItem) => void;
   onRemoveApp?: (app: ChatFirstAppItem) => void;
   onOpenAllApps?: () => void;
   onCreateApp?: () => void;

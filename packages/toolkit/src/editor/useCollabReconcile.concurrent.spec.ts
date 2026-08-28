@@ -746,6 +746,81 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     expect(getEditorMarkdown(captured.editor!)).toBe("# Doc updated by agent");
   });
 
+  it("persists a non-lead client's own local edit to a nonempty shared document", async () => {
+    // Losing the lead election only bars this client from SEEDING. Its own
+    // typing still has to reach the app's persist path, or the text lives in
+    // the CRDT alone and the next lead mount overwrites it with the SQL body.
+    const persistedYdoc = new Y.Doc();
+    const persistedEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: persistedYdoc,
+      }),
+    });
+    persistedEditor.commands.setContent("shared body");
+    const liveYdoc = new Y.Doc();
+    Y.applyUpdate(liveYdoc, Y.encodeStateAsUpdate(persistedYdoc), "remote");
+    persistedEditor.destroy();
+    persistedYdoc.destroy();
+
+    liveYdoc.clientID = 500;
+    const awareness = new Awareness(liveYdoc);
+    awareness
+      .getStates()
+      .set(1, { user: { name: "Lead peer" }, visible: true });
+
+    const emitted: string[] = [];
+    let capturedEditor: Editor | null = null;
+
+    function Probe() {
+      const guardsRef = React.useRef<ReturnType<
+        typeof useCollabReconcile
+      > | null>(null);
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: liveYdoc,
+        }),
+        onUpdate: ({ editor, transaction }) => {
+          const guards = guardsRef.current;
+          if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+          const markdown = getEditorMarkdown(editor);
+          if (!guards.registerEmitted(markdown)) return;
+          emitted.push(markdown);
+        },
+      });
+      capturedEditor = editor;
+      guardsRef.current = useCollabReconcile({
+        editor,
+        ydoc: liveYdoc,
+        awareness,
+        collabSynced: true,
+        value: "shared body",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+
+    act(() => {
+      capturedEditor!.view.dispatch(
+        capturedEditor!.state.tr
+          .insertText(
+            " plus my edit",
+            capturedEditor!.state.doc.content.size - 1,
+          )
+          .setMeta("uiEvent", "input"),
+      );
+    });
+
+    expect(emitted.at(-1)).toContain("plus my edit");
+    awareness.destroy();
+    liveYdoc.destroy();
+  });
+
   it("does not reapply a partial save echo while an external editor control owns focus", async () => {
     const { captured, Harness } = makeHarness();
 

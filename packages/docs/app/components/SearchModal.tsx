@@ -99,23 +99,6 @@ function search(query: string, index: SearchEntry[]): SearchEntry[] {
   return scored.map((r) => r.entry);
 }
 
-export function useSearchModal() {
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setOpen(true);
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
-  return { open, setOpen };
-}
-
 export function SearchModal({
   open,
   onClose,
@@ -215,7 +198,7 @@ export function SearchModal({
 
   const go = useCallback(
     (entry: SearchEntry) => {
-      navigate(
+      void navigate(
         entry.sectionId ? `${entry.path}#${entry.sectionId}` : entry.path,
       );
       onClose();

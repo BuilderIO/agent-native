@@ -46,6 +46,11 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
+import {
+  matchesDashboardVisibilityFilter,
+  type DashboardVisibility,
+  type DashboardVisibilityFilter,
+} from "@/lib/dashboard-visibility";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
@@ -63,6 +68,7 @@ type SidebarDashboard = {
   source: "static" | "sql" | "analysis";
   resourceId?: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
@@ -142,7 +148,9 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
+  DASHBOARD_SESSION_LOADING_SCOPE,
   dashboardCacheScope,
+  preserveScopedDashboardPlaceholder,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
@@ -156,13 +164,15 @@ import { SidebarLoadError } from "./SidebarLoadError";
 const SIDEBAR_PREVIEW_COUNT = 5;
 const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
+const DASHBOARD_VISIBILITY_FILTER_KEY =
+  "analytics-sidebar-dashboard-visibility";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
 const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
-type SidebarVisibilityFilter = "all" | "private" | "shared";
+type SidebarVisibilityFilter = DashboardVisibilityFilter;
 
 import {
   DndContext,
@@ -225,6 +235,35 @@ function setStoredSortMode(key: string, value: SidebarSortMode): void {
   }
 }
 
+export function getStoredVisibilityFilter(
+  key: string,
+): SidebarVisibilityFilter {
+  if (typeof window === "undefined") return "all";
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "all" || raw === "private" || raw === "shared") {
+      return raw;
+    }
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory filter state remains authoritative.
+    // localStorage unavailable; visibility filter is best-effort.
+  }
+  return "all";
+}
+
+export function setStoredVisibilityFilter(
+  key: string,
+  value: SidebarVisibilityFilter,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // coercion-ok: localStorage is optional; in-memory filter state remains authoritative.
+    // localStorage unavailable; visibility filter is best-effort.
+  }
+}
+
 function sortByName<T extends { id: string; name: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
     const name = a.name.localeCompare(b.name);
@@ -258,14 +297,11 @@ function isVisibility(value: unknown): value is Visibility {
 }
 
 export function matchesVisibilityFilter(
-  item: { visibility?: Visibility },
+  item: { visibility?: Visibility; ownerEmail?: string | null },
   filter: SidebarVisibilityFilter,
+  currentUserEmail?: string | null,
 ): boolean {
-  if (filter === "all") return true;
-  if (filter === "private") {
-    return item.visibility !== "org" && item.visibility !== "public";
-  }
-  return item.visibility === "org" || item.visibility === "public";
+  return matchesDashboardVisibilityFilter(item, filter, currentUserEmail);
 }
 
 export function threadMatchesVisibilityFilter(
@@ -447,7 +483,7 @@ function SidebarSectionSettingsPopover({
 
 // --- Visibility types and helpers ---
 
-type Visibility = "private" | "org" | "public";
+type Visibility = DashboardVisibility;
 
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
@@ -513,6 +549,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const pendingRenameRef = useRef(false);
   const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
@@ -678,7 +715,7 @@ function SortableRow({
             onChange={(e) => setRenameValue(e.target.value)}
             onBlur={submitRename}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submitRename();
+              if (e.key === "Enter") void submitRename();
               if (e.key === "Escape") {
                 setRenameValue(name);
                 setIsRenaming(false);
@@ -746,11 +783,22 @@ function SortableRow({
                 {t("sidebar.itemActions", { name })}
               </TooltipContent>
             </Tooltip>
-            <DropdownMenuContent side="right" align="start" className="w-44">
+            <DropdownMenuContent
+              side="right"
+              align="start"
+              className="w-44"
+              onCloseAutoFocus={(event) => {
+                if (!pendingRenameRef.current) return;
+                event.preventDefault();
+                pendingRenameRef.current = false;
+                setIsRenaming(true);
+              }}
+            >
               <DropdownMenuItem
                 onSelect={() => {
                   setRenameValue(name);
-                  setIsRenaming(true);
+                  pendingRenameRef.current = true;
+                  setMenuOpen(false);
                 }}
               >
                 <IconPencil className="me-2 h-3.5 w-3.5" />
@@ -1143,6 +1191,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   parentId?: string;
 };
 
@@ -1160,18 +1209,25 @@ async function fetchSqlDashboards(
           d.visibility === "org" ||
           d.visibility === "public"),
     )
-    .map((d: any) => ({
-      id: d.id,
-      name:
-        typeof d.name === "string" && d.name.trim().length > 0
-          ? d.name
-          : t("sidebar.untitledDashboard"),
-      visibility: d.visibility as Visibility,
-      parentId:
-        typeof d.parentId === "string" && d.parentId.trim().length > 0
-          ? d.parentId
-          : undefined,
-    }));
+    .map((d: any) => {
+      const ownerEmail =
+        typeof d.ownerEmail === "string" && d.ownerEmail.trim().length > 0
+          ? d.ownerEmail
+          : undefined;
+      return {
+        id: d.id,
+        name:
+          typeof d.name === "string" && d.name.trim().length > 0
+            ? d.name
+            : t("sidebar.untitledDashboard"),
+        visibility: d.visibility as Visibility,
+        ...(ownerEmail ? { ownerEmail } : {}),
+        parentId:
+          typeof d.parentId === "string" && d.parentId.trim().length > 0
+            ? d.parentId
+            : undefined,
+      };
+    });
 }
 
 async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
@@ -1502,8 +1558,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
-  const { auth } = useAuth();
-  const dashboardScope = dashboardCacheScope(auth);
+  const { auth, isLoading: authLoading } = useAuth();
+  const dashboardScope = authLoading
+    ? DASHBOARD_SESSION_LOADING_SCOPE
+    : dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1525,7 +1583,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>(() =>
+    getStoredVisibilityFilter(DASHBOARD_VISIBILITY_FILTER_KEY),
+  );
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const { data: popularity, isReady: popularityReady } = usePopularity();
@@ -1618,6 +1678,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     setDashboardSortModeState(mode);
   }, []);
 
+  const setDashboardVisibilityFilter = useCallback(
+    (value: SidebarVisibilityFilter) => {
+      setStoredVisibilityFilter(DASHBOARD_VISIBILITY_FILTER_KEY, value);
+      setDashFilter(value);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (getStoredBooleanPreference(ASK_OPEN_KEY) === null) {
       setAskOpen(isAskRoute);
@@ -1688,7 +1756,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   } = useQuery({
     queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
+    enabled: !authLoading,
     staleTime: 30_000,
+    placeholderData: (prev, previousQuery) =>
+      preserveScopedDashboardPlaceholder(prev, previousQuery, dashboardScope),
   });
 
   const {
@@ -1705,7 +1776,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
-  const { views: activeDashboardViews = [] } = useDashboardViews(
+  const { views: activeDashboardViews } = useDashboardViews(
     activeDashboardId ?? undefined,
   );
   const allViewsMap = useMemo<Record<string, DashboardView[]>>(
@@ -1749,6 +1820,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
+      ownerEmail: d.ownerEmail,
       parentId: d.parentId,
     }));
     const analysisItems: SidebarDashboard[] = analysesList.map((a) => ({
@@ -1802,9 +1874,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const filteredDashboards = useMemo(
     () =>
       visibleDashboards.filter((dashboard) =>
-        matchesVisibilityFilter(dashboard, dashFilter),
+        matchesVisibilityFilter(dashboard, dashFilter, auth?.email),
       ),
-    [visibleDashboards, dashFilter],
+    [auth?.email, visibleDashboards, dashFilter],
   );
 
   // Group dashboards that declare a parentId beneath their parent. Nesting is
@@ -1874,8 +1946,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     async (d: SidebarDashboard) => {
       if (d.source === "analysis") {
         await deleteAnalysisMut({ id: d.resourceId ?? d.id });
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
         return;
       }
       if (d.source === "static") {
@@ -1900,7 +1972,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey: activeKey });
+        void queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
@@ -1933,7 +2005,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey: activeKey });
+        void queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
@@ -1950,9 +2022,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
       if (d.source === "analysis") {
         await renameAnalysis({ id: d.resourceId ?? d.id, name: trimmed });
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({
           queryKey: ["analysis-detail", d.resourceId ?? d.id],
         });
         return;
@@ -1982,8 +2054,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({
           queryKey: ["sql-dashboards-palette", dashboardScope],
         });
       } catch (err) {
@@ -2003,8 +2075,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           resourceId: d.resourceId ?? d.id,
           visibility,
         } as any);
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
         toast.success(
           visibility === "org"
             ? t("sidebar.nameSharedWithOrg", { name: d.name })
@@ -2032,7 +2104,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           resourceId: d.id,
           visibility,
         } as any);
-        queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({ queryKey });
         toast.success(
           visibility === "org"
             ? t("sidebar.nameSharedWithOrg", { name: d.name })
@@ -2437,23 +2509,21 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={toggleDashOpen}
+                  <Link
+                    to="/dashboards"
                     className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
-                    aria-expanded={dashOpen}
                   >
                     <IconChartBar className="h-4 w-4 shrink-0" />
                     <span className="min-w-0 flex-1 truncate">
                       {t("navigation.dashboards")}
                     </span>
-                  </button>
+                  </Link>
                   <SidebarSectionSettingsPopover
                     label={t("navigation.dashboards")}
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
                     visibilityFilter={dashFilter}
-                    onVisibilityFilterChange={setDashFilter}
+                    onVisibilityFilterChange={setDashboardVisibilityFilter}
                   />
                   <button
                     type="button"
@@ -2464,6 +2534,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         ? t("sidebar.collapseDashboards")
                         : t("sidebar.expandDashboards")
                     }
+                    aria-expanded={dashOpen}
                   >
                     <IconChevronDown
                       className={cn(

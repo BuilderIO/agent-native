@@ -95,7 +95,7 @@ export function useCreateBookingLink() {
     },
     onSettled: () => {
       // Sync with server eventually — non-blocking.
-      queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_KEY });
     },
   });
 }
@@ -115,9 +115,13 @@ export function useUpdateBookingLink() {
   >("update-booking-link", {
     onSuccess: (updated) => {
       queryClient.setQueryData<BookingLink[]>(LIST_KEY, (current = []) =>
-        current.map((link) => (link.id === updated.id ? updated : link)),
+        current.map((link) =>
+          link.id === updated.id
+            ? { ...updated, accessRole: updated.accessRole ?? link.accessRole }
+            : link,
+        ),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
     },
@@ -135,7 +139,7 @@ export function useDeleteBookingLink() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
     },

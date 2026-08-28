@@ -4,10 +4,14 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
     "Diesen exakten Befehl genehmigen und immer erlauben",
+  "approval.alwaysAllowAction": "Diese Aktion immer erlauben",
+  "approval.alwaysAllowActionHint":
+    "Genehmigen und diese Aktion immer erlauben",
   "approval.approve": "Genehmigen",
   "approval.approved": "Genehmigt. {{tool}} wird erneut ausgeführt...",
   "approval.denied": "Abgelehnt. {{tool}} wurde nicht ausgeführt.",
   "approval.deny": "Ablehnen",
+  "approval.moreOptions": "Weitere Genehmigungsoptionen",
   "approval.question": "Ausführung von {{tool}} genehmigen?",
   "auth.expiredDescription":
     "Deine Sitzung ist möglicherweise abgelaufen. Melde dich ab und wieder an, um die Verbindung wiederherzustellen.",
@@ -30,13 +34,30 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
-  "aboutAgentNative.title": "Über Agent Native",
+  "onboarding.back": "Zurück",
+  "onboarding.chooseRole": "Wähle deine Rolle",
+  "onboarding.customizeRole": "Wir passen das für dich an.",
+  "onboarding.roleQuestion":
+    "Welche Beschreibung passt am besten zu deiner Rolle?",
+  "onboarding.roleProduct": "Produkt",
+  "onboarding.roleDesign": "Design",
+  "onboarding.roleDeveloper": "Entwicklung",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Vertrieb",
+  "onboarding.roleOps": "Operations",
+  "onboarding.roleIndividual": "Einzelperson",
+  "onboarding.roleOther": "Andere",
+  "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
+  "aboutAgentNative.title": "Über Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Umgebung",
   "aboutAgentNative.build": "Build",
   "aboutAgentNative.copyDiagnostics": "Diagnosedaten kopieren",
   "aboutAgentNative.unknown": "Unbekannt",
   "common.agent": "Agent",
+  "agentPanel.mode": "Modus",
+  "agentPanel.uiMode": "Benutzeroberfläche",
   "common.cancel": "Abbrechen",
   "common.collapse": "Einklappen",
   "common.connect": "Verbinden",
@@ -204,6 +225,10 @@ const messages: AgentChatTranslation = {
   "tool.repeated": "{{count}}-mal wiederholt",
   "tool.result": "Ergebnis",
   "tool.subAgentTask": "Unteragenten-Aufgabe",
+  "thinking.collapsed": "Eingeklappt",
+  "thinking.display": "Gedankengang",
+  "thinking.expanded": "Ausgeklappt",
+  "thinking.hidden": "Ausgeblendet",
   "tool.thought": "Gedankengang",
   "tool.thoughtFor": "{{duration}} nachgedacht",
   "tool.viewOutput": "Ausgabe von {{tool}} anzeigen",
@@ -305,7 +330,7 @@ const messages: AgentChatTranslation = {
   "composer.planDescription":
     "Zuerst schreibgeschützte Recherche und Genehmigung",
   "composer.planDesktopRequired":
-    "Öffne Agent Native Desktop, um den Planmodus zu verwenden.",
+    "Öffne Agent-Native Desktop, um den Planmodus zu verwenden.",
   "composer.previewAttachment": "Vorschau {{name}}",
   "composer.reasoning": "Denkaufwand",
   "composer.reasoningEffort.auto": "Auto",
@@ -470,7 +495,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.noProviderConnected":
-    "Es ist kein LLM-Anbieter verbunden. Öffne für diese App „Agent verwalten“ → „LLM“ und verbinde anschließend Builder.io oder füge einen Anbieterschlüssel hinzu.",
+    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde anschließend Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
     "Builder-Space-Einstellungen öffnen",
   "errorMessages.providerAuthentication":
@@ -582,6 +607,7 @@ const messages: AgentChatTranslation = {
     "Personen mit dem Link können dies weiterhin öffnen.",
   "share.loading": "Laden...",
   "share.loadMore": "Mehr laden",
+  "share.loadFailed": "Freigabeeinstellungen konnten nicht geladen werden.",
   "share.loadPeopleFailed": "Es konnten keine Personen geladen werden.",
   "share.noAccess": "Noch hat niemand Zugriff.",
   "share.noMatches": "Keine Übereinstimmungen.",

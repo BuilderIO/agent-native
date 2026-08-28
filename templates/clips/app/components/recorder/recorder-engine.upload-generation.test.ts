@@ -18,12 +18,17 @@ describe("RecorderEngine upload generation fencing", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
         if (url.endsWith("/reset-chunks")) {
           resetCount += 1;
           requests.push({
             url,
-            body: JSON.parse(String(init?.body)),
+            body: JSON.parse(typeof init?.body === "string" ? init.body : ""),
           });
           return Response.json({
             uploadMode: "buffered",

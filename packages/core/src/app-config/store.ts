@@ -1,4 +1,6 @@
+import { deriveAppIdentity } from "./app-identity.js";
 import { readEnvConfigLayer } from "./env-layer.js";
+import { assertRunLifecycleInvariants } from "./run-lifecycle-invariants.js";
 import {
   appConfigSchema,
   type AppConfig,
@@ -72,7 +74,17 @@ function resolve(envLayer: Record<string, unknown>): AppConfig {
     const value = state.layers[layer];
     if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
   }
-  return appConfigSchema.parse(merged);
+  const parsed = appConfigSchema.parse(merged);
+  // Checked on the MERGED result, not per layer: a deployment may legitimately
+  // set one half of a relationship in the environment and the other in a
+  // plugin, and a per-layer check would reject that pairing before it exists.
+  // Defaults go through here too — the pair that shipped violated was a pair of
+  // defaults.
+  assertRunLifecycleInvariants(parsed.agent);
+  // After parsing, not as a layer: it derives from `packageName`, which the
+  // layers above have to have resolved first.
+  parsed.app = deriveAppIdentity(parsed.app);
+  return parsed;
 }
 
 /**
@@ -87,6 +99,10 @@ export function readConfigEnvironment(
     AGENT_NATIVE_RELEASE_MIGRATIONS:
       process.env.AGENT_NATIVE_RELEASE_MIGRATIONS,
     AGENT_NATIVE_BETA_SCHEMA_OWNER: process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER,
+    AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY:
+      process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY,
+    AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT:
+      process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT,
   },
 ): Record<string, string | undefined> {
   const env = { ...process.env };
@@ -121,12 +137,23 @@ export function setAppConfigLayer(
 /**
  * Sets this app's server configuration.
  *
- * Call it from a server plugin. Values given here beat any environment
- * variable aliased to the same field. Calling it more than once merges, so an
- * app can split its configuration by domain across plugin files.
+ * Values given here beat any environment variable aliased to the same field.
+ * Calling it more than once merges, so an app can split its configuration by
+ * domain across plugin files.
+ *
+ * Returns a Nitro plugin so the canonical home is `server/plugins/config.ts`
+ * with `export default defineAppConfig({ … })` — the same shape as every other
+ * framework plugin an app already writes. Before that, the docs said "call it
+ * from a server plugin" without saying what such a file looks like, and no app
+ * in this repo ever did.
+ *
+ * The layer is applied here, at module load, not when the returned plugin runs:
+ * configuration has to be resolved before another plugin reads it, and plugin
+ * invocation order is not something an app should have to reason about.
  */
-export function defineAppConfig(config: AppConfigInput): void {
+export function defineAppConfig(config: AppConfigInput): () => void {
   setAppConfigLayer("app", config);
+  return () => {};
 }
 
 /**

@@ -34,6 +34,7 @@ import {
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
   ChatImageAttachmentPreview,
+  MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -354,6 +355,34 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
+  it("shows controls for a response explicitly stopped with pending tool state", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows stopped controls while the active response is still settling", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: true,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
@@ -509,13 +538,14 @@ describe("useSettledFlag", () => {
   });
 
   it("holds the flag back until the condition has lasted the delay", () => {
+    expect(MISSING_FINAL_RESPONSE_SETTLE_MS).toBe(3_000);
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     expect(container.textContent).toBe("hidden");
 
     act(() => {
-      vi.advanceTimersByTime(2999);
+      vi.advanceTimersByTime(MISSING_FINAL_RESPONSE_SETTLE_MS - 1);
     });
     expect(container.textContent).toBe("hidden");
 
@@ -527,13 +557,15 @@ describe("useSettledFlag", () => {
 
   it("never shows when the condition clears inside the delay, and re-arms after", () => {
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     act(() => {
       vi.advanceTimersByTime(2000);
     });
     act(() => {
-      root.render(<Probe active={false} delayMs={3000} />);
+      root.render(
+        <Probe active={false} delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />,
+      );
     });
     act(() => {
       vi.advanceTimersByTime(5000);
@@ -541,11 +573,11 @@ describe("useSettledFlag", () => {
     expect(container.textContent).toBe("hidden");
 
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     expect(container.textContent).toBe("hidden");
     act(() => {
-      vi.advanceTimersByTime(3000);
+      vi.advanceTimersByTime(MISSING_FINAL_RESPONSE_SETTLE_MS);
     });
     expect(container.textContent).toBe("shown");
   });
@@ -1007,6 +1039,22 @@ describe("isCollapsibleAssistantWorkPart", () => {
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
 
+  it("stops counting reasoning as work once thinking is hidden", () => {
+    // Otherwise a reasoning-only turn renders an empty "Worked for…" wrapper.
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "hidden"),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({ type: "reasoning" }, "expanded"),
+    ).toBe(true);
+    expect(
+      isCollapsibleAssistantWorkPart(
+        { type: "tool-call", toolName: "read-file" },
+        "hidden",
+      ),
+    ).toBe(true);
+  });
+
   it("keeps custom UI outside collapsed work", () => {
     expect(
       isCollapsibleAssistantWorkPart({
@@ -1126,6 +1174,41 @@ describe("groupAssistantWorkParts", () => {
 
     expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
     expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
+  });
+
+  it("leaves hidden reasoning out of the work group", () => {
+    const parts = [
+      { type: "reasoning" },
+      { type: "tool-call", toolCallId: "tc_1", toolName: "read-file" },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "hidden")).toBeNull();
+    expect(groupAssistantWorkParts(parts[0], 0, parts, "collapsed")).toEqual([
+      "group-work",
+    ]);
+    expect(groupAssistantWorkParts(parts[1], 1, parts, "hidden")).toEqual([
+      "group-work",
+    ]);
+  });
+
+  it("collapses older tool calls while keeping the newest three visible", () => {
+    const parts = [
+      { type: "tool-call", toolName: "docs-search" },
+      { type: "tool-call", toolName: "framework-search" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([
+      ["group-work", "group-ran-tools"],
+      ["group-work", "group-ran-tools"],
+      ["group-work"],
+      ["group-work"],
+      ["group-work"],
+    ]);
   });
 });
 

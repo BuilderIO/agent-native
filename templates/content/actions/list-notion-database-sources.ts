@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -13,7 +13,11 @@ function plainText(value: unknown) {
     ? value
         .map((part) =>
           typeof part === "object" && part && "plain_text" in part
-            ? String((part as { plain_text?: unknown }).plain_text ?? "")
+            ? typeof (part as { plain_text?: unknown }).plain_text === "string"
+              ? (part as { plain_text: string }).plain_text
+              : (JSON.stringify(
+                  (part as { plain_text?: unknown }).plain_text,
+                ) ?? "")
             : "",
         )
         .join("")

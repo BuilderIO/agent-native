@@ -1,9 +1,13 @@
 export const BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
-export const BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
+export const BETA_OPT_OUT_DURATION_MS = 8 * 60 * 60 * 1000;
 export const BETA_OPT_OUT_STORAGE_KEY = "agent-native:beta-opt-out-until";
+export const BETA_FORCE_QUERY_PARAM = "force";
+export const BETA_FORCE_SESSION_STORAGE_KEY = "agent-native:force-production";
 
 export const ENVIRONMENT_BETA_HOSTS = {
   "agent-workspace.builder.io": "beta.agent-workspace.builder.io",
+  "builder-agent-native-workspace.netlify.app":
+    "beta.agent-workspace.builder.io",
   "analytics.agent-native.com": "beta.analytics.agent-native.com",
   "assets.agent-native.com": "beta.assets.agent-native.com",
   "brain.agent-native.com": "beta.brain.agent-native.com",

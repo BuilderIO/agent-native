@@ -1,6 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockNotifyClients = vi.fn();
+let updatedFields: { data?: string; updatedAt?: string } | undefined;
+let currentResource:
+  | { data: string; updatedAt: string; [key: string]: unknown }
+  | undefined;
+const mockWhereUpdate = vi.fn(async () => {
+  if (updatedFields && currentResource) {
+    currentResource.data = updatedFields.data ?? currentResource.data;
+    currentResource.updatedAt =
+      updatedFields.updatedAt ?? currentResource.updatedAt;
+  }
+});
+const mockSet = vi.fn((fields: { data?: string; updatedAt?: string }) => {
+  updatedFields = fields;
+  return { where: mockWhereUpdate };
+});
+const mockUpdate = vi.fn(() => ({ set: mockSet }));
+const mockDb = { update: mockUpdate };
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
@@ -10,38 +28,56 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "alice@example.com",
 }));
 
-vi.mock("../server/db/index.js", () => ({}));
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => mockDb,
+  schema: { decks: { id: "id_col", data: "data_col", updatedAt: "ua_col" } },
+}));
+
+vi.mock("../server/handlers/decks.js", () => ({
+  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
+}));
+
+vi.mock("./patch-deck.js", () => ({
+  withDeckLock: (_deckId: string, run: () => Promise<unknown>) => run(),
+}));
 
 import action from "./get-deck";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockResolveAccess.mockResolvedValue({
-    resource: {
-      id: "deck-1",
+  updatedFields = undefined;
+  currentResource = {
+    id: "deck-1",
+    title: "Quarterly Review",
+    visibility: "private",
+    ownerEmail: "Alice@Example.com",
+    designSystemId: null,
+    createdAt: "2026-05-01T00:00:00.000Z",
+    updatedAt: "2026-05-02T00:00:00.000Z",
+    data: JSON.stringify({
       title: "Quarterly Review",
-      visibility: "private",
-      ownerEmail: "Alice@Example.com",
-      designSystemId: null,
-      createdAt: "2026-05-01T00:00:00.000Z",
-      updatedAt: "2026-05-02T00:00:00.000Z",
-      data: JSON.stringify({
-        title: "Quarterly Review",
-        slides: [
-          {
-            id: "slide-a",
-            layout: "title",
-            content: "<h1>Opening</h1>",
-          },
-          {
-            id: "slide-b",
-            layout: "content",
-            content: "<p>Metrics</p>",
-          },
-        ],
-      }),
-    },
-  });
+      generationContext: {
+        originalPrompt: "Create a dark 6-slide deck from reference.png",
+        targetSlideCount: 6,
+        files: [{ path: "/uploads/reference.png" }],
+      },
+      slides: [
+        {
+          id: "slide-a",
+          layout: "title",
+          content: "<h1>Opening</h1>",
+        },
+        {
+          id: "slide-b",
+          layout: "content",
+          content: "<p>Metrics</p>",
+        },
+      ],
+    }),
+  };
+  mockResolveAccess.mockImplementation(async () => ({
+    resource: currentResource,
+  }));
 });
 
 describe("get-deck", () => {
@@ -70,6 +106,88 @@ describe("get-deck", () => {
     expect(result.slides[0]).not.toHaveProperty("index");
   });
 
+  it("repairs duplicate persisted slide IDs before returning the deck", async () => {
+    currentResource = {
+      id: "deck-1",
+      title: "Quarterly Review",
+      visibility: "private",
+      ownerEmail: "Alice@Example.com",
+      updatedAt: "2026-05-02T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Quarterly Review",
+        slides: [
+          {
+            id: "slide-a",
+            content: "<h1>First</h1>",
+            creativeContextReuseLabels: [
+              {
+                itemId: "item-1",
+                itemVersionId: "version-1",
+                kind: "slide",
+                label: "First slide",
+                dataRole: "untrusted-reference",
+                elementId: "slide-a",
+              },
+            ],
+          },
+          {
+            id: "slide-a",
+            content: "<h1>Second</h1>",
+            creativeContextReuseLabels: [
+              {
+                itemId: "item-2",
+                itemVersionId: "version-2",
+                kind: "slide",
+                label: "Second slide",
+                dataRole: "untrusted-reference",
+                elementId: "slide-a",
+              },
+            ],
+          },
+        ],
+        sourceImport: {
+          slideIds: ["slide-a", "slide-a"],
+          slides: [
+            { id: "slide-a", source: "first" },
+            { id: "slide-a", source: "second" },
+          ],
+        },
+      }),
+    };
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "frontend" },
+    )) as any;
+    const ids = result.slides.map((slide: { id: string }) => slide.id);
+
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(result.slides[0].id).toBe("slide-a");
+    expect(result.slides[1].content).toBe("<h1>Second</h1>");
+    expect(result.slides[1].creativeContextReuseLabels[0].elementId).toBe(
+      ids[1],
+    );
+    expect(updatedFields?.data).toBeDefined();
+    const persisted = JSON.parse(updatedFields!.data!);
+    expect(persisted.slides.map((slide: { id: string }) => slide.id)).toEqual(
+      ids,
+    );
+    expect(persisted.sourceImport.slideIds).toEqual(ids);
+    expect(
+      persisted.sourceImport.slides.map((slide: { id: string }) => slide.id),
+    ).toEqual(ids);
+    expect(mockNotifyClients).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("rejects malformed persisted slide entries explicitly", async () => {
+    currentResource!.data = JSON.stringify({ slides: [null] });
+
+    await expect(
+      action.run({ id: "deck-1" }, { caller: "frontend" }),
+    ).rejects.toThrow("Slide 1 must be an object.");
+  });
+
   it("defaults agent calls to compact output so full slide HTML is not retransmitted", async () => {
     const result = (await action.run(
       { id: "deck-1" },
@@ -81,6 +199,43 @@ describe("get-deck", () => {
       textPreview: "Opening",
     });
     expect(result.slides[0]).not.toHaveProperty("content");
+    expect(result.generationContext).toMatchObject({
+      originalPrompt: "Create a dark 6-slide deck from reference.png",
+      targetSlideCount: 6,
+    });
+  });
+
+  it("reports source coverage and order in compact agent reads", async () => {
+    currentResource!.data = JSON.stringify({
+      title: "Imported source",
+      slides: [
+        { id: "source-1", content: "One" },
+        { id: "extra", content: "Unrelated" },
+        { id: "source-3", content: "Three" },
+      ],
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pdf",
+        fidelity: "source-faithful",
+        slideCount: 3,
+        slideIds: ["source-1", "source-2", "source-3"],
+        slides: [{ id: "source-1" }, { id: "source-2" }, { id: "source-3" }],
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.sourceCoverage).toMatchObject({
+      complete: false,
+      ordered: false,
+      expectedSlideIds: ["source-1", "source-2", "source-3"],
+      actualSlideIds: ["source-1", "extra", "source-3"],
+      missingSlideIds: ["source-2"],
+      unexpectedSlideIds: ["extra"],
+    });
   });
 
   it("lets agent calls opt into full slide HTML", async () => {

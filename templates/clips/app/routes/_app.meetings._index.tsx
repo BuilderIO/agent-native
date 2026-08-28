@@ -87,13 +87,14 @@ interface Meeting {
     | "ready"
     | "failed"
     | "in_progress"
-    | string
+    | (string & {})
     | null;
   summaryPreview?: string | null;
   summaryMd?: string | null;
   userNotesMd?: string | null;
   source?: "calendar" | "adhoc" | "manual";
   participants?: AttendeeStackParticipant[];
+  ownerEmail?: string | null;
 }
 
 interface SearchMeetingResult extends Meeting {
@@ -115,10 +116,10 @@ interface ListMeetingsResponse {
 
 interface CalendarAccount {
   id: string;
-  provider: "google" | "icloud" | "microsoft" | string;
+  provider: "google" | "icloud" | "microsoft" | (string & {});
   displayName?: string | null;
   email?: string | null;
-  status?: "connected" | "needs-reauth" | "disconnected" | string;
+  status?: "connected" | "needs-reauth" | "disconnected" | (string & {});
   lastSyncedAt?: string | null;
   lastSyncError?: string | null;
 }
@@ -799,10 +800,10 @@ export default function MeetingsIndexRoute() {
         err instanceof Error ? err.message : "Couldn't refresh your calendar",
       );
     } finally {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-calendar-accounts"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-meetings"],
       });
     }
@@ -837,10 +838,10 @@ export default function MeetingsIndexRoute() {
   const hasCalendar = calendarAccounts.length > 0;
 
   const handleCalendarDisconnected = useCallback(() => {
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["action", "list-meetings"],
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["action", "list-calendar-accounts"],
     });
   }, [queryClient]);

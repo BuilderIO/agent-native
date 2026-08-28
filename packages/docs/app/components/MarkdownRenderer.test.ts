@@ -26,10 +26,10 @@ describe("renderMarkdownToHtml", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("keeps normal links", () => {
+  it("canonicalizes same-site docs links and leaves external ones alone", () => {
     const html = renderMarkdownToHtml("[docs](/docs) [site](https://x.test)");
 
-    expect(html).toContain('<a href="/docs">docs</a>');
+    expect(html).toContain('<a href="/docs/">docs</a>');
     expect(html).toContain('<a href="https://x.test">site</a>');
   });
 
@@ -52,7 +52,9 @@ describe("renderMarkdownToHtml", () => {
 
     expect(html).toContain(`${source}?format=webp&amp;width=800`);
     expect(html).toContain(`${source}?format=webp&amp;width=240 240w`);
-    expect(html).toContain('sizes="(max-width: 900px) 100vw, 900px"');
+    expect(html).toContain(`${source}?format=webp&amp;width=1200 1200w`);
+    expect(html).toContain(`${source}?format=webp&amp;width=2400 2400w`);
+    expect(html).not.toContain(" sizes=");
     expect(html).not.toContain(`src="${source}"`);
   });
 
@@ -64,7 +66,7 @@ describe("renderMarkdownToHtml", () => {
 # Company
 
 - Company: Example Co
-- Product: Agent-native workspace for internal teams
+- Product: Agent-Native workspace for internal teams
 \`\`\`
 `);
 

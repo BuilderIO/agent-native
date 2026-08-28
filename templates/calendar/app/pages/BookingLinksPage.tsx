@@ -152,6 +152,23 @@ const BRAND_ICON_LINK_CLASS =
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOOKING_SLOT_STEP_MINUTES = 30;
 
+function canEditBookingLink(link: BookingLink | null | undefined) {
+  return (
+    !link?.accessRole ||
+    link.accessRole === "owner" ||
+    link.accessRole === "admin" ||
+    link.accessRole === "editor"
+  );
+}
+
+function canDeleteBookingLink(link: BookingLink | null | undefined) {
+  return (
+    !link?.accessRole ||
+    link.accessRole === "owner" ||
+    link.accessRole === "admin"
+  );
+}
+
 type DraftLink = {
   id?: string;
   title: string;
@@ -777,7 +794,7 @@ export default function BookingLinksPage({
       !isLoading &&
       !bookingLinks.some((link) => link.id === selectedId)
     ) {
-      navigate("/booking-links", { replace: true });
+      void navigate("/booking-links", { replace: true });
     }
   }, [bookingLinks, selectedId, isLoading, navigate]);
 
@@ -785,6 +802,8 @@ export default function BookingLinksPage({
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
     [bookingLinks, selectedId],
   );
+  const canEditSelectedLink = canEditBookingLink(selectedLink);
+  const canDeleteSelectedLink = canDeleteBookingLink(selectedLink);
 
   useEffect(() => {
     if (!selectedLink) {
@@ -873,12 +892,12 @@ export default function BookingLinksPage({
       {
         onSuccess: (created) => {
           // Swap URL from optimistic id to the real one without a back-stack entry.
-          navigate(`/booking-links/${created.id}`, { replace: true });
+          void navigate(`/booking-links/${created.id}`, { replace: true });
           toast.success(t("bookingLinks.bookingLinkCreated"));
         },
         onError: (error) => {
           // Cache was rolled back by the hook's onError. Bring the user back.
-          navigate("/booking-links", { replace: true });
+          void navigate("/booking-links", { replace: true });
           toast.error(
             error instanceof Error
               ? error.message
@@ -888,7 +907,7 @@ export default function BookingLinksPage({
       },
     );
     // Navigate *immediately* — the optimistic row is already in the list cache.
-    navigate(`/booking-links/${optimisticId}`);
+    void navigate(`/booking-links/${optimisticId}`);
     setCreateDialogOpen(false);
   }
 
@@ -927,7 +946,7 @@ export default function BookingLinksPage({
     if (!draft.id) return;
     try {
       await deleteBookingLink.mutateAsync(draft.id);
-      navigate("/booking-links");
+      void navigate("/booking-links");
       toast.success(t("bookingLinks.bookingLinkDeleted"));
     } catch {
       toast.error(t("bookingLinks.bookingLinkDeleteFailed"));
@@ -1067,19 +1086,21 @@ export default function BookingLinksPage({
               <TooltipContent>{t("bookingLinks.openLink")}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void handleSaveRef.current()}
-            disabled={updateBookingLink.isPending || !hasUnsavedChanges}
-            className="h-8 px-3"
-          >
-            {updateBookingLink.isPending
-              ? t("common.saving")
-              : hasUnsavedChanges
-                ? t("eventDialog.saveChanges")
-                : t("bookingLinks.saved")}
-          </Button>
+          {canEditSelectedLink && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveRef.current()}
+              disabled={updateBookingLink.isPending || !hasUnsavedChanges}
+              className="h-8 px-3"
+            >
+              {updateBookingLink.isPending
+                ? t("common.saving")
+                : hasUnsavedChanges
+                  ? t("eventDialog.saveChanges")
+                  : t("bookingLinks.saved")}
+            </Button>
+          )}
         </div>
       ) : null,
     };
@@ -1091,7 +1112,7 @@ export default function BookingLinksPage({
     previewUrl,
     updateBookingLink.isPending,
     hasUnsavedChanges,
-    navigate,
+    canEditSelectedLink,
     activeTab,
     t,
   ]);
@@ -1160,7 +1181,7 @@ export default function BookingLinksPage({
                 </div>
               </div>
             ) : selectedLink ? (
-              <>
+              <fieldset disabled={!canEditSelectedLink} className="contents">
                 {/* Title */}
                 <div className="space-y-2">
                   <Label htmlFor="booking-link-title">
@@ -1474,47 +1495,50 @@ export default function BookingLinksPage({
                       </p>
                     </div>
                     <Switch
+                      aria-label={t("bookingLinks.linkVisibility")}
                       checked={draft.isActive}
                       onCheckedChange={(checked) =>
                         setDraft((prev) => ({ ...prev, isActive: checked }))
                       }
                     />
                   </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
-                      >
-                        <IconTrash className="h-3.5 w-3.5" />
-                        {t("eventForm.delete")}
-                      </button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {t("bookingLinks.deleteBookingLink")}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t("bookingLinks.deleteDescriptionPrefix")}{" "}
-                          <span className="font-medium text-foreground">
-                            {draft.title}
-                          </span>{" "}
-                          {t("bookingLinks.deleteDescriptionSuffix")}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>
-                          {t("eventForm.cancel")}
-                        </AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete}>
+                  {canDeleteSelectedLink && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
                           {t("eventForm.delete")}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                        </button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {t("bookingLinks.deleteBookingLink")}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t("bookingLinks.deleteDescriptionPrefix")}{" "}
+                            <span className="font-medium text-foreground">
+                              {draft.title}
+                            </span>{" "}
+                            {t("bookingLinks.deleteDescriptionSuffix")}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>
+                            {t("eventForm.cancel")}
+                          </AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDelete}>
+                            {t("eventForm.delete")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
-              </>
+              </fieldset>
             ) : null}
           </div>
 
@@ -1624,6 +1648,7 @@ export default function BookingLinksPage({
             ) : (
               <div className="space-y-3">
                 {bookingLinks.map((link) => {
+                  const canEdit = canEditBookingLink(link);
                   const durations =
                     link.durations && link.durations.length > 0
                       ? link.durations
@@ -1716,58 +1741,60 @@ export default function BookingLinksPage({
                             </>
                           )}
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                type="button"
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                              >
-                                <IconDotsVertical className="h-4 w-4" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem asChild>
-                                <Link to={`/booking-links/${link.id}`}>
-                                  {t("eventForm.edit")}
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  updateBookingLink.mutate(
-                                    {
-                                      id: link.id,
-                                      title: link.title,
-                                      slug: link.slug,
-                                      duration: durations[0] ?? link.duration,
-                                      durations: link.durations,
-                                      hosts: link.hosts,
-                                      description: link.description,
-                                      customFields: link.customFields,
-                                      conferencing: link.conferencing,
-                                      color: link.color,
-                                      isActive: !link.isActive,
-                                    },
-                                    {
-                                      onSuccess: () =>
-                                        toast.success(
-                                          t(
-                                            link.isActive
-                                              ? "bookingLinks.linkDisabled"
-                                              : "bookingLinks.linkEnabled",
-                                            { title: link.title },
+                          {canEdit && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent/60"
+                                >
+                                  <IconDotsVertical className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild>
+                                  <Link to={`/booking-links/${link.id}`}>
+                                    {t("eventForm.edit")}
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    updateBookingLink.mutate(
+                                      {
+                                        id: link.id,
+                                        title: link.title,
+                                        slug: link.slug,
+                                        duration: durations[0] ?? link.duration,
+                                        durations: link.durations,
+                                        hosts: link.hosts,
+                                        description: link.description,
+                                        customFields: link.customFields,
+                                        conferencing: link.conferencing,
+                                        color: link.color,
+                                        isActive: !link.isActive,
+                                      },
+                                      {
+                                        onSuccess: () =>
+                                          toast.success(
+                                            t(
+                                              link.isActive
+                                                ? "bookingLinks.linkDisabled"
+                                                : "bookingLinks.linkEnabled",
+                                              { title: link.title },
+                                            ),
                                           ),
-                                        ),
-                                    },
-                                  );
-                                }}
-                              >
-                                {link.isActive
-                                  ? t("bookingLinks.disable")
-                                  : t("bookingLinks.enable")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                                      },
+                                    );
+                                  }}
+                                >
+                                  {link.isActive
+                                    ? t("bookingLinks.disable")
+                                    : t("bookingLinks.enable")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </div>
                       </div>
                     </div>

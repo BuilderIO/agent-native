@@ -80,7 +80,7 @@ interface AppSettingsProps {
 }
 
 type WorkspaceSsoAppConfig = AppConfig & {
-  /** Explicit opt-in for a non-built-in app that implements Agent Native SSO. */
+  /** Explicit opt-in for a non-built-in app that implements Agent-Native SSO. */
   workspaceSso?: boolean;
 };
 
@@ -214,7 +214,7 @@ function updateStatusCopy(status: UpdateStatus | null): {
   if (status.state === "checking") {
     return {
       label: "Checking",
-      description: "Looking for the newest Agent Native release.",
+      description: "Looking for the newest Agent-Native release.",
       tone: "pending",
     };
   }
@@ -246,7 +246,7 @@ function updateStatusCopy(status: UpdateStatus | null): {
   if (status.state === "not-available") {
     return {
       label: "Up to date",
-      description: `Agent Native ${status.currentVersion} is the latest available version.`,
+      description: `Agent-Native ${status.currentVersion} is the latest available version.`,
       tone: "ok",
     };
   }
@@ -261,7 +261,7 @@ function updateStatusCopy(status: UpdateStatus | null): {
 
   return {
     label: "Automatic",
-    description: "Agent Native checks for updates in the background.",
+    description: "Agent-Native checks for updates in the background.",
     tone: "ok",
   };
 }
@@ -521,6 +521,8 @@ export default function AppSettings({
   const [identityStatus, setIdentityStatus] =
     useState<DesktopIdentityStatus>("idle");
   const [desktopSsoEnabled, setDesktopSsoEnabled] = useState(false);
+  const [environmentLane, setEnvironmentLane] =
+    useState<DesktopEnvironmentLaneState>();
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
@@ -591,16 +593,39 @@ export default function AppSettings({
     void identity.getSettings().then((settings) => {
       if (active) setDesktopSsoEnabled(settings.ssoEnabled);
     });
+    const loadEnvironmentLane = () => {
+      void identity.getEnvironmentLane?.().then((state) => {
+        if (active) setEnvironmentLane(state);
+      });
+    };
+    loadEnvironmentLane();
     void identity.getStatus().then((status) => {
       if (active) setIdentityStatus(status);
     });
     const unsubscribe = identity.onStatusChange((status) => {
-      if (active) setIdentityStatus(status);
+      if (!active) return;
+      setIdentityStatus(status);
+      // Eligibility comes from the verified email, so signing in while
+      // Settings is already open has to re-resolve it — otherwise the beta
+      // control stays hidden until Settings is reopened.
+      loadEnvironmentLane();
     });
     return () => {
       active = false;
       unsubscribe();
     };
+  }, []);
+
+  const handleEnvironmentLaneToggle = useCallback(async (beta: boolean) => {
+    const setLane = window.electronAPI?.identity
+      ? (lane: "beta" | "production") =>
+          window.electronAPI!.identity!.setEnvironmentLane(lane)
+      : undefined;
+    if (!setLane) return;
+    setEnvironmentLane(await setLane(beta ? "beta" : "production"));
+    // Every mounted webview is already pointed at the old origin, so the
+    // shell reloads rather than trying to move them in place.
+    window.location.reload();
   }, []);
 
   const handleDesktopSsoToggle = useCallback(async (enabled: boolean) => {
@@ -707,12 +732,12 @@ export default function AppSettings({
     const api = window.electronAPI?.mcpServers;
     if (!api) return null;
     return {
-      list: api.list,
-      create: api.create,
-      delete: api.delete,
-      reconnect: api.reconnect,
-      test: api.test,
-      testExisting: api.testExisting,
+      list: (...args) => api.list(...args),
+      create: (...args) => api.create(...args),
+      delete: (...args) => api.delete(...args),
+      reconnect: (...args) => api.reconnect(...args),
+      test: (...args) => api.test(...args),
+      testExisting: (...args) => api.testExisting(...args),
     };
   }, []);
 
@@ -757,7 +782,7 @@ export default function AppSettings({
     try {
       const result = await api.pairRemoteConnector({
         relayUrl: remotePairUrl.trim(),
-        label: "Agent Native Desktop",
+        label: "Agent-Native Desktop",
         workspacePath: remoteWorkspacePath.trim() || undefined,
       });
       setRemoteStatus(result.status);
@@ -1472,7 +1497,7 @@ export default function AppSettings({
                   <div className="w-full max-w-3xl space-y-8">
                     <SettingsGroup
                       title="Workspace account"
-                      description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
+                      description="One Agent-Native identity across first-party desktop apps. Provider connections remain separate."
                     >
                       <SettingsRow
                         label="Shared app sign-in"
@@ -1491,9 +1516,24 @@ export default function AppSettings({
                           />
                         }
                       />
+                      {environmentLane?.eligible ? (
+                        <SettingsRow
+                          label="Load beta app builds"
+                          description="Point app tabs at beta.*.agent-native.com to try changes before they reach production."
+                          control={
+                            <Switch
+                              checked={environmentLane.lane === "beta"}
+                              onCheckedChange={(beta) =>
+                                void handleEnvironmentLaneToggle(beta)
+                              }
+                              aria-label="Load beta app builds"
+                            />
+                          }
+                        />
+                      ) : null}
                       {desktopSsoEnabled && identityStatus !== "idle" ? (
                         <SettingsRow
-                          label="Agent Native workspace"
+                          label="Agent-Native workspace"
                           description={
                             identityStatus === "signed-in"
                               ? "Signed in across eligible apps on this desktop."
@@ -1527,7 +1567,7 @@ export default function AppSettings({
                     </SettingsGroup>
                     <SettingsGroup
                       title="Software updates"
-                      description="Keep Agent Native current."
+                      description="Keep Agent-Native current."
                     >
                       <SoftwareUpdateCard />
                     </SettingsGroup>
@@ -1608,11 +1648,12 @@ export function AddAppDialog({
   async function saveAppsRoot(nextRoot: string) {
     const trimmed = nextRoot.trim();
     if (!trimmed) return;
-    const settings =
-      await window.electronAPI?.appConfig?.updateCreationSettings({
-        appsRoot: trimmed,
-      });
-    if (settings?.appsRoot) setAppsRoot(settings.appsRoot);
+    const result = await window.electronAPI?.appConfig?.updateCreationSettings({
+      appsRoot: trimmed,
+    });
+    if (!result) return;
+    setAppsRoot(result.settings.appsRoot);
+    setBuildError(result.error ?? "");
   }
 
   async function chooseAppsRoot() {
@@ -1656,7 +1697,9 @@ export function AddAppDialog({
     setFolderError("");
     setFolderWarning("");
     try {
-      const picker = window.electronAPI?.appConfig?.chooseLocalFolder;
+      const picker = window.electronAPI?.appConfig
+        ? () => window.electronAPI!.appConfig!.chooseLocalFolder()
+        : undefined;
       if (!picker) {
         setFolderError("Folder picker is only available in Desktop.");
         return;
@@ -2094,7 +2137,7 @@ export function AppEditForm({
               </div>
               <div className="settings-field-hint">
                 {canUseWorkspaceSso
-                  ? "Use only for an app that implements the Agent Native identity endpoints. Arbitrary sites stay isolated."
+                  ? "Use only for an app that implements the Agent-Native identity endpoints. Arbitrary sites stay isolated."
                   : "Set this app to Prod with an HTTPS production URL first."}
               </div>
             </div>

@@ -5,6 +5,7 @@ import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 
 const guards = [
   "guard:hooks-registered",
+  "guard:agent-native-brand",
   "guard:no-drizzle-push",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
@@ -64,6 +65,7 @@ const guards = [
   "guard:no-boot-data-work",
   "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",
+  "guard:no-blob-column-predicate",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
@@ -224,6 +226,9 @@ Environment overrides:
 function guardCommand(name: GuardName): [string, string[]] {
   if (name === "guard:no-heavy-dashboard-list-reads") {
     return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+  }
+  if (name === "guard:no-blob-column-predicate") {
+    return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
   return [pnpmCommand(), ["run", name]];
 }

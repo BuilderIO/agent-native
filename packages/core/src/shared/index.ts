@@ -5,7 +5,11 @@ export {
   type AgentChatResponse,
 } from "./agent-chat.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
-export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  extractOAuthStateAppId,
+  extractOAuthStateProvider,
+} from "./oauth-state.js";
+export { isGoogleProfileImageUrl } from "./google-profile-image.js";
 export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
@@ -28,11 +32,29 @@ export {
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
+  ENVIRONMENT_BETA_HOSTS,
+  resolveEnvironmentTargets,
+  type EnvironmentBadgeTargets,
+} from "./environment-lanes.js";
+export {
   SSR_HTML_CONTENT_TYPE,
   SSR_QUERY_CACHE_KEY_HEADER,
   type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,
 } from "./cache-control.js";
+export {
+  SURFACE_HIDDEN_FLAG,
+  SURFACE_VISIBILITY_EVENT,
+  addSurfaceVisibilityListener,
+  buildSurfaceVisibilityScript,
+  isHostSurfaceHidden,
+  isSurfaceHidden,
+} from "./surface-visibility.js";
 export {
   AGENT_NATIVE_DOCS_ORIGIN,
   docsUrl,
@@ -82,6 +104,7 @@ export {
   AGENT_NATIVE_OPEN_PATH,
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";

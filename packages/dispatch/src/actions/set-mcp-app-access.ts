@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { z } from "zod";
 

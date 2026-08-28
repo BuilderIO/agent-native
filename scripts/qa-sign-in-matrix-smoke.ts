@@ -22,7 +22,7 @@
  * marker-only, so `/chatapp/login` was not recognised as an auth entry path
  * and case 3 was a live infinite bounce.
  *
- * The request-level half of the matrix — Builder desktop proxy, Agent Native
+ * The request-level half of the matrix — Builder desktop proxy, Agent-Native
  * Desktop deep link, mobile WebView, MCP opaque-origin embed, identity-SSO
  * hop, `/_agent-native/open`, MCP authorize, CDN-cached shell — lives in
  * packages/core/src/server/sign-in-matrix.spec.ts. Those surfaces complete
@@ -481,6 +481,11 @@ async function runDeploySuite(
   await page.waitForURL((url) => pathnameOf(url.toString()) === protectedPath, {
     timeout: 60_000,
   });
+  // The protected app is the first route that loads its full client graph.
+  // Vite may finish dependency optimization after the redirect, and a
+  // reload during the forged-continuation checks can interrupt the signed-in
+  // session probe and leave the page at sign-in.
+  await waitForViteDepsQuiet(app.viteReload, app.logs);
   assert.equal(
     fullPathOf(page.url()),
     protectedPath,

@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +10,8 @@ import {
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
+  workspaceAppInitialPathFromSplat,
+  workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
   workspaceAppRoute,
 } from "./workspace-apps";
@@ -29,12 +33,50 @@ describe("workspace app routes", () => {
     expect(workspaceAppIdFromRoute("/apps/mail/inbox")).toBe("mail");
   });
 
+  it("preserves the initial app suffix for a standalone deep link", () => {
+    expect(
+      workspaceAppInitialPathFromSplat("inbox", "?view=unread", "#top"),
+    ).toBe("/inbox?view=unread#top");
+    expect(workspaceAppInitialPathFromSplat(undefined, "", "")).toBeUndefined();
+  });
+
+  it("maps child routes to shareable Dispatch app routes", () => {
+    expect(
+      workspaceAppRouteForChildPath(
+        { id: "design", path: "/", url: "https://design.example.test" },
+        "/foobar?mode=edit#canvas",
+      ),
+    ).toBe("/apps/design/foobar?mode=edit#canvas");
+    expect(
+      workspaceAppRouteForChildPath(
+        {
+          id: "internal-design",
+          path: "/design",
+          url: "https://workspace.example.test/design",
+        },
+        "/design/foobar",
+      ),
+    ).toBe("/apps/internal-design/foobar");
+    expect(
+      workspaceAppRouteForChildPath(
+        { id: "design", path: "/", url: "https://design.example.test" },
+        "//evil.example/route",
+      ),
+    ).toBeNull();
+    expect(
+      workspaceAppDirectHref(
+        { path: "/", url: "https://design.example.test" },
+        "/foobar?mode=edit#canvas",
+      ),
+    ).toBe("https://design.example.test/foobar?mode=edit#canvas");
+  });
+
   it("identifies Dispatch regardless of casing or surrounding whitespace", () => {
     expect(isDispatchWorkspaceAppId(" Dispatch ")).toBe(true);
     expect(isDispatchWorkspaceAppId("dispatch-tools")).toBe(false);
   });
 
-  it("requires canonical metadata before enabling workspace SSO", () => {
+  it("requires canonical metadata and the active environment for workspace SSO", () => {
     expect(
       isWorkspaceSsoApp({
         id: " Mail ",
@@ -42,6 +84,13 @@ describe("workspace app routes", () => {
         url: "https://mail.agent-native.com",
       }),
     ).toBe(true);
+    expect(
+      isWorkspaceSsoApp({
+        id: "mail",
+        path: "/",
+        url: "https://beta.mail.agent-native.com",
+      }),
+    ).toBe(false);
     expect(
       isWorkspaceSsoApp({
         id: "mail",
@@ -154,6 +203,26 @@ describe("workspace app routes", () => {
         }),
       ]),
     );
+  });
+
+  it("maps default first-party apps to beta origins in beta Dispatch", () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname: "beta.dispatch.agent-native.com" },
+    });
+
+    try {
+      const apps = mergeChatFirstWorkspaceApps(undefined);
+      expect(apps.find((app) => app.id === "mail")?.url).toBe(
+        "https://beta.mail.agent-native.com/",
+      );
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it("lets a mounted workspace app override a default row", () => {

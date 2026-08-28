@@ -5,16 +5,14 @@
  *   pnpm action list-viewers --recordingId=<id> [--limit=12]
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  clampCompletionPct,
-  displayViewerName,
-} from "../shared/view-analytics.js";
+import { hydrateViewerNames } from "../server/lib/user-identities.js";
+import { clampCompletionPct } from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
@@ -33,21 +31,23 @@ export default defineAction({
       .from(schema.recordingViewers)
       .where(eq(schema.recordingViewers.recordingId, args.recordingId));
 
-    const viewers = rows
-      .slice()
-      .sort((a, b) => (b.totalWatchMs ?? 0) - (a.totalWatchMs ?? 0))
-      .slice(0, args.limit)
-      .map((v) => ({
-        id: v.id,
-        viewerEmail: v.viewerEmail,
-        viewerName: displayViewerName(v.viewerName),
-        totalWatchMs: v.totalWatchMs ?? 0,
-        completedPct: clampCompletionPct(v.completedPct),
-        countedView: Boolean(v.countedView),
-        ctaClicked: Boolean(v.ctaClicked),
-        firstViewedAt: v.firstViewedAt,
-        lastViewedAt: v.lastViewedAt,
-      }));
+    const viewerRows = await hydrateViewerNames(
+      rows
+        .slice()
+        .sort((a, b) => (b.totalWatchMs ?? 0) - (a.totalWatchMs ?? 0))
+        .slice(0, args.limit),
+    );
+    const viewers = viewerRows.map((v) => ({
+      id: v.id,
+      viewerEmail: v.viewerEmail,
+      viewerName: v.viewerName,
+      totalWatchMs: v.totalWatchMs ?? 0,
+      completedPct: clampCompletionPct(v.completedPct),
+      countedView: Boolean(v.countedView),
+      ctaClicked: Boolean(v.ctaClicked),
+      firstViewedAt: v.firstViewedAt,
+      lastViewedAt: v.lastViewedAt,
+    }));
 
     return { viewers };
   },

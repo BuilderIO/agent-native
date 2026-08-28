@@ -116,6 +116,21 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             "Auf false setzen, um sie aus jeder Agent-Tool-Liste auszublenden. Siehe Zugriff & Autorisierung.",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "agentTool",
+          description:
+            "Erbt `agentTool`. `false` verbirgt sie vor externen Agenten über MCP und A2A, `true` deklariert die Zugehörigkeit zum kuratierten Katalog. Siehe Zugriff & Autorisierung.",
+        },
+        {
+          name: "deferLoading",
+          type: "boolean",
+          optional: true,
+          description:
+            "`false` behält die Action in der ersten Tool-Liste des Agenten, `true` lädt sie bei Bedarf über `tool-search`. Siehe „Die Action-Oberfläche klein halten“ unten.",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -254,6 +269,97 @@ POST ist der Standard, und `http: { method: "GET" }` macht daraus ein GET. Die R
 - **`readOnly: true`**: überspringt explizit die Poll-Aktualisierung, auch für POST-Actions, die nichts mutieren. Dies ist keine Zugriffskontrolle. Es beschränkt nicht, wer die Action aufrufen darf, und beeinflusst nicht `useActionQuery()`, `useActionMutation()` oder einen anderen Client-Hook. Die einzigen Effekte sind, das Refresh-Ereignis nach dem Aufruf zu unterdrücken und die Action vom Write-Auditing abzumelden. Um eine Action vor dem Modell zu verbergen, verwenden Sie `agentTool: false`. Um zu steuern, wer sie aufrufen darf, verwenden Sie die Auth- und Zugriffsoptionen unter [Zugriff & Autorisierung](/docs/actions-access-control).
 - **`parallelSafe: true`**: erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen. Setzen Sie dies nur, wenn die Action sicher gleichzeitig laufen kann und nicht von der Reihenfolge abhängt. Mutierende Actions werden standardmäßig serialisiert.
 
+## Eine Action fehlschlagen lassen {#failing}
+
+Eine Action meldet ein Scheitern, indem sie wirft. `{ error: "..." }` zurückzugeben sieht für jeden Teil des Frameworks wie Erfolg aus, also zählen die Retry-Schutzschalter des Agenten es nie und der Aufruf wird als abgeschlossener Seiteneffekt protokolliert.
+
+Was du wirfst, entscheidet, wie viel von der Nachricht überlebt. `fail()` wirft einen `ActionContractError`, und genau dieser Typ ist der einzige Grund, warum der Text den Aufrufer erreicht. Ein blankes `throw new Error("No such email")` ist von einem Postgres- oder Upstream-Ausfall nicht zu unterscheiden, also ersetzt die Action-Route es durch ein generisches 500 `"Internal server error"`, behält die echte Nachricht im Server-Log und meldet sie an das Error-Tracking. Hebe den blanken Throw für echte interne Fehler auf. Dafür ist die 500 da.
+
+`fail()` nimmt eine Nachricht und ein Options-Objekt:
+
+- **message**: der Text, den der Aufrufer liest. Schreibe ihn für einen Menschen, nicht für ein Log.
+- **options.errorCode**: ein stabiler, maschinenlesbarer Code. Standard: `"action_failed"`.
+- **options.statusCode**: der HTTP-Status für die Action-Route. Standard: `400`.
+- **options.details**: sicherer strukturierter Kontext für den Aufrufer. Niemals Secrets oder rohe Treiberausgabe hier ablegen.
+
+Der einfachste Aufruf braucht nur eine Nachricht:
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+Die Ursache zu benennen ist das, was die UI auf einen Fehler reagieren lässt, statt ihn nur auszugeben. Code und Status überstehen beide den Transport:
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+Der Browser erhält `{ error, errorCode, details }`. `useActionQuery()`, `useActionMutation()` und `callAction()` reichen es als `Error` mit `status`, `errorCode`, `details` und `actionMessage` weiter.
+
+`error.message` behält das Präfix `Action <name> failed:`, das in eine Konsole gehört und in einem Toast falsch klingt. `actionErrorMessage()` liefert nur den Text, den die Action geschrieben hat, oder `undefined`, wenn niemand einen verfasst hat:
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+Ein Netzwerkabbruch, eine HTML-Fehlerseite eines Proxys und eine bloße Statuszeile verfassen keine Nachricht. Sie liefern deshalb `undefined` statt eines Strings, den eine UI versehentlich anzeigen würde. Kombiniere die Funktion immer mit eigenen Texten.
+
+### Was jeder Throw erzeugt {#failure-shapes}
+
+| Geworfen aus `run()`                            | HTTP-Status       | Response-Body                                | An Error-Tracking gemeldet |
+| ----------------------------------------------- | ----------------- | -------------------------------------------- | -------------------------- |
+| `fail(msg)`                                     | 400               | `{ error: msg, errorCode: "action_failed" }` | Nein                       |
+| `fail(msg, { errorCode, statusCode, details })` | dein `statusCode` | `{ error, errorCode, details }`              | Nein                       |
+| `new ActionContractError(msg, { errorCode })`   | 409               | `{ error, errorCode, details }`              | Nein                       |
+| `new AgentActionStopError(msg)`                 | 500               | `{ error: msg }`                             | Nein                       |
+| `new Error(msg)`                                | 500               | `{ error: "Internal server error" }`         | Ja                         |
+| Eingabe, die am `schema` scheitert              | 400               | `{ error: "Invalid action parameters..." }`  | Nein                       |
+
+`AgentActionStopError` wirfst du, wenn der Agent seinen Zug beenden soll, statt den Fehler zu lesen und es erneut zu versuchen. `ActionContractError` ist das, was `fail()` für dich wirft, greife also nur direkt darauf zurück, wenn 409 der gewünschte Status ist.
+
+### Wähle einen Status, auf den die Retry-Policy reagieren kann {#failure-status}
+
+`useActionQuery()` wiederholt `429`, `502`, `503` und `504`, bis zu dreimal, mit 500 ms, dann 1 s, dann 2 s Wartezeit. Jeder andere Status gilt als deterministisch und erscheint bei der ersten Antwort. Eine Anfrage erneut zu senden, die als falsch abgelehnt wurde, kauft nur dieselbe Ablehnung noch einmal. `useActionMutation()` wiederholt überhaupt nicht.
+
+Der Status ist also nicht kosmetisch. Eine als `404` gesendete Ablehnung kostet einen Roundtrip. Dieselbe Ablehnung als `500` gesendet oder blank geworfen kostet vier Roundtrips und vier doppelte Fehlerberichte.
+
+Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, bekommt die Nachricht also direkt, unabhängig vom Typ, als `Error running <action>: <message>`. Ein `errorCode` abseits des Standards `action_failed` wird als `(errorCode: not_found)` angehängt, damit das Modell darauf verzweigen kann, ohne Prosa zu parsen. Externe Agenten über MCP bekommen denselben Text. Secrets in der Nachricht werden vorher entfernt, und die eigenen Schutzschalter des Agenten für wiederholte Fehler begrenzen die Zahl der Versuche.
+
 ## Die Action-Oberfläche klein halten {#small-surface}
 
 Jede Action, die der Agent sehen kann, belegt einen Platz in der Tool-Liste des Modells, und eine lange, sich überschneidende Liste erschwert es dem Modell, das richtige Tool auszuwählen. Gestalten Sie die Action-Oberfläche wie eine API, die Sie pflegen, nicht wie eine Action pro Schaltfläche in der UI:
@@ -261,6 +367,7 @@ Jede Action, die der Agent sehen kann, belegt einen Platz in der Tool-Liste des 
 - Bevorzugen Sie **eine CRUD-artige `update`-Action**, die ein Patch aus optionalen Feldern annimmt, gegenüber vielen Pro-Feld-Actions wie `update-name`, `update-order` und `update-color`. Der Aufrufer sendet nur die Felder, die sich geändert haben.
 - Bevor Sie für jede Abfrage oder jeden Filter eine neue Lese-Action hinzufügen, ziehen Sie zuerst eine allgemeinere Option in Betracht: das [Provider-API-Trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs` und `provider-api-request`) für Provider-Daten, oder das Dev-Tool `db-query` für App-Daten.
 - Markieren Sie reine UI- oder programmatische Actions als [`agentTool: false`](/docs/actions-access-control#agent-tool). Sie bleiben vom Frontend oder über HTTP aufrufbar, ohne einen Platz in der Tool-Liste des Modells zu belegen.
+- Markieren Sie die wenigen Actions, zu denen der Agent ständig greift, mit `deferLoading: false`. Genau deren Schemas werden mit der ersten Modellanfrage gesendet; alles andere lädt bei Bedarf über `tool-search` nach. Sobald sich eine einzige Action so abmeldet, wird jede nicht markierte Action zurückgestellt, markieren Sie also den ganzen Startsatz auf einmal statt eine Action nach der anderen. Es geht darum, was der erste Zug kostet, nicht um Zugriff: Eine zurückgestellte Action ist aufrufbar, sobald `tool-search` sie zurückgibt. Das ist die Action-eigene Form des Plugin-Arrays `initialToolNames`, und eine App kann beides nutzen.
 - Löschen oder verbergen Sie Actions, die die UI nicht mehr verwendet, statt sie dem Modell weiterhin auszusetzen.
 
 Das Repo enthält einen beratenden Helfer, `node scripts/audit-template-actions.mjs [template ...]` (Alias `pnpm actions:audit`). Er durchsucht den `actions/`-Ordner eines Templates und markiert Actions, die die UI möglicherweise nicht mehr verwendet, zusammen mit Gruppen von Pro-Feld-Actions, die zu einer zusammengefasst werden könnten. Er endet immer mit Code 0 und lässt CI nie fehlschlagen, und seine Heuristiken sind konservativ, behandeln Sie seine Ausgabe also als Vorschlag, nicht als Fehler.

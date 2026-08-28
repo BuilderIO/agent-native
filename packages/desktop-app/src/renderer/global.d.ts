@@ -28,6 +28,13 @@ type DesktopIdentitySettings = {
   ssoEnabled: boolean;
 };
 
+type DesktopEnvironmentLane =
+  import("../../shared/environment-lane.js").DesktopEnvironmentLane;
+type DesktopEnvironmentLanePreference =
+  import("../../shared/environment-lane.js").DesktopEnvironmentLanePreference;
+type DesktopEnvironmentLaneState =
+  import("../../shared/ipc-channels.js").DesktopEnvironmentLaneState;
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -69,7 +76,7 @@ type CodeAgentReasoningEffort =
 type CodeAgentModelSelection = {
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
 };
 
 type CodeAgentModelOption = {
@@ -243,7 +250,7 @@ type CodeAgentProjectSelectResult = {
 type CodeAgentQueueMetadata = {
   queued: boolean;
   queuedAt?: string;
-  queuedBy?: "desktop" | "cli" | "host" | string;
+  queuedBy?: "desktop" | "cli" | "host" | (string & {});
   queueId?: string;
   queuePosition?: number;
   attempt?: number;
@@ -256,7 +263,7 @@ type CodeAgentSteeringMetadata = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -377,7 +384,7 @@ type CodeAgentCreateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -469,7 +476,7 @@ type CodeAgentFollowUpRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -526,7 +533,7 @@ type CodeAgentUpdateRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 };
 
@@ -577,7 +584,7 @@ type CodeAgentRerunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 };
@@ -592,7 +599,7 @@ type CodeAgentRetryRunRequest = {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 };
 
@@ -614,7 +621,7 @@ type CodeAgentCodePackMetadata = {
 
 type CodeAgentHostMetadata = {
   status: "ok" | "unavailable";
-  platform: NodeJS.Platform | string;
+  platform: NodeJS.Platform | (string & {});
   desktopVersion?: string;
   storeRoot: string;
   runsDir: string;
@@ -747,7 +754,7 @@ type QuickPromptSubmitRequest = {
   cwd?: string;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -771,6 +778,13 @@ type LocalAppFolderSelectResult = {
 
 type DesktopAppCreationSettings = {
   appsRoot: string;
+};
+
+/** `settings` always reflects the current on-disk value, so a rejected update still snaps the UI back to something real. */
+type DesktopAppCreationSettingsUpdateResult = {
+  ok: boolean;
+  settings: DesktopAppCreationSettings;
+  error?: string;
 };
 
 type DesktopCreateAppRequest = {
@@ -838,11 +852,9 @@ interface ElectronAPI {
 
   windowControls: {
     minimize(): void;
-    maximize(): void;
+    toggleWindowMode(): void;
     close(): void;
     setNativeTrafficLightsVisible(visible: boolean): void;
-    isMaximized(): Promise<boolean>;
-    onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };
 
   shortcuts: {
@@ -872,7 +884,14 @@ interface ElectronAPI {
     getStatus(): Promise<DesktopIdentityStatus>;
     getSettings(): Promise<DesktopIdentitySettings>;
     setSsoEnabled(enabled: boolean): Promise<boolean>;
-    ensureAppSession(appId: string): Promise<boolean>;
+    getEnvironmentLane(): Promise<DesktopEnvironmentLaneState>;
+    setEnvironmentLane(
+      preference: DesktopEnvironmentLanePreference,
+    ): Promise<DesktopEnvironmentLaneState>;
+    ensureAppSession(
+      appId: string,
+      options?: { preserveExistingSession?: boolean },
+    ): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     authenticate(
@@ -937,7 +956,9 @@ interface ElectronAPI {
     deleteSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
     runScheduleNow(input: unknown): Promise<CodeAgentScheduleResult>;
     listWorktrees(cwd?: string): Promise<CodeAgentWorktreeListResult>;
-    listModels(): Promise<CodeAgentModelListResult>;
+    listModels(options?: {
+      refresh?: boolean;
+    }): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;
@@ -1078,7 +1099,7 @@ interface ElectronAPI {
     getCreationSettings(): Promise<DesktopAppCreationSettings>;
     updateCreationSettings(
       settings: Partial<DesktopAppCreationSettings>,
-    ): Promise<DesktopAppCreationSettings>;
+    ): Promise<DesktopAppCreationSettingsUpdateResult>;
     createFromPrompt(
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult>;

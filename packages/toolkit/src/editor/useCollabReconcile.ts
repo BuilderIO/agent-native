@@ -298,7 +298,15 @@ export function useCollabReconcile({
       awareness.getStates().forEach((state, clientId) => {
         if (clientId === ydoc.clientID) return; // self
         if (clientId === AGENT_CLIENT_ID) return; // agent isn't a Yjs editor
-        const s = state as { user?: unknown; visible?: boolean };
+        const s = state as {
+          user?: unknown;
+          visible?: boolean;
+          canFlushDocument?: boolean;
+        };
+        // A read-only viewer binds no Y.Doc, so counting it as a peer lets
+        // stale CRDT content stand in for live collaboration and be written
+        // back over canonical SQL — resurrecting deleted content.
+        if (s?.canFlushDocument === false) return;
         if (s && s.user && s.visible !== false) peers += 1;
       });
       peerCountRef.current = peers;
@@ -362,7 +370,16 @@ export function useCollabReconcile({
         emptySnapshotDecisionPendingRef.current = false;
       };
     }
-    if (!isLeadClient) return;
+    // A non-lead client must never seed (two clients inserting the same content
+    // duplicates it), but `seededRef` also gates persistence and reconcile — so
+    // release it here anyway, or this client's own typing is dropped before it
+    // ever reaches SQL while its peers still see it through Yjs.
+    if (!isLeadClient) {
+      const releaseTimer = setTimeout(() => {
+        seededRef.current = true;
+      }, 0);
+      return () => clearTimeout(releaseTimer);
+    }
     let cancelled = false;
     // Defer via a timer task (NOT a microtask — microtasks can still run
     // inside React's commit and trigger flushSync-from-lifecycle warnings).

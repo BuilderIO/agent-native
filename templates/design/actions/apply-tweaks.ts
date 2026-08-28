@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -102,6 +102,7 @@ export default defineAction({
 
     return {
       designId,
+      applied: Object.keys(selections).length > 0,
       appliedTweaks: readSelections(persistedData),
       selectionsHash: tweakSelectionsHash(readSelections(persistedData)),
       deepLink: designDeepLink(designId),

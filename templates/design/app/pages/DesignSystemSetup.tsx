@@ -61,6 +61,8 @@ type OtherSource =
   | "existing"
   | "notes";
 
+type BuilderIndexInputSource = "figma" | "github" | "design-md";
+
 interface BuilderIndexResult {
   ok: boolean;
   source: "builder";
@@ -151,6 +153,8 @@ export default function DesignSystemSetup() {
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
     useState<BuilderIndexResult | null>(null);
+  const [builderIndexInputSource, setBuilderIndexInputSource] =
+    useState<BuilderIndexInputSource | null>(null);
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
@@ -211,10 +215,8 @@ export default function DesignSystemSetup() {
     [],
   );
 
-  const handleBuilderIndexUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
+  const processBuilderIndexFile = useCallback(
+    async (file: File | undefined) => {
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
         setBuilderIndexError(t("designSystemSetup.errors.chooseFig"));
@@ -222,6 +224,7 @@ export default function DesignSystemSetup() {
       }
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      setBuilderIndexInputSource("figma");
       stopDecodePolling();
       setDecodeStatus(null);
       setBuilderIndexing(true);
@@ -251,6 +254,23 @@ export default function DesignSystemSetup() {
       }
     },
     [companyInfo, t, startDecodePolling, stopDecodePolling],
+  );
+
+  const handleBuilderIndexUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      void processBuilderIndexFile(e.target.files?.[0]);
+      e.target.value = "";
+    },
+    [processBuilderIndexFile],
+  );
+
+  const handleBuilderIndexDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void processBuilderIndexFile(e.dataTransfer.files?.[0]);
+    },
+    [processBuilderIndexFile],
   );
 
   useEffect(() => {
@@ -385,7 +405,7 @@ export default function DesignSystemSetup() {
         newFiles.push(file);
       });
 
-      Promise.all(promises).then(() => {
+      void Promise.all(promises).then(() => {
         setter((prev) => [...prev, ...newFiles]);
       });
     },
@@ -401,12 +421,8 @@ export default function DesignSystemSetup() {
     [readTextFiles],
   );
 
-  const handleDesignMdUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files) return;
-      const file = files[0];
-      e.target.value = "";
+  const processDesignMdFile = useCallback(
+    (file: File | undefined) => {
       if (!file) return;
       const uploadGeneration = ++designMdUploadGenerationRef.current;
       setDesignMdFiles([]);
@@ -443,49 +459,102 @@ export default function DesignSystemSetup() {
     [t],
   );
 
-  const handleDocUpload = useCallback(
+  const handleDesignMdUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type || f.name.split(".").pop() || "",
-        size: f.size,
-      }));
-      setDocFiles((prev) => [...prev, ...newFiles]);
+      processDesignMdFile(e.target.files?.[0]);
       e.target.value = "";
     },
-    [],
+    [processDesignMdFile],
   );
+
+  const handleDesignMdDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDesignMdFile(e.dataTransfer.files?.[0]);
+    },
+    [processDesignMdFile],
+  );
+
+  const processDocFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type || f.name.split(".").pop() || "",
+      size: f.size,
+    }));
+    setDocFiles((prev) => [...prev, ...newFiles]);
+  }, []);
+
+  const handleDocUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files) processDocFiles(e.target.files);
+      e.target.value = "";
+    },
+    [processDocFiles],
+  );
+
+  const handleDocDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processDocFiles(e.dataTransfer.files);
+    },
+    [processDocFiles],
+  );
+
+  const processImageFiles = useCallback((files: FileList) => {
+    const newFiles: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setImageFiles((prev) => [...prev, ...newFiles]);
+  }, []);
 
   const handleImageUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newFiles: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setImageFiles((prev) => [...prev, ...newFiles]);
+      if (e.target.files) processImageFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processImageFiles],
   );
+
+  const handleImageDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processImageFiles(e.dataTransfer.files);
+    },
+    [processImageFiles],
+  );
+
+  const processAssetFiles = useCallback((files: FileList) => {
+    const newAssets: UploadedFile[] = Array.from(files).map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      type: f.type,
+      size: f.size,
+    }));
+    setAssets((prev) => [...prev, ...newAssets]);
+  }, []);
 
   const handleAssetUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (!e.target.files) return;
-      const newAssets: UploadedFile[] = Array.from(e.target.files).map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
-        type: f.type,
-        size: f.size,
-      }));
-      setAssets((prev) => [...prev, ...newAssets]);
+      if (e.target.files) processAssetFiles(e.target.files);
       e.target.value = "";
     },
-    [],
+    [processAssetFiles],
+  );
+
+  const handleAssetDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      processAssetFiles(e.dataTransfer.files);
+    },
+    [processAssetFiles],
   );
 
   const handleFolderDrop = useCallback(
@@ -550,7 +619,7 @@ export default function DesignSystemSetup() {
     if (isGithubOnlySource) {
       setValidationError(null);
       try {
-        await indexSystemMutation.mutateAsync({
+        const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
           description:
             [notes.trim(), customInstructions.trim()]
@@ -562,8 +631,9 @@ export default function DesignSystemSetup() {
             ...(link.include?.length ? { include: link.include } : {}),
           })),
         });
+        setBuilderIndexInputSource("github");
+        setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.githubIndexStarted"));
-        navigate("/design-systems");
       } catch (error) {
         setValidationError(
           error instanceof Error
@@ -603,7 +673,7 @@ export default function DesignSystemSetup() {
     if (isDesignMdOnlySource) {
       setValidationError(null);
       try {
-        await indexSystemMutation.mutateAsync({
+        const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
           description:
             [notes.trim(), customInstructions.trim()]
@@ -611,8 +681,9 @@ export default function DesignSystemSetup() {
               .join("\n\n") || undefined,
           designMd: readableDesignMdFiles[0]?.textContent,
         });
+        setBuilderIndexInputSource("design-md");
+        setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.designMdIndexStarted"));
-        navigate("/design-systems");
       } catch (error) {
         setValidationError(
           error instanceof Error
@@ -776,7 +847,7 @@ export default function DesignSystemSetup() {
       submit: true,
       newTab: true,
     });
-    navigate("/design-systems");
+    void navigate("/design-systems");
   }, [
     hasAnySources,
     companyInfo,
@@ -861,6 +932,23 @@ export default function DesignSystemSetup() {
             </div>
           )}
 
+          {builderIndexResult && builderIndexInputSource !== "figma" ? (
+            <div className="mb-6">
+              <BuilderIndexPreview
+                result={builderIndexResult}
+                decodeStatus={null}
+                source={builderIndexInputSource ?? "design-md"}
+                displayTitle={companyInfo.trim()}
+                onReset={() => {
+                  setDecodeStatus(null);
+                  setBuilderIndexResult(null);
+                  setBuilderIndexInputSource(null);
+                  setBuilderIndexError(null);
+                }}
+              />
+            </div>
+          ) : null}
+
           <div className="space-y-5">
             <section className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3">
@@ -938,6 +1026,8 @@ export default function DesignSystemSetup() {
                   <button
                     type="button"
                     onClick={() => realFigInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleBuilderIndexDrop}
                     disabled={builderIndexing}
                     className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-[#609FF8]/40 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                   >
@@ -990,6 +1080,7 @@ export default function DesignSystemSetup() {
                     stopDecodePolling();
                     setDecodeStatus(null);
                     setBuilderIndexResult(null);
+                    setBuilderIndexInputSource(null);
                     setBuilderIndexError(null);
                   }}
                 />
@@ -1231,6 +1322,8 @@ export default function DesignSystemSetup() {
               <button
                 type="button"
                 onClick={() => designMdInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDesignMdDrop}
                 className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-foreground/15 cursor-pointer"
               >
                 <div className="flex flex-col items-center gap-2">
@@ -1282,6 +1375,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => docInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDocDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1314,6 +1409,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => imageInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleImageDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1346,6 +1443,8 @@ export default function DesignSystemSetup() {
                 </div>
                 <button
                   onClick={() => assetInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleAssetDrop}
                   className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/15 cursor-pointer"
                 >
                   <p className="text-xs text-muted-foreground/70">
@@ -1596,32 +1695,38 @@ function FileList({
 function BuilderIndexPreview({
   result,
   decodeStatus,
+  source = "figma",
   displayTitle,
   onReset,
 }: {
   result: BuilderIndexResult;
   decodeStatus: DecodeJobStatus | null;
+  source?: BuilderIndexInputSource;
   displayTitle?: string;
   onReset: () => void;
 }) {
   const t = useT();
   const decodeError =
     decodeStatus?.status === "error" ? decodeStatus.error : null;
+  const SourceIcon =
+    source === "figma"
+      ? IconBrandFigma
+      : source === "github"
+        ? IconBrandGithub
+        : IconFileDescription;
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
-          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+          <SourceIcon className="h-5 w-5 text-[var(--design-editor-accent-color)]" />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
             {displayTitle || result.suggestedTitle}
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {
-              "Builder is indexing this Figma file into a reusable design system." /* i18n-ignore Builder indexing status */
-            }
+            {t("designSystemSetup.figmaParsingDescription")}
           </p>
         </div>
       </div>

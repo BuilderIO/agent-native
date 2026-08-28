@@ -1,12 +1,21 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 
 const { buildDeckPptxBlobMock } = vi.hoisted(() => ({
   buildDeckPptxBlobMock: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => `/slides${path}`,
   appBasePath: () => "/slides",
 }));
 
@@ -36,9 +45,9 @@ async function uploadedPptxText() {
   const call = vi
     .mocked(fetch)
     .mock.calls.find(([url]) =>
-      String(url).endsWith("/api/exports/google-slides"),
+      requestString(url).endsWith("/api/exports/google-slides"),
     );
-  const form = (call?.[1] as RequestInit).body as FormData;
+  const form = (call?.[1] as RequestInit | undefined)?.body as FormData;
   return (form.get("file") as Blob).text();
 }
 
@@ -49,7 +58,12 @@ beforeEach(() => {
     filename: "quarterly-review.pptx",
   });
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pptx");
-  globalThis.fetch = vi.fn(async () => {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    if (requestString(input).endsWith("/_agent-native/google-docs/status")) {
+      return new Response(JSON.stringify({ connected: false }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(
       JSON.stringify({
         code: "google-not-connected",
@@ -65,7 +79,7 @@ afterEach(() => {
 });
 
 describe("exportDeckToGoogleSlides", () => {
-  it("returns a connection requirement without downloading a fallback PPTX", async () => {
+  it("checks the connection before building or uploading a PPTX", async () => {
     await expect(
       exportDeckToGoogleSlides("Quarterly Review", [{ id: "slide-1" }]),
     ).resolves.toEqual({
@@ -75,17 +89,24 @@ describe("exportDeckToGoogleSlides", () => {
     });
 
     expect(URL.createObjectURL).not.toHaveBeenCalled();
-    expect(fetch).toHaveBeenCalledWith(
-      "/slides/api/exports/google-slides",
-      expect.objectContaining({ method: "POST" }),
+    expect(buildDeckPptxBlobMock).not.toHaveBeenCalled();
+    const [statusUrl, statusInit] = vi.mocked(fetch).mock.calls[0];
+    expect(requestString(statusUrl)).toBe(
+      "http://localhost:3000/slides/_agent-native/google-docs/status",
     );
+    expect(statusInit).toEqual({ credentials: "same-origin" });
   });
 
   it("uploads the browser-rendered PPTX for an editor-authored deck", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ url: "https://docs.google.com/d/new" }), {
-        headers: { "Content-Type": "application/json" },
-      }),
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) =>
+      requestString(input).endsWith("/_agent-native/google-docs/status")
+        ? new Response(JSON.stringify({ connected: true }))
+        : new Response(
+            JSON.stringify({ url: "https://docs.google.com/d/new" }),
+            {
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
     );
 
     await expect(
@@ -99,15 +120,19 @@ describe("exportDeckToGoogleSlides", () => {
   it("uploads the server-built PPTX when the caller supplies one", async () => {
     // dom-to-pptx rasterizes every custGeom shape, so a source-imported deck
     // must reach Drive as the server's vector build, not the browser's.
-    vi.mocked(fetch).mockImplementation((async (url: string) =>
-      url.endsWith("/api/exports/pptx")
-        ? serverPptxResponse()
-        : new Response(
-            JSON.stringify({ url: "https://docs.google.com/d/new" }),
-            {
-              headers: { "Content-Type": "application/json" },
-            },
-          )) as unknown as typeof fetch);
+    vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
+      const url = requestString(input);
+      return url.endsWith("/_agent-native/google-docs/status")
+        ? new Response(JSON.stringify({ connected: true }))
+        : url.endsWith("/api/exports/pptx")
+          ? serverPptxResponse()
+          : new Response(
+              JSON.stringify({ url: "https://docs.google.com/d/new" }),
+              {
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+    }) as unknown as typeof fetch);
 
     await expect(
       exportDeckToGoogleSlides(
@@ -129,12 +154,15 @@ describe("exportDeckToGoogleSlides", () => {
   it("propagates the server's positioned-object guard without uploading", async () => {
     const guard =
       "Slide 3 contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved.";
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(JSON.stringify({ error: guard }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
+      const url = requestString(input);
+      return url.endsWith("/_agent-native/google-docs/status")
+        ? new Response(JSON.stringify({ connected: true }))
+        : new Response(JSON.stringify({ error: guard }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+    }) as unknown as typeof fetch);
 
     await expect(
       exportDeckToGoogleSlides(
@@ -148,6 +176,6 @@ describe("exportDeckToGoogleSlides", () => {
     // No silent downgrade: neither the browser exporter nor Drive was reached.
     expect(buildDeckPptxBlobMock).not.toHaveBeenCalled();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

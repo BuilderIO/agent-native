@@ -1,6 +1,7 @@
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "../shared/agent-sidebar-url.js";
 import { hasChatThreadDeepLink } from "./chat-thread-url.js";
 
@@ -110,6 +111,7 @@ export function getAgentSidebarUrlOpenOverride(): boolean | null {
     const url = new URL(window.location.href);
     const value = url.searchParams.get(AGENT_SIDEBAR_QUERY_PARAM);
     if (value === AGENT_SIDEBAR_QUERY_VALUE_CLOSED) return false;
+    if (value === AGENT_SIDEBAR_QUERY_VALUE_OPEN) return true;
   } catch {}
   return null;
 }
@@ -147,8 +149,8 @@ function installSidebarUrlChangeEvents(): void {
   };
   if (historyWithFlag[HISTORY_PATCHED_KEY]) return;
 
-  const pushState = window.history.pushState;
-  const replaceState = window.history.replaceState;
+  const pushState = window.history.pushState.bind(window.history);
+  const replaceState = window.history.replaceState.bind(window.history);
 
   window.history.pushState = function pushStateWithSidebarEvent(...args) {
     const result = pushState.apply(this, args);

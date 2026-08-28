@@ -401,7 +401,8 @@ function truncatePromptResourceContent(
   return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. ${hint}]`;
 }
 
-function promptResourceBlock(input: {
+/** @internal exported for unit tests only */
+export function promptResourceBlock(input: {
   name: string;
   scope: string;
   content: string;
@@ -422,7 +423,16 @@ function promptResourceBlock(input: {
   const pathAttr = normalizedPath
     ? ` path="${escapeXmlAttribute(normalizedPath)}"`
     : "";
-  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
+  // Neutralize both halves of the fence in the body. These files (AGENTS.md,
+  // LEARNINGS.md, shared memory) hold text the agent wrote from emails, web
+  // pages and tool output. Escaping only the closing tag is not enough: a
+  // forged OPENING tag survives verbatim and the real trailing `</resource>`
+  // closes it, so the smuggled text still reads as its own framework-issued
+  // block. Neutralize the `<` of anything that could read as the fence tag, in
+  // any spacing a model would still parse (`< /resource >` closes it just as
+  // convincingly), so the body cannot address the fence at all.
+  const fenced = content.replace(/<(?=\s*\/?\s*resource\b)/gi, "&lt;");
+  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${fenced}\n</resource>`;
 }
 
 /**
@@ -907,7 +917,7 @@ export async function loadResourcesForPrompt(
         const description = s.meta.description?.trim()
           ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
           : "";
-        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`;
+        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
       });
       if (runtimeSkills.length > listedSkills.length) {
         lines.push(
@@ -915,7 +925,7 @@ export async function loadResourcesForPrompt(
         );
       }
       addSection(
-        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills.\n\n${lines.join("\n")}\n</skills-summary>`,
+        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent docs-search lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`,
       );
     }
   } catch {}

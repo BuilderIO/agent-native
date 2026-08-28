@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -255,7 +255,10 @@ export default defineAction({
         )) as SourceRow[];
       const rowByPath = new Map(
         storedRows.map((row) => [
-          String(parseJson(row.sourceValuesJson).relativePath ?? ""),
+          typeof parseJson(row.sourceValuesJson).relativePath === "string"
+            ? parseJson(row.sourceValuesJson).relativePath
+            : (JSON.stringify(parseJson(row.sourceValuesJson).relativePath) ??
+              ""),
           row,
         ]),
       );
@@ -423,7 +426,12 @@ export default defineAction({
       outbound.length = 0;
       for (const row of policy === "source_primary" ? [] : missingRows) {
         const values = parseJson(row.sourceValuesJson);
-        const path = String(values.relativePath ?? row.sourceDisplayKey ?? "");
+        const path =
+          typeof values.relativePath === "string"
+            ? values.relativePath
+            : typeof row.sourceDisplayKey === "string"
+              ? row.sourceDisplayKey
+              : "";
         const document = snapshot.documentById.get(row.documentId);
         conflicts.push({
           id: row.documentId,
@@ -789,9 +797,12 @@ export default defineAction({
             continue;
           }
           const values = parseJson(row.sourceValuesJson);
-          const path = String(
-            values.relativePath ?? row.sourceDisplayKey ?? row.sourceRowId,
-          );
+          const path =
+            typeof values.relativePath === "string"
+              ? values.relativePath
+              : typeof row.sourceDisplayKey === "string"
+                ? row.sourceDisplayKey
+                : row.sourceRowId;
           const changeSetId = opaqueId(
             "content_source_change",
             `${sourceId}:${row.documentId}:source-delete:${path}`,

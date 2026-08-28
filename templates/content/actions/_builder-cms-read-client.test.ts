@@ -232,7 +232,7 @@ describe("Builder CMS read client", () => {
                       {
                         id: "model-test",
                         name: "agent-native-blog-article-test",
-                        displayName: "Agent Native Blog Article Test",
+                        displayName: "Agent-Native Blog Article Test",
                         kind: "component",
                         fields: [
                           { name: "title", type: "text", required: false },
@@ -258,7 +258,7 @@ describe("Builder CMS read client", () => {
         {
           id: "model-test",
           name: "agent-native-blog-article-test",
-          displayName: "Agent Native Blog Article Test",
+          displayName: "Agent-Native Blog Article Test",
           kind: "component",
           fields: [{ name: "title", type: "text", required: false }],
         },
@@ -273,7 +273,13 @@ describe("Builder CMS read client", () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     const [, listInit] = fetchImpl.mock.calls[2] as [string, RequestInit];
-    expect(JSON.parse(String(listInit.body))).toMatchObject({
+    expect(
+      JSON.parse(
+        typeof listInit.body === "string"
+          ? listInit.body
+          : (JSON.stringify(listInit.body) ?? ""),
+      ),
+    ).toMatchObject({
       method: "tools/call",
       params: {
         name: "list_builder_models",
@@ -714,12 +720,80 @@ describe("Builder CMS read client", () => {
       "data.customModelField": "MCP preserved",
     });
     const [, request] = fetchImpl.mock.calls[2] as [string, RequestInit];
-    const fields = JSON.parse(String(request.body)).params.arguments.fields;
+    const fields = JSON.parse(
+      typeof request.body === "string"
+        ? request.body
+        : (JSON.stringify(request.body) ?? ""),
+    ).params.arguments.fields;
     expect(fields).toContain("data.topics");
     expect(fields).toContain("data.tags");
     expect(fields).toContain("data.customModelField");
     expect(fields).not.toContain("data.blocks");
     expect(fields).not.toContain("data.blocksString");
+  });
+
+  it("falls back to the legacy Builder CMS test search label", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const legacySearchText = ["Agent", "Native"].join(" ") + " Test";
+    const toolResponse = (content: unknown[]) =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ content }),
+              },
+            ],
+          },
+        }),
+        { status: 200 },
+      );
+    const entry = {
+      id: "legacy-entry",
+      lastUpdated: "2026-08-26T12:00:00.000Z",
+      data: { title: "Legacy test entry", url: "/legacy-test-entry" },
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "session-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(toolResponse([]))
+      .mockResolvedValueOnce(toolResponse([]))
+      .mockResolvedValueOnce(toolResponse([entry]))
+      .mockResolvedValueOnce(toolResponse([entry]));
+
+    const result = await readBuilderCmsContentEntries({
+      model: "agent-native-blog-article-test",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries).toMatchObject([
+      { id: "legacy-entry", title: "Legacy test entry" },
+    ]);
+    const searchTexts = fetchImpl.mock.calls
+      .slice(3, 5)
+      .map(
+        ([, request]) =>
+          JSON.parse(
+            typeof (request as RequestInit).body === "string"
+              ? (request as RequestInit).body
+              : (JSON.stringify((request as RequestInit).body) ?? ""),
+          ).params.arguments.searchText,
+      );
+    expect(searchTexts).toEqual(["Agent-Native Test", legacySearchText]);
   });
 
   it("paginates Builder content through the Content API up to the read limit", async () => {
@@ -1265,7 +1339,11 @@ describe("Builder CMS read client", () => {
     }));
     const pageRequests: Array<{ limit: number; offset: number }> = [];
     const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as {
+      const body = JSON.parse(
+        typeof init?.body === "string"
+          ? init.body
+          : (JSON.stringify(init?.body) ?? ""),
+      ) as {
         method: string;
         params?: {
           name?: string;
@@ -1341,7 +1419,11 @@ describe("Builder CMS read client", () => {
     );
     const initializeVersions: string[] = [];
     const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as {
+      const body = JSON.parse(
+        typeof init?.body === "string"
+          ? init.body
+          : (JSON.stringify(init?.body) ?? ""),
+      ) as {
         method: string;
         params?: {
           protocolVersion?: string;

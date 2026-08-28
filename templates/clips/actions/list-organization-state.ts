@@ -8,12 +8,14 @@
  *   pnpm action list-organization-state
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   organizations,
   orgInvitations,
   orgMembers,
 } from "@agent-native/core/org";
+import { isEmailDerivedName } from "@agent-native/core/user-profile";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm";
 import { z } from "zod";
 
@@ -90,6 +92,16 @@ export default defineAction({
       role: m.role,
       joinedAt: Number(m.joinedAt),
     }));
+    const profiles = await getUserProfiles(
+      members.map((member) => member.email),
+    );
+    const membersWithProfiles = members.map((member) => {
+      const name = profiles.get(member.email.toLowerCase())?.name;
+      return {
+        ...member,
+        ...(name && !isEmailDerivedName(name, member.email) ? { name } : {}),
+      };
+    });
 
     const inviteRows = await db
       .select({
@@ -146,7 +158,7 @@ export default defineAction({
         defaultVisibility: settings?.defaultVisibility ?? "public",
         createdAt: Number(org.createdAt),
       },
-      members,
+      members: membersWithProfiles,
       spaces: spaces.map((s) => ({
         id: s.id,
         name: s.name,

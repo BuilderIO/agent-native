@@ -6,14 +6,15 @@ import {
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
 import {
-  isOAuthConnected,
   getOAuthAccounts,
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  getCredentialContext,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
@@ -33,6 +34,7 @@ import {
   googleFetch,
   peopleGetProfile,
 } from "./google-api.js";
+import { getMailProviderApiRuntime } from "./provider-api.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
@@ -48,12 +50,49 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ];
 
+const GMAIL_SCOPE_PREFIX = "https://www.googleapis.com/auth/gmail.";
+
 interface GoogleTokens {
   access_token: string;
   refresh_token?: string;
   expiry_date?: number;
   token_type?: string;
   scope?: string;
+}
+
+function hasGmailScope(tokens: Record<string, unknown>): boolean {
+  const scope = tokens.scope;
+  if (typeof scope !== "string" || !scope.trim()) return true;
+  return scope
+    .split(/[\s,]+/)
+    .some((value) => value.startsWith(GMAIL_SCOPE_PREFIX));
+}
+
+type ManagedGmailClient = {
+  email: string;
+  accessToken: string;
+  refreshToken: string;
+};
+
+async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
+  if (!getCredentialContext()) return null;
+  const connection = await resolveWorkspaceConnectionForApp({
+    appId: "mail",
+    provider: "gmail",
+    requireConnected: true,
+  });
+  if (!connection.available) return null;
+  const credential = await getMailProviderApiRuntime().resolveOAuthAccessToken({
+    provider: "gmail",
+  });
+  if (!credential.accountId) {
+    throw new Error("The connected Gmail workspace account has no account id.");
+  }
+  return {
+    email: credential.accountId,
+    accessToken: credential.accessToken,
+    refreshToken: "",
+  };
 }
 
 export async function getOAuth2Credentials(owner?: string): Promise<{
@@ -288,8 +327,12 @@ export async function getClient(
   email: string | undefined,
 ): Promise<{ accessToken: string; email: string } | null> {
   if (!email) return null;
-  const accounts = await listOAuthAccountsByOwner("google", email);
-  if (accounts.length === 0) return null;
+  const accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+    (account) => hasGmailScope(account.tokens),
+  );
+  if (accounts.length === 0) {
+    return resolveManagedGmailClient();
+  }
 
   const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
@@ -318,7 +361,7 @@ export async function getClientForAccount(
 ): Promise<{ accessToken: string; email: string } | null> {
   const all = await listOAuthAccounts("google");
   const account = all.find((a) => a.accountId === accountId);
-  if (!account) return null;
+  if (!account || !hasGmailScope(account.tokens)) return null;
   return getClientFromAccount({
     ...account,
     owner: account.owner ?? undefined,
@@ -335,6 +378,7 @@ export async function getClientFromAccount(account: {
   owner?: string;
   tokens: Record<string, unknown>;
 }): Promise<{ accessToken: string; email: string } | null> {
+  if (!hasGmailScope(account.tokens)) return null;
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens) return null;
 
@@ -389,7 +433,9 @@ export async function getClientsWithErrors(
   // refreshes are writes and an explicitly scoped inventory read must not
   // refresh unrelated accounts.
   const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
-    (account) => !requested || requested.has(account.accountId.toLowerCase()),
+    (account) =>
+      hasGmailScope(account.tokens) &&
+      (!requested || requested.has(account.accountId.toLowerCase())),
   );
 
   const clients: Array<{
@@ -432,6 +478,23 @@ export async function getClientsWithErrors(
     }
   }
 
+  if (clients.length === 0) {
+    try {
+      const managed = await resolveManagedGmailClient();
+      if (
+        managed &&
+        (!requested || requested.has(managed.email.toLowerCase()))
+      ) {
+        clients.push(managed);
+      }
+    } catch (err: any) {
+      errors.push({
+        email: "workspace",
+        error: err?.message || "Workspace Gmail connection failed",
+      });
+    }
+  }
+
   return { clients, errors };
 }
 
@@ -440,15 +503,22 @@ export async function getClientsWithErrors(
  * checks only that specific account.
  */
 export async function isConnected(forEmail?: string): Promise<boolean> {
-  return isOAuthConnected("google", forEmail ?? "");
+  if (!forEmail) return false;
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  if (accounts.some((account) => hasGmailScope(account.tokens))) return true;
+  return Boolean(await resolveManagedGmailClient());
 }
 
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
   if (!forEmail) return [];
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
-  return accounts.map((a) => a.accountId);
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => hasGmailScope(account.tokens),
+  );
+  if (accounts.length > 0) return accounts.map((a) => a.accountId);
+  const managed = await resolveManagedGmailClient();
+  return managed ? [managed.email] : [];
 }
 
 export interface GoogleAuthStatus {
@@ -458,6 +528,7 @@ export interface GoogleAuthStatus {
     displayName?: string;
     expiresAt?: string;
     photoUrl?: string;
+    shared?: boolean;
   }>;
 }
 
@@ -468,10 +539,15 @@ export interface GoogleAuthStatus {
 export async function getAuthStatus(
   forEmail?: string,
 ): Promise<GoogleAuthStatus> {
-  const oauthAccounts = await getOAuthAccounts("google", forEmail);
+  const oauthAccounts = (await getOAuthAccounts("google", forEmail)).filter(
+    (account) => hasGmailScope(account.tokens),
+  );
 
   if (oauthAccounts.length === 0) {
-    return { connected: false, accounts: [] };
+    const managed = await resolveManagedGmailClient();
+    return managed
+      ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
+      : { connected: false, accounts: [] };
   }
 
   const accounts: Array<{
@@ -781,7 +857,7 @@ async function fetchThreadBatchWithRefill(
   accessToken: string,
   threadIds: string[],
   format: "full" | "metadata" | "minimal",
-): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+): Promise<Array<{ id: string; data: any; error?: string }>> {
   const batchResults = await gmailBatchGetThreads(
     accessToken,
     threadIds,
@@ -816,7 +892,7 @@ async function fetchThreadBatchWithRefill(
 }
 
 function messagesFromThreadBatchResults(
-  batchResults: Array<{ id: string; data: any | null; error?: string }>,
+  batchResults: Array<{ id: string; data: any; error?: string }>,
   email: string,
 ): any[] {
   const messages: any[] = [];
@@ -1883,7 +1959,9 @@ interface GmailMessageReference {
 async function getDefaultOwnedAccountAccessToken(
   ownerEmail: string,
 ): Promise<string> {
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens));
   const account =
     accounts.find(
       (candidate) =>
@@ -1901,7 +1979,9 @@ async function getOwnedAccountAccessToken(
   ownerEmail: string,
   accountEmail: string,
 ): Promise<string> {
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = (
+    await listOAuthAccountsByOwner("google", ownerEmail)
+  ).filter((account) => hasGmailScope(account.tokens));
   const account = accounts.find(
     (candidate) =>
       candidate.accountId.toLowerCase() === accountEmail.toLowerCase(),

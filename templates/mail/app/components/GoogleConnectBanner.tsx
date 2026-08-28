@@ -1,9 +1,11 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { signOut } from "@agent-native/core/client/hooks";
 import {
   isInBuilderFrame,
   oauthRedirectUri,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconMail,
   IconX,
@@ -25,6 +27,7 @@ import {
   useGoogleAddAccountUrl,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 interface EnvKeyStatus {
   key: string;
@@ -76,11 +79,20 @@ const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
   ADD_ACCOUNT_POLL_INTERVAL_MS * 4,
 );
 
+function startManagedGoogleOAuth(): void {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  startWorkspaceProviderOAuth("gmail", {
+    appId: "mail",
+    returnPath,
+    scope: "user",
+  });
+}
+
 function newDesktopOAuthVerifier(): string | null {
   const cryptoApi = globalThis.crypto;
-  const randomUuid = cryptoApi?.randomUUID;
+  const randomUuid = cryptoApi?.randomUUID?.bind(cryptoApi);
   if (typeof randomUuid === "function") {
-    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
+    return `${randomUuid()}${randomUuid()}`;
   }
   if (typeof cryptoApi?.getRandomValues === "function") {
     const bytes = new Uint8Array(32);
@@ -125,6 +137,8 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const googleConfigured = googleStatus.data?.configured === true;
+  const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
   const useDesktopAuth = useMemo(
@@ -306,7 +320,7 @@ export function GoogleConnectBanner({
 
   // Check if credentials are already configured on mount
   useEffect(() => {
-    fetchStatus();
+    void fetchStatus();
   }, [fetchStatus]);
 
   // When auth URL is ready, leave this tab for Google and let the callback
@@ -336,27 +350,21 @@ export function GoogleConnectBanner({
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
-      setShowWizard(true);
-      fetchStatus();
+      if (canOfferOAuthSetup) {
+        setShowWizard(true);
+        void fetchStatus();
+      }
       setAuthError(
         (authUrl.error as any)?.message || t("mail.error.failedToConnect"),
       );
     }
-  }, [authUrl.error, fetchStatus]);
+  }, [authUrl.error, canOfferOAuthSetup, fetchStatus, t]);
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
 
   const handleSignOutForGoogle = useCallback(async () => {
-    try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      // Reload below still lands on the auth screen if the local cookie changed.
-    }
-    window.location.reload();
+    await signOut();
   }, []);
 
   // When add-account URL is ready, open it and poll for new account.
@@ -419,20 +427,22 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
 
   function handleConnect() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     setDesktopAuthIssue(null);
     if (useDesktopAuth) {
       signInViaDesktopBrowser();
       return;
     }
-    setWantAuthUrl(true);
+    startManagedGoogleOAuth();
   }
 
   function handleAddAccount() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     if (useDesktopAuth) {
       signInViaDesktopBrowser(true);
       return;
     }
-    setWantAddAccount(true);
+    startManagedGoogleOAuth();
   }
 
   async function handleJsonUpload(file: File) {
@@ -483,12 +493,21 @@ export function GoogleConnectBanner({
   }
 
   function copyToClipboard(text: string, key: string) {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
   if (dismissed) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup && !googleStatus.isError)
+    return null;
+  if (
+    !googleConfigured &&
+    !canOfferOAuthSetup &&
+    !hasAccounts &&
+    !googleStatus.isError
+  )
+    return null;
 
   // Full-page hero for setup / reconnection
   if (variant === "hero") {
@@ -503,22 +522,34 @@ export function GoogleConnectBanner({
         <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
           {t("mail.googleConnect.heroDescription")}
         </p>
-        <Button
-          size="sm"
-          className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-white text-black hover:bg-white/90"
-          onClick={() => {
-            setAuthError(null);
-            handleConnect();
-          }}
-          disabled={authUrl.isLoading || authUrl.isFetching}
-        >
-          <GoogleIcon className="h-4 w-4" />
-          {authUrl.isLoading
-            ? t("mail.accounts.connecting")
-            : allConfigured
-              ? t("mail.accounts.signInWithGoogle")
-              : t("mail.accounts.connectGoogle")}
-        </Button>
+        {googleStatus.isError ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-8 gap-2 px-5 h-9 text-sm font-medium"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
+          <Button
+            size="sm"
+            className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => {
+              setAuthError(null);
+              handleConnect();
+            }}
+            disabled={authUrl.isLoading || authUrl.isFetching}
+          >
+            <GoogleIcon className="h-4 w-4" />
+            {authUrl.isLoading
+              ? t("mail.accounts.connecting")
+              : allConfigured
+                ? t("mail.accounts.signInWithGoogle")
+                : t("mail.accounts.connectGoogle")}
+          </Button>
+        ) : null}
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -531,7 +562,7 @@ export function GoogleConnectBanner({
           <p className="mt-3 text-xs text-red-400">{authError}</p>
         )}
 
-        {showWizard && !allConfigured && (
+        {showWizard && !allConfigured && canOfferOAuthSetup && (
           <div className="mt-10 w-full max-w-lg text-start">
             <p className="text-xs text-muted-foreground mb-3">
               {t("mail.googleConnect.setupIntro")}
@@ -558,7 +589,7 @@ export function GoogleConnectBanner({
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        !saved && setCurrentStep(i);
+                        if (!saved) setCurrentStep(i);
                       }
                     }}
                   >
@@ -648,7 +679,7 @@ export function GoogleConnectBanner({
                                   className="hidden"
                                   onChange={(e) => {
                                     const file = e.target.files?.[0];
-                                    if (file) handleJsonUpload(file);
+                                    if (file) void handleJsonUpload(file);
                                   }}
                                 />
                                 {saveError && (
@@ -711,21 +742,25 @@ export function GoogleConnectBanner({
                 className="group flex items-center gap-1.5 text-xs text-foreground/60"
               >
                 <span className="truncate">{account.email}</span>
-                <button
-                  onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
-            <button
-              onClick={handleAddAccount}
-              disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
-              className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
-            >
-              + {t("mail.accounts.addAccount")}
-            </button>
+            {(googleConfigured || canOfferOAuthSetup) && (
+              <button
+                onClick={handleAddAccount}
+                disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
+                className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+              >
+                + {t("mail.accounts.addAccount")}
+              </button>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -742,6 +777,17 @@ export function GoogleConnectBanner({
           onDismiss={() => setDesktopAuthIssue(null)}
           className="mx-4 mb-3"
         />
+        {googleStatus.isError && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mx-4 mb-2"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        )}
       </div>
     );
   }
@@ -763,7 +809,17 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured ? (
+          {googleStatus.isError ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => void googleStatus.refetch()}
+              disabled={googleStatus.isFetching}
+            >
+              {t("mail.error.tryAgain")}
+            </Button>
+          ) : showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
@@ -817,7 +873,7 @@ export function GoogleConnectBanner({
       />
 
       {/* Inline setup wizard */}
-      {showWizard && !allConfigured && (
+      {showWizard && !allConfigured && canOfferOAuthSetup && (
         <div className="px-4 pb-4 pt-1 max-w-2xl">
           <p className="text-xs text-muted-foreground mb-3">
             {t("mail.googleConnect.setupIntro")}
@@ -844,7 +900,7 @@ export function GoogleConnectBanner({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      !saved && setCurrentStep(i);
+                      if (!saved) setCurrentStep(i);
                     }
                   }}
                 >
@@ -934,7 +990,7 @@ export function GoogleConnectBanner({
                                 className="hidden"
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
-                                  if (file) handleJsonUpload(file);
+                                  if (file) void handleJsonUpload(file);
                                 }}
                               />
                               {saveError && (

@@ -14,10 +14,15 @@
 
 import path from "path";
 
-import { createClient } from "@libsql/client";
-
-import { getDatabaseUrl, getDatabaseAuthToken } from "../../db/client.js";
+import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs } from "../utils.js";
+// The `@libsql/client` node entry pulls the `libsql` native addon into whatever
+// graph imports it, and this maintenance script was its only importer in the
+// server bundle — which is how a 9.3MB Linux SQLite driver reached the docs
+// function, a deployment that runs Postgres. `createSqliteScriptClient` reaches
+// the same two backends through dynamic imports instead, so nothing static
+// depends on the native package.
+import { createSqliteScriptClient } from "./sqlite-client.js";
 
 function isPostgresUrl(url: string): boolean {
   return url.startsWith("postgres://") || url.startsWith("postgresql://");
@@ -157,14 +162,11 @@ Options:
       await pgSql.end();
     }
   } else {
-    const client = createClient({
-      url,
-      authToken: getDatabaseAuthToken(),
-    });
+    const client = await createSqliteScriptClient(url);
     try {
       allColumns = await discoverColumnsSqlite(client);
     } finally {
-      client.close();
+      void client.close();
     }
   }
 

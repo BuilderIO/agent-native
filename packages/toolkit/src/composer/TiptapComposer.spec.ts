@@ -1,8 +1,21 @@
 // @vitest-environment happy-dom
 
+import {
+  AssistantRuntimeProvider,
+  useLocalRuntime,
+  type ChatModelAdapter,
+} from "@assistant-ui/react";
 import { Editor } from "@tiptap/core";
-import { describe, expect, it } from "vitest";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn() },
+}));
+
+import { TooltipProvider } from "../ui/tooltip.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
@@ -21,12 +34,36 @@ import {
   isOpenAiModelProviderGroup,
   isComposerEditorUsable,
   formatVoiceTranscriptForComposer,
+  hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
+  shouldRenderModelSelector,
   shouldShowModelSelectorSkeleton,
   shouldShowOnlyConnectPath,
+  TiptapComposer,
+  type TiptapComposerHandle,
 } from "./TiptapComposer.js";
+
+const emptyChatModelAdapter: ChatModelAdapter = {
+  async *run() {},
+};
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  vi.unstubAllGlobals();
+});
 
 describe("createTiptapComposerExtensions", () => {
   it("refreshes the rendered placeholder after a locale change", () => {
@@ -185,6 +222,69 @@ describe("createTiptapComposerExtensions", () => {
 
     editor.destroy();
   });
+
+  it.each([
+    [
+      "text",
+      {
+        type: "text",
+        text: "PK",
+        backgroundColor: "#4f46e5",
+      },
+    ],
+    [
+      "image",
+      {
+        type: "image",
+        src: "/agents/property.png",
+        fit: "cover",
+        backgroundColor: "#ffffff",
+      },
+    ],
+    ["none", { type: "none" }],
+  ] as const)(
+    "preserves %s mention media through HTML drafts",
+    (_type, media) => {
+      const first = new Editor({
+        element: document.createElement("div"),
+        extensions: createTiptapComposerExtensions(() => "Message agent..."),
+        content: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "mentionReference",
+                  attrs: {
+                    label: "Property agent",
+                    media,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+      const html = first.getHTML();
+      first.destroy();
+
+      expect(html).toContain("data-media=");
+      expect(html).not.toContain("[object Object]");
+
+      const restored = new Editor({
+        element: document.createElement("div"),
+        extensions: createTiptapComposerExtensions(() => "Message agent..."),
+        content: html,
+      });
+      const mentionNode = restored.getJSON().content?.[0]?.content?.[0] as
+        | { attrs?: Record<string, unknown> }
+        | undefined;
+      restored.destroy();
+
+      expect(mentionNode?.attrs?.media).toEqual(media);
+    },
+  );
 
   it("allows sending an attachment-only prompt", () => {
     expect(
@@ -527,6 +627,144 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
     // No CTA to fall back on — keep the list rather than empty the popover.
     expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
+  });
+
+  it("keeps cloud setup readiness separate from local runtime readiness", () => {
+    expect(
+      hasConfiguredCloudProvider([
+        { engine: "pi-cli", configured: true },
+        { engine: "opencode-cli", configured: true },
+      ]),
+    ).toBe(false);
+    expect(
+      hasConfiguredCloudProvider([
+        { engine: "pi-cli", configured: true },
+        { engine: "builder", configured: true },
+      ]),
+    ).toBe(true);
+    expect(
+      hasConfiguredCloudProvider([{ engine: "builder", configured: false }]),
+    ).toBe(false);
+  });
+
+  it("still renders the picker when nothing is configured, even though that leaves selectedModel empty", () => {
+    // Nothing routable yet means useChatModels() resolves selectedModel to
+    // "" (never null/undefined) so it can't be pre-selected — that must not
+    // read as "no picker to show": the connect-provider CTAs still live
+    // inside the picker itself.
+    const unconfigured = [
+      {
+        engine: "openai",
+        label: "OpenAI",
+        models: ["gpt-5"],
+        configured: false,
+      },
+    ];
+    expect(shouldRenderModelSelector(unconfigured, () => {})).toBe(true);
+    // Genuinely nothing to show: no engines, or no way to change the model.
+    expect(shouldRenderModelSelector([], () => {})).toBe(false);
+    expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
+    expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
+  });
+});
+
+describe("TiptapComposer slash commands", () => {
+  it("submits a slash-prefixed prompt when no command handler is provided", async () => {
+    const onSubmit = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit,
+            clearOnSubmit: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("/act"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      "/act",
+      [],
+      [],
+      expect.objectContaining({ intent: "immediate" }),
+    );
+    expect(editor.textContent).toBe("/act");
+  });
+
+  it("acknowledges an executed slash command", async () => {
+    const onSlashCommand = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSlashCommand,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    act(() => focusRef.current?.setText("/act"));
+
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(onSlashCommand).toHaveBeenCalledWith("act");
+    expect(toast.success).toHaveBeenCalledWith(
+      "/act",
+      expect.objectContaining({
+        description: "Switch back to acting",
+        duration: 1800,
+      }),
+    );
   });
 });
 

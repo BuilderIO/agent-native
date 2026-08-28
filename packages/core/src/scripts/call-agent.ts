@@ -132,7 +132,7 @@ function terminalTaskError(value: unknown): {
   const candidate = value as Record<string, unknown>;
   if (candidate.name !== "A2ATaskTerminalError") return null;
   return {
-    state: String(candidate.state ?? "failed"),
+    state: stringifyValue(candidate.state ?? "failed"),
     ...(typeof candidate.taskId === "string"
       ? { taskId: candidate.taskId }
       : {}),
@@ -373,10 +373,10 @@ export async function run(
   context?: ActionRunContext,
   selfAppId?: string,
 ): Promise<string> {
-  const agentIdOrName = String(args.agent ?? "");
-  const message = String(args.message ?? "");
-  const taskId = String(args.taskId ?? "").trim();
-  const action = String(args.action ?? "").trim();
+  const agentIdOrName = stringifyValue(args.agent ?? "");
+  const message = stringifyValue(args.message ?? "");
+  const taskId = stringifyValue(args.taskId ?? "").trim();
+  const action = stringifyValue(args.action ?? "").trim();
   const input = args.input ?? {};
   const approvedActions = Array.isArray(args.approvedActions)
     ? (args.approvedActions as A2AApprovedAction[])
@@ -636,7 +636,7 @@ export async function run(
       // errors out as "fetch failed". Async+poll has its own short fetches
       // with their own budgets, so it works reliably across hosts. The
       // trade-off is that cross-app activity arrives at the poll cadence rather
-      // than token-by-token. Agent Native peers attach their current reasoning,
+      // than token-by-token. Agent-Native peers attach their current reasoning,
       // tool status, and response preview to each task checkpoint, and the
       // receiver's full response still surfaces below.
       //
@@ -1047,7 +1047,7 @@ async function invokeReadOnlyAppAction(
       : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
   } catch (error) {
     return `Error calling ${agent.name} action ${action}: ${
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : stringifyValue(error)
     }`;
   }
 }
@@ -1158,7 +1158,7 @@ function getA2ATaskTimeoutTaskId(err: unknown): string | null {
     | { name?: unknown; taskId?: unknown; message?: unknown }
     | null
     | undefined;
-  const message = String(candidate?.message ?? "");
+  const message = stringifyValue(candidate?.message ?? "");
   if (
     candidate?.name === "A2ATaskTimeoutError" &&
     typeof candidate.taskId === "string"
@@ -1178,7 +1178,7 @@ function getA2ATaskTimeoutTaskId(err: unknown): string | null {
  */
 function extractRecoverableTimeoutArtifactText(err: unknown): string {
   const candidate = err as
-    | { lastTask?: Task | unknown; name?: unknown }
+    | { lastTask?: unknown; name?: unknown }
     | null
     | undefined;
   const lastTask =
@@ -1257,4 +1257,14 @@ export function expandRelativeUrls(text: string, agentUrl: string): string {
     /(^|[\s([<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,
   );
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

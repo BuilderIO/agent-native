@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Guards for on-demand `ensureTable()` DDL so the common already-migrated path
  * takes NO `ACCESS EXCLUSIVE` lock on Postgres.
@@ -145,15 +155,15 @@ async function loadSchemaSnapshot(
     const tables = new Set<string>();
     const columns = new Set<string>();
     for (const row of columnData) {
-      const table = String(row.table_name ?? "").toLowerCase();
-      const column = String(row.column_name ?? "").toLowerCase();
+      const table = stringifyValue(row.table_name ?? "").toLowerCase();
+      const column = stringifyValue(row.column_name ?? "").toLowerCase();
       if (!table) continue;
       tables.add(table);
       if (column) columns.add(`${table}.${column}`);
     }
     const indexes = new Set<string>();
     for (const row of indexData) {
-      const name = String(row.indexname ?? "").toLowerCase();
+      const name = stringifyValue(row.indexname ?? "").toLowerCase();
       if (name) indexes.add(name);
     }
     return { tables, columns, indexes };
@@ -488,6 +498,46 @@ export async function ensureColumnExists(
  * Convenience wrapper: ensure an INDEX exists (probe via `pgIndexExists`).
  * `createIndexSql` should be the full `CREATE INDEX IF NOT EXISTS <name> …`.
  */
+/**
+ * Drop an index that exists under this name but is INVALID.
+ *
+ * A failed `CREATE INDEX CONCURRENTLY` leaves the index present but unusable
+ * (`indisvalid = false`). That is a trap for every repair attempt that follows:
+ * `pgIndexExists` correctly reports it missing, but `CREATE INDEX IF NOT
+ * EXISTS` sees the NAME is taken and skips, so the re-probe fails again and the
+ * release never recovers on its own. Found in production on
+ * `chat_threads_owner_lower_updated_idx` and `sync_events_created_at_id_idx`.
+ *
+ * Dropping is safe: an invalid index serves no query and cannot be repaired in
+ * place — Postgres' own guidance is to drop and rebuild it.
+ */
+async function dropInvalidIndex(
+  indexName: string,
+  client: DbExec,
+): Promise<void> {
+  if (!PLAIN_IDENTIFIER.test(indexName)) return;
+  const { rows } = await client.execute({
+    sql: `SELECT 1
+          FROM pg_class AS index_class
+          JOIN pg_namespace AS index_namespace
+            ON index_namespace.oid = index_class.relnamespace
+           AND index_namespace.nspname = 'public'
+          JOIN pg_index AS index_state
+            ON index_state.indexrelid = index_class.oid
+          WHERE index_class.relname = ?
+            AND NOT index_state.indisvalid
+          LIMIT 1`,
+    args: [indexName],
+  });
+  if (rows.length === 0) return;
+  console.warn(
+    `[db] dropping INVALID index "${indexName}" so it can be rebuilt; ` +
+      `a previous CREATE INDEX left it unusable.`,
+  );
+  await client.execute(`DROP INDEX IF EXISTS "${indexName}"`);
+  invalidateSchemaSnapshot(client);
+}
+
 export async function ensureIndexExists(
   indexName: string,
   createIndexSql: string,
@@ -497,6 +547,9 @@ export async function ensureIndexExists(
     dialectIsPostgres?: boolean;
   } = {},
 ): Promise<boolean> {
+  if ((options.dialectIsPostgres ?? isPostgres()) && !schemaEnsureDisabled()) {
+    await dropInvalidIndex(indexName, options.injectedClient ?? getDbExec());
+  }
   return ensureSchemaObject({
     probe: () =>
       pgIndexExists(
@@ -543,6 +596,14 @@ export async function ensureIndexExistsConcurrently(
     );
   }
 
+  // This helper is what STRANDS an invalid index in the first place: an
+  // interrupted concurrent build leaves the name taken and the index unusable,
+  // and `CREATE INDEX CONCURRENTLY IF NOT EXISTS` then skips it forever. Clear
+  // it here too, or the one caller that creates the mess is the one caller that
+  // cannot recover from it — which is how `sync_events_created_at_id_idx` has
+  // stayed invalid in production.
+  await dropInvalidIndex(indexName, client);
+
   await client.execute(createIndexSql);
   invalidateSchemaSnapshot(client);
   const existsAfterCreate = await pgIndexExists(
@@ -562,7 +623,7 @@ export async function ensureIndexExistsConcurrently(
 export function isLockTimeoutError(err: unknown): boolean {
   const anyErr = err as { code?: unknown; message?: unknown } | null;
   if (anyErr?.code === "55P03") return true;
-  const msg = String(anyErr?.message ?? anyErr ?? "");
+  const msg = stringifyValue(anyErr?.message ?? anyErr ?? "");
   return /lock[_ ]?timeout|canceling statement due to lock timeout/i.test(msg);
 }
 

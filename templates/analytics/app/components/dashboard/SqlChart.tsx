@@ -222,7 +222,7 @@ export function formatSqlChartError(error: unknown): string {
       ? error.message
       : typeof error === "string"
         ? error
-        : String(error ?? "");
+        : stringifyValue(error);
   const readableMessage = message
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
@@ -238,6 +238,15 @@ export function formatSqlChartError(error: unknown): string {
     return "This chart could not be loaded. Try again.";
   }
   return readableMessage || "This chart could not be loaded. Try again.";
+}
+
+function stringifyValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : JSON.stringify(value);
 }
 
 function formatYValue(
@@ -375,7 +384,9 @@ export function formatMetricValue(
         : null;
   return numericRaw !== null
     ? formatYValue(numericRaw, formatter)
-    : String(raw ?? "-");
+    : raw == null
+      ? "-"
+      : stringifyValue(raw);
 }
 
 function isNumericLikeValue(value: unknown): boolean {
@@ -450,7 +461,7 @@ export function toSqlChartDateKey(value: unknown): string | null {
     if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
   }
 
-  const parsed = new Date(String(value ?? ""));
+  const parsed = new Date(stringifyValue(value));
   return Number.isNaN(parsed.getTime()) ? null : sqlChartLocalDateKey(parsed);
 }
 
@@ -626,6 +637,23 @@ function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
 function numericTooltipValue(value: unknown): number {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
+}
+
+function sumTooltipPayloadValues(
+  items: Array<{ value?: unknown }>,
+): number | null {
+  let total = 0;
+  let hasNumericValue = false;
+
+  for (const item of items) {
+    const numeric =
+      typeof item.value === "number" ? item.value : Number(item.value);
+    if (!Number.isFinite(numeric)) continue;
+    hasNumericValue = true;
+    total += numeric;
+  }
+
+  return hasNumericValue ? total : null;
 }
 
 function tooltipItemName(item: {
@@ -1072,6 +1100,7 @@ export function ChartTooltip({
   labelFormatter,
   seriesNameFormatter,
   valueFormatter,
+  stacked,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -1085,6 +1114,7 @@ export function ChartTooltip({
   labelFormatter?: (value: string) => string;
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number, name?: string | number) => string;
+  stacked?: boolean;
 }) {
   const items = useMemo(
     () =>
@@ -1099,13 +1129,20 @@ export function ChartTooltip({
     isVisible,
     coordinate,
   );
+  const stackedTotal = stacked ? sumTooltipPayloadValues(items) : null;
+  const totalValue =
+    stackedTotal != null && valueFormatter
+      ? valueFormatter(stackedTotal, items[0]?.name)
+      : stackedTotal != null
+        ? String(stackedTotal)
+        : null;
 
   const labelText =
     label == null
       ? ""
       : labelFormatter
-        ? labelFormatter(String(label))
-        : String(label);
+        ? labelFormatter(stringifyValue(label))
+        : stringifyValue(label);
 
   if (!isVisible) return null;
 
@@ -1116,6 +1153,9 @@ export function ChartTooltip({
       className="fixed min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
       style={{ zIndex: CHART_TOOLTIP_Z_INDEX }}
     >
+      {totalValue && (
+        <div className="mb-1.5 font-semibold text-foreground">{totalValue}</div>
+      )}
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}
@@ -1129,7 +1169,7 @@ export function ChartTooltip({
           const value =
             Number.isFinite(numeric) && valueFormatter
               ? valueFormatter(numeric, name)
-              : String(raw ?? "");
+              : stringifyValue(raw);
           return (
             <div key={name} className="flex items-center gap-2">
               <span
@@ -1670,7 +1710,7 @@ export function sortTableRows(
         const comparison =
           an !== null && bn !== null
             ? an - bn
-            : String(av).localeCompare(String(bv));
+            : stringifyValue(av).localeCompare(stringifyValue(bv));
         if (comparison !== 0) {
           return sort.direction === "asc" ? comparison : -comparison;
         }
@@ -1701,7 +1741,7 @@ export function formatCell(
     return `${sign}${numeric.toFixed(1)}%`;
   }
   if (format === "date") {
-    const d = new Date(String(value));
+    const d = new Date(stringifyValue(value));
     if (!isNaN(d.getTime())) {
       return d.toLocaleDateString("en-US", {
         year: "numeric",
@@ -1710,7 +1750,7 @@ export function formatCell(
       });
     }
   }
-  return String(value);
+  return stringifyValue(value);
 }
 
 function clipboardCell(value: string): string {
@@ -1979,8 +2019,8 @@ function TableRenderer({
                   if (col.format === "link") {
                     const formatted = formatCell(raw, col.format);
                     const href = col.linkKey
-                      ? String(row[col.linkKey] ?? "")
-                      : String(raw ?? "");
+                      ? stringifyValue(row[col.linkKey])
+                      : stringifyValue(raw);
                     const safeHref = safeDashboardLinkHref(href);
                     return (
                       <td
@@ -2111,7 +2151,7 @@ function PieRenderer({
 }) {
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
-  const legendKeys = rows.map((row) => String(row[xKey] ?? ""));
+  const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
 
   return (
     <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
@@ -2223,6 +2263,7 @@ function BarRenderer({
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
+                  stacked={stacked}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2333,6 +2374,7 @@ function TimeSeriesRenderer({
                     labelFormatter={xLabelFormatter}
                     seriesNameFormatter={seriesNameFormatter}
                     valueFormatter={valueFormatter}
+                    stacked={stacked}
                   />
                 }
                 itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2440,6 +2482,7 @@ function TimeSeriesRenderer({
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
                   valueFormatter={valueFormatter}
+                  stacked={stacked}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2608,8 +2651,8 @@ function HeatmapRenderer({
     const seenY = new Set<string>();
     const g = new Map<string, number>();
     for (const r of rows) {
-      const xv = String(r[xK] ?? "");
-      const yv = rowK ? String(r[rowK] ?? "") : "";
+      const xv = stringifyValue(r[xK]);
+      const yv = rowK ? stringifyValue(r[rowK]) : "";
       const v = Number(r[valK]);
       if (!seenX.has(xv)) {
         seenX.add(xv);
@@ -2747,12 +2790,12 @@ function CalloutRenderer({ rows }: { rows: Record<string, unknown>[] }) {
   return (
     <div className="space-y-2">
       {rows.map((row, i) => {
-        const sevRaw = String(row.severity ?? "info").toLowerCase();
+        const sevRaw = (stringifyValue(row.severity) || "info").toLowerCase();
         const severity: CalloutSeverity =
           sevRaw === "critical" || sevRaw === "warning" || sevRaw === "info"
             ? (sevRaw as CalloutSeverity)
             : "info";
-        const message = String(row.message ?? "");
+        const message = stringifyValue(row.message);
         const { wrapper, Icon } = styleFor(severity);
         return (
           <div

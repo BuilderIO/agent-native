@@ -40,6 +40,17 @@ export interface TrackingMeta {
   anonymousId?: string;
   /** Overrides the ambient request's browser session. */
   sessionId?: string;
+  /**
+   * When the event actually happened, in epoch ms. Defaults to now.
+   *
+   * Needed by callers that buffer and flush a batch of events at the end of a
+   * unit of work — an agent run emits its trace, generation, and tool spans in
+   * one burst, and stamping all of them with the flush time collapses a
+   * multi-second waterfall into a single instant. PostHog orders an LLM trace
+   * tree by event timestamp, so without this the tree renders with a synthetic
+   * timeline.
+   */
+  occurredAt?: number;
 }
 
 /**
@@ -62,6 +73,7 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   userId?: string;
   anonymousId?: string;
   sessionId?: string;
+  occurredAt?: number;
 } {
   // The browser session rides the request, not the caller's arguments, so it
   // resolves the same way whether the UI called the action or the agent did.
@@ -74,6 +86,7 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
     userId: source.userId,
     anonymousId: source.anonymousId,
     sessionId: source.sessionId ?? ambientSessionId,
+    occurredAt: source.occurredAt,
   };
 }
 
@@ -82,7 +95,8 @@ export function track(
   properties?: Record<string, unknown>,
   source?: TrackingSource,
 ): void {
-  const { userId, anonymousId, sessionId } = resolveTrackingSource(source);
+  const { userId, anonymousId, sessionId, occurredAt } =
+    resolveTrackingSource(source);
   const clientPlatform = getRequestContext()?.clientPlatform;
   const trackedProperties = {
     ...(properties ?? {}),
@@ -94,7 +108,9 @@ export function track(
   const event: TrackingEvent = {
     name,
     properties: trackedProperties,
-    timestamp: new Date().toISOString(),
+    // A caller-supplied `occurredAt` of 0 is not a real event time, so `||`
+    // rather than `??` is deliberate here.
+    timestamp: new Date(occurredAt || Date.now()).toISOString(),
     userId,
     anonymousId,
     sessionId,

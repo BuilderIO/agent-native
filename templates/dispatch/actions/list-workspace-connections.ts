@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   listWorkspaceConnectionProviders,
   type WorkspaceConnectionCapability,
@@ -8,6 +8,11 @@ import {
   isProviderApiId,
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
+import {
+  CredentialStoreUnavailableError,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
+} from "@agent-native/core/server";
 import {
   getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
@@ -46,6 +51,8 @@ type GrantSummary = {
   lastUsedAt?: string | null;
 };
 
+type GoogleOAuthAvailability = "configured" | "unconfigured" | "unavailable";
+
 function unique(values: string[]) {
   return Array.from(
     new Set(values.map((value) => value.trim()).filter(Boolean)),
@@ -57,7 +64,7 @@ function optionalTimestamp(source: object, key: string) {
   const value = (source as Record<string, unknown>)[key];
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 function humanizeAppId(appId: string): string {
@@ -117,21 +124,47 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const providers = listWorkspaceConnectionProviders({
+    const catalogProviders = listWorkspaceConnectionProviders({
       capability: args.capability as WorkspaceConnectionCapability | undefined,
       templateUse: args.templateUse as
         | WorkspaceConnectionTemplateUse
         | undefined,
     });
-    const connections = await listWorkspaceConnections({
+    let googleOAuthAvailability: GoogleOAuthAvailability;
+    try {
+      googleOAuthAvailability = (await hasWorkspaceProviderOAuthCredentials(
+        "gmail",
+      ))
+        ? "configured"
+        : "unconfigured";
+    } catch (error) {
+      if (!(error instanceof CredentialStoreUnavailableError)) throw error;
+      googleOAuthAvailability = "unavailable";
+    }
+    const googleOAuthConfigured = googleOAuthAvailability === "configured";
+    const providers = catalogProviders.filter(
+      (provider) =>
+        googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id),
+    );
+    const allConnections = await listWorkspaceConnections({
       provider: args.provider,
       appId: args.appId,
       includeDisabled: args.includeDisabled,
     });
-    const explicitGrants = await listWorkspaceConnectionGrants({
+    const connections = allConnections.filter(
+      (connection) =>
+        googleOAuthConfigured ||
+        !isGoogleWorkspaceOAuthProvider(connection.provider),
+    );
+    const allExplicitGrants = await listWorkspaceConnectionGrants({
       provider: args.provider,
       appId: args.appId,
     });
+    const explicitGrants = allExplicitGrants.filter(
+      (grant) =>
+        googleOAuthConfigured ||
+        !isGoogleWorkspaceOAuthProvider(grant.provider),
+    );
     const grantApps = await listGrantApps();
     const legacyGrants = connections.flatMap<GrantSummary>((connection) => {
       if (connection.allowedApps.length === 0) {
@@ -246,6 +279,12 @@ export default defineAction({
     });
 
     return {
+      availability: {
+        googleOAuth: {
+          status: googleOAuthAvailability,
+          retryable: googleOAuthAvailability === "unavailable",
+        },
+      },
       providers: providersWithReadiness,
       connections,
       grants,

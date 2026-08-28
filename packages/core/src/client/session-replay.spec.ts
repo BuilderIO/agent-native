@@ -350,6 +350,45 @@ describe("session replay", () => {
     );
   });
 
+  it("keeps numeric agent-chat marker metadata usable", async () => {
+    installBrowser("https://analytics.agent-native.com/ask");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayAgentChatEvent,
+      startSessionReplay,
+      SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayAgentChatEvent({
+      phase: "run-stopped",
+      surface: 7,
+      threadId: 42,
+      runId: 0,
+      tabId: 9,
+    });
+
+    expect(addCustomEvent).toHaveBeenCalledWith(
+      SESSION_REPLAY_AGENT_CHAT_EVENT_TAG,
+      {
+        phase: "run-stopped",
+        surface: "7",
+        threadId: "42",
+        runId: "0",
+        tabId: "9",
+      },
+    );
+  });
+
   it("starts signed-in replay by default when first-party analytics is configured", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
       email: "dev@example.com",

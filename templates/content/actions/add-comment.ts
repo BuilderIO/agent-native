@@ -1,5 +1,9 @@
-import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import { defineAction } from "@agent-native/core/action";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -46,6 +50,7 @@ function displayNameFromEmail(email: string): string {
 export default defineAction({
   description:
     "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. For new threads, omit threadId.",
+  deferLoading: false,
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
     content: z.string().optional().describe("Comment text (required)"),
@@ -88,7 +93,12 @@ export default defineAction({
 
     const providedName = args.authorName?.trim();
     let name: string;
-    if (providedName) {
+    const requestName = getRequestRunContext()
+      ? undefined
+      : getRequestUserName()?.trim();
+    if (requestName) {
+      name = requestName;
+    } else if (providedName) {
       name = providedName;
     } else if (email) {
       const derived = displayNameFromEmail(email).trim();

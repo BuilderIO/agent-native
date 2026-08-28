@@ -7,6 +7,8 @@
  * and refresh boundary.
  */
 
+import crypto from "node:crypto";
+
 import {
   auth,
   refreshAuthorization,
@@ -26,6 +28,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
@@ -37,7 +40,65 @@ import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
+const MAX_OAUTH_RESPONSE_BYTES = 256 * 1024;
 const MCP_OAUTH_PRIVATE_ORIGINS_ENV = "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS";
+
+const GOOGLE_MCP_ISSUER = "https://accounts.google.com";
+const GOOGLE_MCP_AUTHORIZATION_ENDPOINT =
+  "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_MCP_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+const GOOGLE_MCP_SCOPES_BY_ORIGIN: Readonly<Record<string, readonly string[]>> =
+  {
+    "https://workspacemcp.googleapis.com": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+    ],
+    "https://gmailmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose",
+    ],
+    "https://drivemcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    "https://docsmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/documents.readonly",
+      "https://www.googleapis.com/auth/documents",
+    ],
+    "https://sheetsmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/spreadsheets.readonly",
+      "https://www.googleapis.com/auth/spreadsheets",
+    ],
+    "https://slidesmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/presentations.readonly",
+      "https://www.googleapis.com/auth/presentations",
+    ],
+    "https://calendarmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+      "https://www.googleapis.com/auth/calendar.events.freebusy",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+    ],
+    "https://chatmcp.googleapis.com": [
+      "https://www.googleapis.com/auth/chat.spaces.readonly",
+      "https://www.googleapis.com/auth/chat.memberships.readonly",
+      "https://www.googleapis.com/auth/chat.messages.readonly",
+      "https://www.googleapis.com/auth/chat.messages.create",
+      "https://www.googleapis.com/auth/chat.users.readstate.readonly",
+    ],
+    "https://people.googleapis.com": [
+      "https://www.googleapis.com/auth/directory.readonly",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/contacts.readonly",
+    ],
+  };
 
 type GuardedFetch = (
   url: string | URL,
@@ -56,6 +117,175 @@ function checkedRemoteUrl(value: string | URL, label: string): URL {
 
 function canonicalServerUrl(value: string): string {
   return checkedRemoteUrl(value, "server").toString();
+}
+
+function googleMcpScopes(serverUrl: string): readonly string[] | undefined {
+  try {
+    return GOOGLE_MCP_SCOPES_BY_ORIGIN[new URL(serverUrl).origin];
+  } catch {
+    // coercion-ok: an invalid URL is absent from the managed-server allowlist.
+    return undefined;
+  }
+}
+
+export function isGoogleWorkspaceMcpServer(value: string | URL): boolean {
+  return Boolean(
+    googleMcpScopes(typeof value === "string" ? value : value.toString()),
+  );
+}
+
+function googleMcpDiscoveryState(
+  serverUrl: string,
+  scopes: readonly string[],
+): McpOAuthDiscoveryState {
+  return {
+    authorizationServerUrl: GOOGLE_MCP_ISSUER,
+    authorizationServerMetadata: {
+      issuer: GOOGLE_MCP_ISSUER,
+      authorization_endpoint: GOOGLE_MCP_AUTHORIZATION_ENDPOINT,
+      token_endpoint: GOOGLE_MCP_TOKEN_ENDPOINT,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      code_challenge_methods_supported: ["S256"],
+    },
+    resourceMetadata: {
+      resource: serverUrl,
+      authorization_servers: [GOOGLE_MCP_ISSUER],
+      bearer_methods_supported: ["header"],
+      scopes_supported: [...scopes],
+    },
+  };
+}
+
+function googleMcpClientInformation(
+  value: StoredOAuthClientInformation | undefined,
+): StoredOAuthClientInformation & { client_id: string; client_secret: string } {
+  const clientId = value?.client_id;
+  const clientSecret = value?.client_secret;
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "Google Workspace MCP OAuth client credentials are not configured.",
+    );
+  }
+  if (value.issuer && value.issuer !== GOOGLE_MCP_ISSUER) {
+    throw new Error("Google Workspace MCP OAuth issuer is invalid.");
+  }
+  return {
+    ...value,
+    client_id: clientId,
+    client_secret: clientSecret,
+    issuer: GOOGLE_MCP_ISSUER,
+  };
+}
+
+function startGoogleMcpOAuthAuthorization(
+  options: McpOAuthProviderOptions,
+  scopes: readonly string[],
+): McpOAuthStartResult {
+  const clientInformation = googleMcpClientInformation(
+    options.clientInformation,
+  );
+  const codeVerifier =
+    options.codeVerifier ?? crypto.randomBytes(48).toString("base64url");
+  const codeChallenge = crypto
+    .createHash("sha256")
+    .update(codeVerifier)
+    .digest("base64url");
+  const authorizationUrl = new URL(GOOGLE_MCP_AUTHORIZATION_ENDPOINT);
+  authorizationUrl.searchParams.set("client_id", clientInformation.client_id);
+  authorizationUrl.searchParams.set("redirect_uri", options.redirectUrl);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", scopes.join(" "));
+  authorizationUrl.searchParams.set("state", options.state);
+  authorizationUrl.searchParams.set("access_type", "offline");
+  authorizationUrl.searchParams.set("prompt", "consent");
+  authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+
+  return {
+    authorizationUrl: checkedRemoteUrl(
+      authorizationUrl,
+      "authorization redirect",
+    ),
+    codeVerifier,
+    state: options.state,
+    clientInformation,
+    discoveryState: googleMcpDiscoveryState(options.serverUrl, scopes),
+  };
+}
+
+async function readOAuthResponseJson(
+  response: Response,
+): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (Buffer.byteLength(text) > MAX_OAUTH_RESPONSE_BYTES) {
+    throw new Error("MCP OAuth response exceeded the size limit.");
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("MCP OAuth response was not an object.");
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new Error("MCP OAuth response was not valid JSON.");
+  }
+}
+
+async function finishGoogleMcpOAuthAuthorization(
+  options: McpOAuthProviderOptions & { authorizationCode: string },
+  scopes: readonly string[],
+): Promise<McpOAuthCallbackResult> {
+  const clientInformation = googleMcpClientInformation(
+    options.clientInformation,
+  );
+  if (!options.codeVerifier) {
+    throw new Error("Google Workspace MCP OAuth code verifier is missing.");
+  }
+  const response = await guardedOAuthFetch()(GOOGLE_MCP_TOKEN_ENDPOINT, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code: options.authorizationCode,
+      client_id: clientInformation.client_id,
+      client_secret: clientInformation.client_secret,
+      redirect_uri: options.redirectUrl,
+      grant_type: "authorization_code",
+      code_verifier: options.codeVerifier,
+    }),
+  });
+  const body = await readOAuthResponseJson(response);
+  const accessToken =
+    typeof body.access_token === "string" ? body.access_token : undefined;
+  const tokenType =
+    typeof body.token_type === "string" ? body.token_type : undefined;
+  if (!response.ok || !accessToken || !tokenType) {
+    throw new Error("Google Workspace MCP OAuth token exchange failed.");
+  }
+  const expiresIn = Number(body.expires_in);
+  const tokens: StoredOAuthTokens = {
+    access_token: accessToken,
+    token_type: tokenType,
+    ...(Number.isFinite(expiresIn) && expiresIn > 0
+      ? { expires_in: expiresIn }
+      : {}),
+    ...(typeof body.refresh_token === "string"
+      ? { refresh_token: body.refresh_token }
+      : {}),
+    ...(typeof body.scope === "string" ? { scope: body.scope } : {}),
+    ...(typeof body.id_token === "string" ? { id_token: body.id_token } : {}),
+    issuer: GOOGLE_MCP_ISSUER,
+  };
+  return {
+    credentials: {
+      serverUrl: options.serverUrl,
+      clientInformation,
+      discoveryState: googleMcpDiscoveryState(options.serverUrl, scopes),
+      tokens,
+      tokenExpiresAt: tokenExpiresAt(tokens),
+    },
+  };
 }
 
 /**
@@ -156,7 +386,7 @@ function guardedOAuthFetch(): GuardedFetch {
         nextHeaders.delete("proxy-authorization");
         if (
           (response.status === 307 || response.status === 308) &&
-          currentInit.body != null
+          currentInit.body !== null
         ) {
           throw new Error(
             "MCP OAuth redirect cannot forward a request body across origins.",
@@ -352,7 +582,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       application_type: applicationTypeForRedirect(options.redirectUrl),
-      client_name: "Agent Native MCP connector",
+      client_name: "Agent-Native MCP connector",
     };
   }
 
@@ -465,13 +695,29 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 }
 
 export async function startMcpOAuthAuthorization(
-  options: McpOAuthProviderOptions & { scope?: string },
+  options: McpOAuthProviderOptions & {
+    scope?: string;
+    // Override the protected-resource metadata URL for servers whose metadata
+    // is not at the RFC 9728 default path; the SDK still discovers the resource
+    // and authorization-server endpoints from it live.
+    resourceMetadataUrl?: string;
+  },
 ): Promise<McpOAuthStartResult> {
-  checkedRemoteUrl(options.serverUrl, "server");
+  const serverUrl = checkedRemoteUrl(options.serverUrl, "server");
+  const googleScopes = googleMcpScopes(serverUrl.toString());
+  if (googleScopes) {
+    return startGoogleMcpOAuthAuthorization(
+      { ...options, serverUrl: serverUrl.toString() },
+      googleScopes,
+    );
+  }
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
+    ...(options.resourceMetadataUrl
+      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+      : {}),
     fetchFn: guardedOAuthFetch(),
   });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
@@ -496,7 +742,14 @@ export async function finishMcpOAuthAuthorization(
     iss?: string;
   },
 ): Promise<McpOAuthCallbackResult> {
-  checkedRemoteUrl(options.serverUrl, "server");
+  const serverUrl = checkedRemoteUrl(options.serverUrl, "server");
+  const googleScopes = googleMcpScopes(serverUrl.toString());
+  if (googleScopes) {
+    return finishGoogleMcpOAuthAuthorization(
+      { ...options, serverUrl: serverUrl.toString() },
+      googleScopes,
+    );
+  }
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
@@ -595,6 +848,24 @@ export async function getMcpOAuthConnectionState(options: {
 }): Promise<OAuthCredentialState<McpOAuthCredentialBundle>> {
   const serverUrl = canonicalServerUrl(options.serverUrl);
   return readOAuthCredentialState<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+    },
+  );
+}
+
+export async function markMcpOAuthReconnectRequired(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<boolean> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  return markOAuthReconnectRequired<McpOAuthCredentialBundle>(
     credentialIdentity({ ...options, serverUrl }),
     {
       allowLegacy: true,

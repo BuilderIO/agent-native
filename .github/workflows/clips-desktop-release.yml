@@ -25,6 +25,10 @@ on:
         description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
         required: false
         type: string
+      source_ref:
+        description: "Exact source commit to build for a coordinated release"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -42,7 +46,26 @@ env:
   RELEASE_NAME_PREFIX: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'Clips Nightly' || 'Clips Desktop' }}
 
 jobs:
+  resolve-source-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.source.outputs.source_ref }}
+    steps:
+      - name: Validate and pin source commit
+        id: source
+        env:
+          RELEASE_SOURCE_REF_INPUT: ${{ inputs.source_ref }}
+        shell: bash
+        run: |
+          if [ -n "$RELEASE_SOURCE_REF_INPUT" ] && [[ ! "$RELEASE_SOURCE_REF_INPUT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::source_ref must be a full 40-character commit SHA."
+            exit 1
+          fi
+          SOURCE_REF="${RELEASE_SOURCE_REF_INPUT:-$GITHUB_SHA}"
+          echo "source_ref=${SOURCE_REF,,}" >> "$GITHUB_OUTPUT"
+
   build-tauri:
+    needs: resolve-source-ref
     strategy:
       fail-fast: false
       # Serialize so platform jobs can't race to create the draft release at
@@ -68,8 +91,11 @@ jobs:
       GGML_METAL_MACOSX_VERSION_MIN: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
     outputs:
       app-version: ${{ steps.resolve-version.outputs.version }}
+      source_ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -163,7 +189,9 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION_INPUT: ${{ inputs.version }}
+          RELEASE_SOURCE_REF: ${{ needs.resolve-source-ref.outputs.source_ref }}
         run: |
           if [ "$RELEASE_CHANNEL" = "nightly" ]; then
             if [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
@@ -185,8 +213,65 @@ jobs:
               exit 1
             fi
             RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+
+            TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
+            get_tag_sha() {
+              local ref_json object_type object_sha
+              if ! ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1"); then
+                return 1
+              fi
+              object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
+              object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
+              if [ "$object_type" = "tag" ]; then
+                gh api "repos/${GITHUB_REPOSITORY}/git/tags/$object_sha" --jq '.object.sha'
+              else
+                printf '%s\n' "$object_sha"
+              fi
+            }
+            RELEASE_ERROR=$(mktemp)
+            if RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>"$RELEASE_ERROR"); then
+              IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
+              if [ "$IS_DRAFT" != "true" ]; then
+                echo "::error::Production release $TAG is already published. Choose a new version instead of rebuilding it."
+                rm -f "$RELEASE_ERROR"
+                exit 1
+              fi
+              EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
+              if [ "$EXISTING_TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
+                echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected $RELEASE_SOURCE_REF."
+                rm -f "$RELEASE_ERROR"
+                exit 1
+              fi
+              echo "Existing production release $TAG is still a draft; resuming it."
+            elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
+              TAG_ERROR=$(mktemp)
+              if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+                if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
+                  echo "::error::Existing tag $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
+                  rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+                  exit 1
+                fi
+                echo "Existing tag $TAG already points to the coordinated source; creating its release."
+              elif grep -q 'HTTP 404' "$TAG_ERROR"; then
+                echo "No existing production release or tag found for $TAG; creating it."
+              else
+                cat "$TAG_ERROR"
+                rm -f "$RELEASE_ERROR" "$TAG_ERROR"
+                exit 1
+              fi
+              rm -f "$TAG_ERROR"
+            else
+              cat "$RELEASE_ERROR"
+              rm -f "$RELEASE_ERROR"
+              exit 1
+            fi
+            rm -f "$RELEASE_ERROR"
           fi
-          npm version "$RELEASE_VERSION" --no-git-tag-version
+          if [ "$RELEASE_CHANNEL" = "production" ]; then
+            npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
+          else
+            npm version "$RELEASE_VERSION" --no-git-tag-version
+          fi
           node -e "
             const fs = require('fs');
             const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
@@ -277,6 +362,7 @@ jobs:
             signed bundles it downloads.
           releaseDraft: true
           prerelease: ${{ env.RELEASE_CHANNEL == 'nightly' }}
+          releaseCommitish: ${{ needs.resolve-source-ref.outputs.source_ref }}
           args: ${{ matrix.args }}
 
       - name: Verify macOS permission metadata
@@ -321,6 +407,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.build-tauri.outputs.source_ref }}
 
       - name: Resolve version
         id: v

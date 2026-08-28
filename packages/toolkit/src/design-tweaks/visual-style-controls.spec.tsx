@@ -46,8 +46,30 @@ describe("visual style controls", () => {
     );
     expect(trigger?.textContent).toContain("Mixed colors");
     expect(trigger?.querySelector("span")?.style.background).toContain(
-      "linear-gradient",
+      "conic-gradient",
     );
+  });
+
+  it("uses opaque white and soft gray for transparent checkerboards", () => {
+    act(() => {
+      root.render(
+        <VisualColorPicker
+          label="Color"
+          value="transparent"
+          onChange={() => {}}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Color"]',
+    );
+    const checker = trigger?.querySelector("span");
+    expect(checker?.style.backgroundColor).toBe("#ffffff");
+    expect(checker?.style.background).toContain("conic-gradient");
+    expect(checker?.style.background).toContain("#e5e5e5");
+    expect(checker?.style.background).toContain("#ffffff");
+    expect(checker?.style.background).not.toContain("transparent");
   });
 
   it("renders the filled color trigger without an outer border", () => {
@@ -89,6 +111,43 @@ describe("visual style controls", () => {
 
     act(() => input?.focus());
     expect(input?.value).toBe("24px");
+  });
+
+  it("commits on Enter and keeps focus so the next keystroke stays in the field", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="Weight"
+          value={1}
+          unit="px"
+          onChange={onChange}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "2");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ source: "commit" }),
+    );
+    // Blurring here would hand the next keystroke to a global shortcut.
+    expect(document.activeElement).toBe(input);
   });
 
   it("supports a compact icon prefix without removing the accessible label", () => {

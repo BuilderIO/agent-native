@@ -361,7 +361,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "atlassian",
-    name: "Atlassian",
+    name: "Jira",
     provider: "atlassian",
     description: "Read and write Jira issues and Confluence content.",
     descriptionKey: "mcpIntegrations.catalog.atlassian.description",
@@ -476,36 +476,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
       "traces",
       "dashboards",
       "Grafana Cloud",
-    ],
-  },
-  {
-    id: "google-workspace",
-    name: "Google Workspace",
-    provider: "google-workspace",
-    description: "Search Google Workspace data through its remote MCP server.",
-    descriptionKey: "mcpIntegrations.catalog.googleWorkspace.description",
-    useCase:
-      "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
-    useCaseKey: "mcpIntegrations.catalog.googleWorkspace.useCase",
-    url: "https://workspacemcp.googleapis.com/mcp/v1",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "beta",
-    verification: "restricted",
-    logoUrl: mcpIntegrationLogo("google-workspace"),
-    docsUrl:
-      "https://developers.google.com/workspace/guides/configure-mcp-servers",
-    setupNoteKey: "mcpIntegrations.catalog.googleWorkspace.setupNote",
-    brandAliases: ["Google", "Gmail", "Google Drive", "Google Calendar"],
-    keywords: [
-      "email",
-      "gmail",
-      "drive",
-      "calendar",
-      "chat",
-      "docs",
-      "sheets",
-      "slides",
     ],
   },
   {
@@ -1057,7 +1027,6 @@ const MCP_LINK_HOSTS: Record<string, string[]> = {
   sentry: ["sentry.io", "sentry.dev"],
   gong: ["gong.io"],
   grafana: ["grafana.com", "grafana.net"],
-  "google-workspace": ["google.com", "googleapis.com"],
   "builder-cms": ["builder.io"],
   notion: ["notion.so", "notion.site"],
   granola: ["granola.ai"],
@@ -1094,7 +1063,7 @@ function findUrlForText(text: string): URL | null {
   const candidates = text.match(/https?:\/\/[^\s<>()[\]{}]+/gi) ?? [];
   for (const candidate of candidates) {
     try {
-      return new URL(candidate.replace(/[.,!?;:'\"]+$/, ""));
+      return new URL(candidate.replace(/[.,!?;:'"]+$/, ""));
     } catch {
       // Ignore prose that only looks like a URL.
     }

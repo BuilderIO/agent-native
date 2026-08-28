@@ -39,14 +39,14 @@ export function DesignWorkspaceRail({
   onMotionToggle,
   onPanelChange,
 }: {
-  activePanel: DesignLeftPanel;
+  activePanel: DesignLeftPanel | null;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
   hiddenPanels?: ReadonlySet<DesignLeftPanel>;
   motionOpen?: boolean;
   motionDisabled?: boolean;
   projectMenu: ReactNode;
   onMotionToggle?: () => void;
-  onPanelChange: (panel: DesignLeftPanel) => void;
+  onPanelChange: (panel: DesignLeftPanel | null) => void;
 }) {
   const t = useT();
   const items: Array<{
@@ -58,38 +58,38 @@ export function DesignWorkspaceRail({
     {
       panel: "file",
       label: t("designEditor.leftRail.file"),
-      icon: <IconFile className="size-[15px]" />,
+      icon: <IconFile className="size-[var(--design-icon-size)]" />,
     },
     {
       panel: "agent",
       label: t("designEditor.leftRail.agent"),
-      icon: <IconMessage className="size-[15px]" />,
+      icon: <IconMessage className="size-[var(--design-icon-size)]" />,
     },
     ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
       ? [
           {
             panel: "assets" as const,
             label: t("designEditor.leftRail.assets"),
-            icon: <IconPhoto className="size-[15px]" />,
+            icon: <IconPhoto className="size-[var(--design-icon-size)]" />,
           },
         ]
       : []),
     {
       panel: "import",
       label: t("designEditor.leftRail.import"),
-      icon: <IconFileImport className="size-[15px]" />,
+      icon: <IconFileImport className="size-[var(--design-icon-size)]" />,
     },
     ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
       ? [
           {
             panel: "tools" as const,
             label: t("designEditor.leftRail.tools"),
-            icon: <IconPuzzle className="size-[15px]" />,
+            icon: <IconPuzzle className="size-[var(--design-icon-size)]" />,
           },
           {
             panel: "tokens" as const,
             label: t("designEditor.leftRail.tokens"),
-            icon: <IconAssembly className="size-[15px]" />,
+            icon: <IconAssembly className="size-[var(--design-icon-size)]" />,
           },
         ]
       : []),
@@ -98,7 +98,7 @@ export function DesignWorkspaceRail({
           {
             panel: "code" as const,
             label: "Code" /* i18n-ignore */,
-            icon: <IconCode className="size-[15px]" />,
+            icon: <IconCode className="size-[var(--design-icon-size)]" />,
             separatorBefore: true,
           },
         ]
@@ -108,13 +108,14 @@ export function DesignWorkspaceRail({
   return (
     <nav
       aria-label={t("designEditor.leftRail.label")}
-      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
+      data-design-chrome-region="workspace-rail"
+      className="flex min-h-0 w-[var(--design-chrome-rail-width)] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-[var(--design-baseline-unit)]"
     >
-      <div className="mb-3 flex h-8 items-center justify-center">
+      <div className="mb-[var(--design-baseline-unit)] flex h-[var(--design-row-height)] items-center justify-center">
         {projectMenu}
       </div>
-      <div className="mb-5 h-px w-8 bg-border/70" />
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
+      <div className="mb-[var(--design-baseline-unit)] h-px w-[calc(var(--design-baseline-unit)*4)] bg-border/70" />
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-[var(--design-baseline-unit)]">
         {items.map((item) => {
           if (hiddenPanels?.has(item.panel)) return null;
           const active = item.panel === activePanel;
@@ -137,7 +138,7 @@ export function DesignWorkspaceRail({
                         event.preventDefault();
                         return;
                       }
-                      onPanelChange(item.panel);
+                      onPanelChange(active ? null : item.panel);
                     }}
                     onPointerEnter={() => {
                       if (item.panel === "code") preloadCodeWorkbench();
@@ -146,25 +147,26 @@ export function DesignWorkspaceRail({
                       if (item.panel === "code") preloadCodeWorkbench();
                     }}
                     className={cn(
-                      "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      disabled &&
-                        "cursor-default opacity-35 hover:text-muted-foreground",
-                      active && "text-foreground",
+                      "design-workspace-rail-item group flex size-[calc(var(--design-baseline-unit)*6)] cursor-pointer flex-col items-center justify-center gap-[var(--design-baseline-half)] rounded-lg font-[450] text-muted-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                      disabled
+                        ? "cursor-default opacity-35"
+                        : active
+                          ? "bg-[var(--design-editor-selection-color)] text-foreground"
+                          : "hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
                     )}
                   >
                     <span
                       className={cn(
-                        "flex size-8 items-center justify-center rounded-lg transition-colors",
+                        "flex size-[var(--design-control-height)] items-center justify-center transition-colors",
                         active
-                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                          : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                        disabled &&
-                          "group-hover:bg-transparent group-hover:text-muted-foreground",
+                          ? "text-[var(--design-editor-accent-color)]"
+                          : "text-muted-foreground group-hover:text-foreground",
+                        disabled && "group-hover:text-muted-foreground",
                       )}
                     >
                       {item.icon}
                     </span>
-                    <span className="max-w-full truncate leading-none">
+                    <span className="w-full truncate px-1 text-center leading-none">
                       {item.label}
                     </span>
                   </button>
@@ -175,8 +177,8 @@ export function DesignWorkspaceRail({
           );
         })}
       </div>
-      {onMotionToggle ? (
-        <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
+      {onMotionToggle && SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
+        <div className="mt-[var(--design-baseline-unit)] flex w-full flex-col items-center border-t border-border/70 pt-[var(--design-baseline-unit)]">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -193,29 +195,30 @@ export function DesignWorkspaceRail({
                   onMotionToggle();
                 }}
                 className={cn(
-                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none !text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  motionDisabled &&
-                    "cursor-default opacity-35 hover:text-muted-foreground",
-                  motionOpen && "text-foreground",
+                  "design-workspace-rail-item group flex size-[calc(var(--design-baseline-unit)*6)] cursor-pointer flex-col items-center justify-center gap-[var(--design-baseline-half)] rounded-lg font-[450] text-muted-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  motionDisabled
+                    ? "cursor-default opacity-35"
+                    : motionOpen
+                      ? "bg-[var(--design-editor-selection-color)] text-foreground"
+                      : "hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
                 )}
               >
                 <span
                   className={cn(
-                    "flex size-8 items-center justify-center rounded-lg transition-colors",
+                    "flex size-[var(--design-control-height)] items-center justify-center transition-colors",
                     motionOpen
-                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                    motionDisabled &&
-                      "group-hover:bg-transparent group-hover:text-muted-foreground",
+                      ? "text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground group-hover:text-foreground",
+                    motionDisabled && "group-hover:text-muted-foreground",
                   )}
                 >
                   {motionOpen ? (
-                    <IconChevronDown className="size-[15px]" />
+                    <IconChevronDown className="size-[var(--design-icon-size)]" />
                   ) : (
-                    <IconChevronUp className="size-[15px]" />
+                    <IconChevronUp className="size-[var(--design-icon-size)]" />
                   )}
                 </span>
-                <span className="max-w-full truncate leading-none">
+                <span className="w-full truncate px-1 text-center leading-none">
                   {"Motion" /* i18n-ignore */}
                 </span>
               </button>

@@ -21,6 +21,7 @@ import { triageConfig } from "../db/schema.js";
 import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import {
   DEFAULT_FACTORY_ID,
+  assignCreatedByIfMissing,
   factoryAutomationJobPath,
   factoryConfigRowId,
   patchAutomationResource,
@@ -39,8 +40,6 @@ import {
 } from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
-const DEFAULT_SLACK_CHANNEL_ID = "C0ATH3CCZT4";
-const DEFAULT_SLACK_CHANNEL_NAME = "product-agent-native-feedback";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
 
 type AutomationRunFinishedEvent = {
@@ -320,6 +319,14 @@ pending, skipped, unknown, and unresolved ordinary feedback accurately - never
 call it clean just because the author is internal. Sid's verified Design-owner
 exception still does not waive membership or the ultra-scary gate.
 
+For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, keep
+current BuilderIO membership mandatory. If the current, non-draft PR has no
+current-head, non-dismissed approval, the Liam exception permits approval
+through ordinary check, review-feedback, scope, and UX-owner gates. It never
+waives ultra-scary review or the independent-review requirement for changes to
+review/approval policy, agent-safety instructions, membership verification, or
+CI/deployment security controls, and it never authorizes a merge.
+
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
 includePullRequests true. List at most 3 new or changed pull requests by
@@ -334,7 +341,8 @@ number, clearBug, productUxImplications, and a short reason. The action fetches
 fresh CI and review evidence before approving. For a verified current BuilderIO
 member, the internal-author exception means ordinary failed, pending, skipped,
 or unknown checks and unresolved ordinary feedback do not by themselves block
-approval; record their exact states and never call them clean. Apply the
+approval; record their exact states and never call them clean. Active credible
+safety findings in fresh review evidence always block approval. Apply the
 verified Alice/Content, Nick/Slides, Enzo/Factory-specific, Sid/Design, and
 docs-only owner exceptions from review-prs only after membership and an
 explicit ultra-scary assessment. Those exceptions do not waive membership,
@@ -442,7 +450,7 @@ function frontmatterField(content: string, key: string): string | undefined {
     .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 function automationFactoryScopeInstruction(factoryId: string): string {
@@ -543,7 +551,7 @@ export async function ensureFactoryAutomations(
       repaired = setFrontmatterField(repaired, "appId", "factory");
       repaired = setFrontmatterField(repaired, "orgId", orgId);
       repaired = setFrontmatterField(repaired, "factoryId", factoryId);
-      repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
+      repaired = assignCreatedByIfMissing(repaired, ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");
       if (!frontmatterField(repaired, "model")) {
         repaired = setFrontmatterField(repaired, "model", seed.model);
@@ -627,6 +635,7 @@ export async function syncFactoryAutomationEnabledStates(
           readAutomationFactoryId(
             definition.meta,
             definition.resource.content,
+            definition.resource.path,
           ) === factoryId,
       )
       .map(async (definition) => {
@@ -687,16 +696,15 @@ async function ensureDefaultTriageConfig(
   }
   const now = new Date().toISOString();
   const repository = defaultRepository();
-  const pollingEnabled = 1;
   const githubPollingEnabled = defaultGithubPollingEnabled() ? 1 : 0;
   await db.insert(triageConfig).values({
     id: factoryConfigRowId(orgId, factoryId),
     factoryId,
     slackWorkspace: "primary",
-    slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
-    slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
+    slackChannelId: null,
+    slackChannelName: null,
     builderSlackUserId: null,
-    pollingEnabled,
+    pollingEnabled: 0,
     githubPollingEnabled,
     sentryPollingEnabled: 0,
     lastSlackTs: null,

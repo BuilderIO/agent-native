@@ -74,6 +74,7 @@ interface EventDetailPanelProps {
   onClose: () => void;
   onDelete: (eventId: string) => void;
   onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  timezone?: string;
 }
 
 function formatDuration(start: string, end: string): string {
@@ -121,6 +122,7 @@ export function EventDetailPanel({
   onClose,
   onDelete,
   onTitleSave,
+  timezone,
 }: EventDetailPanelProps) {
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
@@ -451,7 +453,9 @@ export function EventDetailPanel({
                           {format(
                             getDisplayDateInTimezone(
                               event.start,
-                              event.startTimeZone ?? event.endTimeZone,
+                              timezone ??
+                                event.startTimeZone ??
+                                event.endTimeZone,
                             ),
                             "h:mm a",
                           )}
@@ -459,7 +463,9 @@ export function EventDetailPanel({
                           {format(
                             getDisplayDateInTimezone(
                               event.end,
-                              event.endTimeZone ?? event.startTimeZone,
+                              timezone ??
+                                event.endTimeZone ??
+                                event.startTimeZone,
                             ),
                             "h:mm a",
                           )}
@@ -471,7 +477,9 @@ export function EventDetailPanel({
                           {format(
                             getDisplayDateInTimezone(
                               event.start,
-                              event.startTimeZone ?? event.endTimeZone,
+                              timezone ??
+                                event.startTimeZone ??
+                                event.endTimeZone,
                             ),
                             "EEE MMM d",
                           )}

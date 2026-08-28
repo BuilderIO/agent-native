@@ -32,12 +32,24 @@ describe("Design editor mobile layout", () => {
       "relative hidden h-full min-h-0 shrink-0 flex-col",
     );
     expect(editorSource).toContain(
-      "max-w-[calc(100dvw-57px)] shrink-0 flex-col",
+      "max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col",
     );
     expect(editorSource).toContain('aria-label={t("editPanel.properties")}');
     expect(editorSource).toContain(
       'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
     );
+  });
+
+  it("keeps the app shell in non-Builder embedded routes", () => {
+    expect(layoutSource).toContain(
+      'type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";',
+    );
+    expect(layoutSource).toContain('if (layoutMode === "host-bare")');
+    expect(layoutSource).toContain('if (layoutMode === "standalone-editor")');
+    expect(layoutSource).toContain(
+      "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
+    );
+    expect(layoutSource).toContain("{!standaloneEditor && (\n");
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

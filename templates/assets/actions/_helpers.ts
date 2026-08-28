@@ -7,6 +7,7 @@ import type {
   AssetLineageSummary,
   GenerationSessionItemSummary,
   GenerationPresetSummary,
+  TemplateSummary,
   GenerationSessionSummary,
   ImageAssetMetadata,
   StyleBrief,
@@ -193,6 +194,20 @@ export function serializeGenerationPreset(row: any): GenerationPresetSummary {
     sortOrder: Number(row.sortOrder ?? 0),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  };
+}
+
+export function serializeTemplate(row: any): TemplateSummary {
+  const preset = serializeGenerationPreset(row);
+  const libraryId = row.libraryId ?? null;
+  return {
+    ...preset,
+    libraryId,
+    scope: libraryId ? "library" : "global",
+    visibility: row.visibility ?? "private",
+    ownerEmail: row.ownerEmail,
+    accessRole: typeof row.accessRole === "string" ? row.accessRole : undefined,
+    libraryTitle: row.libraryTitle ?? null,
   };
 }
 

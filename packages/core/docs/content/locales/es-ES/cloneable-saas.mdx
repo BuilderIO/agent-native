@@ -35,12 +35,12 @@ Cada app tiene su propia documentación sobre su arquitectura, actions y persona
 
 ## Plantillas de la comunidad {#community-templates}
 
-Las plantillas con nombre del selector de CLI son **oficiales**: Agent Native
+Las plantillas con nombre del selector de CLI son **oficiales**: Agent-Native
 las mantiene, prueba, documenta y publica junto con el framework. Una
 **plantilla de la comunidad** es mantenida y versionada por el propietario de
 su repositorio. Puede usar la misma superficie del framework, pero aparecer en
 la lista de la comunidad no supone una recomendación ni una promesa de soporte
-por parte de Agent Native.
+por parte de Agent-Native.
 
 Ejecute `create`, elija **Plantilla de la comunidad** y pegue una URL sencilla
 de un repositorio público de GitHub:
@@ -49,8 +49,8 @@ de un repositorio público de GitHub:
 https://github.com/owner/repo
 ```
 
-Si la raíz del repositorio contiene una sola app Agent Native, la CLI la instala
-directamente sin otro selector. Si es un espacio de trabajo Agent Native, la CLI
+Si la raíz del repositorio contiene una sola app Agent-Native, la CLI la instala
+directamente sin otro selector. Si es un espacio de trabajo Agent-Native, la CLI
 descubre los hijos directos válidos de `apps/*`, excluye `dispatch` y pregunta
 qué app quiere instalar.
 
@@ -141,7 +141,7 @@ completa de requisitos de la app, actions, estado, seguridad y publicación.
 
 > **Revise el código de la comunidad antes de instalar dependencias o
 > ejecutarlo.** Las plantillas de la comunidad se descargan desde repositorios
-> de terceros; Agent Native no las aísla, audita ni mantiene. La CLI solo
+> de terceros; Agent-Native no las aísla, audita ni mantiene. La CLI solo
 > descarga el código fuente; no instala dependencias ni ejecuta scripts de la
 > plantilla. Revise el código fuente, la licencia, las dependencias y los
 > scripts de instalación de paquetes, y prefiera una referencia confiable
@@ -225,7 +225,7 @@ Cuatro pasos lo llevan de la plantilla a la app implementada:
 
 1. **Elija una app.** Utilice el selector de la CLI o explore los documentos.
 2. **Marca.** Cambia el nombre, los colores, el logotipo y el texto. La mayoría de las apps de ejemplo exponen esto en un único archivo de configuración.
-3. **Personalízalo.** Haz cambios de código fuente en tu repositorio y flujo de desarrollo. Un agente puede ayudar cuando su frame recibe intencionalmente herramientas de workspace y escritura; de lo contrario, el agente integrado opera la app mediante actions, datos e integraciones configuradas.
+3. **Personalízalo.** Haz cambios de código fuente en tu repositorio y flujo de desarrollo: "añade un campo de prioridad a los formularios", "conéctanos a nuestra instancia de Salesforce", "cambia la combinación de colores para que coincida con nuestra marca". Un agente puede ayudar cuando su frame recibe intencionalmente herramientas de workspace y escritura; de lo contrario, el agente integrado opera la app mediante actions, datos e integraciones configuradas.
 4. **Envíelo.** Ejecute el comando de implementación. Ahora tiene una app de producción en su propio dominio.
 
 Los pasos 2 a 4 suelen tardar unos días. El paso 3 no tiene un punto final fijo: la app es suya para evolucionarla, mientras el agente integrado sigue disponible para operar el producto desplegado y puede ayudar con cambios de código fuente cuando se habilita explícitamente el acceso al código.

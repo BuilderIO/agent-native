@@ -13,7 +13,11 @@ import {
   assertValidFields,
   normalizeFieldIds,
 } from "../server/lib/validate-fields.js";
-import type { FormField, FormSettings } from "../shared/types.js";
+import {
+  assertValidFormCompletionSettings,
+  type FormField,
+  type FormSettings,
+} from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 const nanoid = customAlphabet(
@@ -39,7 +43,7 @@ function formDeepLink(formId: string): string {
 
 export default defineAction({
   description:
-    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
+    "Create a draft or published form. Set settings.completionMode to message, redirect, message_then_refresh, or refresh; use settings.completionRefreshSeconds for the message_then_refresh delay. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
@@ -49,12 +53,14 @@ export default defineAction({
     fields: z
       .union([z.string(), z.array(z.any())])
       .optional()
-      .describe("Array of form fields (or JSON string of the same)"),
+      .describe(
+        "Array of complete field objects with id, type, label, and required (or JSON string of the same); never use shorthand strings such as 'text: Enter a name'.",
+      ),
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
       .describe(
-        "Form settings object (or JSON string). Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
+        "Form settings object (or JSON string). Set completionMode to message, redirect, message_then_refresh, or refresh. Use completionRefreshSeconds with message_then_refresh. Set anonymous=true for strict no-IP, no-identity, no-source-metadata responses.",
       ),
     slug: z.string().optional().describe("Custom URL slug"),
     status: z
@@ -116,6 +122,7 @@ export default defineAction({
         };
       }
     }
+    assertValidFormCompletionSettings(settings);
     // Reject blocked integration URLs at save time. fireIntegrations also
     // re-checks at runtime as defense-in-depth.
     assertIntegrationUrlsAllowed(settings);

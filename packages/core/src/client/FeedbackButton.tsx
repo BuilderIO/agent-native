@@ -227,6 +227,81 @@ async function loadSchema(target: ParsedTarget): Promise<FormSchema> {
   return pending;
 }
 
+export interface SubmitFeedbackFormOptions {
+  value: string;
+  url?: string | null;
+  openedAt?: number;
+  idempotencyKey?: string | null;
+  honeypot?: string;
+  submitterEmail?: string | null;
+  chatSessionId?: string | null;
+  chatStorageKey?: string | null;
+  activeRunId?: string | null;
+}
+
+export async function submitFeedbackForm(
+  options: SubmitFeedbackFormOptions,
+): Promise<"submitted" | "unconfigured"> {
+  const resolvedUrl = resolveFeedbackUrl(options.url);
+  const target = resolvedUrl ? parseTarget(resolvedUrl) : null;
+  if (!target) return "unconfigured";
+
+  const value = options.value.trim();
+  if (!value) throw new Error("Feedback is empty");
+
+  const resolvedSchema = await loadSchema(target);
+  const submitterEmail = isSyntheticAgentNativeAnonymousEmail(
+    options.submitterEmail,
+  )
+    ? null
+    : options.submitterEmail;
+  const feedbackContext = getFeedbackClientContext({
+    chatSessionId: options.chatSessionId,
+    storageKey: options.chatStorageKey,
+    activeRunId: options.activeRunId,
+  });
+  const res = await fetch(
+    `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.idempotencyKey
+          ? { "Idempotency-Key": options.idempotencyKey }
+          : {}),
+      },
+      body: JSON.stringify({
+        data: { [resolvedSchema.fieldId]: value },
+        _t: options.openedAt ?? Date.now(),
+        _hp: options.honeypot ?? "",
+        _meta: {
+          ...(submitterEmail ? { submitterEmail } : {}),
+          ...feedbackContext,
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const responseBody = await res.text();
+    let errorMessage: string | undefined;
+    try {
+      const body = JSON.parse(responseBody) as unknown;
+      if (
+        body !== null &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        errorMessage = body.error.trim() || undefined;
+      }
+    } catch {
+      throw new Error(`submit failed (${res.status})`);
+    }
+    throw new Error(errorMessage || `submit failed (${res.status})`);
+  }
+  return "submitted";
+}
+
 export interface FeedbackButtonProps {
   /**
    * "sidebar" renders a full-width row with icon + label (for app left sidebars).
@@ -237,7 +312,7 @@ export interface FeedbackButtonProps {
   label?: string;
   /**
    * Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. First-party agent-native.com
-   * apps fall back to the Agent Native feedback form; other apps stay hidden.
+   * apps fall back to the Agent-Native feedback form; other apps stay hidden.
    * Pass null to explicitly hide the control.
    */
   url?: string | null;
@@ -381,7 +456,6 @@ function FeedbackPopoverButton({
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [schema, setSchema] = useState<FormSchema | null>(null);
   const openedAtRef = useRef<number>(0);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -395,14 +469,11 @@ function FeedbackPopoverButton({
     setSubmitting(false);
     setSubmitted(false);
     setError(null);
-    setSchema(null);
     if (target) {
-      loadSchema(target)
-        .then((s) => setSchema(s))
-        .catch((err) => {
-          console.error("[FeedbackButton] schema load failed", err);
-          setError(copy.loadError);
-        });
+      loadSchema(target).catch((err) => {
+        console.error("[FeedbackButton] schema load failed", err);
+        setError(copy.loadError);
+      });
     } else {
       setError(copy.invalidUrl);
     }
@@ -428,39 +499,20 @@ function FeedbackPopoverButton({
       setSubmitting(true);
       setError(null);
       try {
-        const resolvedSchema = schema ?? (await loadSchema(target));
-        if (!schema) setSchema(resolvedSchema);
         const submitterEmail = isSyntheticAgentNativeAnonymousEmail(
           session?.email,
         )
           ? null
           : session?.email;
-        const feedbackContext = getFeedbackClientContext({
+        await submitFeedbackForm({
+          url,
+          value,
+          openedAt: openedAtRef.current,
+          honeypot,
+          submitterEmail,
           chatSessionId,
-          storageKey: chatStorageKey,
+          chatStorageKey,
         });
-        const res = await fetch(
-          `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              data: { [resolvedSchema.fieldId]: trimmed },
-              _t: openedAtRef.current,
-              _hp: honeypot,
-              _meta: {
-                ...(submitterEmail ? { submitterEmail } : {}),
-                ...feedbackContext,
-              },
-            }),
-          },
-        );
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          throw new Error(body.error || `submit failed (${res.status})`);
-        }
         setSubmitted(true);
         closeTimerRef.current = setTimeout(() => setOpen(false), 1400);
       } catch (err) {
@@ -470,7 +522,6 @@ function FeedbackPopoverButton({
     },
     [
       target,
-      schema,
       value,
       honeypot,
       submitting,
@@ -583,7 +634,8 @@ function FeedbackPopoverButton({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+                    void submit();
                 }}
                 placeholder={resolvedPlaceholder}
                 rows={5}

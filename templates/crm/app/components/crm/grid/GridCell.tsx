@@ -474,7 +474,8 @@ export function CellDisplay({
     return (
       <span className="flex items-center gap-2 overflow-hidden">
         {values.map((entry) => {
-          const text = String(entry);
+          const text =
+            typeof entry === "string" ? entry : (JSON.stringify(entry) ?? "");
           return (
             <LinkValue
               key={text}

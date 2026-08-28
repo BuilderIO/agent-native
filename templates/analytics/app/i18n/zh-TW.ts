@@ -834,6 +834,8 @@ const messages = {
       "在此組織中建立的儀表板會在這裡顯示使用情況和清理訊號。",
     adminOnlyTitle: "需要管理員權限",
     adminOnlyDescription: "只有組織擁有者和管理員可以開啟 Analytics 管理工具。",
+    roleUnavailableTitle: "無法驗證你的存取權限",
+    roleUnavailableDescription: "無法檢查你的組織角色：{{message}}",
     notTracked: "未追蹤",
     visibilityprivate: "私人",
     visibilityorg: "與組織共用",
@@ -1158,7 +1160,7 @@ const messages = {
   sessions: {
     title: "工作階段",
     description:
-      "檢視 Agent Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
+      "檢視 Agent-Native Analytics 捕獲的第一方瀏覽器工作階段和回放紀錄。",
     filters: "篩選器",
     segmentFilters: "區段篩選器",
     sessionPlaylist: "工作階段播放清單",

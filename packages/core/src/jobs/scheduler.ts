@@ -176,6 +176,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
   }, AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS);
 
   let primaryFailed = false;
+  let shouldThrowReleaseError = false;
+  let releaseErrorToThrow: unknown;
   try {
     await processRecurringJobsWithLease(deps);
   } catch (error) {
@@ -193,9 +195,13 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         "[recurring-jobs] Scheduler lease release failed:",
         releaseError instanceof Error ? releaseError.message : releaseError,
       );
-      if (!primaryFailed) throw releaseError;
+      if (!primaryFailed) {
+        shouldThrowReleaseError = true;
+        releaseErrorToThrow = releaseError;
+      }
     }
   }
+  if (shouldThrowReleaseError) throw releaseErrorToThrow;
 }
 
 async function processRecurringJobsWithLease(
@@ -782,9 +788,9 @@ export async function runJobNow(
   owner: string,
   name: string,
   deps: SchedulerDeps,
-  options: { historyId?: string } = {},
+  options: { historyId?: string; path?: string } = {},
 ): Promise<JobExecutionResult> {
-  const path = `jobs/${name}.md`;
+  const path = options.path ?? `jobs/${name}.md`;
   const resource = await resourceGetByPath(owner, path);
   if (!resource) throw new Error(`Automation "${name}" not found.`);
   const { meta, body } = parseJobFrontmatter(resource.content);
@@ -814,6 +820,7 @@ export async function runQueuedAutomation(
   }
   const result = await runJobNow(queued.owner, queued.automation, deps, {
     historyId,
+    path: queued.path,
   });
   return {
     skipped: false,

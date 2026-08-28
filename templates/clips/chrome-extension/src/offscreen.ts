@@ -25,7 +25,7 @@ import {
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
   SCREEN_CAPTURE_FRAME_RATE,
-  screenCaptureVideoConstraints,
+  screenCaptureDisplayOptions,
   type ScreenCaptureSurface,
 } from "@shared/recording-capture";
 import {
@@ -36,6 +36,10 @@ import {
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 import { waitForAcceptedRecordingAfterFinalizeError } from "./finalize-recovery";
+import {
+  MediaPermissionRequiredError,
+  requireMediaPermission,
+} from "./media-permission";
 import {
   createNativeTranscriptionCapture,
   type NativeTranscriptionCapture,
@@ -279,7 +283,7 @@ function reportStatus(
   status: StatusName,
   extra: Record<string, unknown> = {},
 ): void {
-  chrome.runtime.sendMessage({
+  void chrome.runtime.sendMessage({
     type: "CLIPS_NATIVE_STATUS",
     sessionId,
     status,
@@ -327,17 +331,17 @@ async function streamDimensions(
   };
 }
 
-function displayConstraints(
+// Gates screen/tab audio on the same "Include microphone" toggle the popup
+// shows for the mic stream — see screenCaptureDisplayOptions for why: mic off
+// is the only signal the user gets to say "capture no audio at all".
+export function displayConstraints(
   surface: ScreenCaptureSurface,
+  wantsMic: boolean,
 ): MediaStreamConstraints {
-  return {
-    video: screenCaptureVideoConstraints(surface),
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    },
-  } as MediaStreamConstraints;
+  return screenCaptureDisplayOptions(
+    surface,
+    wantsMic,
+  ) as MediaStreamConstraints;
 }
 
 // The user's chosen camera/mic devices (set in the popup, saved to storage).
@@ -1123,21 +1127,32 @@ async function acquire(message: AcquireMessage): Promise<{
     audio: message.audioDeviceId,
   });
 
+  // Chrome cannot prompt for camera/mic in this headless document, so an
+  // ungranted device rejects as a dismissal. requireMediaPermission types that
+  // apart from a real cancellation; the worker sends the user to the permission
+  // page instead of surfacing Chrome's "Permission dismissed" as a dead end.
+  const acquireMicStream = async (): Promise<MediaStream> => {
+    const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+    return requireMediaPermission("microphone", () =>
+      getMicStream(devices.audio, audioLabel),
+    );
+  };
+
   try {
     if (message.mode === "camera") {
-      cameraStream = await getCameraStream(devices.video);
+      cameraStream = await requireMediaPermission("camera", () =>
+        getCameraStream(devices.video),
+      );
       if (message.includeMicrophone) {
-        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
-        micStream = await getMicStream(devices.audio, audioLabel);
+        micStream = await acquireMicStream();
       }
     } else {
       // Native "Choose what to share" picker. This is the screenshot Steve showed.
       displayStream = await navigator.mediaDevices.getDisplayMedia(
-        displayConstraints(message.surface),
+        displayConstraints(message.surface, message.includeMicrophone),
       );
       if (message.includeMicrophone) {
-        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
-        micStream = await getMicStream(devices.audio, audioLabel);
+        micStream = await acquireMicStream();
       }
       // The screen+camera face comes from the on-page bubble (captured in the
       // display pixels), NOT composited here: canvas/requestAnimationFrame does
@@ -1155,7 +1170,7 @@ async function acquire(message: AcquireMessage): Promise<{
     // can run the normal stop/finalize flow.
     const endedTrack = videoStream.getVideoTracks()[0] ?? null;
     const endedListener = () => {
-      chrome.runtime.sendMessage({
+      void chrome.runtime.sendMessage({
         type: "CLIPS_NATIVE_ENDED",
         sessionId: message.sessionId,
       });
@@ -1456,20 +1471,16 @@ async function saveNativeTranscript(recording: ActiveRecording): Promise<void> {
   recording.nativeTranscript = captured.text.trim();
   recording.nativeTranscriptFailure = captured.failureReason;
 
-  const body = recording.nativeTranscript
-    ? {
-        recordingId: recording.recordingId,
-        fullText: recording.nativeTranscript,
-        source: "web-speech",
-      }
-    : {
-        recordingId: recording.recordingId,
-        fullText: "",
-        source: "web-speech",
-        failureReason:
-          recording.nativeTranscriptFailure ||
-          "Chrome Web Speech recognition returned no transcript.",
-      };
+  // A partial capture must carry its reason too — the server treats text
+  // without a reason as a complete transcript and skips the cloud fallback.
+  const body = {
+    recordingId: recording.recordingId,
+    fullText: recording.nativeTranscript,
+    source: "web-speech",
+    ...(recording.nativeTranscriptFailure
+      ? { failureReason: recording.nativeTranscriptFailure }
+      : {}),
+  };
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-Agent-Native-Frontend": "1",
@@ -1880,11 +1891,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
   }
 
-  void task.then(sendResponse).catch((err) =>
-    sendResponse({
-      ok: false,
-      error: err instanceof Error ? err.message : "Recording failed.",
-    }),
-  );
+  void task.then(sendResponse).catch((err) => sendResponse(errorResponse(err)));
   return true;
 });
+
+// Errors cross the message boundary as plain data, so a missing grant has to
+// carry its code with it — the worker cannot recover from a bare message.
+export function errorResponse(error: unknown): {
+  ok: false;
+  error: string;
+  errorCode?: string;
+  errorDevice?: string;
+} {
+  if (error instanceof MediaPermissionRequiredError) {
+    return {
+      ok: false,
+      error: error.message,
+      errorCode: error.code,
+      errorDevice: error.device,
+    };
+  }
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : "Recording failed.",
+  };
+}

@@ -19,7 +19,7 @@
  * Access is gated: only an editor of the design may apply a fix.
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,

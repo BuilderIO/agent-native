@@ -7,6 +7,7 @@ export {
   isValidProjectPath,
   ensureDir,
   fail,
+  type FailOptions,
 } from "./utils.js";
 export { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 export { default as dbSchema } from "./db/schema.js";

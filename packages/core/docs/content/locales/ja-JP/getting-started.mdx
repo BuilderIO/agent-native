@@ -12,6 +12,8 @@ React UIはコードから呼び出し、エージェントはツールとして
 
 このガイドでは、Chatアプリを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
 
+<GettingStartedPaths />
+
 ## 前提条件
 
 - [Node.js](https://nodejs.org) 22以降
@@ -147,12 +149,12 @@ return { message: `Welcome, ${name}.` };
 
 同じアクションをエージェントとUIから呼び出しました。このアクションは次からも呼び出せます。
 
-| 呼び出し元 | 用途 |
-| --- | --- |
-| [HTTP API](/docs/http-api) | スクリプト、バックエンド、連携からアクションを呼び出す。 |
-| [CLI](/docs/actions-other-surfaces#cli) | ターミナルからアクションを実行またはテストする。 |
+| 呼び出し元                              | 用途                                                               |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| [HTTP API](/docs/http-api)              | スクリプト、バックエンド、連携からアクションを呼び出す。           |
+| [CLI](/docs/actions-other-surfaces#cli) | ターミナルからアクションを実行またはテストする。                   |
 | [MCP](/docs/actions-other-surfaces#mcp) | 外部AIクライアントにアクションをツールとして検出・呼び出しさせる。 |
-| [A2A](/docs/actions-other-surfaces#a2a) | 別のAgent-Nativeアプリに、このアプリで作業するよう依頼する。 |
+| [A2A](/docs/actions-other-surfaces#a2a) | 別のAgent-Nativeアプリに、このアプリで作業するよう依頼する。       |
 
 すべての呼び出し元が同じアクション定義を使います。呼び出し元ごとに別の実装は不要です。この共有アクションモデルはAgent-Nativeの中心です。アプリが変化しても、UI、エージェント、連携の間で動作、検証、権限が揃ったままになります。
 

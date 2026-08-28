@@ -5,6 +5,8 @@ description: "Connect your agent-native app to local MCP servers (claude-in-chro
 
 # MCP Clients
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant. -->
+
 **This page: give your agent more tools.** Point an agent-native app at MCP servers — local or remote — so their tools show up in the agent chat. This is the _client_ direction, the mirror image of [MCP Server](/docs/mcp-protocol) (which makes your app an MCP _server_). Note the dual use of "client" here: this page is about your app acting as an MCP client of _other_ servers — a different sense from an "MCP host" like Claude or Cursor connecting to your app (see [MCP Server](/docs/mcp-protocol) for that direction).
 
 **Looking for the provider list first?** See the [Integrations Directory](/docs/integrations)
@@ -105,7 +107,7 @@ Every source resolves into one runtime **MCP manager**, and every tool it learns
 
 ## Built-in browser and computer-use capabilities {#built-in-capabilities}
 
-Agent-native includes local-development toggles for common stdio MCP servers.
+Agent-Native includes local-development toggles for common stdio MCP servers.
 They are off by default and can be enabled per user or per organization only
 when the app is running locally. Production and hosted serverless runtimes skip
 these built-ins even if old settings rows exist, and the Workspace Resources
@@ -587,7 +589,7 @@ Individual MCP server failures never take down the agent:
 - The MCP SDK is missing from `node_modules` → all MCP functionality is skipped with a warning; agent chat keeps working with zero MCP tools.
 - Running in an edge runtime → MCP client is a no-op.
 
-Agent-native will always boot; broken MCP configuration just means fewer tools.
+Agent-Native will always boot; broken MCP configuration just means fewer tools.
 
 ## Security {#security}
 

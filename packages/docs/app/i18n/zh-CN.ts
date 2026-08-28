@@ -271,7 +271,7 @@ const zhCN = {
     },
     comparison: {
       titleLine1: "不必在 app 和 agent 之间二选一。",
-      titleAccent: "Agent-native apps 二者兼备。",
+      titleAccent: "Agent-Native apps 二者兼备。",
       columns: {
         saas: "SaaS 工具",
         agents: "原始 AI Agents",
@@ -419,6 +419,109 @@ const zhCN = {
     source: "来源",
     readDocs: "阅读文档",
     signIn: "登录",
+    tryTemplateFree: "免费试用 {{name}}",
+    designForFree: "免费设计",
+    recordForFree: "免费录制",
+    getStarted: "开始使用",
+    freeAndOpenSource: "100% 免费 • 开源",
+    viewAllApps: "查看所有应用",
+  },
+  homepage: {
+    hero: {
+      title: "面向 agentic 应用的框架",
+      bodyLine1: "为 agent 构建，无需为用户单独打造第二个产品。",
+      bodyLine2: "使用你自己的 LLM，随处部署。",
+      tryAnApp: "试用应用",
+    },
+    install: {
+      copyCommand: "复制安装命令",
+    },
+    actions: {
+      title: "一个 Action 驱动所有能力面",
+      bodyLine1: "Action 是 Agent-Native 应用的基础构建块。",
+      bodyLine2:
+        "只需定义一次功能，即可在 UI、agent 对话、HTTP API、MCP、A2A 或 CLI 中使用。",
+      diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
+    },
+    builtIn: {
+      title: "每个 Agent-Native 应用都内置这些能力",
+      body: "用户和 AI agent 协同工作所需的一切，已经集成到同一个应用中。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "为用户提供熟悉的界面，用于浏览、编辑和审核工作。",
+        },
+        agentChat: {
+          title: "内嵌 agent 对话",
+          body: "让用户无需离开应用即可委派工作、提问和查看结果。",
+        },
+        sharedState: {
+          title: "共享的应用状态",
+          body: "agent 知道用户正在查看、选择和编辑的内容。",
+        },
+        sharedSql: {
+          title: "共享的 SQL 数据",
+          body: "用户和 agent 读取并更新同一份可信数据源。",
+        },
+        skillsMemory: {
+          title: "Skills 与 memory",
+          body: "为 agent 提供可复用的专业知识和持久上下文。",
+        },
+        automations: {
+          title: "自动化",
+          body: "按计划或应用事件自动运行 agent 工作。",
+        },
+        agentTeams: {
+          title: "Agent 团队",
+          body: "在应用内部或跨应用把工作委派给专业 agent。",
+        },
+        auth: {
+          title: "身份认证与组织",
+          body: "登录、用户账户和组织成员关系均已内置。",
+        },
+        sharing: {
+          title: "分享与权限",
+          body: "控制谁可以查看、评论、编辑或管理每一项资源。",
+        },
+      },
+    },
+    stack: {
+      title: "适配你的技术栈",
+      body: "带上你自己的 LLM、数据库、工具和基础设施，Agent-Native 是开源的 TypeScript，你的应用始终归你所有。",
+      exploreApps: "探索用 Agent-Native 构建的应用",
+    },
+    showcase: {
+      title: "你能用 Agent-Native 构建什么？",
+      body: "理解你的工作、采取行动并与你协作的智能体应用。构建你自己的应用，或试用这些开源应用中的一个。",
+      browseApps: "浏览应用",
+      scrollLeft: "向左滚动应用",
+      scrollRight: "向右滚动应用",
+    },
+    bottomCta: {
+      title: "构建你的第一个 Agent-Native 应用",
+      body: "为用户和 AI agent 打造同一个应用。使用你自己的 LLM，随处部署。",
+    },
+    footer: {
+      tagline: "面向 agentic 应用的框架。",
+      framework: "框架",
+      ecosystem: "生态",
+      community: "社区",
+      legal: "法律",
+      docs: "文档",
+      download: "下载",
+      apps: "应用",
+      privacyPolicy: "隐私政策",
+      saasTerms: "SaaS 条款",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "不在本地构建？",
+      exploreApp: "先试用在线应用",
+      between: "或",
+      joinWaitlist: "加入候补名单",
+      end: "改为在浏览器中构建。",
+    },
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
@@ -444,7 +547,7 @@ const zhCN = {
     description: "从框架指南开始，或使用 Builder.io 的云端编码代理在线构建。",
     readDocs: "阅读文档",
     buildOnline: "在线构建",
-    popoverTitle: "使用 Builder.io 在线构建",
+    popoverTitle: "在浏览器中构建",
     popoverBody:
       "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
     emailLabel: "邮箱",
@@ -471,8 +574,7 @@ const zhCN = {
   templates: {
     clips: {
       replaces: "替代或增强 Loom、Granola 和 Wisprflow",
-      description:
-        "带有浏览器调试捕获、日历同步会议记录和 Fn-hold 语音听写的屏幕录制 — 所有这些都经过转录、总结和搜索，代理可以编辑其中任何内容。",
+      description: "录制屏幕、会议和语音笔记，让代理了解发生了什么并采取行动。",
     },
     plan: {
       replaces: "面向 Codex、Claude Code 和编码代理的可视化计划模式",
@@ -482,27 +584,27 @@ const zhCN = {
     design: {
       replaces: "替代或增强设计原型工具",
       description:
-        "Agent-native HTML 原型工作室。生成交互式 Alpine/Tailwind 设计，比较变体，实时微调控件，并导出结果。",
+        "将提示转化为符合你的设计系统的交互式设计，同时由代理根据反馈完善每个界面。",
     },
     content: {
       replaces: "替换或增强 Obsidian 为 MDX、Notion、Google Docs",
       description:
-        "编辑本地 Markdown/MDX 文件（如 Obsidian），生成丰富的交互式自定义块，并使用 AI 代理来起草、重写和发布。",
+        "处理你的文档，同时由代理以你的口吻起草内容、创建交互式内容并发布到你的网站。",
     },
     slides: {
       replaces: "替换或增强 Google Slides、Pitch",
       description:
-        "根据提示生成完整的演示文稿。视觉或对话方式编辑。 AI 图像生成、8 种布局和内置演示模式。",
+        "根据提示或现有幻灯片创建符合品牌且可编辑的演示文稿，代理可以创建、编辑和完善。",
     },
     analytics: {
       replaces: "Amplitude 和 FullStory 的开源替代品",
       description:
-        "连接任何数据源、提示任何图表、构建可重用的仪表板。代理编写 SQL、生成可视化并改进应用程序。",
+        "连接你的数据，让代理用通俗语言回答问题，并将结果转化为图表和仪表板。",
     },
     mail: {
       replaces: "替换或增强 Superhuman、Gmail",
       description:
-        "Superhuman 风格的电子邮件客户端，具有键盘快捷键、AI 分类、多帐户支持和电子邮件自动化。拥有您的收件箱工作流程。",
+        "一个键盘优先的收件箱，代理可以排列邮件优先级、起草回复、总结会话并持续跟进。",
     },
     forms: {
       replaces: "替换或增强 Typeform、Google Forms",
@@ -512,12 +614,12 @@ const zhCN = {
     assets: {
       replaces: "替换或增强 DAMs、品牌资产库和 AI 媒体生成器",
       description:
-        "用于上传、品牌库、可搜索参考和品牌图像/视频生成的数字资产管理器，其他应用程序可以通过 A2A 调用或嵌入为选择器。",
+        "为代理提供共享的品牌指南、图片和视频库，以便在各个应用中创建和选择符合品牌的媒体。",
     },
     calendar: {
       replaces: "替换或增强 Google Calendar、Calendly",
       description:
-        "具有 Google 同步、可用性管理和公共预订页面的完整日历。该代理会查找空闲时段、创建活动并管理您的日程安排。",
+        "汇集你的多个 Google 日历，让代理查找空闲时间、安排或重新安排活动，并管理预约。",
     },
     dispatch: {
       replaces: "代理本机应用程序的任务控制",
@@ -1209,7 +1311,7 @@ const zhCN = {
       s026: "可分享的链接",
       s027: "每个计划都有一个公共 URL。与团队成员共享以进行异步审阅、评论和批准。",
       s028: "桌面文件同步",
-      s029: "将托管计划从 Agent Native Desktop 镜像到本地 MDX 文件，无需克隆应用程序或运行 CLI。",
+      s029: "将托管计划从 Agent-Native Desktop 镜像到本地 MDX 文件，无需克隆应用程序或运行 CLI。",
       s030: "，因此审查位于代码旁边。",
       s031: "它是如何运作的",
       s032: "规划存在于共享应用程序中 - 您和代理都可以在功能的整个生命周期中读取和更新它。",
@@ -1243,7 +1345,7 @@ const zhCN = {
       s060: "查看所有模板",
       s061: "VS Code 交接",
       s062: "使用以下扩展在 VS Code 侧边面板中打开计划链接：",
-      s063: "Agent Native Plans 扩展",
+      s063: "Agent-Native Plans 扩展",
       s064: "线框图 — 带组件插槽的草图式 UI 模型",
       s065: "带注释的代码 — 带逐行注释的源文件",
       s066: "图表 — 流程图、序列图或架构图",
@@ -1270,7 +1372,7 @@ const zhCN = {
           "plan mode 是终端中的文字，只对一个人可见，批准后就会消失。Plans 是可视化的，包含线框图、图表和带注释的差异；它可共享、可持久保存，代理能在功能的整个生命周期中创建、读取和更新计划。",
         question5: "我可以在代码旁边查看计划吗？",
         answer5:
-          "可以。VS Code 扩展会在侧边面板打开计划，Agent Native Desktop 还会把托管计划镜像为本地 MDX 文件。",
+          "可以。VS Code 扩展会在侧边面板打开计划，Agent-Native Desktop 还会把托管计划镜像为本地 MDX 文件。",
         question6: "Plans 免费吗？",
         answer6:
           "免费、开源，并采用 MIT 许可证。Plans 提供托管的分享链接，你也可以把所有内容镜像到本地文件。",
@@ -1491,9 +1593,9 @@ const zhCN = {
     },
   },
   downloadPage: {
-    title: "下载 Agent Native",
+    title: "下载 Agent-Native",
     body: "所有 agent-native 应用都在一个桌面外壳中。内置生产应用，并提供用于本地开发的开发模式开关。",
-    openDesktop: "打开 Agent Native",
+    openDesktop: "打开 Agent-Native",
     downloadInstaller: "下载安装程序",
     downloadStarted: "下载已开始",
     downloadAgain: "没有成功？再次尝试下载",
@@ -1647,6 +1749,55 @@ const zhCN = {
       links: {
         builderPrivacy: "隐私政策",
         builderPrivacyFull: "Builder.io 隐私政策",
+      },
+    },
+    about: {
+      eyebrow: "关于 Agent-Native",
+      title: "为代理与人打造的开源应用",
+      intro:
+        "Agent-Native 是一个开源框架，用于构建让 AI 代理与用户界面共享相同操作、数据和应用状态的应用程序。",
+      sections: {
+        project: {
+          title: "共享的运行模型",
+          body: "Agent-Native 将代理和界面视为平等伙伴。同一个 action 可以驱动 UI 控件、代理工具、HTTP 端点、MCP 或 A2A 能力、CLI 命令和可审计流程。共享的 SQL 状态让人的视图和代理的视图保持一致，而不是再创建一套隐藏系统。",
+        },
+        openSource: {
+          title: "默认开源",
+          body: "源代码以 MIT 许可证发布在 BuilderIO/agent-native 仓库中。开发者可以检查实现、在本地运行、选择数据库和模型供应商，并根据产品需求进行调整。托管的 Agent-Native 服务与 fork 和自托管部署分开运营。",
+        },
+        hosted: {
+          title: "托管与自托管",
+          body: "Builder.io 在 agent-native.com 运营托管的 Agent-Native 应用和文档。框架也适合希望部署和维护自己应用的团队。相同的 action 合约、访问边界、代理指令和公开协议都可以在源代码和文档中检查。",
+        },
+        community: {
+          title: "公开构建",
+          body: "项目通过 GitHub issue、pull request、文档和 Agent-Native 社区公开开发。阅读文档了解架构，查看源代码验证实现，或加入社区讨论使用场景并贡献改进。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "联系",
+      title: "联系 Builder.io 了解 Agent-Native",
+      intro:
+        "使用以下支持、源码和社区渠道提问、报告问题、提出改进建议，或反馈 Agent-Native 的安全问题。",
+      emailLabel: "发送邮件至 support@builder.io",
+      sections: {
+        support: {
+          title: "产品与托管服务支持",
+          body: "如果你对托管应用、账户访问、文档问题或无法解决的行为有疑问，请发送邮件至 support@builder.io。请提供公开 URL、最小可复现描述以及相关请求或运行标识。请勿在支持邮件中发送密码、API 密钥、Bearer token 或私有客户数据。",
+        },
+        source: {
+          title: "开源项目与社区",
+          body: "使用 GitHub 仓库报告源码问题、提出功能建议、提交 pull request 或讨论实现。Discord 适合需要和其他开发者交流的问题。请先搜索已有 issue 和文档，以便维护者获得必要的背景信息。",
+        },
+        security: {
+          title: "安全报告",
+          body: "不要在公开 issue 或聊天中披露尚未修复的漏洞。请通过可用的安全渠道联系 Builder.io，只提供复现和评估所需的信息。请勿在普通支持请求中提供凭据、私有数据或漏洞利用材料。",
+        },
+        legal: {
+          title: "法律与隐私",
+          body: "有关隐私的问题请先阅读 Agent-Native 隐私政策和 Builder.io 法律资源，再联系支持团队。Builder.io, Inc. 地址为 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States。托管服务条款和自托管责任见服务条款。",
+        },
       },
     },
     terms: {
@@ -1868,6 +2019,7 @@ const zhCN = {
     externalAgents: "外部 Agents（连接主机）",
     externalAgentsCatalog: "外部 Agents 目录",
     mcpApps: "MCP Apps（内联 UI）",
+    webMcp: "WebMCP（浏览器工具）",
     crossAppSso: "跨应用 SSO",
     notifications: "通知",
     automationConnectors: "工作流连接器",
@@ -1892,8 +2044,8 @@ const zhCN = {
     calendar: "日历",
     calendarOverview: "概览",
     calendarAgent: "与 Agent 对话",
-    calendarScheduling: "日程与可用性",
-    calendarBookingLinks: "预订链接",
+    calendarFeatures: "功能",
+    calendarIntegrations: "跨应用使用",
     calendarDevelopers: "开发者指南",
     content: "内容",
     contentOverview: "概览",
@@ -1952,8 +2104,9 @@ const zhCN = {
     dispatchDevelopers: "开发者指南",
     forms: "表单",
     formsOverview: "概览",
-    formsBuildingPublishing: "构建与发布",
-    formsResponses: "回复与洞察",
+    formsFeatures: "功能",
+    formsAgent: "与 Agent 对话",
+    formsIntegrations: "跨应用使用",
     docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },

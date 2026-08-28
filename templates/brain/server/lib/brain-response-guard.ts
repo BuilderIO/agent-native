@@ -20,7 +20,7 @@ const MUTATION_INTENTS = new Set([
 ]);
 
 const COMPANY_KNOWLEDGE_TERMS = [
-  "agent native",
+  "agent-native",
   "builder",
   "brain",
   "company",
@@ -103,10 +103,12 @@ function latestUserText(
 }
 
 function normalizeToolName(name: unknown): string {
-  return String(name ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-");
+  return typeof name === "string"
+    ? name
+    : JSON.stringify(name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-");
 }
 
 function parseAskBrainResult(content: string): ParsedAskBrainResult | null {

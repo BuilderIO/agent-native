@@ -211,6 +211,10 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
+  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (typeof entry.deferLoading === "boolean") {
+    out.deferLoading = entry.deferLoading;
+  }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }
@@ -268,6 +272,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     typeof entry.needsApproval === "function"
   ) {
     out.needsApproval = entry.needsApproval;
+  }
+  if (typeof entry.allowPersistentApproval === "boolean") {
+    out.allowPersistentApproval = entry.allowPersistentApproval;
   }
   return out;
 }
@@ -611,6 +618,7 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   // never enter the model's action surface (`agentTool: false`).
   "get-hosted-harness-config",
   "set-hosted-harness-enabled",
+  "set-tool-approval-policy",
 ]);
 
 export async function mergeCoreSharingActions(
@@ -689,6 +697,10 @@ export async function mergeCoreSharingActions(
     [
       "set-hosted-harness-enabled",
       () => import("../hosted-harness/actions/set-hosted-harness-enabled.js"),
+    ],
+    [
+      "set-tool-approval-policy",
+      () => import("../agent/actions/set-tool-approval-policy.js"),
     ],
     [
       "list-feature-flags",

@@ -10,7 +10,7 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -37,6 +37,17 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import {
+  createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
+  hashSlideContent,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -86,6 +97,12 @@ const SlideAnimationSchema = z.object({
     .optional()
     .describe(
       "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
+    ),
+  byParagraph: z
+    .boolean()
+    .optional()
+    .describe(
+      "Reveal each paragraph in this text object as its own click step.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
@@ -190,6 +207,7 @@ const PatchDeckFieldsOp = z.object({
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
       starred: z.boolean().optional(),
+      generationContext: z.record(z.string(), z.unknown()).optional(),
     })
     .passthrough(),
 });
@@ -338,8 +356,14 @@ export function applyOperation(deck: any, op: Operation): void {
       if (idx === -1) return; // slide was concurrently deleted — ignore
       const slide = slides[idx];
       const fields = op.fields;
+      const previousFitFields = {
+        content: slide.content,
+        layout: slide.layout,
+        excalidrawData: slide.excalidrawData,
+      };
       if (fields.content !== undefined) {
-        slide.content = normalizeSlidePadding(fields.content);
+        const nextContent = normalizeSlidePadding(fields.content);
+        slide.content = nextContent;
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
       if (fields.background !== undefined) slide.background = fields.background;
@@ -354,6 +378,9 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.transition !== undefined) slide.transition = fields.transition;
       if (fields.animations !== undefined) slide.animations = fields.animations;
       if (fields.skipped !== undefined) slide.skipped = fields.skipped;
+      if (slideFitRenderFieldsChanged(previousFitFields, slide)) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+      }
       break;
     }
 
@@ -407,6 +434,7 @@ export function applyOperation(deck: any, op: Operation): void {
           typeof fields.content === "string"
             ? normalizeSlidePadding(fields.content)
             : "",
+        layoutFitRevision: createLayoutFitRevision(),
         notes: fields.notes ?? "",
         layout: fields.layout ?? "content",
       };
@@ -446,6 +474,8 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
       if (fields.starred !== undefined) deck.starred = fields.starred;
+      if (fields.generationContext !== undefined)
+        deck.generationContext = fields.generationContext;
       break;
     }
   }
@@ -586,7 +616,9 @@ export default defineAction({
     "then patch content and the complete ordered animations list together; " +
     "validate every 0-based elementPath and do not invent one-based indexes. " +
     "Then call get-deck with compact=true to verify the persisted slide IDs, " +
-    "count, and animation metadata before reporting success.",
+    "count, and animation metadata before reporting success. Content writes " +
+    "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
+    "get-layout-overflows later when you need the browser's fit result.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     requireAllSourceSlides: z
@@ -635,6 +667,10 @@ export default defineAction({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
       const existingContext = storedCreativeContext(deck.creativeContext);
+      const previousDeckFitFields = {
+        aspectRatio: deck.aspectRatio,
+        designSystemId: deck.designSystemId,
+      };
 
       const existingSlideIds = new Set(
         (Array.isArray(deck.slides) ? deck.slides : []).map(
@@ -680,8 +716,54 @@ export default defineAction({
         });
       }
 
+      const layoutFitSlideIds = new Set<string>();
       for (const op of operations) {
+        const previousSlide =
+          op.op === "patch-slide" || op.op === "add-slide"
+            ? (
+                deck.slides as Array<{
+                  id?: string;
+                  content?: unknown;
+                  layout?: unknown;
+                  excalidrawData?: unknown;
+                }>
+              ).find((slide) => slide.id === op.slideId)
+            : undefined;
+        const previousFitFields = previousSlide
+          ? {
+              content: previousSlide.content,
+              layout: previousSlide.layout,
+              excalidrawData: previousSlide.excalidrawData,
+            }
+          : null;
         applyOperation(deck, op);
+        if (op.op === "add-slide" && !previousSlide) {
+          layoutFitSlideIds.add(op.slideId);
+        } else if (op.op === "patch-slide" && previousFitFields) {
+          const nextSlide = (
+            deck.slides as Array<{
+              id?: string;
+              content?: unknown;
+              layout?: unknown;
+              excalidrawData?: unknown;
+            }>
+          ).find((slide) => slide.id === op.slideId);
+          if (
+            nextSlide &&
+            slideFitRenderFieldsChanged(previousFitFields, nextSlide)
+          ) {
+            layoutFitSlideIds.add(op.slideId);
+          }
+        }
+      }
+      if (deckFitRenderFieldsChanged(previousDeckFitFields, deck)) {
+        for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+          if (typeof slide.id !== "string") continue;
+          if (!layoutFitSlideIds.has(slide.id)) {
+            slide.layoutFitRevision = createLayoutFitRevision();
+          }
+          layoutFitSlideIds.add(slide.id);
+        }
       }
       if (isAgentCaller) {
         clearOmittedAnimationsForAgentContentPatches(deck, operations, {
@@ -692,7 +774,7 @@ export default defineAction({
         requireElementPaths: isAgentCaller,
       });
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.updatedAt = now;
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
@@ -828,7 +910,7 @@ export default defineAction({
       }
 
       await db.transaction(async (tx: any) => {
-        await tx
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             title: sqlTitle,
@@ -836,7 +918,8 @@ export default defineAction({
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "deck patch");
         if (generationRecord) {
           await recordGenerationCreativeContext(
             {
@@ -850,22 +933,66 @@ export default defineAction({
         }
       });
 
-      notifyClients(deckId);
+      const updatedSlideIds = [
+        ...new Set(
+          operations.flatMap((operation) =>
+            operation.op === "patch-slide" || operation.op === "add-slide"
+              ? [operation.slideId]
+              : [],
+          ),
+        ),
+      ];
+      const hasMixedStructuralOperation = operations.some(
+        (operation) =>
+          operation.op === "delete-slide" ||
+          operation.op === "reorder-slides" ||
+          operation.op === "patch-deck-fields",
+      );
+      if (updatedSlideIds.length === 1 && !hasMixedStructuralOperation) {
+        notifyClients(deckId, {
+          slideId: updatedSlideIds[0],
+          actor: isAgentCaller ? "agent" : "human",
+        });
+      } else {
+        notifyClients(deckId);
+      }
 
-      return {
+      // Only slides whose rendered geometry actually changed can newly overflow. The editor
+      // measures these asynchronously; return their hashes so a later
+      // get-layout-overflows call can reject stale browser measurements.
+      const layoutFitSlideIdList = [...layoutFitSlideIds];
+      const finalSlides: Array<{
+        id?: unknown;
+        content?: unknown;
+        layoutFitRevision?: unknown;
+      }> = Array.isArray(deck.slides) ? deck.slides : [];
+      const base = {
         ok: true,
         deckId,
         updatedAt: now,
-        updatedSlideIds: [
-          ...new Set(
-            operations.flatMap((operation) =>
-              operation.op === "patch-slide" || operation.op === "add-slide"
-                ? [operation.slideId]
-                : [],
-            ),
-          ),
-        ],
+        updatedSlideIds,
+        ...(layoutFitSlideIdList.length
+          ? {
+              layoutFit: {
+                status: "pending" as const,
+                slides: layoutFitSlideIdList.map((slideId) => {
+                  const slide = finalSlides.find((s) => s.id === slideId);
+                  return {
+                    slideId,
+                    contentHash: hashSlideContent(
+                      typeof slide?.content === "string" ? slide.content : "",
+                    ),
+                    layoutFitRevision:
+                      typeof slide?.layoutFitRevision === "string"
+                        ? slide.layoutFitRevision
+                        : undefined,
+                  };
+                }),
+              },
+            }
+          : {}),
       };
+      return base;
     });
   },
 });

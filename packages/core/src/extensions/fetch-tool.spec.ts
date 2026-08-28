@@ -1,8 +1,24 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import { createFetchToolEntry } from "./fetch-tool.js";
 
+const mockWriteWorkspaceFile = vi.hoisted(() => vi.fn());
+
+vi.mock("../workspace-files/store.js", () => ({
+  SAVE_TO_FILE_MAX_BYTES: 20 * 1024 * 1024,
+  isScratchWorkspacePath: (path: string) =>
+    path === "scratch" || path.startsWith("scratch/"),
+  toWorkspaceFileCard: (meta: unknown) => ({ meta }),
+  writeWorkspaceFile: mockWriteWorkspaceFile,
+}));
+
 describe("createFetchToolEntry", () => {
+  beforeEach(() => {
+    mockWriteWorkspaceFile.mockReset();
+    mockWriteWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -74,6 +90,82 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it("attaches public image responses as vision context", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("jpeg bytes", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "image/jpeg" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/frame.jpg"),
+    ).resolves.toEqual({
+      status: 200,
+      statusText: "OK",
+      contentType: "image/jpeg",
+      url: "https://93.184.216.34/frame.jpg",
+      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
+    });
+  });
+
+  it.each([
+    {
+      name: "an Authorization header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ Authorization: "Bearer example-token" }),
+      },
+    },
+    {
+      name: "userinfo in the URL",
+      args: { url: "https://user:password@93.184.216.34/frame.jpg" },
+    },
+    {
+      name: "a signed URL query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?X-Amz-Signature=example-signature",
+      },
+    },
+    {
+      name: "a bare key query parameter",
+      args: {
+        url: "https://93.184.216.34/frame.jpg?key=example-key",
+      },
+    },
+    {
+      name: "a compact credential header",
+      args: {
+        url: "https://93.184.216.34/frame.jpg",
+        headers: JSON.stringify({ "x-rapidapi-key": "example-key" }),
+      },
+    },
+    {
+      name: "a credential-bearing URL fragment",
+      args: {
+        url: "https://93.184.216.34/frame.jpg#access_token=example-token",
+      },
+    },
+  ])(
+    "does not attach credentialed image responses with $name",
+    async ({ args }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("jpeg bytes", {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+
+      const result = await createFetchToolEntry()["web-request"].run(args);
+
+      expect(result).toContain("HTTP 200 OK");
+      expect(result).not.toContain("anBlZyBieXRlcw==");
+      expect(result).not.toContain("_agentImages");
+    },
+  );
+
   it("blocks redirects to private/internal addresses", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {
@@ -115,6 +207,32 @@ describe("createFetchToolEntry", () => {
 
     expect(result).toContain("[redacted]");
     expect(result).not.toContain("sk-secret");
+  });
+
+  it("does not persist failed responses to durable files", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("error_code,permission_denied\n", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/csv" },
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () =>
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/api",
+          responseMode: "raw",
+          saveToFile: "exports/report.csv",
+        }),
+    );
+
+    expect(String(result)).toContain(
+      "saveToFile error: Refusing to save a failed response",
+    );
+    expect(String(result)).toContain("HTTP 403 Forbidden");
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
   it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {

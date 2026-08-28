@@ -28,7 +28,13 @@ Events tracked by application instrumentation and stored in the configured appli
   server-side tracking. Properties include `$ai_trace_id`, `$ai_session_id`,
   `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`,
   `$ai_latency`, `$ai_total_cost_usd`, `run_id`, `thread_id`,
-  `cost_cents_x100`, `duration_ms`, `tool_calls`, `status`, and error fields.
+  `cost_cents_x100`, `duration_ms`, `tool_calls`, `status`, `$ai_http_status`,
+  and error fields. `$ai_http_status` is 200 on a call that streamed to
+  completion and the provider's status on one that failed; it is absent when
+  the failure carried no status, so an unclassifiable transport drop is never
+  reported as a known rejection.
+  `$ai_latency` is model time in seconds; `duration_ms` is the full run in
+  milliseconds, and the two differ by the time spent in tools.
   A bounded `tools` array records only tool names, relative start times,
   durations, statuses, and coarse error classes; interrupted tools and failed
   runs remain visible, and `tools_truncated` marks runs above the 50-entry cap.

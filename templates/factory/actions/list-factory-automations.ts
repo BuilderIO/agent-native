@@ -43,10 +43,11 @@ export default defineAction({
     const scoped = definitions.filter(
       ({ meta, resource }) =>
         meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content) === factoryId,
+        readAutomationFactoryId(meta, resource.content, resource.path) ===
+          factoryId,
     );
     return Promise.all(
-      scoped.map(async ({ resource, name, meta, body, canUpdate }) => {
+      scoped.map(async ({ resource, name, meta, body }) => {
         const runs = await listAutomationRuns({
           owners: [resource.owner],
           automation: automationRunHistoryKey(resource.path),
@@ -71,7 +72,7 @@ export default defineAction({
             Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
               ? new Date(resource.updatedAt).toISOString()
               : null,
-          canUpdate,
+          canUpdate: true,
           runs: runs.filter((run) => run.path === resource.path),
         };
       }),

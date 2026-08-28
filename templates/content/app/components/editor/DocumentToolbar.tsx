@@ -1,4 +1,5 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -34,6 +35,7 @@ import {
   IconLink,
   IconMessageCircle,
   IconRefresh,
+  IconPin,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -99,6 +101,10 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import {
+  DatabaseExportDialog,
+  type DatabaseExportContext,
+} from "./database/DatabaseExportDialog";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
@@ -470,9 +476,12 @@ interface DocumentToolbarProps {
   canDelete?: boolean;
   deletePending?: boolean;
   onDelete?: () => Promise<void>;
+  isFavorite?: boolean;
+  onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: "info" | "comments" | null;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
+  databaseExportContext?: DatabaseExportContext | null;
   onOpenBreadcrumbItem?: (id: string) => void;
   canUndo?: boolean;
   canRedo?: boolean;
@@ -496,9 +505,12 @@ export function DocumentToolbar({
   canDelete = false,
   deletePending = false,
   onDelete,
+  isFavorite = false,
+  onToggleFavorite,
   utilityPanel,
   onUtilityPanelChange,
   showCommentsControl = true,
+  databaseExportContext,
   onOpenBreadcrumbItem,
   canUndo = false,
   canRedo = false,
@@ -540,6 +552,7 @@ export function DocumentToolbar({
     boolean | null
   >(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [databaseExportOpen, setDatabaseExportOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -605,8 +618,8 @@ export function DocumentToolbar({
         });
       } catch (err) {
         setPendingHideFromSearch(previous);
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         toast.error(t("editor.toolbar.failedToUpdateSharing"), {
@@ -616,8 +629,8 @@ export function DocumentToolbar({
         throw err;
       } finally {
         setPendingHideFromSearch(null);
-        queryClient.invalidateQueries(documentQueryFilter(documentId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(documentId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       }
@@ -654,6 +667,13 @@ export function DocumentToolbar({
 
     try {
       await navigator.clipboard.writeText(copyPageUrl);
+      if (!isLocalFileDocument) {
+        trackEvent("share_link_copied", {
+          resource_type: "document",
+          resource_id: documentId,
+          link_type: "share",
+        });
+      }
       toast.success(t("editor.toolbar.copiedPageLink"));
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCopyLink"), {
@@ -661,7 +681,7 @@ export function DocumentToolbar({
           error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [copyPageUrl, t]);
+  }, [copyPageUrl, documentId, isLocalFileDocument, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
@@ -698,7 +718,7 @@ export function DocumentToolbar({
       toast.success(t("editor.toolbar.shareableCopyReady"), {
         description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
-      navigate(`/page/${result.id}?share=1`);
+      void navigate(`/page/${result.id}?share=1`);
     } catch (error) {
       toast.error(t("editor.toolbar.couldNotCreateShareableCopy"), {
         description:
@@ -713,9 +733,12 @@ export function DocumentToolbar({
       const params = new URLSearchParams(location.search);
       params.delete("share");
       const nextSearch = params.toString();
-      navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`, {
-        replace: true,
-      });
+      void navigate(
+        `${location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
+        {
+          replace: true,
+        },
+      );
     },
     [location.pathname, location.search, navigate, openShareOnLoad],
   );
@@ -878,7 +901,7 @@ export function DocumentToolbar({
               onOpenBreadcrumbItem(id);
               return;
             }
-            navigate(`/page/${id}`, { flushSync: true });
+            void navigate(`/page/${id}`, { flushSync: true });
           }}
         />
 
@@ -997,6 +1020,19 @@ export function DocumentToolbar({
                   <IconLink className="me-2 h-4 w-4" />
                   {t("editor.toolbar.copyPageLink")}
                 </DropdownMenuItem>
+                {onToggleFavorite ? (
+                  <DropdownMenuItem
+                    onSelect={() => onToggleFavorite(!isFavorite)}
+                  >
+                    <IconPin
+                      className="me-2 h-4 w-4"
+                      strokeWidth={isFavorite ? 2.2 : 1.7}
+                    />
+                    {isFavorite
+                      ? t("editor.toolbar.unpin")
+                      : t("editor.toolbar.pin")}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   onSelect={() =>
                     onUtilityPanelChange(
@@ -1076,6 +1112,15 @@ export function DocumentToolbar({
                       {t("editor.toolbar.export")}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-44">
+                      {databaseExportContext ? (
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => setDatabaseExportOpen(true)}
+                        >
+                          <IconDownload className="me-2 h-4 w-4" />
+                          CSV
+                        </DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuItem
                         disabled={exportDocument.isPending}
                         onSelect={() => void handleExport("pdf")}
@@ -1500,6 +1545,13 @@ export function DocumentToolbar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <DatabaseExportDialog
+        documentId={documentId}
+        context={databaseExportContext ?? null}
+        defaultScope="current_view"
+        open={databaseExportOpen}
+        onOpenChange={setDatabaseExportOpen}
+      />
     </>
   );
 }

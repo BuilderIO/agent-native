@@ -1,15 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const resolveSecretMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./credential-provider.js", () => ({
+  resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
+}));
+
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
+import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
   canConnectWorkspaceProviderOAuth,
   exchangeWorkspaceProviderOAuthCode,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
+  isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
+  oauthFlowFailure,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
   resolveSalesforceOAuthLoginUrl,
+  shouldUseRootGoogleOAuthCallback,
   salesforceOAuthEndpoint,
   scopedOAuthAccountId,
   type WorkspaceProviderOAuthFlow,
@@ -17,6 +29,8 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  resolveSecretMock.mockReset();
 });
 
 describe("workspace provider OAuth", () => {
@@ -26,6 +40,51 @@ describe("workspace provider OAuth", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "member")).toBe(false);
     expect(canConnectWorkspaceProviderOAuth("org-1", null)).toBe(false);
     expect(canConnectWorkspaceProviderOAuth(null, null)).toBe(false);
+  });
+
+  it("recognizes personal and shared connection scopes", () => {
+    expect(isWorkspaceProviderOAuthScope("user")).toBe(true);
+    expect(isWorkspaceProviderOAuthScope("organization")).toBe(true);
+    expect(isWorkspaceProviderOAuthScope("app")).toBe(true);
+    expect(isWorkspaceProviderOAuthScope("workspace")).toBe(false);
+    expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
+  });
+
+  it("uses the root Google callback for every standalone managed provider", () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+
+    for (const provider of [
+      "gmail",
+      "google_calendar",
+      "google_docs",
+      "google_drive",
+      "google_sheets",
+      "google_slides",
+    ] as const) {
+      expect(shouldUseRootGoogleOAuthCallback(provider)).toBe(true);
+    }
+    expect(shouldUseRootGoogleOAuthCallback("figma")).toBe(false);
+  });
+
+  it("requires both managed OAuth client credentials", async () => {
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID" ? "google-client" : null,
+    );
+    await expect(hasWorkspaceProviderOAuthCredentials("gmail")).resolves.toBe(
+      false,
+    );
+
+    resolveSecretMock.mockResolvedValue("google-secret");
+    await expect(hasWorkspaceProviderOAuthCredentials("gmail")).resolves.toBe(
+      true,
+    );
   });
 
   it("keeps portal and site OAuth token keys owner-scoped", () => {
@@ -67,6 +126,7 @@ describe("workspace provider OAuth", () => {
       owner: "owner@example.com",
       orgId: "org-1",
       appId: "creative-context",
+      scope: "organization",
       expiresAt: 2_000,
     };
     const state = {
@@ -74,7 +134,9 @@ describe("workspace provider OAuth", () => {
       owner: flow.owner,
       orgId: flow.orgId,
       app: flow.appId,
+      scope: flow.scope,
       flowId: flow.flowId,
+      provider: undefined,
     };
     const valid = {
       flow,
@@ -86,6 +148,12 @@ describe("workspace provider OAuth", () => {
     };
 
     expect(isWorkspaceProviderOAuthFlowValid(valid)).toBe(true);
+    expect(
+      isWorkspaceProviderOAuthFlowValid({
+        ...valid,
+        state: { ...state, provider: "google_drive" },
+      }),
+    ).toBe(false);
     expect(
       isWorkspaceProviderOAuthFlowValid({
         ...valid,
@@ -113,6 +181,23 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthFlowValid({ ...valid, now: 2_001 })).toBe(
       false,
     );
+  });
+
+  it("preserves the provider in signed callback state", () => {
+    const state = encodeOAuthState({
+      redirectUri: "https://app.example.com/_agent-native/google/callback",
+      app: "dispatch",
+      scope: "user",
+      flowId: "flow-1",
+      provider: "google_slides",
+    });
+
+    expect(decodeOAuthState(state, "")).toMatchObject({
+      app: "dispatch",
+      scope: "user",
+      flowId: "flow-1",
+      provider: "google_slides",
+    });
   });
 
   it("builds a PKCE-bound Figma authorization request with the catalog scopes", () => {
@@ -280,10 +365,50 @@ describe("workspace provider OAuth", () => {
     );
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
-    expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")?.split(" ")).toEqual([
-      "https://www.googleapis.com/auth/drive.file",
-    ]);
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ]),
+    );
+  });
+
+  it("keeps the Google account chooser and preselects the signed-in identity", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri:
+          "https://beta.calendar.agent-native.com/_agent-native/connections/oauth/google_calendar/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+        loginHint: "work@example.com",
+      }),
+    );
+
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
+    expect(url.searchParams.get("login_hint")).toBe("work@example.com");
+  });
+
+  it("omits login_hint when no signed-in identity is available", () => {
+    const provider = getWorkspaceConnectionProvider("google_calendar")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "google-client",
+        redirectUri:
+          "https://beta.calendar.agent-native.com/_agent-native/connections/oauth/google_calendar/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.searchParams.has("login_hint")).toBe(false);
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
   });
 
   it("exchanges Figma codes at the current token endpoint without exposing credentials", async () => {
@@ -647,16 +772,14 @@ describe("workspace provider OAuth", () => {
     });
   });
 
-  it("resolves Google account identity through the bounded Drive about endpoint", async () => {
+  it("resolves Google account identity through the bounded OpenID userinfo endpoint", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
-            user: {
-              permissionId: "drive-permission-1",
-              emailAddress: "designer@example.com",
-              displayName: "Designer",
-            },
+            sub: "google-sub-1",
+            email: "designer@example.com",
+            name: "Designer",
           }),
           { status: 200 },
         ),
@@ -668,11 +791,11 @@ describe("workspace provider OAuth", () => {
         access_token: "google-access",
       }),
     ).resolves.toEqual({
-      accountId: "drive-permission-1",
+      accountId: "designer@example.com",
       label: "designer@example.com",
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/drive/v3/about?fields="),
+      "https://openidconnect.googleapis.com/v1/userinfo",
       expect.objectContaining({
         headers: { Authorization: "Bearer google-access" },
       }),
@@ -822,4 +945,57 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
       },
     }),
   );
+});
+
+/**
+ * `startWorkspaceProviderOAuth` navigates the top window to this endpoint, and
+ * onboarding cards link straight to it, so a JSON body on failure replaces the
+ * page the user was on — a deck, a settings screen — with raw JSON and no way
+ * back.
+ */
+describe("oauthFlowFailure", () => {
+  // Minimal h3-v2 shape: a real Request so `getRequestHeader` reads a real
+  // header bag, and a `res` so `setResponseStatus` has somewhere to write.
+  const event = (accept?: string) =>
+    ({
+      req: new Request("https://example.test/start", {
+        headers: accept ? { accept } : {},
+      }),
+      res: { status: 200, headers: new Headers() },
+    }) as never;
+
+  it("renders an error page for a browser navigation", async () => {
+    const result = oauthFlowFailure(
+      event("text/html,application/xhtml+xml"),
+      503,
+      "Google Drive OAuth client credentials are not configured.",
+    );
+    expect(result).toBeInstanceOf(Response);
+    // The page carries the caller's status, not the renderer's default 400 —
+    // a missing credential is a 503 whether the caller reads HTML or JSON.
+    expect((result as Response).status).toBe(503);
+    const body = await (result as Response).text();
+    expect(body).toContain("Google Drive OAuth client credentials");
+    expect(body).toContain("<!DOCTYPE html>");
+  });
+
+  it("keeps returning JSON to a programmatic caller", () => {
+    const result = oauthFlowFailure(event("application/json"), 400, "nope");
+    expect(result).toEqual({ error: "nope" });
+  });
+
+  it("treats a request with no Accept header as programmatic", () => {
+    expect(oauthFlowFailure(event(), 400, "nope")).toEqual({ error: "nope" });
+  });
+
+  it("escapes the message rather than trusting it as markup", async () => {
+    const result = oauthFlowFailure(
+      event("text/html"),
+      400,
+      "<img src=x onerror=alert(1)>",
+    );
+    const body = await (result as Response).text();
+    expect(body).not.toContain("<img src=x");
+    expect(body).toContain("&lt;img");
+  });
 });

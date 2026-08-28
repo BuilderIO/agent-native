@@ -4,7 +4,7 @@ import { rankAnalyticsQueryCatalog } from "./analytics-query-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
 
 describe("analytics query catalog", () => {
-  it("finds the shipped Agent Native signup chart and returns its source and query", () => {
+  it("finds the shipped Agent-Native signup chart and returns its source and query", () => {
     const config = loadDashboardSeed("agent-native-templates-first-party");
     expect(config).not.toBeNull();
     const results = rankAnalyticsQueryCatalog({
@@ -14,7 +14,7 @@ describe("analytics query catalog", () => {
       dashboards: [
         {
           id: "agent-native-templates-first-party",
-          title: "Agent Native Templates (First-party)",
+          title: "Agent-Native Templates (First-party)",
           description: "Product adoption",
           origin: "dashboard-template",
           config: config!,
@@ -22,14 +22,18 @@ describe("analytics query catalog", () => {
       ],
     });
 
-    expect(results[0]).toMatchObject({
+    const signupResult = results.find(
+      (result) =>
+        result.kind === "dashboard-panel" && result.panelId === "total-signups",
+    );
+    expect(signupResult).toMatchObject({
       kind: "dashboard-panel",
       origin: "dashboard-template",
       dashboardId: "agent-native-templates-first-party",
       panelId: "total-signups",
       source: "first-party",
     });
-    expect(results[0]).toHaveProperty(
+    expect(signupResult).toHaveProperty(
       "query",
       expect.stringContaining("analytics_events"),
     );

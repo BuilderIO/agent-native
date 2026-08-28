@@ -72,7 +72,13 @@ import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
 } from "../vite/agent-native-config-loader.js";
-import { cloneServerBundleForFunction, copyDir } from "./function-bundle.js";
+import {
+  cloneServerBundleForFunction,
+  copyDir,
+  pruneSsrIslandFromRewritingClone,
+  readPackageManifest,
+  SERVERLESS_BROWSER_RUNTIME_PACKAGES,
+} from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -765,6 +771,10 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
 
 export interface GenerateWorkerEntryOptions {
   includeReactRouterSsr?: boolean;
+  analytics?: {
+    agentNativePublicKey?: string;
+    agentNativeEndpoint?: string;
+  };
 }
 
 interface ReactRouterAssetManifest {
@@ -985,6 +995,9 @@ ${["post", "put", "delete"]
   const pluginImports: string[] = [];
   const pluginCalls: string[] = [];
   const providedPluginStems = new Set<string>();
+  pluginImports.push(
+    `import { getAppConfig as getAgentNativeAppConfig } from "${EDGE_SERVER_ENTRYPOINT}";`,
+  );
 
   for (let i = 0; i < edgePlugins.length; i++) {
     const varName = `plugin_${i}`;
@@ -1007,13 +1020,13 @@ ${["post", "put", "delete"]
   for (let i = 0; i < edgeDefaultStems.length; i++) {
     const stem = edgeDefaultStems[i];
     providedPluginStems.add(stem);
-    const varName = `defaultPlugin_${i}`;
+    const varName = `defaultPlugin_${String(i)}`;
 
     const workspaceExportName = workspaceCore?.plugins?.[stem as never];
     if (workspaceCore && workspaceExportName) {
       // Workspace-core layer wins over the framework default.
       pluginImports.push(
-        `import { ${workspaceExportName} as ${varName} } from ${JSON.stringify(
+        `import { ${String(workspaceExportName)} as ${varName} } from ${JSON.stringify(
           `${workspaceCore.packageName}/server`,
         )};`,
       );
@@ -1025,9 +1038,18 @@ ${["post", "put", "delete"]
         `import { ${defaultExportName} as ${varName} } from "${EDGE_SERVER_ENTRYPOINT}";`,
       );
     }
-    pluginCalls.push(`  if (typeof ${varName} === "function") {
+    // The worker entry mounts defaults statically, so the `plugins.disabled`
+    // check that `bootstrapDefaultPlugins` runs has to happen here too —
+    // otherwise the same config withholds a plugin on Node hosts and mounts it
+    // on the edge.
+    pluginCalls.push(`  if (typeof ${varName} === "function" && !isDefaultPluginDisabled(${JSON.stringify(stem)})) {
     await ${varName}(nitroApp);
   }`);
+  }
+  if (edgeDefaultStems.length > 0) {
+    pluginImports.unshift(
+      `import { isDefaultPluginDisabled } from "${EDGE_SERVER_ENTRYPOINT}";`,
+    );
   }
   const generatedPluginMarks =
     providedPluginStems.size > 0
@@ -1043,6 +1065,17 @@ ${["post", "put", "delete"]
       `import { markDefaultPluginProvided as markGeneratedPluginProvided } from "${EDGE_SERVER_ENTRYPOINT}";`,
     );
   }
+
+  const builtAnalyticsPublicKey =
+    options.analytics?.agentNativePublicKey?.trim() ||
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY?.trim();
+  const builtAnalyticsEndpoint =
+    options.analytics?.agentNativeEndpoint?.trim() ||
+    process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT?.trim();
 
   return `
 // Auto-generated worker entry point for ${preset}
@@ -1298,6 +1331,42 @@ function getPostHogClientConfigScript() {
   );
 }
 
+function getAgentNativeAnalyticsClientConfigScript() {
+  const env = globalThis.process?.env || {};
+  const configuredAnalytics = getAgentNativeAppConfig().analytics;
+  const configuredEndpoint =
+    configuredAnalytics.agentNativeEndpoint ===
+    "https://analytics.agent-native.com/track"
+      ? undefined
+      : configuredAnalytics.agentNativeEndpoint;
+  const builtPublicKey = ${JSON.stringify(builtAnalyticsPublicKey)};
+  const builtEndpoint = ${JSON.stringify(builtAnalyticsEndpoint)};
+  const publicKey = firstNonEmpty(
+    configuredAnalytics.agentNativePublicKey,
+    env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    builtPublicKey,
+  );
+  if (!publicKey) return null;
+  const endpoint =
+    firstNonEmpty(
+      configuredEndpoint,
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      builtEndpoint,
+    ) || "https://analytics.agent-native.com/track";
+  const config = {
+    agentNativeAnalyticsPublicKey: publicKey,
+    agentNativeAnalyticsEndpoint: endpoint,
+  };
+  return (
+    '<script data-agent-native-analytics-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1523,6 +1592,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
+      getAgentNativeAnalyticsClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
@@ -1666,7 +1736,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -1878,6 +1948,44 @@ const EMPTY_REACT_ROUTER_TURBO_STREAM =
 const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
 
+const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
+const STATIC_SHELL_LOADING_MARKUP = [
+  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100%">',
+  '<div style="display:flex;align-items:center;gap:12px">',
+  '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
+  `<style>
+        @keyframes an-cube-pulse {
+          0%, 100% { opacity: 0.15; }
+          50% { opacity: 0.95; }
+        }
+        .an-cube-cell {
+          animation: an-cube-pulse 650ms ease-in-out infinite;
+          fill: currentColor;
+          opacity: 0.15;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .an-cube-cell { animation: none; }
+        }
+      </style>`,
+  ...STATIC_SHELL_CUBE_DELAYS.map(
+    (delay, index) =>
+      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:${delay}ms"></rect>`,
+  ),
+  '</svg><span style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  `<\/div><style>
+        html {
+          background: hsl(var(--background, 0 0% 100%));
+          color: hsl(var(--foreground, 240 10% 3.9%));
+        }
+        @media (prefers-color-scheme: dark) {
+          html {
+            background: hsl(var(--background, 240 10% 3.9%));
+            color: hsl(var(--foreground, 0 0% 98%));
+          }
+        }
+      </style></div>`,
+].join("");
+
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
   basePath = normalizeConfiguredAppBasePath(),
@@ -1913,8 +2021,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  // guard:allow-raw-color - static shell loads before app theme tokens exist
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -2530,10 +2637,6 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
-const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
-  "@sparticuz/chromium",
-  "playwright-core",
-] as const;
 const SERVERLESS_BROWSER_RUNTIME_CONSUMER = "@agent-native/creative-context";
 const PACKAGE_DEPENDENCY_FIELDS = [
   "dependencies",
@@ -2586,6 +2689,29 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "fsevents",
   "node-pty",
   "playwright",
+  // Nitro traces these from officeparser's PDF-output branch, which nothing in
+  // this repo reaches — the creative-context browser path uses playwright-core,
+  // not puppeteer. `pdf` output from officeparser now fails loudly instead of
+  // launching a second, unused browser stack in every function.
+  "puppeteer",
+  "puppeteer-core",
+  "chromium-bidi",
+]);
+
+/**
+ * Declared dependencies of the browser tree that only the Bare runtime can
+ * load. tar-stream hard-depends on bare-fs and events-universal on bare-events,
+ * but on Node both exports maps resolve to the plain builtins instead, so these
+ * are never required — and most of their bytes are android/darwin/win32
+ * prebuilds a Linux function could not execute anyway.
+ */
+const BARE_RUNTIME_ONLY_PACKAGES = new Set([
+  "bare-events",
+  "bare-fs",
+  "bare-path",
+  "bare-stream",
+  "bare-url",
+  "teex",
 ]);
 type ServerlessFfmpegStaticArch = "arm64" | "x64";
 
@@ -2619,20 +2745,6 @@ function nodeModulesAncestors(startDir: string): string[] {
     current = parent;
   }
   return dirs;
-}
-
-function readPackageManifest(
-  packageDir: string,
-): Record<string, unknown> | null {
-  const packageJsonPath = path.join(packageDir, "package.json");
-  if (!fs.existsSync(packageJsonPath)) return null;
-  const manifest: unknown = JSON.parse(
-    fs.readFileSync(packageJsonPath, "utf8"),
-  );
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-    return null;
-  }
-  return manifest as Record<string, unknown>;
 }
 
 function manifestDeclaresDependency(
@@ -2751,6 +2863,12 @@ function copyRuntimePackageTree(
   for (const dependencyName of Object.keys(
     dependencies as Record<string, unknown>,
   )) {
+    // Declared by tar-stream and events-universal but unreachable on Node: both
+    // exports maps send Node to a plain fs/path implementation, and only the
+    // Bare runtime sets the condition that selects these. Skipped inside the
+    // loop, before resolution, so an unresolvable REAL dependency still fails
+    // loudly below.
+    if (BARE_RUNTIME_ONLY_PACKAGES.has(dependencyName)) continue;
     const dependencyDir = findInstalledPackageRoot(
       dependencyName,
       nodeModulesRoots,
@@ -2811,6 +2929,24 @@ export function copyInstalledBrowserRuntimePackages(
       serverDir,
       nodeModulesRoots,
       copiedPackages,
+    );
+  }
+
+  // playwright-core ships its own developer tooling: lib/vite is the trace
+  // viewer, HTML reporter, codegen recorder and CLI dashboard UI, and lib/tools
+  // plus bin/ and cli.js are the command line. A function reaches none of them —
+  // they are only entered from startTraceViewerServer, startDashboardServer and
+  // the recorder route — and every byte is paid once per emitted function.
+  // force:true because a fixture (or a future playwright-core) may not have them.
+  for (const dead of ["lib/vite", "lib/tools", "bin", "cli.js"]) {
+    fs.rmSync(
+      path.join(
+        serverDir,
+        "node_modules",
+        "playwright-core",
+        ...dead.split("/"),
+      ),
+      { recursive: true, force: true },
     );
   }
 
@@ -3523,6 +3659,17 @@ export const config = {
 };
 `;
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), entry);
+  {
+    // The clone rewrites url.pathname unconditionally, so it can never
+    // route to the SSR page/asset handlers it inherited. Netlify zips and
+    // uploads every function separately, so that island is paid for twice.
+    const freed = pruneSsrIslandFromRewritingClone(dest, entry);
+    if (freed > 0) {
+      console.log(
+        `[deploy] Pruned ${(freed / 1024 / 1024).toFixed(1)}MB of unroutable SSR modules from ${path.basename(dest)}.`,
+      );
+    }
+  }
   assertEmittedBackgroundFunctionOnDisk(dest, backgroundName);
   console.log(
     `[build] Emitted durable-background function "${backgroundName}" into the ` +
@@ -3628,6 +3775,17 @@ export const config = {
 };
 `;
   fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  {
+    // The clone rewrites url.pathname unconditionally, so it can never route to
+    // the SSR page/asset handlers it inherited. Netlify zips and uploads every
+    // function separately, so that island is paid for on every deploy.
+    const freed = pruneSsrIslandFromRewritingClone(dest, entry);
+    if (freed > 0) {
+      console.log(
+        `[deploy] Pruned ${(freed / 1024 / 1024).toFixed(1)}MB of unroutable SSR modules from ${path.basename(dest)}.`,
+      );
+    }
+  }
 }
 
 /**
@@ -3863,6 +4021,12 @@ function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
   );
 }
 
+/**
+ * Whether this function embeds the browser binary itself, which earns the size
+ * budget's browser allowance. `chromium-min` fetches the pack at launch and
+ * ships no `bin/`, so a min-based function no longer claims the allowance — the
+ * budget tightens automatically once the binary stops being bundled.
+ */
 function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
   return fs.existsSync(
     path.join(
@@ -3874,6 +4038,95 @@ function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
       "chromium.br",
     ),
   );
+}
+
+/**
+ * Replace the bundled `better-sqlite3` with a throwing stub in serverless
+ * output.
+ *
+ * The package is 27MB — a 9.1MB `sqlite3.c`, its object files, and a static
+ * archive, none of which a function can use: every consumer is gated on a
+ * `file:` or schemeless `DATABASE_URL`, and a serverless container holding a
+ * file-backed SQLite database is already broken, since the filesystem is
+ * ephemeral and each container gets its own copy.
+ *
+ * It cannot simply be deleted. Drizzle's bundled `_libs/drizzle-orm+postgres`
+ * chunk imports it at module scope, so removing the package turns every cold
+ * start into `ERR_MODULE_NOT_FOUND` — which is how this was first written, and
+ * what the SSR cold-start smoke caught. The stub keeps the specifier
+ * resolvable and moves the failure to the only place it can be acted on: a
+ * deploy that actually tries to open a file-backed database, which now throws
+ * with the reason instead of quietly serving an empty one.
+ */
+export function stubLocalOnlySqliteDriverForServerless(
+  serverDir: string,
+): number {
+  const packageDir = path.join(serverDir, "node_modules", "better-sqlite3");
+  if (!fs.existsSync(packageDir)) return 0;
+
+  const manifestPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(
+      `[deploy] ${path.relative(serverDir, packageDir)} has no package.json; ` +
+        "refusing to stub a package tree this build does not understand.",
+    );
+  }
+  const version = (
+    JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { version?: string }
+  ).version;
+  if (!version) {
+    throw new Error(
+      `[deploy] ${path.relative(serverDir, manifestPath)} declares no version; ` +
+        "refusing to stub a package tree this build does not understand.",
+    );
+  }
+
+  const saved = getDirSize(packageDir);
+  fs.rmSync(packageDir, { recursive: true, force: true });
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        name: "better-sqlite3",
+        version,
+        main: "index.js",
+        // Read by the CLI's native-dependency preflight, which would otherwise
+        // probe the stub, see its deliberate throw, and try to rebuild it.
+        agentNativeServerlessStub: true,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  // CommonJS, matching the real package: Drizzle default-imports it from ESM
+  // and relies on the interop default being the constructor.
+  fs.writeFileSync(
+    path.join(packageDir, "index.js"),
+    [
+      "// Replaced at build time by @agent-native/core: better-sqlite3 is a",
+      "// local-development driver and cannot back a serverless deployment,",
+      "// whose filesystem is ephemeral and per-container.",
+      "module.exports = class BetterSqlite3NotAvailableInServerless {",
+      "  constructor() {",
+      "    throw new Error(",
+      '      "better-sqlite3 is not available in a serverless deployment. " +',
+      '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
+      '        "filesystem is ephemeral and not shared between containers. " +',
+      '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
+      "    );",
+      "  }",
+      "};",
+      "",
+    ].join("\n"),
+  );
+
+  const freed = saved - getDirSize(packageDir);
+  console.log(
+    `[deploy] Stubbed better-sqlite3 in ${path.basename(serverDir)}: ` +
+      `${(freed / 1024 / 1024).toFixed(1)}MB of local-only SQLite driver removed.`,
+  );
+  return freed;
 }
 
 function netlifyFunctionSizeBudget(functionDir: string): number {
@@ -3888,6 +4141,38 @@ function netlifyFunctionSizeBudget(functionDir: string): number {
     NETLIFY_FUNCTION_SIZE_BUDGET_BYTES + allowance,
     NETLIFY_FUNCTION_HARD_LIMIT_BYTES,
   );
+}
+
+/**
+ * App-owned pruning of the emitted serverless functions, run before the
+ * framework measures them.
+ *
+ * An app can know things about its own payload the framework cannot — docs, for
+ * instance, emits a locale chunk per translated page and can tell which ones no
+ * prerendered route will ever import. That pruning used to be chained after
+ * `agent-native build` with `&&`, which put it after this file had already
+ * printed the size report and applied the budget: the numbers described a
+ * directory that no longer existed by the time the deploy uploaded it, 19MB
+ * high for docs. Running the app's script here instead is the only ordering in
+ * which the report is measuring what ships.
+ *
+ * A script that exists and fails aborts the build. Silently continuing would
+ * publish an unpruned payload while reporting the size the app expected.
+ */
+function runAppServerlessFunctionPruning(cwd: string): void {
+  const script = path.join(cwd, "scripts", "prune-serverless-functions.ts");
+  if (!fs.existsSync(script)) return;
+
+  console.log(
+    `[deploy] Running app serverless pruning: ${path.relative(cwd, script)}`,
+  );
+  // Resolve tsx's own entry rather than shelling out to `npx`: npm's Windows
+  // shim is `npx.cmd`, which execFileSync cannot resolve, and running the
+  // resolved script under the current interpreter avoids the question.
+  const tsxCli = createRequire(path.join(cwd, "package.json")).resolve(
+    "tsx/cli",
+  );
+  execFileSync(process.execPath, [tsxCli, script], { cwd, stdio: "inherit" });
 }
 
 function reportNetlifyFunctionSizes(
@@ -3968,6 +4253,9 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const serverDir = path.join(internalDir, "server");
   const serverEntryPath = path.join(serverDir, "server.mjs");
   const serverMainPath = path.join(serverDir, "main.mjs");
+  const sourceDrizzleMigrationFiles = listDrizzleMigrationFiles(
+    path.join(projectCwd, DRIZZLE_MIGRATIONS_SOURCE_DIR),
+  );
 
   if (!fs.existsSync(publishDir)) {
     failures.push("missing publish directory: dist");
@@ -4036,6 +4324,18 @@ export function assertSingleTemplateNetlifyBuildOutput(
     if (!/\bpreferStatic:\s*true\b/.test(serverEntry)) {
       failures.push(
         "Netlify server entry must keep preferStatic: true so /assets/* is served from dist before the SSR catch-all",
+      );
+    }
+  }
+
+  if (sourceDrizzleMigrationFiles.length > 0) {
+    const bundledMigrationDir = path.join(serverDir, "migrations");
+    const missingDrizzleMigrationFiles = sourceDrizzleMigrationFiles.filter(
+      (file) => !fs.existsSync(path.join(bundledMigrationDir, file)),
+    );
+    if (missingDrizzleMigrationFiles.length > 0) {
+      failures.push(
+        `server bundle is missing generated Drizzle migration file(s): ${missingDrizzleMigrationFiles.join(", ")}`,
       );
     }
   }
@@ -4245,8 +4545,57 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
   );
 }
 
+/**
+ * Whether the emitted bundle actually imports the `libsql` native addon.
+ *
+ * The `@libsql/client` node entry `require`s it; `@libsql/client/web` and
+ * `better-sqlite3` do not. Probing the emitted output is the only gate that
+ * cannot be wrong: `getDialect()` reads `DATABASE_URL` at RUNTIME, and neither
+ * the docs nor the beta deploy workflow sets it at build time, so build-time
+ * dialect is unknowable. This mirrors `findServerlessBrowserRuntimeConsumer`,
+ * which already gates the Chromium copy the same way — the asymmetry is why a
+ * 9.3MB Linux SQLite driver shipped in the docs function, a deployment that
+ * runs Postgres and can never load it.
+ */
+export function bundleImportsLibsqlNativeAddon(serverDir: string): boolean {
+  const bareImport = /(?:require\(|from\s*)["']libsql["']/;
+  const stack: string[] = [serverDir];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // The copied native package itself is the thing being gated; its own
+        // files must never count as a consumer.
+        if (entry.name === "node_modules" || entry.name === "@libsql") continue;
+        stack.push(full);
+        continue;
+      }
+      if (!/\.(?:mjs|cjs|js)$/.test(entry.name)) continue;
+      try {
+        if (bareImport.test(fs.readFileSync(full, "utf8"))) return true;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return false;
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
+  if (!bundleImportsLibsqlNativeAddon(serverDir)) {
+    console.log(
+      "[deploy] Skipped the libsql native package: the emitted bundle never imports the `libsql` addon.",
+    );
+    return;
+  }
   const nodeModulesRoots = nodeModulesAncestors(cwd);
   const destScopeDir = path.join(serverDir, "node_modules", "@libsql");
   let copied = 0;
@@ -4451,6 +4800,30 @@ export function pruneServerlessFunctionDeadWeight(
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 
+  // Only the `types` export condition points at declaration files, and no
+  // runtime resolver honours it — nothing inside a deployed function ever
+  // type-checks. Scoped to node_modules on purpose: there are no .d.ts outside
+  // it today, and scoping keeps a future emitted asset out of range.
+  if (fs.existsSync(nodeModulesDir)) {
+    let removedDeclarations = 0;
+    for (const declaration of fs.globSync("**/*.d.ts", {
+      cwd: nodeModulesDir,
+    })) {
+      const declarationPath = path.join(nodeModulesDir, declaration);
+      try {
+        removedBytes += fs.statSync(declarationPath).size;
+        fs.rmSync(declarationPath);
+        removedDeclarations += 1;
+      } catch {
+        // coercion-ok: a file already gone contributes nothing, and its bytes
+        // were counted before the unlink, so the total stays honest.
+      }
+    }
+    if (removedDeclarations > 0) {
+      removedNames.push(`${removedDeclarations} .d.ts file(s)`);
+    }
+  }
+
   if (removedNames.length > 0) {
     console.log(
       `[deploy] Pruned ${removedNames.length} unrunnable path(s) (${(
@@ -4621,6 +4994,43 @@ export interface NitroBuildPipelineOptions {
   publicOutputDir: string | undefined;
   appBasePath: string;
   cwd: string;
+}
+
+const DRIZZLE_MIGRATIONS_SOURCE_DIR = path.join("server", "db", "migrations");
+
+function listDrizzleMigrationFiles(sourceDir: string): string[] {
+  if (!fs.existsSync(sourceDir)) return [];
+  return fs
+    .readdirSync(sourceDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Copy generated Drizzle SQL beside Nitro's bundled server entry.
+ * `runDrizzleMigrations(new URL("./migrations", import.meta.url))` resolves
+ * that folder from the emitted server module, not from the source checkout.
+ */
+export function copyDrizzleMigrationAssets(
+  projectCwd: string,
+  serverDir: string,
+): string[] {
+  const sourceDir = path.join(projectCwd, DRIZZLE_MIGRATIONS_SOURCE_DIR);
+  if (!fs.existsSync(sourceDir)) return [];
+  const migrationFiles = listDrizzleMigrationFiles(sourceDir);
+
+  const destinationDir = path.join(serverDir, "migrations");
+  fs.rmSync(destinationDir, { recursive: true, force: true });
+  fs.mkdirSync(destinationDir, { recursive: true });
+  for (const file of migrationFiles) {
+    fs.copyFileSync(
+      path.join(sourceDir, file),
+      path.join(destinationDir, file),
+    );
+  }
+  fs.writeFileSync(path.join(destinationDir, ".gitkeep"), "");
+  return migrationFiles;
 }
 
 /**
@@ -4856,6 +5266,16 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
     ),
+    "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+      env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+        env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+        "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+        env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+        "",
+    ),
     "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
       env.GTM_CONTAINER_ID?.trim() || "",
     ),
@@ -5047,6 +5467,16 @@ export default bundle;
     cwd,
   });
 
+  const drizzleMigrationFiles = copyDrizzleMigrationAssets(
+    cwd,
+    nitro.options.output.serverDir,
+  );
+  if (drizzleMigrationFiles.length > 0) {
+    console.log(
+      `[deploy] Copied ${drizzleMigrationFiles.length} Drizzle migration file(s) into the server bundle.`,
+    );
+  }
+
   if (isCloudflareModulePreset(preset)) {
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
   }
@@ -5057,6 +5487,7 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    stubLocalOnlySqliteDriverForServerless(nitro.options.output.serverDir);
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
@@ -5106,6 +5537,7 @@ export default bundle;
     // directly from Netlify's static backing store. Keep that artifact on the
     // same public SWR policy as runtime SSR and .data responses.
     writeNetlifyStaticHeaders(path.join(cwd, "dist"));
+    runAppServerlessFunctionPruning(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 

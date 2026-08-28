@@ -1,5 +1,91 @@
 # @agent-native/creative-context
 
+## 0.7.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.14
+
+### Patch Changes
+
+- 4776e61: Reduce CI lint warnings across publishable packages.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.12
+
+### Patch Changes
+
+- db91905: Standardize Agent-Native product naming while preserving compatibility aliases for existing releases and profiles.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.3
+
+### Patch Changes
+
+- baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
+
+## 0.7.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.1
 
 ### Patch Changes

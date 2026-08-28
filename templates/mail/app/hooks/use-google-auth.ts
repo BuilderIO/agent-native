@@ -8,9 +8,11 @@ export interface GoogleAuthAccount {
   displayName?: string;
   expiresAt?: string;
   photoUrl?: string;
+  shared?: boolean;
 }
 
 export interface GoogleAuthStatus {
+  configured?: boolean;
   connected: boolean;
   accounts: GoogleAuthAccount[];
 }
@@ -151,7 +153,7 @@ export function useGoogleAuthUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-auth-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-auth-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -179,7 +181,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
 
   useEffect(() => {
     if (!enabled && query.isError) {
-      queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
+      void queryClient.resetQueries({ queryKey: ["google-add-account-url"] });
     }
   }, [enabled, query.isError, queryClient]);
 
@@ -200,9 +202,9 @@ export function useDisconnectGoogle() {
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["google-status"] });
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
-      queryClient.invalidateQueries({ queryKey: ["labels"] });
+      void queryClient.invalidateQueries({ queryKey: ["google-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
+      void queryClient.invalidateQueries({ queryKey: ["labels"] });
     },
   });
 }

@@ -69,8 +69,10 @@ export function invalidateExtensionRemoval(
   extensionId: string,
 ): void {
   queryClient.removeQueries({ queryKey: ["extension", extensionId] });
-  queryClient.invalidateQueries({ queryKey: ["extensions"] });
-  queryClient.invalidateQueries({ queryKey: ["extension-slots", extensionId] });
-  queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
-  queryClient.invalidateQueries({ queryKey: ["slot-available"] });
+  void queryClient.invalidateQueries({ queryKey: ["extensions"] });
+  void queryClient.invalidateQueries({
+    queryKey: ["extension-slots", extensionId],
+  });
+  void queryClient.invalidateQueries({ queryKey: ["slot-installs"] });
+  void queryClient.invalidateQueries({ queryKey: ["slot-available"] });
 }

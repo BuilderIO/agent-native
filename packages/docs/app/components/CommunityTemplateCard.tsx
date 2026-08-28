@@ -14,7 +14,7 @@ export interface CommunityTemplate {
   description: string;
   /** Public GitHub repository in owner/repo form. */
   repository: string;
-  /** App id when the repository is an Agent Native workspace. */
+  /** App id when the repository is an Agent-Native workspace. */
   app?: string;
   /** Optional branch, tag, or commit to pin for installs. */
   ref?: string;
@@ -85,7 +85,6 @@ export function CommunityTemplateCard({
         >
           <BuilderImage
             src={template.screenshot}
-            sizes="(max-width: 768px) 100vw, 400px"
             alt=""
             loading="lazy"
             decoding="async"

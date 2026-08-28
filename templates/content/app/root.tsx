@@ -359,7 +359,7 @@ function ContentCommandSearchResults({
 
   const openDocument = (documentId: string) => {
     onOpenChange(false);
-    navigate(contentCommandDocumentPath(documentId));
+    void navigate(contentCommandDocumentPath(documentId));
   };
 
   if (isLoading) {

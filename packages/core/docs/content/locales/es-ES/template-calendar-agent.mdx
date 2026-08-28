@@ -1,0 +1,207 @@
+---
+title: "Calendario: Hablar con el Agent"
+description: "Lo que ve el agente cuando estás en Calendario, peticiones organizadas por tarea, y cuándo recurre a la API sin procesar de Google Calendar en lugar de una acción predefinida."
+---
+
+# Hablar con el Agent
+
+Todo en Calendario está disponible para el agente a través de las mismas
+acciones que usa la interfaz, así que todo lo que puedes hacer con un clic
+también puedes pedirlo en lenguaje sencillo. Esta página cubre cómo el
+agente ve tu pantalla, peticiones útiles por tarea y dónde se sale de las
+acciones integradas. Consulta [Calendario](/docs/template-calendar) para
+ver la visión general.
+
+## Cómo ve el agente tu pantalla
+
+El agente siempre sabe cuál es la vista actual del calendario, el rango de
+fechas que estás viendo y el evento que tienes seleccionado. Por eso
+"reprograma esto" o "quién está en esta llamada" se resuelve correctamente
+sin que tengas que nombrar el evento. El agente ya sabe a cuál se refiere
+"esto".
+
+## Peticiones útiles por tarea
+
+Cada petición a continuación se convierte en una acción real sobre tu
+calendario real, el mismo que lee y escribe la interfaz. Aquí hay un
+ejemplo resuelto:
+
+<Comparison>
+
+### :blue: Tú preguntas
+
+"¿Estoy libre el jueves por la tarde?"
+
+### :green: Qué sucede
+
+Esta es una pregunta de solo lectura. El agente revisa tu calendario real y
+tus reglas de disponibilidad, y luego responde directamente en el chat, por
+ejemplo "Estás libre de 1 a 4pm." Nada en tu pantalla cambia, ya que no se
+creó ni se movió nada.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Programar
+
+- **"Programa una llamada de 30 minutos con Alex mañana a las 2pm."** El
+  evento aparece en tu calendario en el momento en que se crea. No hace
+  falta ningún diálogo.
+- **"Crea una reunión de Zoom con el equipo de diseño el jueves a las
+  10."** Igual que antes, y se adjunta un enlace de Zoom automáticamente.
+- **"Márcame como fuera de la oficina el viernes."** Un evento de todo el
+  día de fuera de la oficina aparece en tu calendario de inmediato.
+
+### Buscar tiempo libre
+
+- **"Busca un horario de 1 hora la próxima semana con Sam y Priya y
+  reserva 'Planificación' en él."** El agente revisa la disponibilidad real
+  de todos, y luego el nuevo evento aparece en tu calendario en vivo. No
+  hace falta ningún diálogo.
+
+### Gestionar eventos
+
+_Con un evento seleccionado, "esto" y "esta reunión" se resuelven por sí
+solos._
+
+- **"Mueve este evento al viernes a las 2pm."** El evento se mueve en tu
+  cuadrícula de calendario en vivo.
+- **"Añade a Jordan a esta reunión como invitado opcional."** Jordan
+  aparece en la lista de asistentes de inmediato.
+- **"Acepta esta invitación." / "Rechaza con una nota de que estoy fuera
+  ese día."** Tu confirmación de asistencia se actualiza en el evento de
+  inmediato.
+- **"Elimina esta reunión, solo para mí. No soy el organizador."** La
+  reunión desaparece de tu calendario. Los demás asistentes todavía la ven
+  en el suyo.
+
+### Enlaces de reserva
+
+- **"Crea un enlace de reserva de introducción de 15 minutos con un campo
+  de nombre."** El nuevo tipo de reunión aparece en tu lista de enlaces de
+  reserva en vivo.
+- **"Añade a Brent como coanfitrión obligatorio en mi enlace 'Steve +
+  Brent'."** Brent aparece como coanfitrión de inmediato, y los futuros
+  horarios solo se abren cuando ambos están libres.
+- **"Pausa mi enlace 'demo de 30 min'."** El enlace se muestra como pausado
+  de inmediato y deja de aceptar nuevas reservas.
+- **"Muéstrame las reservas de esta semana."** Una pregunta de solo
+  lectura. El agente responde en el chat con la lista.
+
+### Personas y vista
+
+- "¿Quién es jane en acme.com?"
+- "Añade el calendario de Priya a mi vista."
+- "Cambia a la vista de día y salta al próximo lunes."
+
+</Cards>
+
+## Enlaces de reserva grupales y con coanfitriones
+
+Cuando un enlace de reserva tiene coanfitriones obligatorios, el agente (y
+la interfaz) solo ofrece un horario cuando el propietario _y_ todos los
+coanfitriones están libres. Revisa todos sus calendarios, no solo el del
+propietario. En cuanto alguien reserva, el agente invita a todos los
+coanfitriones al evento de Google Calendar creado, junto con el visitante.
+
+<Diagram id="doc-block-calendar5" title="Cómo fluye una solicitud de programación" summary="Ya sea que hagas clic en el calendario o le preguntes al agente, las mismas acciones leen en vivo desde Google Calendar y escriben de vuelta en la misma vista. Zoom y la búsqueda de personas se conectan al mismo flujo.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Haces clic<br /><small class="diagram-muted"
+        >arrastrar, barra de herramientas, atajos</small
+      >
+    </div>
+    <div class="diagram-node">
+      Le preguntas al agente<br /><small class="diagram-muted"
+        >"busca un horario de 1 hora la próxima semana"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Acciones</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >en vivo, multicuenta</small
+      >
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted">reunión creada al reservar</small>
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">reservas · disponibilidad</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">La vista del calendario se actualiza en vivo</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Cuando el agente va directamente a la API de Google Calendar
+
+Las acciones integradas (`list-events`, `search-events`, `find-a-time`, y
+otras) cubren la programación cotidiana. Algunas solicitudes necesitan un
+endpoint, filtro o modo de paginación exacto de Google Calendar que las
+acciones no exponen, como escanear todos los eventos de seis meses para un
+informe, o una consulta inusual de lista de calendarios. Para esos casos, el
+agente puede llamar directamente a la API real de Google Calendar en lugar
+de forzar la respuesta a través de una acción más limitada. Para escaneos
+grandes, coloca los resultados en un conjunto de datos temporal y trabaja a
+partir de un resumen compacto en lugar de volcar miles de eventos en la
+conversación. Normalmente lo notarás como "déjame obtener eso directamente
+de Google Calendar" en solicitudes que van más allá de una pregunta normal
+de agenda.
+
+## Extensiones
+
+Calendario admite extensiones: pequeños widgets aislados que tú o el agente
+pueden construir e insertar en la app. El panel de detalle del evento
+expone un espacio en la parte inferior donde una extensión puede
+renderizarse, con el id del evento, el título, los horarios, las zonas
+horarias, la ubicación, los asistentes y la cuenta ya disponibles para
+ella. Consulta [Extensiones](/docs/extensions) para saber cómo construir
+una.
+
+## Qué sigue
+
+- [**Calendario**](/docs/template-calendar) — la visión general y los pasos para empezar
+- [**Funciones**](/docs/template-calendar-features) — vistas, disponibilidad, búsqueda de tiempo y enlaces de reserva, con pasos de configuración para cada una
+- [**Calendario en un espacio de trabajo con varias apps**](/docs/template-calendar-integrations) — estrategias de integración y cómo conectar con Dispatch
+- [**Guía para desarrolladores**](/docs/template-calendar-developers) — todas las acciones, el modelo de datos y cómo extender la app
+- [**Extensiones**](/docs/extensions) — construir un widget para el espacio de detalle del evento

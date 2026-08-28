@@ -11,6 +11,22 @@ import {
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 
+vi.mock("./MermaidRenderer", () => ({
+  MermaidRenderer: () => <div data-mermaid-diagram="true" />,
+}));
+
+vi.mock("./ExcalidrawSlide", () => ({
+  ExcalidrawThumbnail: () => <div data-excalidraw-thumbnail="true" />,
+  parseExcalidrawData: (json?: string) => {
+    if (!json) return null;
+    try {
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  },
+}));
+
 function rect(left: number, top: number, width: number, height: number) {
   return {
     x: left,
@@ -230,6 +246,12 @@ describe("SlideInner autofit", () => {
         if (this.classList.contains("fmd-freeform-object")) {
           return rect(156, 254, 740, 200);
         }
+        if (this.classList.contains("layout-wrapper")) {
+          return rect(110, 80, 740, 500);
+        }
+        if (this.classList.contains("inner-content")) {
+          return rect(110, 80, 740, 380);
+        }
         return rect(110, 80, 740, 500);
       },
     );
@@ -264,6 +286,47 @@ describe("SlideInner autofit", () => {
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
+    });
+  });
+
+  it("ignores a spilling flow wrapper when its inner content fits", async () => {
+    const slide: Slide = {
+      id: "wrapper-spill",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><div class="layout-wrapper"><div class="inner-content">Fits</div></div></div>',
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          verticalOverflow: 0,
+          horizontalOverflow: 0,
+        }),
+      );
+    });
+  });
+
+  it("measures direct text in a container instead of skipping its children", async () => {
+    const slide: Slide = {
+      id: "visible-container",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><div class="visible-container">Visible label <div class="inner-content">Fits</div></div></div>',
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenLastCalledWith(
         expect.objectContaining({ verticalOverflow: 120 }),
       );
     });
@@ -355,6 +418,24 @@ describe("SlideInner autofit", () => {
     });
   });
 
+  it("keeps a converted leading Markdown image in the Markdown layout path", () => {
+    const slide: Slide = {
+      id: "markdown-image-layout",
+      layout: "two-column",
+      notes: "",
+      content:
+        '<img data-markdown-image="true" src="https://cdn.example.com/chart.png" alt="Chart" style="display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;">\n\n---\n\nRight column',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const canvas = document.querySelector<HTMLElement>(
+      `[data-slide-canvas="${slide.id}"]`,
+    );
+    expect(canvas?.className).toContain("px-16");
+    expect(canvas?.querySelectorAll(".slide-content")).toHaveLength(2);
+  });
+
   it("keeps the current fit transform stable while a raw slide text block is edited", async () => {
     const slide: Slide = {
       id: "raw-editing",
@@ -384,6 +465,26 @@ describe("SlideInner autofit", () => {
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
   });
 
+  it("keeps the live edit node on a mermaid slide across re-renders", () => {
+    const slide: Slide = {
+      id: "raw-mermaid",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide"><h2>Diagram title</h2><div class="mermaid">graph TD; A--&gt;B;</div></div>',
+    };
+
+    const { rerender } = render(<SlideInner slide={slide} />);
+
+    const heading = document.querySelector<HTMLElement>("h2");
+    expect(heading).toBeTruthy();
+    heading!.contentEditable = "true";
+
+    rerender(<SlideInner slide={slide} />);
+
+    expect(document.querySelector("h2")).toBe(heading);
+  });
+
   it("does not fit the flow layer around a moved freeform object", async () => {
     const slide: Slide = {
       id: "raw-freeform",
@@ -410,6 +511,36 @@ describe("SlideInner autofit", () => {
       expect(onOverflowChange).toHaveBeenCalledWith(
         expect.objectContaining({ horizontalOverflow: 46 }),
       );
+    });
+  });
+
+  it("reports finite fit geometry for Excalidraw slides", async () => {
+    const onOverflowChange = vi.fn();
+    const onAutofitSettled = vi.fn();
+    render(
+      <SlideInner
+        slide={{
+          id: "excalidraw-fit",
+          layout: "blank",
+          notes: "",
+          content: "",
+          excalidrawData: '{"elements":[{"type":"rectangle"}]}',
+        }}
+        onOverflowChange={onOverflowChange}
+        onAutofitSettled={onAutofitSettled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onOverflowChange).toHaveBeenCalledWith({
+        contentHeight: 540,
+        contentWidth: 960,
+        viewportHeight: 540,
+        viewportWidth: 960,
+        verticalOverflow: 0,
+        horizontalOverflow: 0,
+      });
+      expect(onAutofitSettled).toHaveBeenCalled();
     });
   });
 
@@ -504,6 +635,12 @@ describe("imported deck webfonts", () => {
     );
   });
 
+  it("serves the shared picker's JetBrains Mono family", () => {
+    expect(resolveImportedFont("JetBrains Mono")?.href).toBe(
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    );
+  });
+
   it("maps a PPTX weight-suffixed typeface onto its base family", () => {
     expect(resolveImportedFont("Work Sans Medium")?.family).toBe("Work Sans");
     expect(resolveImportedFont("Open Sans SemiBold")?.family).toBe("Open Sans");
@@ -536,6 +673,17 @@ describe("imported deck webfonts", () => {
     expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
     expect(hrefs).toEqual([
       "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    ]);
+  });
+
+  it("rewrites CSSOM-serialized double-quoted picker values", () => {
+    const { html, hrefs } = prepareImportedFonts(
+      `<span style='font-family: "Playfair Display", serif;'>a</span>`,
+    );
+
+    expect(html).toContain('font-family: "Playfair Display", serif');
+    expect(hrefs).toEqual([
+      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap",
     ]);
   });
 

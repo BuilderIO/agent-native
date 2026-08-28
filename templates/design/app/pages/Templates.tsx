@@ -106,9 +106,9 @@ export default function Templates() {
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
-  const templates = data?.templates ?? [];
+  const templates = useMemo(() => data?.templates ?? [], [data?.templates]);
   const linkedTemplateId = searchParams.get("templateId");
-  const filtered = useMemo(() => {
+  const filtered = (() => {
     const query = search.trim().toLowerCase();
     return query
       ? templates.filter(
@@ -118,7 +118,7 @@ export default function Templates() {
             template.category.includes(query),
         )
       : templates;
-  }, [search, templates]);
+  })();
   const builtIns = filtered.filter((template) => template.isBuiltIn);
   const userTemplates = filtered.filter((template) => !template.isBuiltIn);
 
@@ -161,11 +161,22 @@ export default function Templates() {
     handledTemplateIdRef.current = linkedTemplateId;
     setSearch("");
     setSelected(template);
-    setSelectedDesignSystemId(resolveTemplateDesignSystemId(template));
+    setSelectedDesignSystemId(
+      template.designSystemId &&
+        designSystems.some((system) => system.id === template.designSystemId)
+        ? template.designSystemId
+        : (defaultSystem?.id ?? designSystems[0]?.id ?? null),
+    );
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
-  }, [designSystemsLoading, linkedTemplateId, templates]);
+  }, [
+    defaultSystem?.id,
+    designSystems,
+    designSystemsLoading,
+    linkedTemplateId,
+    templates,
+  ]);
 
   const openTemplatePrompt = (
     template: DesignTemplateSummary,
@@ -234,7 +245,7 @@ export default function Templates() {
           queryKey: ["action", "list-designs"],
         })
         .catch(() => {});
-      navigate(`/design/${result.id}`);
+      void navigate(`/design/${result.id}`);
     } catch (error) {
       setCreating(false);
       throw error;
@@ -302,16 +313,6 @@ export default function Templates() {
           </p>
         </div>
 
-        <div className="relative mb-6 md:hidden">
-          <IconSearch className="absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t("templatesPage.searchPlaceholder")}
-            className="h-9 w-full bg-accent/50 ps-8 text-sm"
-          />
-        </div>
-
         {isLoading ? (
           <TemplateGridSkeleton />
         ) : isError ? (
@@ -376,7 +377,7 @@ export default function Templates() {
         onDesignSystemChange={setSelectedDesignSystemId}
         onCreateDesignSystem={() => {
           setPromptOpen(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
       />
 

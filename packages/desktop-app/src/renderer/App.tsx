@@ -10,6 +10,7 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { isDesktopSettingsShortcut } from "@shared/desktop-shortcuts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 
@@ -18,7 +19,10 @@ import type {
   DesktopWorkspaceAppListResult,
 } from "../../shared/ipc-channels.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
-import { rememberDesktopIdentityStatus } from "./components/AppWebview.js";
+import {
+  rememberDesktopEnvironmentLane,
+  rememberDesktopIdentityStatus,
+} from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import WindowControls, {
   CollapsedMacWindowControls,
@@ -73,20 +77,10 @@ export default function App() {
     setPendingDesktopShortcutActivation,
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      if (window.electronAPI?.appConfig) {
-        setApps(await window.electronAPI.appConfig.load());
-      } else {
-        setApps(DESKTOP_DEFAULT_APPS);
-      }
-      setLoading(false);
-    }
-    void load();
-  }, []);
-
   const refreshWorkspaceAppList = useCallback(async () => {
-    const loader = window.electronAPI?.appConfig?.loadWorkspace;
+    const loader = window.electronAPI?.appConfig
+      ? () => window.electronAPI!.appConfig!.loadWorkspace!()
+      : undefined;
     if (!loader) {
       setWorkspaceAppList(undefined);
       return;
@@ -98,17 +92,62 @@ export default function App() {
     }
   }, []);
 
+  // The lane depends on the verified email, so it is only known once identity
+  // has resolved. A change has to remount webviews — they are already pointed
+  // at the previous origin.
+  const refreshEnvironmentLane = useCallback(async () => {
+    const getLane = window.electronAPI?.identity
+      ? () => window.electronAPI!.identity!.getEnvironmentLane()
+      : undefined;
+    if (!getLane) return;
+    try {
+      const state = await getLane();
+      if (rememberDesktopEnvironmentLane(state.lane)) {
+        setRefreshKey((current) => current + 1);
+      }
+    } catch (error) {
+      // coercion-ok: the lane keeps its last known value, which is the same
+      // origin every webview is already pointed at. A failed read must not
+      // move a signed-in user between lanes.
+      console.debug("[desktop-environment] lane read failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    async function load() {
+      const loaded = window.electronAPI?.appConfig
+        ? await window.electronAPI.appConfig.load()
+        : DESKTOP_DEFAULT_APPS;
+      // Resolve the lane before clearing the loading state: mounting first
+      // would load production and then remount onto beta, which is the extra
+      // document and session load this is meant to remove.
+      await refreshEnvironmentLane();
+      setApps(loaded);
+      setLoading(false);
+    }
+    void load();
+  }, [refreshEnvironmentLane]);
+
   useEffect(() => {
     void refreshWorkspaceAppList();
-    const onStatusChange = window.electronAPI?.identity?.onStatusChange;
+    const onStatusChange = window.electronAPI?.identity
+      ? (
+          callback: Parameters<
+            typeof window.electronAPI.identity.onStatusChange
+          >[0],
+        ) => window.electronAPI!.identity!.onStatusChange(callback)
+      : undefined;
     if (!onStatusChange) return;
     return onStatusChange((status) => {
       // App is the shell-level subscriber, so sign-out invalidates the
       // renderer cache even while every individual app webview is inactive.
       rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
+      void refreshEnvironmentLane();
     });
-  }, [refreshWorkspaceAppList]);
+  }, [refreshWorkspaceAppList, refreshEnvironmentLane]);
 
   const visibleEnabledApps = getDesktopVisibleApps(
     apps.filter((app) => app.enabled),
@@ -122,6 +161,30 @@ export default function App() {
     setSettingsTab(tab ?? "general");
     setShowSettings(true);
   }, []);
+
+  useEffect(() => {
+    const onKeydown = window.electronAPI?.shortcuts
+      ? (
+          callback: Parameters<
+            typeof window.electronAPI.shortcuts.onKeydown
+          >[0],
+        ) => window.electronAPI!.shortcuts!.onKeydown(callback)
+      : undefined;
+    if (!onKeydown) return;
+    return onKeydown((input) => {
+      if (
+        !isDesktopSettingsShortcut({
+          key: input.key,
+          code: input.code,
+          shift: input.shiftKey,
+          alt: input.altKey,
+        })
+      ) {
+        return;
+      }
+      handleOpenSettings();
+    });
+  }, [handleOpenSettings]);
 
   const handleChatFirstAppSelectionChange = useCallback((appId?: string) => {
     setActiveChatFirstAppId(appId ?? "");
@@ -192,17 +255,28 @@ export default function App() {
       const app = apps.find((candidate) => candidate.id === appId);
       if (!api || !app) return;
 
-      const updated = app.isBuiltIn
-        ? await api.update(appId, { enabled: false })
-        : await api.remove(appId);
-      setApps(updated);
-      setActiveChatFirstAppId((current) => (current === appId ? "" : current));
-      setChatFirstPreviewRequest((current) =>
-        current?.appId === appId ? undefined : current,
-      );
-      setChatFirstPreviewStatus((current) =>
-        current?.appId === appId ? undefined : current,
-      );
+      try {
+        const updated = app.isBuiltIn
+          ? await api.update(appId, { enabled: false })
+          : await api.remove(appId);
+        setApps(updated);
+        setActiveChatFirstAppId((current) =>
+          current === appId ? "" : current,
+        );
+        setChatFirstPreviewRequest((current) =>
+          current?.appId === appId ? undefined : current,
+        );
+        setChatFirstPreviewStatus((current) =>
+          current?.appId === appId ? undefined : current,
+        );
+      } catch {
+        // The main process failed to persist the change (e.g. userData is
+        // unwritable), so local state must stay untouched and the failure
+        // must be visible instead of leaving a silently-reverted rail.
+        toast.error(`Couldn't remove ${app.name}`, {
+          description: "Please try again.",
+        });
+      }
     },
     [apps],
   );

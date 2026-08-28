@@ -270,7 +270,13 @@ function isDeviceUnavailableError(err: unknown): boolean {
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err || "Unknown error");
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err || "Unknown error";
+  try {
+    return JSON.stringify(err) ?? "Unknown error";
+  } catch {
+    return "Unknown error";
+  }
 }
 
 function micLabelDiagnostic(label: string | null | undefined): string {
@@ -476,7 +482,7 @@ function fetchSignalWithTimeout(
 
 function fetchAbortError(signal: AbortSignal, err: unknown): Error {
   if (signal.aborted && signal.reason instanceof Error) return signal.reason;
-  return err instanceof Error ? err : new Error(String(err));
+  return err instanceof Error ? err : new Error(errorMessage(err));
 }
 
 export class RecorderEngine {
@@ -506,6 +512,7 @@ export class RecorderEngine {
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
   private wakeLock: WakeLockSentinel | null = null;
   private wakeLockGeneration = 0;
+  private wakeLockRetake: (() => void) | null = null;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -909,7 +916,7 @@ export class RecorderEngine {
         // during active recording, which ends getDisplayMedia's video track
         // outright (unlike the mic/camera, display capture requires an
         // active compositor). Without this, a paused recording left idle
-        // finalizes early with no warning — see onDisplayTrackEnded below.
+        // finalizes early — see onDisplayTrackEnded below.
         // Best-effort: unsupported browsers or a denied request must never
         // block capture.
         void this.acquireWakeLock();
@@ -1010,6 +1017,14 @@ export class RecorderEngine {
           );
           track.addEventListener("ended", () => {
             if (this.state === "recording" || this.state === "paused") {
+              // Paused, the user cannot have clicked "Stop sharing" — the
+              // display slept or locked. Same finalize, but say so instead of
+              // ending as if they had asked for it.
+              if (this.state === "paused") {
+                this.emitWarning(
+                  "Screen sharing ended while the recording was paused; saving what was captured so far.",
+                );
+              }
               if (this.opts.onDisplayTrackEnded) {
                 this.opts.onDisplayTrackEnded();
               } else {
@@ -1085,7 +1100,7 @@ export class RecorderEngine {
       // by a camera permission denial would leave the screen capture
       // running until tab close.
       this.cleanupTracks();
-      this.transition("error", { reason: String(err) });
+      this.transition("error", { reason: errorMessage(err) });
       throw err instanceof Error ? err : this.friendlyError(err);
     }
   }
@@ -1436,7 +1451,7 @@ export class RecorderEngine {
       // isFinal sentinel upload. Ensure we never leave the engine stuck
       // mid-state — the UI spinner is wired to engine state and would
       // hang forever otherwise.
-      const e = err instanceof Error ? err : new Error(String(err));
+      const e = err instanceof Error ? err : new Error(errorMessage(err));
       if (e.name !== "AbortError") {
         this.rememberUploadFailure(e);
       }
@@ -1477,7 +1492,7 @@ export class RecorderEngine {
       completed = true;
       return this.toFinalizeResult(result, meta);
     } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
+      const e = err instanceof Error ? err : new Error(errorMessage(err));
       if (e.name !== "AbortError") {
         this.rememberUploadFailure(e);
       }
@@ -1560,9 +1575,9 @@ export class RecorderEngine {
         throw err;
       }
       throw new Error(
-        `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${errorMessage(
+          err,
+        )}`,
       );
     }
     if (!resetRes.ok) {
@@ -1652,7 +1667,7 @@ export class RecorderEngine {
         // (compressBlobIfTooLarge normally swallows ffmpeg-internal
         // failures and returns `{ compressed: false }`, so this catch is
         // for the abort path and the truly unexpected.)
-        throw err instanceof Error ? err : new Error(String(err));
+        throw err instanceof Error ? err : new Error(errorMessage(err));
       }
 
       const finalBlob = compression.blob;
@@ -1946,7 +1961,8 @@ export class RecorderEngine {
           total: null,
         });
       } catch (err) {
-        const failure = err instanceof Error ? err : new Error(String(err));
+        const failure =
+          err instanceof Error ? err : new Error(errorMessage(err));
         // User-initiated cancel — cancel() already runs the abortUrl path.
         if (failure.name === "AbortError") return;
         this.rememberUploadFailure(failure);
@@ -2048,7 +2064,8 @@ export class RecorderEngine {
         } catch (err) {
           if (chunkAbort.signal.aborted) return;
           if (!uploadError) {
-            uploadError = err instanceof Error ? err : new Error(String(err));
+            uploadError =
+              err instanceof Error ? err : new Error(errorMessage(err));
             chunkAbort.abort(uploadError);
           }
           return;
@@ -2371,7 +2388,22 @@ export class RecorderEngine {
 
   /** Best-effort — unsupported browsers or a denied request must never block capture. */
   private async acquireWakeLock(): Promise<void> {
+    // The platform drops a screen wake lock the moment the document goes
+    // hidden and refuses to grant one while it is hidden, so a single
+    // acquisition only ever protects the foreground. Taking it again on the
+    // way back is the most the page can do.
+    if (!this.wakeLockRetake && typeof document !== "undefined") {
+      const doc = document;
+      this.wakeLockRetake = () => {
+        if (doc.visibilityState === "visible" && this.displayStream) {
+          void this.acquireWakeLock();
+        }
+      };
+      doc.addEventListener("visibilitychange", this.wakeLockRetake);
+    }
     const generation = ++this.wakeLockGeneration;
+    this.wakeLock?.release().catch(() => {});
+    this.wakeLock = null;
     try {
       // coercion-ok: optional chaining yields undefined only when the Wake
       // Lock API itself is absent (older/other browsers) — a real rejection
@@ -2389,6 +2421,10 @@ export class RecorderEngine {
 
   private releaseWakeLock(): void {
     this.wakeLockGeneration += 1;
+    if (this.wakeLockRetake) {
+      document.removeEventListener("visibilitychange", this.wakeLockRetake);
+      this.wakeLockRetake = null;
+    }
     this.wakeLock?.release().catch(() => {});
     this.wakeLock = null;
   }
@@ -2439,7 +2475,7 @@ export class RecorderEngine {
   }
 
   private emitError(err: unknown) {
-    const e = err instanceof Error ? err : new Error(String(err));
+    const e = err instanceof Error ? err : new Error(errorMessage(err));
     this.opts.onError?.(e);
     this.transition("error", { message: e.message });
   }

@@ -213,6 +213,13 @@ function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
+  return [info.message, info.details].some(
+    (value): value is string =>
+      typeof value === "string" && /desktop app chat relay failed/i.test(value),
+  );
+}
+
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder OAuth popup via the shared
@@ -497,7 +504,6 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
-  const [providerConnected, setProviderConnected] = useState(false);
   const retryRequestedRef = useRef(false);
   const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
@@ -505,7 +511,8 @@ export function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
-  const shouldShowMissingProviderSetup = isMissingLlmProviderRunError(info);
+  const shouldShowProviderSetup =
+    isMissingLlmProviderRunError(info) || isDesktopChatRelayRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
@@ -516,11 +523,17 @@ export function RunErrorRecoveryCard({
   // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  // Rejected provider keys already have a recovery path: update/connect the
-  // credential, then let the setup callback re-run the turn. Exposing a
-  // separate retry button here just replays the same rejected credential and
-  // turns a permanent auth failure into a loop.
-  const canRetry = canRecover || isUnblockableExternally;
+  // Rejected provider keys keep their setup path below — update/connect the
+  // credential and the setup callback re-runs the turn. They ALSO get a retry
+  // now, which the old comment here ruled out because "retry replays the same
+  // rejected credential and turns a permanent auth failure into a loop". That
+  // is no longer true: a 401 fingerprints the credential and skips it for a
+  // backing-off window (`recordProviderCredentialAuthFailure`), so the next
+  // attempt reaches for a different one, or fails closed as missing
+  // credentials. Without this the common case — a rejected workspace or
+  // deployment credential the reader cannot see, let alone edit — rendered a
+  // "Connected ✓" panel with no action at all.
+  const canRetry = canRecover || isUnblockableExternally || isProviderAuthError;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -562,7 +575,6 @@ export function RunErrorRecoveryCard({
   }, [onDismiss, onProviderConnected, onRetry]);
 
   const handleMissingProviderConnected = useCallback(() => {
-    setProviderConnected(true);
     onProviderConnected?.();
   }, [onProviderConnected]);
   const handleMissingProviderRetry = useCallback(() => {
@@ -594,7 +606,7 @@ export function RunErrorRecoveryCard({
     }
   }, [builderReconnectResolved, onDismiss]);
 
-  if (shouldShowMissingProviderSetup) {
+  if (shouldShowProviderSetup) {
     return (
       <div className="w-full">
         <BuilderSetupCard
@@ -602,19 +614,30 @@ export function RunErrorRecoveryCard({
           layout="sidebar"
           onConnected={handleMissingProviderConnected}
         />
-        {providerConnected ? (
-          <div className="flex justify-center px-3 pt-1">
-            <button
-              type="button"
-              onClick={handleMissingProviderRetry}
-              disabled={retryRequested}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-            >
-              <IconRefresh size={13} />
-              {t("agentChat.common.retry")}
-            </button>
-          </div>
-        ) : null}
+        {/*
+          Deliberately not gated on `providerConnected`. That gate assumed
+          connecting here is the only route out, which is false for the reader
+          this card now most often reaches: a rejected workspace or deployment
+          credential is skipped for a backing-off window, so the next run can
+          report missing credentials while the actual fix is someone else
+          repairing the shared credential, or simply the window expiring.
+          Withholding retry until they connect a provider they may have no
+          permission to add left an already-connected panel with no action —
+          the same dead end the rejected-credential card was just changed to
+          stop producing, one step later. `handleMissingProviderRetry` fires at
+          most once per card, so offering it cannot loop.
+        */}
+        <div className="flex justify-center px-3 pt-1">
+          <button
+            type="button"
+            onClick={handleMissingProviderRetry}
+            disabled={retryRequested}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          >
+            <IconRefresh size={13} />
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -710,13 +733,13 @@ export function RunErrorRecoveryCard({
           <button
             type="button"
             onClick={onContinue}
-            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
           >
             <IconPlayerPlay size={13} />
             <span className="truncate">{t("agentChat.common.continue")}</span>
           </button>
         )}
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/60 p-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {canRetry && (
             <button
               type="button"
@@ -821,7 +844,8 @@ export function LoopLimitContinueCard({
   onContinue: () => void;
 }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );

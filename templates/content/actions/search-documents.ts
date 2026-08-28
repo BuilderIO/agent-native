@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -45,6 +45,8 @@ function makeSnippet(content: string, query: string, radius = 120) {
 export default defineAction({
   description:
     "Search one bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z
     .object({
       query: z.string().trim().min(1).optional().describe("Search text"),

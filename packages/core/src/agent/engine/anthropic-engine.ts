@@ -25,10 +25,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import { describeErrorWithCauses } from "./error-detail.js";
-import {
-  createFirstEventAbortController,
-  FIRST_STREAM_EVENT_TIMEOUT_MS,
-} from "./first-event-timeout.js";
+import { createFirstEventAbortController } from "./first-event-timeout.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -37,6 +34,7 @@ import {
   splitSystemPromptForCache,
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
+import { createProviderToolNameMap } from "./tool-name.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
@@ -86,8 +84,9 @@ class AnthropicEngine implements AgentEngine {
     // multiplies the two layers into ~12 HTTP requests per failed run.
     const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
 
-    const tools = engineToolsToAnthropic(opts.tools);
-    const messages = engineMessagesToAnthropic(opts.messages);
+    const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const tools = engineToolsToAnthropic(opts.tools, toolNameMap);
+    const messages = engineMessagesToAnthropic(opts.messages, toolNameMap);
     const anthropicOpts = opts.providerOptions?.anthropic;
 
     // Resolved once so both max_tokens and the thinking-budget headroom
@@ -237,7 +236,11 @@ class AnthropicEngine implements AgentEngine {
         // The SDK's SSE parsing already drops `ping` keepalives before they
         // reach this loop, so any chunk here is real provider progress.
         firstEventAbort.markFirstEvent();
-        const events = anthropicChunkToEngineEvents(chunk, chunkState);
+        const events = anthropicChunkToEngineEvents(
+          chunk,
+          chunkState,
+          toolNameMap,
+        );
         for (const event of events) {
           observeStreamedToolInput(toolInputs, event);
           yield event;
@@ -245,7 +248,10 @@ class AnthropicEngine implements AgentEngine {
       }
 
       const finalMessage = await apiStream.finalMessage();
-      const assistantContent = anthropicContentToEngine(finalMessage.content);
+      const assistantContent = anthropicContentToEngine(
+        finalMessage.content,
+        toolNameMap,
+      );
 
       // The final content can carry the same tool call with an empty input
       // even though the stream already delivered complete argument deltas.
@@ -278,14 +284,24 @@ class AnthropicEngine implements AgentEngine {
 
       // Emit usage
       if (finalMessage.usage) {
+        // Anthropic reports `input_tokens` EXCLUDING both cache fields — the
+        // opposite of OpenAI, and the opposite of what the `usage` event
+        // means. Passing it through under-reported the prompt (a fully cached
+        // turn read as ~3 tokens) and made `calculateCost` charge the cached
+        // tokens twice. Add them back so every engine emits one convention;
+        // `@ai-sdk/anthropic` normalizes its `inputTokens.total` the same way.
+        const cacheReadTokens = finalMessage.usage.cache_read_input_tokens ?? 0;
+        const cacheWriteTokens =
+          finalMessage.usage.cache_creation_input_tokens ?? 0;
         yield {
           type: "usage",
-          inputTokens: finalMessage.usage.input_tokens ?? 0,
+          inputTokens:
+            (finalMessage.usage.input_tokens ?? 0) +
+            cacheReadTokens +
+            cacheWriteTokens,
           outputTokens: finalMessage.usage.output_tokens ?? 0,
-          cacheReadTokens:
-            (finalMessage.usage as any).cache_read_input_tokens ?? 0,
-          cacheWriteTokens:
-            (finalMessage.usage as any).cache_creation_input_tokens ?? 0,
+          cacheReadTokens,
+          cacheWriteTokens,
         };
       }
 
@@ -314,12 +330,14 @@ class AnthropicEngine implements AgentEngine {
           : typeof err?.statusCode === "number"
             ? err.statusCode
             : undefined;
-      // A first-event abort surfaces from the SDK as a generic
-      // APIUserAbortError ("Request was aborted.") — replace it with a
-      // message that actually explains what happened.
+      // A deadline abort surfaces from the SDK as a generic APIUserAbortError
+      // ("Request was aborted.") — replace it with a message that actually
+      // explains what happened. Which deadline fired comes from the
+      // controller: a total-deadline abort is a socket that wedged MID-stream,
+      // not a connection that never spoke.
       const rawMessage: string = err?.message ?? String(err);
       const errorMessage = timedOut
-        ? `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`
+        ? `${firstEventAbort.timeoutMessage()}; the connection appears wedged.`
         : describeErrorWithCauses(err);
       // Anthropic SDK APIConnectionError defaults to "Connection error." with
       // no HTTP status. Tag it so in-run retries and run-level resume treat

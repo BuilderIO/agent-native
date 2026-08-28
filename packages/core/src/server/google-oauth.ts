@@ -17,9 +17,9 @@ import {
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
-import { getAppName } from "./app-name.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -87,7 +87,7 @@ function escapeHtml(s: string): string {
 }
 
 /**
- * Detect requests from the Agent Native desktop app specifically.
+ * Detect requests from the Agent-Native desktop app specifically.
  *
  * The desktop app appends `AgentNativeDesktop/<version>` to its user-agent
  * (see `packages/desktop-app/src/main/index.ts`). We check for that marker
@@ -95,7 +95,7 @@ function escapeHtml(s: string): string {
  * Electron-based webviews like Builder.io's Fusion, Slack desktop, Discord,
  * etc. Falsely treating those as "the desktop app" sends users to the
  * `agentnative://oauth-complete` deep-link success page after Google sign-in,
- * where the protocol handler can't fire and the "Open Agent Native" button
+ * where the protocol handler can't fire and the "Open Agent-Native" button
  * does nothing.
  *
  * Kept exported as `isElectron` for backwards compatibility with consumers.
@@ -251,9 +251,14 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
  * The protocol defaults to `https` in production (so a TLS-terminating proxy
  * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
-export function getOrigin(event: H3Event): string {
+export function getOrigin(
+  event: H3Event,
+  options: { useForwardedHost?: boolean } = {},
+): string {
   const headerHost =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+    options.useForwardedHost === false
+      ? getHeader(event, "host")
+      : getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
@@ -369,8 +374,9 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
  * as a 400.
  *
  * The intentional shape is exact-prefix:
- *   - Origin must equal `getOrigin(event)` — no Host-header injection
- *     reusing somebody else's registered redirect URI.
+ *   - Origin must equal the resolved request origin — no Host-header injection
+ *     reusing somebody else's registered redirect URI. Callers with a
+ *     separately verified origin may pass it as `expectedOrigin`.
  *   - Path must start with `${appBasePath}/_agent-native/` so we never
  *     hand auth codes to a public marketing or open-redirect endpoint
  *     on the same registered host.
@@ -382,6 +388,7 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
 export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
+  expectedOrigin = getOrigin(event),
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -391,7 +398,6 @@ export function isAllowedOAuthRedirectUri(
     return false;
   }
   // Must be same origin as our server.
-  const expectedOrigin = getOrigin(event);
   let expectedUrl: URL;
   try {
     expectedUrl = new URL(expectedOrigin);
@@ -462,6 +468,10 @@ export interface OAuthStatePayload {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  /** Optional signed scope for provider-specific OAuth flows. */
+  scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   /**
    * Same-origin path to redirect to after a successful web-flow sign-in.
    * Threaded through the (HMAC-signed) state so it survives the round trip
@@ -506,7 +516,7 @@ let _devStateSigningKey: string | undefined;
  *
  * In production, throws if no usable server secret is set.
  */
-function getStateSigningKey(): string {
+export function getOAuthStateSigningKey(): string {
   const secret =
     process.env.OAUTH_STATE_SECRET ||
     process.env.BETTER_AUTH_SECRET ||
@@ -541,6 +551,9 @@ export interface EncodeOAuthStateOptions {
   mobile?: boolean;
   addAccount?: boolean;
   app?: string;
+  scope?: string;
+  /** Provider id for workspace OAuth callback relaying. */
+  provider?: string;
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
@@ -624,6 +637,8 @@ export function encodeOAuthState(
   if (opts.mobile) payload.m = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
+  if (opts.scope) payload.s = opts.scope;
+  if (opts.provider) payload.p = opts.provider;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
@@ -637,7 +652,7 @@ export function encodeOAuthState(
   if (signupAnonymousId) payload.ai = signupAnonymousId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
-    .createHmac("sha256", getStateSigningKey())
+    .createHmac("sha256", getOAuthStateSigningKey())
     .update(data)
     .digest("base64url");
   return `${data}.${sig}`;
@@ -660,7 +675,7 @@ export function decodeOAuthState(
       const data = stateParam.slice(0, dotIdx);
       const sig = stateParam.slice(dotIdx + 1);
       const expected = crypto
-        .createHmac("sha256", getStateSigningKey())
+        .createHmac("sha256", getOAuthStateSigningKey())
         .update(data)
         .digest("base64url");
 
@@ -680,6 +695,8 @@ export function decodeOAuthState(
         mobile: !!parsed.m,
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
+        scope: typeof parsed.s === "string" ? parsed.s : undefined,
+        provider: typeof parsed.p === "string" ? parsed.p : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
         // consumer (oauthCallbackResponse → safeReturnPath). The state is
         // HMAC-signed, but we still validate at consumption as defence in
@@ -748,6 +765,15 @@ export async function createOAuthSession(
       name?: string | null;
       attribution?: Record<string, string | undefined>;
       signupAnonymousId?: string;
+      /**
+       * Whether this callback created the account, decided by the caller at
+       * the moment it created it. Callers that provision the canonical user
+       * before getting here MUST pass this: the `hasBetterAuthUserEmail`
+       * probe below then reads the row they just wrote and concludes the
+       * person is an existing user, which silently deleted the only
+       * attributed signup event Google sign-in produces.
+       */
+      isNewUser?: boolean;
     };
   },
 ): Promise<OAuthSessionResult> {
@@ -762,11 +788,14 @@ export async function createOAuthSession(
   let shouldTrackSignup = false;
   if (!opts.hasProductionSession || needsDeepLink) {
     if (opts.trackSignup && !opts.hasProductionSession) {
-      const [hasLegacySession, hasBetterAuthUser] = await Promise.all([
-        hasLegacySessionForEmail(email).catch(() => true),
-        hasBetterAuthUserEmail(email).catch(() => true),
-      ]);
-      shouldTrackSignup = !hasLegacySession && !hasBetterAuthUser;
+      shouldTrackSignup =
+        opts.trackSignup.isNewUser ??
+        (await Promise.all([
+          hasLegacySessionForEmail(email).catch(() => true),
+          hasBetterAuthUserEmail(email).catch(() => true),
+        ]).then(
+          ([hasLegacySession, hasUser]) => !hasLegacySession && !hasUser,
+        ));
     }
 
     sessionToken = crypto.randomBytes(32).toString("hex");
@@ -781,6 +810,8 @@ export async function createOAuthSession(
         readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
+        origin: "google_oauth",
+        signupMethod: "google",
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
@@ -834,7 +865,7 @@ export function oauthCallbackResponse(
     appName?: string;
     desktopWebview?: boolean;
   },
-): Response | string | unknown | Promise<Response | string | unknown> {
+): unknown {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
   // clients. UA detection remains the fallback for ordinary mobile browsers.
   const mobile = opts.mobile || isMobile(event);
@@ -923,7 +954,7 @@ export function oauthCallbackResponse(
   // check, any client whose OAuth state was minted with `desktop=true` (e.g.
   // a stale link, or an upstream that wrongly set `?desktop=1`) would land
   // on the `agentnative://` page where the deep link can't fire and the
-  // "Open Agent Native" button does nothing — surfaces inside Builder.io's
+  // "Open Agent-Native" button does nothing — surfaces inside Builder.io's
   // Fusion webview hit this exact dead-end. Fall through to the web flow
   // for non-Agent-Native-Desktop clients so they get a real redirect.
   if (opts.desktop && isElectron(event)) {
@@ -977,11 +1008,11 @@ export function oauthCallbackResponse(
  *  callers pass `error.message` from a token-exchange or userinfo failure,
  *  which can echo upstream provider strings (and historically attacker-
  *  controlled query params via the `error_description` field). */
-export function oauthErrorPage(message: string): Response {
+export function oauthErrorPage(message: string, status = 400): Response {
   const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
-    400,
+    status,
   );
 }
 
@@ -999,7 +1030,7 @@ export function oauthDesktopExchangePage(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function resolveOAuthAppName(explicit?: string): string {
-  const raw = explicit || getAppName() || "Agent Native";
+  const raw = explicit || getAppConfig().app.name || "Agent-Native";
   if (!/^[a-z0-9_-]+$/.test(raw)) return raw;
   return raw
     .split(/[-_]+/)
@@ -1033,18 +1064,19 @@ function desktopSuccessPage(
     const deepLink = buildOAuthCompleteDeepLink(sessionToken, state);
     const deepLinkJson = JSON.stringify(deepLink);
     // Defence in depth: if this page somehow gets served to a UA that isn't
-    // the Agent Native desktop app (server gate bypassed, stale link, etc.),
+    // the Agent-Native desktop app (server gate bypassed, stale link, etc.),
     // skip the `agentnative://` deep link entirely and bounce to the app
     // root. The deep link silently fails outside the desktop app and the
-    // "Open Agent Native" button is a dead end in a generic browser/webview.
+    // "Open Agent-Native" button is a dead end in a generic browser/webview.
     return htmlResponse(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
+      // guard:allow-raw-color - standalone OAuth completion page has no app stylesheet.
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title><style>@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}.spinner{width:28px;height:28px;border:2px solid #333;border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite}.fallback{display:none;flex-direction:column;align-items:center;gap:8px;animation:fadeIn .2s ease-out}.fallback.show{display:flex}</style></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;gap:16px"><p style="font-size:16px;margin:0">${msg}</p><div id="loading" class="spinner"></div><div id="fallback" class="fallback"><a href=${deepLinkJson} style="display:inline-block;padding:10px 24px;background:#fff;color:#000;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">Open Agent-Native</a><p style="font-size:12px;color:#666;margin:0">If the app didn\u2019t open automatically, click the button above.</p></div><script>(function(){var ua=(navigator.userAgent||"");if(ua.indexOf("AgentNativeDesktop")===-1){window.location.replace("/");return}window.location.href=${deepLinkJson};setTimeout(function(){document.getElementById("loading").style.display="none";document.getElementById("fallback").classList.add("show")},3000)})()</script></body></html>`,
     );
   }
   return htmlResponse(
     oauthSuccessCloseTabHtml(
       msg,
-      "You can close this tab and return to Agent Native.",
+      "You can close this tab and return to Agent-Native.",
     ),
   );
 }

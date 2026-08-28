@@ -10,7 +10,7 @@
  *   pnpm action view-screen
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   readAppState,
   readAppStateForCurrentTab,
@@ -38,6 +38,7 @@ import {
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
@@ -128,17 +129,19 @@ async function fetchComments(recordingId: string) {
     .from(schema.recordingComments)
     .where(eq(schema.recordingComments.recordingId, recordingId))
     .orderBy(asc(schema.recordingComments.videoTimestampMs));
-  return rows.map((c) => ({
-    id: c.id,
-    threadId: c.threadId,
-    parentId: c.parentId,
-    authorEmail: c.authorEmail,
-    authorName: c.authorName,
-    content: c.content,
-    videoTimestampMs: c.videoTimestampMs,
-    resolved: Boolean(c.resolved),
-    createdAt: c.createdAt,
-  }));
+  return hydrateCommentAuthorNames(
+    rows.map((c) => ({
+      id: c.id,
+      threadId: c.threadId,
+      parentId: c.parentId,
+      authorEmail: c.authorEmail,
+      authorName: c.authorName,
+      content: c.content,
+      videoTimestampMs: c.videoTimestampMs,
+      resolved: Boolean(c.resolved),
+      createdAt: c.createdAt,
+    })),
+  );
 }
 
 async function fetchBrowserDiagnosticsSummary(recordingId: string) {
@@ -210,7 +213,14 @@ async function fetchLibrary({
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
   }
-  const meetingRecordingIds = db
+  // Meeting recordings are transcript-only and live on /meetings, so keep them
+  // out of clip library views. Promise.resolve assimilates the lazy proxy from
+  // create-get-db.ts to the real instance without issuing a query; the subquery
+  // must be built off *that*. Building it off `db` hands an unresolved chain to
+  // notInArray(), which reads `.getSQL()` synchronously on a cold-start proxy.
+  // The subquery filters NULLs so NOT IN doesn't collapse to empty.
+  const resolvedDb = await Promise.resolve(db);
+  const meetingRecordingIds = resolvedDb
     .select({ id: schema.meetings.recordingId })
     .from(schema.meetings)
     .where(isNotNull(schema.meetings.recordingId));

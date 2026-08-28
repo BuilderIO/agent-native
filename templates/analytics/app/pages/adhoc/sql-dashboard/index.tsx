@@ -15,6 +15,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareSheet,
   CreativeContextShareTab,
@@ -376,7 +377,11 @@ const PanelCell = memo(function PanelCell({
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
-        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        dashboardId={
+          typeof dashboardExtensionContext.dashboardId === "string"
+            ? dashboardExtensionContext.dashboardId
+            : ""
+        }
         filters={vars}
         extensionContext={
           panel.chartType === "extension"
@@ -407,8 +412,8 @@ type FetchedDashboard = {
   hiddenAt: string | null;
   hiddenBy: string | null;
   visibility: "private" | "org" | "public";
-  ownerEmail: string | null;
   createdAt: string | null;
+  createdBy: string | null;
   updatedAt: string | null;
   updatedBy: string | null;
 } & ResourceAccess;
@@ -494,8 +499,8 @@ async function fetchDashboard(
         data.visibility === "org" || data.visibility === "public"
           ? data.visibility
           : "private",
-      ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
       createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+      createdBy: typeof data.createdBy === "string" ? data.createdBy : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
       updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
@@ -579,12 +584,27 @@ function SqlDashboardPageContent({
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
+
+  useEffect(() => {
+    const nextTitle = `${normalizeDocumentTitle(
+      dashboard?.name,
+      "Dashboard",
+    )} — Analytics`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [dashboard?.name]);
+
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
     "private" | "org" | "public" | null
   >(null);
-  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedBy, setDashboardCreatedBy] = useState<string | null>(
+    null,
+  );
   const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
     null,
   );
@@ -628,6 +648,7 @@ function SqlDashboardPageContent({
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  const canArchive = canEdit || canManage;
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -736,7 +757,7 @@ function SqlDashboardPageContent({
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
-          name: emailToName(session.email),
+          name: session.name?.trim() || emailToName(session.email),
           email: session.email,
           color: emailToColor(session.email),
         }
@@ -825,7 +846,7 @@ function SqlDashboardPageContent({
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
@@ -875,7 +896,7 @@ function SqlDashboardPageContent({
     setArchivedAt(null);
     setHiddenAt(null);
     setDashboardVisibility(null);
-    setDashboardOwner(null);
+    setDashboardCreatedBy(null);
     setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
     setDashboardUpdatedBy(null);
@@ -922,7 +943,7 @@ function SqlDashboardPageContent({
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardVisibility(fetchedVisibility);
-    setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedBy(fetched?.createdBy ?? null);
     setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
     setDashboardUpdatedBy(fetched?.updatedBy ?? null);
@@ -1088,13 +1109,13 @@ function SqlDashboardPageContent({
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-sidebar", dashboardScope],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["sql-dashboards-palette", dashboardScope],
           });
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
           });
         })
@@ -1140,13 +1161,13 @@ function SqlDashboardPageContent({
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
     },
@@ -1613,19 +1634,19 @@ function SqlDashboardPageContent({
     if (!dashboardId) return;
     if (!canManage) return;
     await deleteDashboardAction({ id: dashboardId });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["sql-dashboards-sidebar", dashboardScope],
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["sql-dashboards-palette", dashboardScope],
     });
     queryClient.removeQueries({
       queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
     });
-    queryClient.invalidateQueries({
+    void queryClient.invalidateQueries({
       queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
     });
-    navigate("/");
+    void navigate("/");
   }, [
     dashboardId,
     dashboardScope,
@@ -1648,58 +1669,60 @@ function SqlDashboardPageContent({
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
-    if (!canEdit) return;
+    if (!canArchive) return;
     if (archivedAt) return;
     try {
       await archiveDashboardAction({ id: dashboardId, archived: true });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
-      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-      navigate("/");
+      toast.success(
+        t("sqlDashboard.archived", {
+          name: dashboard?.name ?? t("sqlDashboard.dashboardFallback"),
+        }),
+      );
+      void navigate("/");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't archive dashboard",
+        err instanceof Error ? err.message : t("sqlDashboard.archiveFailed"),
       );
     }
   }, [
     dashboardId,
     dashboardScope,
-    canEdit,
+    canArchive,
     archivedAt,
     archiveDashboardAction,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
     if (!dashboardId) return;
     try {
-      const result = (await hideDashboardAction({
+      await hideDashboardAction({
         id: dashboardId,
         hidden: false,
-      })) as { ownerEmail?: string | null } | undefined;
+      });
       setHiddenAt(null);
-      if (typeof result?.ownerEmail === "string") {
-        setDashboardOwner(result.ownerEmail);
-      }
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-sidebar", dashboardScope],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["sql-dashboards-palette", dashboardScope],
       });
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId, dashboardScope),
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
       });
       toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
@@ -1919,7 +1942,7 @@ function SqlDashboardPageContent({
                 </DropdownMenuItem>
               </>
             ) : null}
-            {canEdit && !archivedAt ? (
+            {canArchive && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
@@ -1931,7 +1954,7 @@ function SqlDashboardPageContent({
                 {t("sidebar.archive")}
               </DropdownMenuItem>
             ) : null}
-            {canEdit && !archivedAt && canManage ? (
+            {canArchive && !archivedAt && canManage ? (
               <DropdownMenuSeparator />
             ) : null}
             {canManage ? (
@@ -1946,13 +1969,13 @@ function SqlDashboardPageContent({
                 {t("sqlDashboard.deletePermanently")}
               </DropdownMenuItem>
             ) : null}
-            {dashboardId || (canEdit && !archivedAt) || canManage ? (
+            {dashboardId || (canArchive && !archivedAt) || canManage ? (
               <DropdownMenuSeparator />
             ) : null}
             <DropdownMenuLabel className="font-normal">
               <DashboardMetadata
                 createdAt={dashboardCreatedAt}
-                createdBy={dashboardOwner}
+                createdBy={dashboardCreatedBy}
                 updatedAt={dashboardUpdatedAt}
                 updatedBy={dashboardUpdatedBy}
               />

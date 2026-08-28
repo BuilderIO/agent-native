@@ -70,9 +70,10 @@ contract.
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared
   checkout.
+- Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
-- On every response, consider whether the chat title still matches the work.
+- Keep the chat title accurate.
 - Do the work instead of asking whether to do it. If a step is inside the task
   you were given and is not destructive, irreversible, or a spend/send/publish
   action, run it and report the result — deploys, database reads and writes,

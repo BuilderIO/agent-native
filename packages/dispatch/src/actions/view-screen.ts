@@ -7,7 +7,7 @@
  *   pnpm action view-screen
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -41,7 +41,7 @@ async function runLocalDispatchAction(
   const modulePath = `./${name}.js`;
   const module = (await import(/* @vite-ignore */ modulePath)) as {
     default?: {
-      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+      run: (args: Record<string, unknown>) => unknown;
     };
   };
   if (!module.default) throw new Error(`Dispatch action not found: ${name}`);

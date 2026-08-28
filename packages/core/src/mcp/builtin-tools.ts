@@ -197,7 +197,8 @@ function agentNativeA2AEndpoint(urlOrOrigin: string): string {
       return value;
     }
   } catch {
-    // Fall through and append the conventional Agent Native endpoint.
+    // coercion-ok: invalid URL input intentionally uses the conventional endpoint fallback.
+    // Fall through and append the conventional Agent-Native endpoint.
   }
   return `${value}/_agent-native/a2a`;
 }
@@ -552,7 +553,12 @@ function isTransientAskAppStatusError(err: unknown): boolean {
 function askAppStatusErrorCategory(
   err: unknown,
 ): AskAppStatusErrorCategory | null {
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : (JSON.stringify(err ?? "") ?? "");
   const causeCode = askAppStatusErrorCauseCode(err) ?? "";
   const diagnostic = `${message} ${causeCode}`;
   if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
@@ -952,7 +958,7 @@ function openAppTool(
       resource: embedApp({
         title: "Open app",
         description: "Render the requested app route inline.",
-        iframeTitle: "Agent Native app",
+        iframeTitle: "Agent-Native app",
         openLabel: "Open app",
       }),
     },

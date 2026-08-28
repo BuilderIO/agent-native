@@ -40,9 +40,10 @@ uses a separate workspace-connection flow that requests offline Drive metadata
 plus read-only Slides scopes without changing Google sign-in. Configure workspace-owned
 Figma and Notion OAuth apps with `FIGMA_CLIENT_ID` / `FIGMA_CLIENT_SECRET` and
 `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`, then register these callback paths
-on the deployed app origin:
+on the deployed app origin. Google sign-in and managed Google connections
+share the root callback; the OAuth state selects the final provider route:
 
-- `/_agent-native/connections/oauth/google_drive/callback`
+- `/_agent-native/google/callback`
 - `/_agent-native/connections/oauth/figma/callback`
 - `/_agent-native/connections/oauth/notion/callback`
 

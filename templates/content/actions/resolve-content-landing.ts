@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import {
   compareAndSetAppState,
   listAppState,
@@ -63,8 +63,14 @@ function isUniqueConstraintError(error: unknown): boolean {
       message?: unknown;
       cause?: unknown;
     };
-    const code = String(candidate.code ?? "");
-    const message = String(candidate.message ?? "");
+    const code =
+      typeof candidate.code === "string"
+        ? candidate.code
+        : (JSON.stringify(candidate.code) ?? "");
+    const message =
+      typeof candidate.message === "string"
+        ? candidate.message
+        : (JSON.stringify(candidate.message) ?? "");
     if (
       code === "23505" ||
       code.includes("SQLITE_CONSTRAINT") ||

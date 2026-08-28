@@ -12,7 +12,7 @@ export const AGENT_NATIVE_EXTENSION_MESSAGE_TYPES = {
 export type AgentNativeExtensionMessageType =
   (typeof AGENT_NATIVE_EXTENSION_MESSAGE_TYPES)[keyof typeof AGENT_NATIVE_EXTENSION_MESSAGE_TYPES];
 
-export type AgentNativeExtensionStorageScope = "user" | "org" | "all" | string;
+export type AgentNativeExtensionStorageScope = string;
 
 export interface AgentNativeExtensionManifest {
   /** Slot IDs this extension may render into. Omit to let the host decide. */
@@ -468,7 +468,7 @@ export function buildAgentNativeExtensionHtml({
     host: AGENT_NATIVE_HOST_MESSAGE_TYPES,
     extension: AGENT_NATIVE_EXTENSION_MESSAGE_TYPES,
   });
-  const titleText = title ?? "Agent Native extension";
+  const titleText = title ?? "Agent-Native extension";
 
   return `<!DOCTYPE html>
 <html lang="en"${isDark ? ' class="dark"' : ""}>

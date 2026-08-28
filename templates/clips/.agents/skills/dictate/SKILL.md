@@ -92,7 +92,7 @@ listeners and the mobile capture UI own those user gestures.
 
 ## Mobile dictation
 
-The Agent Native iOS/Android app exposes Dictate from native Home, deep links,
+The Agent-Native iOS/Android app exposes Dictate from native Home, deep links,
 and OS quick actions. Mobile is click-to-toggle rather than hold-to-talk:
 
 1. `expo-audio` records mic-only M4A and persists it under the app documents

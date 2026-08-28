@@ -448,6 +448,44 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("persists per-call-only approval policy when rebuilding thread history", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "send-email-call",
+            tool: "send-email",
+            input: { to: "person@example.com" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "send-email",
+            toolCallId: "send-email-call",
+            approvalKey: "send-email:approval",
+            allowPersistentApproval: false,
+          },
+        },
+      ],
+      "run-send-email-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "send-email",
+        approval: {
+          approvalKey: "send-email:approval",
+          allowPersistentApproval: false,
+        },
+      }),
+    ]);
+  });
+
   it("falls back to legacy name matching when a done id has no matching start", () => {
     const message = buildAssistantMessage(
       [
@@ -1122,6 +1160,49 @@ describe("buildAssistantMessage", () => {
       "run-fold-tools-2:tc_1",
     ]);
     expect(new Set(toolCallIds).size).toBe(toolCallIds.length);
+  });
+});
+
+describe("buildUserMessage", () => {
+  it("persists display-only file and pasted-text chips without binary data", () => {
+    const message = buildUserMessage({
+      text: "make a deck from the reference",
+      runId: "run-attachments",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          displayOnly: true,
+        },
+        {
+          type: "file",
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "outline",
+        },
+      ],
+    });
+
+    expect(message.attachments).toEqual([
+      expect.objectContaining({
+        name: "reference.pdf",
+        content: [],
+        metadata: { displayOnly: true },
+      }),
+      expect.objectContaining({
+        name: "pasted-text-1.txt",
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("outline"),
+          },
+        ],
+        metadata: { displayOnly: true },
+      }),
+    ]);
+    expect(JSON.stringify(message.attachments)).not.toContain("data:");
   });
 });
 

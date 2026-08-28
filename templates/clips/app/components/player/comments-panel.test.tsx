@@ -133,6 +133,17 @@ describe("CommentsPanel reply composer", () => {
     expect(container.textContent).toContain("www.example.org/help.");
   });
 
+  it("keeps the compact comment composer text inset", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+
+    expect(composer?.className).toContain("px-3 py-2");
+    expect(composer?.parentElement?.className).toContain(
+      "border border-border",
+    );
+  });
+
   it("renders inline Markdown while flattening headings", () => {
     renderPanel("viewer@example.com", [
       {

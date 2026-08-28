@@ -11,6 +11,8 @@ TypeScript 프레임워크입니다. 앱의 기능을 한 번만 [액션](/docs/
 
 이 가이드에서는 Chat 앱을 만들고, 포함된 `hello` 액션을 에이전트와 UI에서 호출합니다.
 
+<GettingStartedPaths />
+
 ## 사전 요구 사항
 
 - [Node.js](https://nodejs.org) 22 이상
@@ -145,12 +147,12 @@ return { message: `Welcome, ${name}.` };
 
 같은 액션을 에이전트와 UI에서 호출했습니다. 이 액션은 다음에서도 호출할 수 있습니다.
 
-| 호출 위치 | 용도 |
-| --- | --- |
-| [HTTP API](/docs/http-api) | 스크립트, 백엔드 또는 통합에서 액션을 호출합니다. |
-| [CLI](/docs/actions-other-surfaces#cli) | 터미널에서 액션을 실행하거나 테스트합니다. |
+| 호출 위치                               | 용도                                                         |
+| --------------------------------------- | ------------------------------------------------------------ |
+| [HTTP API](/docs/http-api)              | 스크립트, 백엔드 또는 통합에서 액션을 호출합니다.            |
+| [CLI](/docs/actions-other-surfaces#cli) | 터미널에서 액션을 실행하거나 테스트합니다.                   |
 | [MCP](/docs/actions-other-surfaces#mcp) | 외부 AI 클라이언트가 액션을 도구로 검색하고 호출하게 합니다. |
-| [A2A](/docs/actions-other-surfaces#a2a) | 다른 Agent-Native 앱이 이 앱에 작업을 요청하게 합니다. |
+| [A2A](/docs/actions-other-surfaces#a2a) | 다른 Agent-Native 앱이 이 앱에 작업을 요청하게 합니다.       |
 
 모든 호출자가 같은 액션 정의를 사용합니다. 호출자별로 별도 구현이 필요하지 않습니다. 이 공유 액션 모델은 Agent-Native의 핵심입니다. 앱이 바뀌어도 UI, 에이전트, 통합 전반에서 동작, 검증, 권한이 일관되게 유지됩니다.
 

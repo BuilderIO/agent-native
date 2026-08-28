@@ -27,7 +27,7 @@ import {
   IconRestore,
   IconSearch,
   IconSettings,
-  IconStar,
+  IconPin,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -65,6 +65,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -211,17 +212,6 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
 const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
   "content-sidebar-trash-collapsed-default-v2";
 const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
-
-function afterBodyPointerUnlock(callback: () => void) {
-  const run = () => {
-    if (document.body.style.pointerEvents === "none") {
-      window.requestAnimationFrame(run);
-      return;
-    }
-    callback();
-  };
-  window.requestAnimationFrame(run);
-}
 
 interface ContentSidebarStateSnapshot {
   version: typeof CONTENT_SIDEBAR_STATE_VERSION;
@@ -376,7 +366,12 @@ function useDeferredFilesDatabaseId(
     return () => window.clearTimeout(timeout);
   }, [databaseId, deferUntilDocumentId, expanded]);
 
-  return expanded && ready ? databaseId : null;
+  // `databaseId` stays stable across the defer window so the query key never
+  // changes; only `enabled` pauses the fetch. Swapping `databaseId` itself to
+  // null here would move the tree to a disabled, never-fetched query key and
+  // drop the rows already on screen for the whole deferred window instead of
+  // just holding off the refetch.
+  return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
 function WorkspaceSidebarItem({
@@ -472,12 +467,15 @@ function WorkspaceSidebarItem({
       removeActivation();
     };
   }, []);
-  const activeFilesDatabaseId = useDeferredFilesDatabaseId(
+  const deferredFilesDatabase = useDeferredFilesDatabaseId(
     space.filesDatabaseId,
     expanded,
     deferInitialReadUntilDocumentId,
   );
-  const filesDatabase = useContentDatabaseById(activeFilesDatabaseId);
+  const filesDatabase = useContentDatabaseById(
+    deferredFilesDatabase.databaseId,
+    { enabled: deferredFilesDatabase.enabled },
+  );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
     : filesDatabase.data;
@@ -1092,7 +1090,7 @@ export function DocumentSidebar({
             persistSelection: setStoredSpaceId,
             openFiles: (documentId) => {
               if (targetDocumentId === null) return;
-              navigate(`/page/${targetDocumentId ?? documentId}`, {
+              void navigate(`/page/${targetDocumentId ?? documentId}`, {
                 flushSync: true,
               });
             },
@@ -1238,7 +1236,7 @@ export function DocumentSidebar({
 
   const navigateToDocument = useCallback(
     (id: string) => {
-      navigate(`/page/${id}`, { flushSync: true });
+      void navigate(`/page/${id}`, { flushSync: true });
     },
     [navigate],
   );
@@ -1266,7 +1264,7 @@ export function DocumentSidebar({
             ["action", "get-document", { id: created.id }],
             created,
           );
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
           navigateToDocument(created.id);
@@ -1346,12 +1344,12 @@ export function DocumentSidebar({
         }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries(documentQueryFilter(nextId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (rootFilesDatabaseId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
@@ -1361,7 +1359,7 @@ export function DocumentSidebar({
           id,
           previousDocuments !== undefined,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         queryClient.removeQueries(documentQueryFilter(id));
@@ -1371,7 +1369,7 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate(previousPath, {
+        void navigate(previousPath, {
           replace: true,
           flushSync: true,
         });
@@ -1465,7 +1463,7 @@ export function DocumentSidebar({
       }
 
       if (activeDeleted) {
-        navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
+        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
           replace: true,
           flushSync: true,
         });
@@ -1479,7 +1477,7 @@ export function DocumentSidebar({
         } else {
           await deleteDocument.mutateAsync({ id });
         }
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
@@ -1489,11 +1487,11 @@ export function DocumentSidebar({
           previousDocumentQueries,
           deletedIds,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (activeDeleted) {
-          navigate(previousPath, {
+          void navigate(previousPath, {
             replace: true,
             flushSync: true,
           });
@@ -1610,10 +1608,10 @@ export function DocumentSidebar({
     async (documentId: string) => {
       try {
         await permanentlyDeleteDocument.mutateAsync({ id: documentId });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-trashed-content-databases"],
         });
         toast.success(t("sidebar.databasePermanentlyDeleted"));
@@ -1660,7 +1658,7 @@ export function DocumentSidebar({
   const handleRemoveLocalFiles = useCallback(async () => {
     try {
       const result = await removeLocalFileSource.mutateAsync({});
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
       setRemoveLocalFilesDialogOpen(false);
@@ -2313,7 +2311,7 @@ export function DocumentSidebar({
                       onClick={() => toggleSection("favorites")}
                     >
                       <span className="relative size-3.5">
-                        <IconStar
+                        <IconPin
                           aria-hidden="true"
                           className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
                         />

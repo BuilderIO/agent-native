@@ -4,8 +4,6 @@ import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client"
 import {
   deleteCookie,
   defineEventHandler,
-  getChunkedCookie,
-  getCookie,
   getMethod,
   getQuery,
   setChunkedCookie,
@@ -14,22 +12,35 @@ import {
 } from "h3";
 
 import { getOrgContext } from "../org/context.js";
-import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
+import { encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
-import { resolveSecret } from "../server/credential-provider.js";
+import {
+  CredentialStoreUnavailableError,
+  resolveSecretPairs,
+} from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import {
   getAppBasePath,
   getAppUrl,
+  encodeOAuthState,
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "../server/workspace-oauth.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import {
   finishMcpOAuthAuthorization,
+  isGoogleWorkspaceMcpServer,
   startMcpOAuthAuthorization,
   type McpOAuthDiscoveryState,
   validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
+import {
+  MCP_OAUTH_FLOW_COOKIE as FLOW_COOKIE,
+  MCP_OAUTH_FLOW_COOKIE_CHUNK_SIZE as FLOW_COOKIE_CHUNK_SIZE,
+  MCP_OAUTH_FLOW_COOKIE_MAX_CHUNKS as FLOW_COOKIE_MAX_CHUNKS,
+  readMcpOAuthFlowCookiePayload,
+} from "./oauth-flow-cookie.js";
 import {
   addOAuthRemoteServer,
   listRemoteServers,
@@ -39,27 +50,39 @@ import {
   type RemoteMcpScope,
 } from "./remote-store.js";
 
-const FLOW_COOKIE = "an_mcp_oauth_flow";
 const FLOW_TTL_SECONDS = 10 * 60;
-const FLOW_COOKIE_CHUNK_SIZE = 2_800;
-const FLOW_COOKIE_MAX_CHUNKS = 8;
-const CHUNKED_COOKIE_PREFIX = "__chunked__";
+const MCP_WORKSPACE_STATE_PROVIDER = "mcp";
 
-const MANAGED_MCP_OAUTH_CLIENTS = [
+const MANAGED_MCP_OAUTH_CLIENTS: ReadonlyArray<{
+  serverOrigins: ReadonlyArray<string>;
+  credentialPairs: ReadonlyArray<readonly [string, string]>;
+}> = [
   {
-    serverOrigin: "https://mcp.hubspot.com",
-    clientIdKeys: [
-      "HUBSPOT_MCP_CLIENT_ID",
-      "HUBSPOT_INTEGRATION_CLIENT_ID",
-      "HUBSPOT_CLIENT_ID",
-    ],
-    clientSecretKeys: [
-      "HUBSPOT_MCP_CLIENT_SECRET",
-      "HUBSPOT_INTEGRATION_CLIENT_SECRET",
-      "HUBSPOT_CLIENT_SECRET",
+    serverOrigins: ["https://mcp.hubspot.com"],
+    credentialPairs: [
+      ["HUBSPOT_MCP_CLIENT_ID", "HUBSPOT_MCP_CLIENT_SECRET"],
+      ["HUBSPOT_INTEGRATION_CLIENT_ID", "HUBSPOT_INTEGRATION_CLIENT_SECRET"],
+      ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"],
     ],
   },
-] as const;
+  {
+    serverOrigins: [
+      "https://gmailmcp.googleapis.com",
+      "https://drivemcp.googleapis.com",
+      "https://docsmcp.googleapis.com",
+      "https://sheetsmcp.googleapis.com",
+      "https://slidesmcp.googleapis.com",
+      "https://calendarmcp.googleapis.com",
+      "https://chatmcp.googleapis.com",
+      "https://people.googleapis.com",
+    ],
+    credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+  {
+    serverOrigins: ["https://workspacemcp.googleapis.com"],
+    credentialPairs: [["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]],
+  },
+];
 
 export interface McpOAuthFlow {
   name: string;
@@ -190,7 +213,10 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope);
+  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope, {
+    allowManagedOrgReconnect:
+      reconnectScope === "org" && Boolean(reconnectServer),
+  });
   if (!requestedScope) {
     setResponseStatus(event, 400);
     return {
@@ -219,16 +245,40 @@ async function handleMcpOAuthStart(
     };
   }
 
+  const useRootGoogleCallback =
+    isWorkspaceOAuthCallbackRelayEnabled() &&
+    isGoogleWorkspaceMcpServer(urlCheck.url!);
+  const workspaceAppId = useRootGoogleCallback
+    ? getWorkspaceOAuthAppId()
+    : undefined;
+  if (useRootGoogleCallback && !workspaceAppId) {
+    setResponseStatus(event, 400);
+    return { error: "Workspace MCP OAuth is missing its app callback id." };
+  }
   const redirectUri = resolveOAuthRedirectUri(
     event,
-    "/_agent-native/mcp/servers/oauth/callback",
+    useRootGoogleCallback
+      ? "/_agent-native/google/callback"
+      : "/_agent-native/mcp/servers/oauth/callback",
   );
   if (!redirectUri) {
     setResponseStatus(event, 400);
     return { error: "Invalid MCP OAuth redirect URI." };
   }
+  if (useRootGoogleCallback && !isRootGoogleCallback(redirectUri)) {
+    setResponseStatus(event, 400);
+    return {
+      error: "Google Workspace MCP OAuth must use the shared callback.",
+    };
+  }
 
-  const state = crypto.randomUUID();
+  const state = useRootGoogleCallback
+    ? encodeOAuthState({
+        redirectUri,
+        app: workspaceAppId,
+        provider: MCP_WORKSPACE_STATE_PROVIDER,
+      })
+    : crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
   const requestContext = {
     userEmail: session.email,
@@ -253,7 +303,7 @@ async function handleMcpOAuthStart(
       setResponseStatus(event, 400);
       return {
         error:
-          "HubSpot personal MCP connect is not configured for this workspace. A workspace owner must register the HubSpot MCP Auth App once; after that, any workspace member can connect a personal account.",
+          "Managed MCP OAuth is not configured for this workspace. A workspace owner must register the OAuth client once; after that, any workspace member can connect a personal account.",
       };
     }
     const flow: McpOAuthFlow = {
@@ -277,26 +327,52 @@ async function handleMcpOAuthStart(
     };
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
     return redirectWithStagedCookies(event, started.authorizationUrl.href);
-  } catch {
-    setResponseStatus(event, 400);
-    return {
-      error:
-        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
-    };
+  } catch (error) {
+    const failure = resolveMcpOAuthStartError(error);
+    setResponseStatus(event, failure.status);
+    return failure.body;
   }
 }
 
+export function resolveMcpOAuthStartError(error: unknown): {
+  status: 400 | 503;
+  body: { error: string; errorCode?: string; retryable?: boolean };
+} {
+  if (error instanceof CredentialStoreUnavailableError) {
+    return {
+      status: 503,
+      body: {
+        error: error.message,
+        errorCode: error.errorCode,
+        retryable: error.retryable,
+      },
+    };
+  }
+  return {
+    status: 400,
+    body: {
+      error:
+        "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
+    },
+  };
+}
+
 function isManagedMcpOAuthServer(serverUrl: URL): boolean {
-  return MANAGED_MCP_OAUTH_CLIENTS.some(
-    (client) => client.serverOrigin === serverUrl.origin,
+  return MANAGED_MCP_OAUTH_CLIENTS.some((client) =>
+    client.serverOrigins.includes(serverUrl.origin),
   );
 }
 
 export function resolveMcpOAuthScope(
   serverUrl: URL,
   requestedScope: unknown,
+  options?: { allowManagedOrgReconnect?: boolean },
 ): RemoteMcpScope | null {
-  if (isManagedMcpOAuthServer(serverUrl) && requestedScope === "org") {
+  if (
+    isManagedMcpOAuthServer(serverUrl) &&
+    requestedScope === "org" &&
+    !options?.allowManagedOrgReconnect
+  ) {
     return null;
   }
   return requestedScope === "org" ? "org" : "user";
@@ -320,23 +396,22 @@ export function stripMcpOAuthAppBasePath(
 export async function resolveManagedMcpOAuthClient(
   serverUrl: URL,
 ): Promise<StoredOAuthClientInformation | undefined> {
-  const client = MANAGED_MCP_OAUTH_CLIENTS.find(
-    (candidate) => candidate.serverOrigin === serverUrl.origin,
+  const client = MANAGED_MCP_OAUTH_CLIENTS.find((candidate) =>
+    candidate.serverOrigins.includes(serverUrl.origin),
   );
   if (!client) return undefined;
 
-  for (let index = 0; index < client.clientIdKeys.length; index += 1) {
-    const [clientId, clientSecret] = await Promise.all([
-      resolveSecret(client.clientIdKeys[index]),
-      resolveSecret(client.clientSecretKeys[index]),
-    ]);
-    if (clientId && clientSecret) {
-      return {
-        client_id: clientId,
-        client_secret: clientSecret,
-        token_endpoint_auth_method: "client_secret_post",
-      } as StoredOAuthClientInformation;
-    }
+  const credentials = await resolveSecretPairs(client.credentialPairs, {
+    allowUserScope: false,
+    preferWorkspaceScope: true,
+  });
+  if (credentials) {
+    const [clientId, clientSecret] = credentials;
+    return {
+      client_id: clientId,
+      client_secret: clientSecret,
+      token_endpoint_auth_method: "client_secret_post",
+    } as StoredOAuthClientInformation;
   }
   return undefined;
 }
@@ -450,22 +525,10 @@ export function setMcpOAuthFlowCookie(
 }
 
 export function readMcpOAuthFlowCookie(event: H3Event): McpOAuthFlow | null {
-  const primaryCookie = getCookie(event, FLOW_COOKIE);
-  if (!primaryCookie) return null;
-  if (primaryCookie.startsWith(CHUNKED_COOKIE_PREFIX)) {
-    const rawCount = primaryCookie.slice(CHUNKED_COOKIE_PREFIX.length);
-    if (!/^\d+$/.test(rawCount)) return null;
-    const chunkCount = Number(rawCount);
-    if (chunkCount < 2 || chunkCount > FLOW_COOKIE_MAX_CHUNKS) return null;
-  }
-  const encrypted = getChunkedCookie(event, FLOW_COOKIE);
-  if (!encrypted) return null;
-  try {
-    const parsed = JSON.parse(decryptSecretValue(encrypted)) as McpOAuthFlow;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
+  const result = readMcpOAuthFlowCookiePayload(event);
+  return result.status === "ok"
+    ? (result.value as unknown as McpOAuthFlow)
+    : null;
 }
 
 export function clearMcpOAuthFlowCookies(event: H3Event): void {
@@ -492,8 +555,40 @@ export function isValidMcpOAuthFlow(
     scopeMatches &&
     typeof flow.scopeId === "string" &&
     typeof flow.redirectUri === "string" &&
-    flow.redirectUri.includes("/_agent-native/mcp/servers/oauth/callback")
+    isMcpOAuthRedirectUri(flow.redirectUri)
   );
+}
+
+function getWorkspaceOAuthAppId(): string | undefined {
+  const appId = getAppBasePath().replace(/^\/+|\/+$/g, "");
+  return isValidWorkspaceAppIdFormat(appId) ? appId : undefined;
+}
+
+function isRootGoogleCallback(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.pathname === "/_agent-native/google/callback" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    // coercion-ok: malformed callback URLs are invalid validation candidates.
+    return false;
+  }
+}
+
+function isMcpOAuthRedirectUri(value: string): boolean {
+  try {
+    const pathname = new URL(value).pathname;
+    return (
+      pathname.endsWith("/_agent-native/mcp/servers/oauth/callback") ||
+      pathname.endsWith("/_agent-native/google/callback")
+    );
+  } catch {
+    // coercion-ok: malformed redirect URLs are invalid validation candidates.
+    return false;
+  }
 }
 
 function isOrgAdmin(role: unknown): boolean {

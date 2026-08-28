@@ -1,7 +1,10 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import * as Y from "yjs";
 
-import { shouldRebaseCollabDocFromStoredContent } from "@/pages/design-editor/collab-sync";
+import {
+  shouldRebaseCollabDocFromStoredContent,
+  writeCollabText,
+} from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
 import type { PreviewContentReplaceResult } from "@/pages/design-editor/editor-state";
 import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
@@ -52,7 +55,7 @@ export function runSeedCollabContent({
   if (!ydoc || !isSynced || !activeFileId) return;
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
-  const text = ytext.toString();
+  const text = ytext.toJSON();
   const pendingLocalContent =
     pendingLocalFileContentsRef.current.get(fileId)?.content;
   if (pendingLocalContent && text !== pendingLocalContent) {
@@ -69,16 +72,13 @@ export function runSeedCollabContent({
     ) {
       setContentRenderRevision((revision) => revision + 1);
     }
-    // Full delete+insert with an untracked origin: the UndoManager only
-    // tracks LOCAL_EDIT_ORIGIN, so this rewrite is invisible to it. Clear
-    // the undo stack so a subsequent Cmd+Z can't replay a tracked delta
-    // from before this rewrite against content it no longer matches
-    // (see the DE:5135-style mitigation below for the same hazard).
+    // Untracked origin: the UndoManager only tracks LOCAL_EDIT_ORIGIN, so
+    // this write is invisible to it. Clear the undo stack so a subsequent
+    // Cmd+Z can't replay a tracked delta from before it against content it
+    // no longer matches (see the DE:5135-style mitigation below for the
+    // same hazard).
     undoManagerRef.current?.clear(true, false);
-    ydoc.transact(() => {
-      ytext.delete(0, ytext.length);
-      ytext.insert(0, pendingLocalContent);
-    }, TAB_ID);
+    writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
     return;
   }
   if (text.length > 0) {
@@ -115,12 +115,9 @@ export function runSeedCollabContent({
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
-      // Untracked full rewrite — see clear() note above.
+      // Untracked write — see clear() note above.
       undoManagerRef.current?.clear(true, false);
-      ydoc.transact(() => {
-        ytext.delete(0, ytext.length);
-        ytext.insert(0, storedContent);
-      }, TAB_ID);
+      writeCollabText(ydoc, ytext, storedContent, TAB_ID);
       return;
     }
     // Y.Doc snapshots are a render seed, not the SQL source of truth; the

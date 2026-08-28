@@ -217,7 +217,7 @@ const messages = {
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
     codeUnavailableDescription:
-      "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+      "Source-code changes and CLI access are available in the Agent-Native Desktop app.",
     downloadDesktop: "Download Desktop",
     chatMode: "Chat mode",
     chat: "Chat",
@@ -326,7 +326,7 @@ const messages = {
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle:
       "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
-    desktopTitle: "Use Agent Native Desktop",
+    desktopTitle: "Use Agent-Native Desktop",
     desktopDescription:
       "Open the project in the desktop app to enable source edits and CLI access.",
     builderAgentTitle: "Use Builder.io Agent",

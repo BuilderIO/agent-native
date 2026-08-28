@@ -30,6 +30,12 @@ Chaque application déployée a besoin d'une base SQL persistante. Définissez `
 
 Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
 
+## L'envoi d'e-mails est facultatif, mais recommandé {#email-provider}
+
+Un fournisseur d'e-mails n'est pas nécessaire pour l'authentification par e-mail et mot de passe. Sans fournisseur, les applications déployées utilisent l'inscription et la connexion par e-mail et mot de passe, ignorent la vérification de l'e-mail à l'inscription et ne proposent pas l'authentification par lien magique.
+
+Connectez Resend ou SendGrid avant le déploiement si vous voulez des liens magiques, la vérification des e-mails, la réinitialisation des mots de passe, les invitations ou les notifications de partage. Définissez `RESEND_API_KEY` ou `SENDGRID_API_KEY`; SendGrid nécessite aussi `EMAIL_FROM`. Consultez [Authentification](/docs/authentication) pour les modes d'authentification disponibles.
+
 ## Cibles prises en charge
 
 Agent-Native prend en charge [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) et [Render](/docs/render).

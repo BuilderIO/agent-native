@@ -1,0 +1,65 @@
+---
+title: "Formularios: Hablar con el Agent"
+description: "Lo que ve el agente cuando estás en Formularios, y peticiones organizadas por tarea."
+---
+
+# Hablar con el Agent
+
+Todo en Formularios está disponible para el agente a través de las mismas acciones que usa la interfaz, así que todo lo que puedes hacer con un clic también puedes pedirlo en lenguaje sencillo. Esta página cubre cómo el agente ve tu pantalla y peticiones útiles por tarea. Consulta [Formularios](/docs/template-forms) para ver la visión general.
+
+## Cómo ve el agente tu pantalla
+
+El agente siempre sabe qué formulario o vista tienes abierto, hasta el nivel de la pestaña del navegador. Si tienes un formulario abierto en una pestaña y la lista de respuestas abierta en otra, el agente las mantiene separadas. Por eso puedes preguntar "añade una pregunta NPS obligatoria a este formulario" o "cuántas respuestas tiene esto" sin nombrar el formulario. El agente ya sabe a cuál te refieres. Cuando estás viendo las respuestas de un formulario, el agente también puede ver una vista previa de esas respuestas, según lo que tengas permitido ver.
+
+## Peticiones útiles por tarea
+
+Cada petición a continuación se convierte en una acción real sobre tu formulario real, el mismo que lee y escribe la interfaz. Aquí hay un ejemplo resuelto.
+
+<Comparison>
+
+### :blue: Tú preguntas
+
+"Crea un formulario de registro beta con rol, tamaño del equipo y caso de uso prioritario."
+
+### :green: Qué sucede
+
+Esto crea algo nuevo. El agente construye el formulario con esos campos ya en su lugar, y aparece de inmediato en tu lista de Formularios, listo para ajustar o publicar. Nada necesita una actualización de página. El nuevo formulario simplemente está ahí.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Crear
+
+- **"Crea un formulario de registro beta con rol, tamaño del equipo y caso de uso prioritario."** El nuevo formulario aparece de inmediato en tu lista de Formularios, listo para ajustar.
+- **"Añade una pregunta NPS obligatoria y un seguimiento de texto libre."** Los campos aparecen en el formulario de inmediato.
+- **"Acorta este formulario sin perder los campos que necesitamos para el enrutamiento."** El agente recorta el formulario mientras conserva los campos de los que dependen tus destinos.
+
+### Publicar y proteger
+
+- **"Publica esto y dame el enlace."** El formulario se activa y obtienes su URL pública de inmediato.
+- **"Crea un formulario anónimo de comentarios de clientes y dame el enlace público."** El formulario se publica anónimo desde el inicio, así que nunca se captura información de quien lo envía.
+- **"Solo permite que este formulario se envíe desde https://example.com."** El formulario empieza a rechazar envíos desde cualquier otro lugar. Esto solo está disponible pidiéndoselo al agente hoy en día. No hay un interruptor para ello en el creador.
+
+### Respuestas e información
+
+- "¿Cuántas respuestas tiene el formulario de registro beta?"
+- "¿Quién envió algo hoy?"
+- "Resume los envíos de esta semana y agrúpalos por segmento de cliente."
+- "Muestra un gráfico de envíos por día."
+- "¿Cómo están evolucionando los envíos en todos mis formularios este mes?"
+- "Exporta esto a CSV."
+
+### Enrutamiento
+
+- **"Publica cada nueva respuesta en el canal de producto de Slack."** Las nuevas respuestas empiezan a aparecer en Slack en el momento en que llegan, una vez que un destino esté conectado.
+- "¿Cuál es la configuración de mi formulario de registro beta?"
+
+</Cards>
+
+## Qué sigue
+
+- [**Formularios**](/docs/template-forms) — la visión general y lo que sustituye
+- [**Funciones**](/docs/template-forms-features) — cada área de funciones, con pasos de configuración para cada una
+- [**Formularios en un espacio de trabajo con varias apps**](/docs/template-forms-integrations) — delegación y el endpoint de envío público que usan otras apps
+- [**Guía para desarrolladores**](/docs/template-forms-developers) — cada acción y el modelo de datos detrás de estas funciones

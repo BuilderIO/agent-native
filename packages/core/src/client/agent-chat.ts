@@ -7,7 +7,9 @@
  * stay inside the embedded app so its own AgentSidebar can receive them.
  */
 
+import type { AgentChatAttachment, MentionItemMedia } from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { readClientAppState } from "./application-state.js";
 import {
@@ -46,12 +48,14 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   /** Optional image data URLs or durable image URLs to include in the submitted chat message */
   images?: string[];
+  /** Optional attachments to show in the submitted chat message. */
+  attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   /**
    * Message routing type:
    * - "content" (default): stays in the embedded app agent for content/data operations
-   * - "code": routes to the code editing frame (Agent Native Desktop or Builder.io)
+   * - "code": routes to the code editing frame (Agent-Native Desktop or Builder.io)
    *
    * When type is "code" and no frame is connected, a dialog is shown.
    * `requiresCode: true` is treated as `type: "code"` for backward compatibility.
@@ -172,6 +176,7 @@ export type BufferedAgentChatOpenRequest = {
 export interface AgentComposerReference {
   label: string;
   icon?: string;
+  media?: MentionItemMedia;
   source?: string;
   refType: string;
   refId?: string | null;
@@ -652,7 +657,7 @@ export function appendAgentChatContextToMessage(
 ): string {
   const trimmedContext = context.trim();
   if (!trimmedContext) return message;
-  return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
+  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {
@@ -671,6 +676,42 @@ function normalizeMetadata(
     return undefined;
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeMentionItemMedia(
+  value: unknown,
+): AgentComposerReference["media"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type === "none") return { type: "none" };
+  const backgroundColor =
+    typeof candidate.backgroundColor === "string"
+      ? candidate.backgroundColor.trim()
+      : "";
+  if (candidate.type === "text") {
+    const text =
+      typeof candidate.text === "string" ? candidate.text.trim() : "";
+    if (!text) return undefined;
+    return {
+      type: "text",
+      text,
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  }
+  if (candidate.type === "image") {
+    const src = typeof candidate.src === "string" ? candidate.src.trim() : "";
+    if (!src) return undefined;
+    const fit = candidate.fit === "cover" ? "cover" : "contain";
+    return {
+      type: "image",
+      src,
+      fit,
+      ...(backgroundColor ? { backgroundColor } : {}),
+    };
+  }
+  return undefined;
 }
 
 function normalizeAgentComposerReferenceInternal(
@@ -710,6 +751,8 @@ function normalizeAgentComposerReferenceInternal(
   const slotLabel =
     typeof candidate.slotLabel === "string" ? candidate.slotLabel.trim() : "";
   if (slotLabel) normalized.slotLabel = slotLabel;
+  const media = normalizeMentionItemMedia(candidate.media);
+  if (media) normalized.media = media;
   const metadata = normalizeMetadata(candidate.metadata);
   if (metadata) normalized.metadata = metadata;
   const clearsSlots = normalizeStringArray(candidate.clearsSlots);
@@ -886,11 +929,11 @@ function isDirectMcpAppEmbedSession(): boolean {
   return isEmbedAuthActive() && !isEmbedMcpChatBridgeActive();
 }
 
-function dispatchAgentChatRunning(isRunning: boolean): void {
+function dispatchAgentChatRunning(isRunning: boolean, tabId?: string): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("agentNative.chatRunning", {
-      detail: { isRunning },
+      detail: { isRunning, ...(tabId ? { tabId } : {}) },
     }),
   );
 }
@@ -934,10 +977,46 @@ export interface ParsedSubmitChat {
   background?: boolean;
   tabId?: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   /** Mode as sent; the receiver falls back to its exec mode when undefined. */
   requestMode?: AgentChatRequestMode;
   /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
+}
+
+function parseSubmitChatAttachments(
+  value: unknown,
+): AgentChatAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attachments = value
+    .filter((item): item is Record<string, unknown> => {
+      return Boolean(item) && typeof item === "object";
+    })
+    .map((item) => {
+      const type = typeof item.type === "string" ? item.type : "file";
+      const name = typeof item.name === "string" ? item.name : "attachment";
+      const attachment: AgentChatAttachment = { type, name };
+      for (const key of [
+        "data",
+        "url",
+        "uploadProvider",
+        "securityNote",
+        "contentType",
+        "text",
+      ] as const) {
+        if (typeof item[key] === "string") attachment[key] = item[key];
+      }
+      for (const key of [
+        "displayOnly",
+        "referenceOnly",
+        "storageRequired",
+        "storageUploadFailed",
+      ] as const) {
+        if (typeof item[key] === "boolean") attachment[key] = item[key];
+      }
+      return attachment;
+    });
+  return attachments.length > 0 ? attachments : undefined;
 }
 
 /** Decode a `message` event into a submit payload, or null if it isn't one / has no text. */
@@ -984,6 +1063,7 @@ export function parseSubmitChatMessage(
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
     images,
+    attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
@@ -1031,6 +1111,15 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
+  if (opts.submit !== false && opts.message.trim()) {
+    trackEvent("app.first_action", {
+      action: "chat_submit",
+      surface: opts.preset ?? "chat",
+      request_mode: requestMode ?? "default",
+      chat_target: opts.chatTarget ?? "auto",
+      background: opts.background === true,
+    });
+  }
   if (isCodeRequest && isInBuilderFrame()) {
     sendToBuilderChat({
       message: opts.message,
@@ -1058,6 +1147,15 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     !localChatTarget &&
     isMcpAppChatBridgeEnabled()
   ) {
+    // MCP host follow-up APIs do not carry attachment descriptors. Use the
+    // normal wrapper transport when chips need to reach the chat thread.
+    if (opts.attachments?.length) {
+      window.parent.postMessage(
+        payload,
+        getFramePostMessageTargetOrigin() || "*",
+      );
+      return tabId;
+    }
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
@@ -1074,7 +1172,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
           }
         })
         .finally(() => {
-          dispatchAgentChatRunning(false);
+          dispatchAgentChatRunning(false, tabId);
         });
       return tabId;
     }

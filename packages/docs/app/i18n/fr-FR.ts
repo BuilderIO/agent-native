@@ -427,6 +427,111 @@ const frFR = {
     source: "Code source",
     readDocs: "Lire la documentation",
     signIn: "Se connecter",
+    tryTemplateFree: "Essayer {{name}} gratuitement",
+    designForFree: "Concevoir gratuitement",
+    recordForFree: "Enregistrer gratuitement",
+    getStarted: "Commencer",
+    freeAndOpenSource: "100 % gratuit • open source",
+    viewAllApps: "Voir toutes les applications",
+  },
+  homepage: {
+    hero: {
+      title: "Le framework des applications agentic",
+      bodyLine1:
+        "Créez pour les agents IA sans construire un second produit pour les utilisateurs.",
+      bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",
+      tryAnApp: "Essayer une app",
+    },
+    install: {
+      copyCommand: "Copier la commande d'installation",
+    },
+    actions: {
+      title: "Une action alimente chaque surface",
+      bodyLine1: "Les actions sont les briques de base d'une app Agent-Native.",
+      bodyLine2:
+        "Définissez une fonctionnalité une fois, puis utilisez-la depuis votre UI, le chat de l'agent, HTTP API, MCP, A2A ou CLI.",
+      diagramAlt:
+        "Une action alimente l'UI, MCP, le chat de l'agent, A2A, HTTP API et CLI",
+    },
+    builtIn: {
+      title: "Intégré dans chaque app Agent-Native",
+      body: "Tout ce dont les utilisateurs et les agents IA ont besoin pour travailler ensemble, déjà intégré dans une seule application.",
+      pillars: {
+        reactUi: {
+          title: "UI React",
+          body: "Offrez aux utilisateurs des écrans familiers pour parcourir, éditer et revoir le travail.",
+        },
+        agentChat: {
+          title: "Chat agent intégré",
+          body: "Laissez les utilisateurs déléguer du travail, poser des questions et revoir les résultats sans quitter l'app.",
+        },
+        sharedState: {
+          title: "État d'application partagé",
+          body: "L'agent sait ce que les utilisateurs consultent, sélectionnent et éditent.",
+        },
+        sharedSql: {
+          title: "Données SQL partagées",
+          body: "Les utilisateurs et les agents lisent et mettent à jour la même source de vérité.",
+        },
+        skillsMemory: {
+          title: "Compétences et mémoire",
+          body: "Donnez aux agents une expertise réutilisable et un contexte persistant.",
+        },
+        automations: {
+          title: "Automatisations",
+          body: "Exécutez le travail de l'agent automatiquement selon des horaires ou des événements de l'application.",
+        },
+        agentTeams: {
+          title: "Équipes d'agents",
+          body: "Déléguez le travail à des agents spécialisés au sein de l'app ou entre apps.",
+        },
+        auth: {
+          title: "Authentification et organisations",
+          body: "La connexion, les comptes utilisateurs et l'appartenance à une organisation sont intégrés.",
+        },
+        sharing: {
+          title: "Partage et permissions",
+          body: "Contrôlez qui peut voir, commenter, éditer ou gérer chaque ressource.",
+        },
+      },
+    },
+    stack: {
+      title: "Fonctionne avec votre stack",
+      body: "Apportez votre LLM, base de données, outils et infrastructure ; Agent-Native est du TypeScript open source, donc votre application reste la vôtre.",
+      exploreApps: "Explorer les apps créées avec Agent-Native",
+    },
+    showcase: {
+      title: "Que pouvez-vous construire avec Agent-Native ?",
+      body: "Des apps agentiques qui comprennent votre travail, passent à l’action et collaborent avec vous. Créez la vôtre ou essayez l’une de ces apps open source.",
+      browseApps: "Parcourir les apps",
+      scrollLeft: "Défiler les apps vers la gauche",
+      scrollRight: "Défiler les apps vers la droite",
+    },
+    bottomCta: {
+      title: "Construisez votre première app Agent-Native",
+      body: "Créez une seule application pour les utilisateurs et les agents IA. Apportez votre propre LLM et déployez où vous voulez.",
+    },
+    footer: {
+      tagline: "Le framework des applications agentic.",
+      framework: "Framework",
+      ecosystem: "Écosystème",
+      community: "Communauté",
+      legal: "Mentions légales",
+      docs: "Documentation",
+      download: "Télécharger",
+      apps: "Apps",
+      privacyPolicy: "Politique de confidentialité",
+      saasTerms: "Conditions SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Vous ne développez pas en local ?",
+      exploreApp: "Explorez d’abord une application en ligne",
+      between: "ou",
+      joinWaitlist: "inscrivez-vous sur la liste d’attente",
+      end: "pour développer dans le navigateur.",
+    },
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
@@ -455,7 +560,7 @@ const frFR = {
       "Commencez avec le guide du framework ou créez en ligne avec l'agent de code cloud de Builder.io.",
     readDocs: "Lire la documentation",
     buildOnline: "Créer en ligne",
-    popoverTitle: "Créer en ligne avec Builder.io",
+    popoverTitle: "Créer dans le navigateur",
     popoverBody:
       "Builder.io peut lancer et personnaliser une app agent-native dans le cloud — actions, auth, état SQL et chat agent inclus. Rejoignez la liste d'attente pour un accès anticipé.",
     emailLabel: "E-mail",
@@ -485,7 +590,7 @@ const frFR = {
     clips: {
       replaces: "Remplace ou complète Loom, Granola et Wisprflow",
       description:
-        "Enregistrements d'écran avec capture de débogage du navigateur, notes de réunion synchronisées avec le calendrier et dictée vocale Fn-hold — le tout transcrit, résumé et consultable, avec un agent capable de les modifier.",
+        "Enregistre votre écran, vos réunions et vos notes vocales afin que les agents comprennent ce qui s’est passé et agissent.",
     },
     plan: {
       replaces: "Mode plan visuel pour Codex, Claude Code et agents de code",
@@ -495,27 +600,27 @@ const frFR = {
     design: {
       replaces: "Remplace ou complète les outils de prototypage design",
       description:
-        "Studio de prototypage HTML agent-native. Générez des designs Alpine/Tailwind interactifs, comparez les variantes, ajustez les contrôles en direct et exportez le résultat.",
+        "Transforme vos instructions en designs interactifs conformes à votre système de design tandis que l’agent affine chaque écran selon vos retours.",
     },
     content: {
       replaces: "Remplace ou augmente Obsidian pour MDX, Notion, Google Docs",
       description:
-        "Modifiez les fichiers Markdown/MDX locaux comme Obsidian, générez de riches blocs personnalisés interactifs et utilisez un agent AI pour rédiger, réécrire et publier.",
+        "Travaille avec vos documents pendant qu’un agent rédige dans votre style, crée du contenu interactif et publie sur votre site.",
     },
     slides: {
       replaces: "Remplace ou augmente Google Slides, Pitch",
       description:
-        "Générez des présentations complètes à partir d’une invite. Modifiez visuellement ou conversationnellement. Génération d'images AI, 8 mises en page et mode de présentation intégrés.",
+        "Crée des présentations modifiables et conformes à votre marque à partir d’instructions ou de diapositives existantes, que l’agent peut créer, modifier et affiner.",
     },
     analytics: {
       replaces: "Alternative open source à Amplitude et FullStory",
       description:
-        "Connectez n'importe quelle source de données, demandez n'importe quel graphique, créez des tableaux de bord réutilisables. L'agent écrit SQL, génère des visualisations et fait évoluer l'application.",
+        "Connecte vos données pour qu’un agent réponde aux questions en langage courant et transforme les résultats en graphiques et tableaux de bord.",
     },
     mail: {
       replaces: "Remplace ou augmente Superhuman, Gmail",
       description:
-        "Client de messagerie de style Superhuman avec raccourcis clavier, triage AI, prise en charge multi-comptes et automatisations de messagerie. Possédez le flux de travail de votre boîte de réception.",
+        "Une boîte de réception pensée pour le clavier, où un agent hiérarchise les e-mails, rédige les réponses, résume les fils et assure le suivi.",
     },
     forms: {
       replaces: "Remplace ou augmente Typeform, Google Forms",
@@ -526,12 +631,12 @@ const frFR = {
       replaces:
         "Remplace ou augmente DAMs, les bibliothèques d'actifs de marque et les générateurs multimédia AI",
       description:
-        "Gestionnaire d'actifs numériques pour les téléchargements, les bibliothèques de marques, les références consultables et la génération d'images/vidéos de marque que d'autres applications peuvent appeler via A2A ou intégrer en tant que sélecteur.",
+        "Offre aux agents une bibliothèque partagée de règles, d’images et de vidéos de marque pour créer et choisir des médias conformes dans vos applications.",
     },
     calendar: {
       replaces: "Remplace ou augmente Google Calendar, Calendly",
       description:
-        "Calendrier complet avec synchronisation Google, gestion des disponibilités et page de réservation publique. L'agent trouve des créneaux libres, crée des événements et gère votre emploi du temps.",
+        "Réunit vos calendriers Google afin qu’un agent trouve des créneaux, planifie ou reprogramme des événements et gère les réservations.",
     },
     dispatch: {
       replaces: "Contrôle de mission pour vos applications natives d'agent",
@@ -1235,7 +1340,7 @@ const frFR = {
           "Le mode plan est du texte dans votre terminal, visible par une seule personne et perdu dès que vous l'approuvez. Plans est visuel — wireframes, diagrammes, diffs annotés —, partageable et persistant : les agents créent, lisent et mettent à jour les plans pendant tout le cycle de vie de la fonctionnalité.",
         question5: "Puis-je afficher les plans à côté de mon code ?",
         answer5:
-          "Oui. L'extension VS Code ouvre les plans dans un panneau latéral, et Agent Native Desktop réplique les plans hébergés dans des fichiers MDX locaux.",
+          "Oui. L'extension VS Code ouvre les plans dans un panneau latéral, et Agent-Native Desktop réplique les plans hébergés dans des fichiers MDX locaux.",
         question6: "Plans est-il gratuit ?",
         answer6:
           "Oui. Il est gratuit, open source et sous licence MIT. Plans fournit des liens de partage hébergés, et vous pouvez tout répliquer dans des fichiers locaux.",
@@ -1269,7 +1374,7 @@ const frFR = {
       s026: "Liens partageables",
       s027: "Chaque plan reçoit une URL publique. Partagez avec vos coéquipiers pour une révision asynchrone, des commentaires et des approbations.",
       s028: "Synchronisation des fichiers de bureau",
-      s029: "Mettez en miroir les plans hébergés sur les fichiers MDX locaux à partir d'Agent Native Desktop sans cloner l'application ni exécuter un CLI.",
+      s029: "Mettez en miroir les plans hébergés sur les fichiers MDX locaux à partir d'Agent-Native Desktop sans cloner l'application ni exécuter un CLI.",
       s030: ", donc la révision reste à côté du code.",
       s031: "Comment ça marche",
       s032: "La planification se déroule dans une application partagée: vous et l'agent pouvez la lire et la mettre à jour tout au long du cycle de vie d'une fonctionnalité.",
@@ -1303,7 +1408,7 @@ const frFR = {
       s060: "Afficher tous les modèles",
       s061: "Transferts VS Code",
       s062: "Ouvrez les liens de plan dans un panneau latéral VS Code avec l'",
-      s063: "extension Agent Native Plans",
+      s063: "extension Agent-Native Plans",
       s064: "Wireframe — maquette UI esquissée avec emplacements de composants",
       s065: "Code annoté — fichier source avec notes ligne par ligne",
       s066: "Diagramme — flux, séquence ou architecture",
@@ -1525,9 +1630,9 @@ const frFR = {
     },
   },
   downloadPage: {
-    title: "Télécharger Agent Native",
+    title: "Télécharger Agent-Native",
     body: "Toutes vos apps agent-native dans une seule interface de bureau. Apps de production intégrées, avec un mode dev pour le développement local.",
-    openDesktop: "Ouvrir Agent Native",
+    openDesktop: "Ouvrir Agent-Native",
     downloadInstaller: "Télécharger l'installateur",
     downloadStarted: "Téléchargement démarré",
     downloadAgain: "Ça n’a pas fonctionné ? Réessayez le téléchargement",
@@ -1685,6 +1790,55 @@ const frFR = {
       links: {
         builderPrivacy: "Politique de confidentialité",
         builderPrivacyFull: "Builder.io Politique de confidentialité",
+      },
+    },
+    about: {
+      eyebrow: "À propos d’Agent-Native",
+      title: "Des applications open source pour les agents et les personnes",
+      intro:
+        "Agent-Native est un framework open source qui permet de créer des applications où les agents IA et les interfaces partagent les mêmes actions, données et état applicatif.",
+      sections: {
+        project: {
+          title: "Un modèle opérationnel partagé",
+          body: "Agent-Native considère l’agent et l’interface comme des partenaires égaux. Une seule action peut alimenter un contrôle UI, un outil d’agent, une route HTTP, une capacité MCP ou A2A, une commande CLI et un flux auditable. L’état SQL partagé garde les vues humaine et agent alignées.",
+        },
+        openSource: {
+          title: "Open source par défaut",
+          body: "Le code source est disponible sous licence MIT dans le dépôt BuilderIO/agent-native. Les développeurs peuvent l’inspecter, l’exécuter localement, choisir leur base de données et leurs fournisseurs de modèles, puis l’adapter à leur produit. Les services hébergés sont séparés des forks et déploiements autonomes.",
+        },
+        hosted: {
+          title: "Hébergé ou auto-hébergé",
+          body: "Builder.io exploite les applications hébergées et la documentation Agent-Native sur agent-native.com. Le framework est aussi conçu pour les équipes qui souhaitent déployer et maintenir leurs propres applications. Les contrats d’actions, limites d’accès, instructions d’agent et protocoles publics sont vérifiables dans le code et la documentation.",
+        },
+        community: {
+          title: "Développé au grand jour",
+          body: "Le projet avance publiquement grâce aux issues GitHub, pull requests, à la documentation et à la communauté Agent-Native. Consultez la documentation pour comprendre l’architecture, le code pour vérifier une implémentation, ou la communauté pour discuter d’un cas d’usage et contribuer.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "Contact",
+      title: "Contacter Builder.io au sujet d’Agent-Native",
+      intro:
+        "Utilisez les canaux de support, de code source et de communauté pour poser une question, signaler un problème, proposer une amélioration ou communiquer un sujet de sécurité.",
+      emailLabel: "Écrire à support@builder.io",
+      sections: {
+        support: {
+          title: "Support produit et service hébergé",
+          body: "Pour une question sur une application hébergée, un accès de compte, un problème de documentation ou un comportement difficile à résoudre, écrivez à support@builder.io. Ajoutez l’URL publique, une description reproductible et tout identifiant de requête ou d’exécution utile. N’envoyez jamais de mot de passe, clé API, jeton ou donnée privée.",
+        },
+        source: {
+          title: "Projet open source et communauté",
+          body: "Utilisez le dépôt GitHub pour les bugs du code, propositions, pull requests et discussions d’implémentation. Discord convient aux questions qui profitent d’un échange avec d’autres développeurs. Recherchez d’abord les issues et la documentation afin de fournir le contexte nécessaire aux mainteneurs.",
+        },
+        security: {
+          title: "Signalements de sécurité",
+          body: "Ne publiez pas une vulnérabilité non corrigée dans une issue ou un chat public. Contactez Builder.io via le canal de sécurité disponible et transmettez uniquement les éléments nécessaires à la reproduction et à l’évaluation. Gardez les identifiants, données privées et contenus d’exploitation hors du support ordinaire.",
+        },
+        legal: {
+          title: "Juridique et confidentialité",
+          body: "Pour les questions de confidentialité, consultez la politique Agent-Native et les ressources juridiques Builder.io avant de contacter le support. Builder.io, Inc. est situé au 95 3rd Street, 2nd Floor, San Francisco, CA 94103, États-Unis. Les conditions du service hébergé et les responsabilités de l’auto-hébergement sont décrites dans les Conditions d’utilisation.",
+        },
       },
     },
     terms: {
@@ -1913,6 +2067,7 @@ const frFR = {
     externalAgents: "Agents externes (connecter un hôte)",
     externalAgentsCatalog: "Catalogue d'agents externes",
     mcpApps: "MCP Apps (UI intégrées)",
+    webMcp: "WebMCP (outils du navigateur)",
     crossAppSso: "SSO entre apps",
     notifications: "Alertes",
     automationConnectors: "Connecteurs de workflow",
@@ -1937,8 +2092,8 @@ const frFR = {
     calendar: "Calendrier",
     calendarOverview: "Vue d'ensemble",
     calendarAgent: "Parler à l'agent",
-    calendarScheduling: "Planification et disponibilités",
-    calendarBookingLinks: "Liens de réservation",
+    calendarFeatures: "Fonctionnalités",
+    calendarIntegrations: "Utilisation multi-apps",
     calendarDevelopers: "Guide développeur",
     content: "Contenu",
     contentOverview: "Vue d'ensemble",
@@ -1997,8 +2152,9 @@ const frFR = {
     dispatchDevelopers: "Guide développeur",
     forms: "Formulaires",
     formsOverview: "Vue d'ensemble",
-    formsBuildingPublishing: "Création et publication",
-    formsResponses: "Réponses et aperçus",
+    formsFeatures: "Fonctionnalités",
+    formsAgent: "Parler à l'agent",
+    formsIntegrations: "Utilisation multi-apps",
     docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },

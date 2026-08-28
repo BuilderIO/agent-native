@@ -262,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **リダイレクト許可リスト。** ハブ (ディスパッチ) は、トークンを発行する前に承認エンドポイントで `redirect_uri` を検証します。ホワイトリストは `templates/dispatch/server/lib/identity-sso.ts` で構成されています:
 
-- **デフォルト:** 正確に登録された Agent Native アプリ ID/オリジンの組み合わせと localhost のみ (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`)。
+- **デフォルト:** 正確に登録された Agent-Native アプリ ID/オリジンの組み合わせと localhost のみ (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`)。
 - **拡張:** 追加のホスト サフィックスのカンマ区切りリストを使用して、Dispatch デプロイメントの `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 環境変数を設定します。
 
   ```bash

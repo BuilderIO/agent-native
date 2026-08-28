@@ -11,6 +11,12 @@ import {
   classifyProviderError,
   describeErrorWithCauses,
 } from "./error-detail.js";
+import {
+  createProviderToolNameMap,
+  toEngineToolName,
+  toProviderToolName,
+  type ProviderToolNameMap,
+} from "./tool-name.js";
 import { backfillEngineMessagesToolResults } from "./translate-anthropic.js";
 import type {
   EngineTool,
@@ -34,6 +40,7 @@ import type {
 export function engineToolsToAISDK(
   tools: EngineTool[],
   jsonSchema?: (schema: Record<string, unknown>) => unknown,
+  toolNameMap = createProviderToolNameMap(tools),
 ): Record<string, any> {
   const result: Record<string, any> = {};
   for (const tool of tools) {
@@ -43,7 +50,8 @@ export function engineToolsToAISDK(
       properties: tool.inputSchema.properties ?? {},
       required: tool.inputSchema.required ?? [],
     };
-    result[tool.name] = {
+    const providerName = toProviderToolName(tool.name, toolNameMap);
+    result[providerName] = {
       description: tool.description,
       inputSchema: jsonSchema ? jsonSchema(rawSchema) : rawSchema,
     };
@@ -75,6 +83,7 @@ export interface EngineToAISDKOptions {
    * string keep the model informed of what it cannot see.
    */
   toolResultImages?: boolean;
+  toolNameMap?: ProviderToolNameMap;
 }
 
 /** AI SDK tool-result `output` for one engine tool-result part. */
@@ -137,7 +146,7 @@ export function engineMessageToAISDK(
         toolResultParts.push({
           type: "tool-result",
           toolCallId: part.toolCallId,
-          toolName: part.toolName,
+          toolName: toProviderToolName(part.toolName, opts?.toolNameMap),
           output: toolResultOutputToAISDK(part, opts),
         });
       }
@@ -168,7 +177,7 @@ export function engineMessageToAISDK(
         content.push({
           type: "tool-call",
           toolCallId: part.id,
-          toolName: part.name,
+          toolName: toProviderToolName(part.name, opts?.toolNameMap),
           input: part.input,
         });
       } else if (part.type === "thinking") {
@@ -204,8 +213,10 @@ export function engineMessagesToAISDK(
   messages: EngineMessage[],
   opts?: EngineToAISDKOptions,
 ): any[] {
+  const toolNameMap =
+    opts?.toolNameMap ?? createProviderToolNameMap([], messages);
   return backfillEngineMessagesToolResults(messages).flatMap((msg) =>
-    engineMessageToAISDK(msg, opts),
+    engineMessageToAISDK(msg, { ...opts, toolNameMap }),
   );
 }
 
@@ -222,7 +233,10 @@ export function engineMessagesToAISDK(
  * We absorb text/reasoning boundaries, forward text/reasoning/tool-input
  * deltas, and keep the terminal `tool-call`, `finish-step`, and `finish` parts.
  */
-export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
+export function aiSdkPartToEngineEvents(
+  part: any,
+  toolNameMap?: ProviderToolNameMap,
+): EngineEvent[] {
   const events: EngineEvent[] = [];
 
   switch (part?.type) {
@@ -244,14 +258,14 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       events.push({
         type: "tool-input-start",
         id: part.id ?? part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
       });
       break;
     case "tool-input-delta":
       events.push({
         type: "tool-input-delta",
         id: part.id ?? part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         text:
           typeof part.delta === "string"
             ? part.delta
@@ -268,7 +282,7 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       events.push({
         type: "tool-call",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input ?? {},
       });
       break;
@@ -278,7 +292,7 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
       events.push({
         type: "tool-call-error",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input ?? {},
         error:
           part.errorText ??
@@ -389,7 +403,10 @@ function usageEventFromLanguageModelUsage(usage: any): EngineEvent {
  * Reconstruct the assistant message content from an AI SDK v6 `StepResult`.
  * `step.content` is the canonical structured form — iterate it.
  */
-export function aiSdkStepToAssistantContent(step: any): EngineContentPart[] {
+export function aiSdkStepToAssistantContent(
+  step: any,
+  toolNameMap?: ProviderToolNameMap,
+): EngineContentPart[] {
   const parts: EngineContentPart[] = [];
   for (const part of step?.content ?? []) {
     if (part.type === "text" && part.text) {
@@ -406,14 +423,14 @@ export function aiSdkStepToAssistantContent(step: any): EngineContentPart[] {
       parts.push({
         type: "tool-call",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input,
       });
     } else if (part.type === "tool-input-error" || part.type === "tool-error") {
       parts.push({
         type: "tool-call",
         id: part.toolCallId,
-        name: part.toolName,
+        name: toEngineToolName(part.toolName, toolNameMap),
         input: part.input ?? {},
       });
     }

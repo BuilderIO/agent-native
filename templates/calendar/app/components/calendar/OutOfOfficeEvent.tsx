@@ -168,32 +168,36 @@ export function OutOfOfficeEvent({
             />
             {!compactMarker && <span className="truncate">{title}</span>}
           </span>
+          {/* Resize handles must be children of the trigger button, not
+              siblings — the day column's create-event guard only checks
+              `closest("button")`, so a sibling here would let clicks near
+              the marker fall through to "create event at this hour". */}
+          {canManipulate && (
+            <div
+              data-resize-handle="true"
+              data-out-of-office-resize="top"
+              onPointerDown={(pointerEvent) => {
+                pointerEvent.stopPropagation();
+                onResizeTopPointerDown?.(pointerEvent);
+              }}
+              className="pointer-events-auto absolute right-1 top-0 z-40 h-1.5 w-5 cursor-n-resize"
+              style={{ touchAction: "none" }}
+            />
+          )}
+          {canManipulate && endsOnDay && (
+            <div
+              data-resize-handle="true"
+              data-out-of-office-resize="bottom"
+              onPointerDown={(pointerEvent) => {
+                pointerEvent.stopPropagation();
+                onResizeBottomPointerDown?.(pointerEvent);
+              }}
+              className="pointer-events-auto absolute bottom-0 right-1 z-40 h-1.5 w-5 cursor-s-resize"
+              style={{ touchAction: "none" }}
+            />
+          )}
         </button>
       </EventDetailPopover>
-      {canManipulate && (
-        <div
-          data-resize-handle="true"
-          data-out-of-office-resize="top"
-          onPointerDown={(pointerEvent) => {
-            pointerEvent.stopPropagation();
-            onResizeTopPointerDown?.(pointerEvent);
-          }}
-          className="pointer-events-auto absolute right-1 z-40 h-1.5 w-5 cursor-n-resize"
-          style={{ top: `${top}px`, touchAction: "none" }}
-        />
-      )}
-      {canManipulate && endsOnDay && (
-        <div
-          data-resize-handle="true"
-          data-out-of-office-resize="bottom"
-          onPointerDown={(pointerEvent) => {
-            pointerEvent.stopPropagation();
-            onResizeBottomPointerDown?.(pointerEvent);
-          }}
-          className="pointer-events-auto absolute right-1 z-40 h-1.5 w-5 cursor-s-resize"
-          style={{ top: `${top + height - 6}px`, touchAction: "none" }}
-        />
-      )}
     </>
   );
 }

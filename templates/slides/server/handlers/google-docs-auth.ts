@@ -16,17 +16,21 @@ import {
   type H3Event,
 } from "h3";
 
+import {
+  getAvailableGoogleDocsAccessToken,
+  resolveManagedGoogleDriveAccount,
+} from "../lib/google-docs-access.js";
 import { formatGoogleOAuthError } from "../lib/google-docs-error.js";
 import {
   disconnectGoogleDocs,
   exchangeGoogleDocsCode,
-  getGoogleDocsAccessToken,
   getGoogleDocsAuthUrl,
   getGooglePickerConfig,
   hasGoogleDriveExportScope,
   isGoogleDocsOAuthConfigured,
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
+import { withSlidesRequestContext } from "./request-auth-context.js";
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "slides";
 
 async function requireSessionEmail(event: H3Event): Promise<string | null> {
@@ -160,6 +164,27 @@ export const getGoogleDocsStatus = defineEventHandler(
 
     try {
       const accounts = await listGoogleDocsAccounts(owner);
+      let googleSlidesUrlImportError: string | undefined;
+      if (
+        !accounts.some((account) => hasGoogleDriveExportScope(account.scope))
+      ) {
+        try {
+          const managed = await withSlidesRequestContext(event, () =>
+            resolveManagedGoogleDriveAccount(),
+          );
+          if (managed) {
+            accounts.push({
+              email: managed.email,
+              scope: managed.scope,
+              shared: true,
+            });
+          }
+        } catch (error) {
+          // Keep the status response actionable so a revoked managed token can
+          // still be repaired through the Connect Google CTA.
+          googleSlidesUrlImportError = formatGoogleOAuthError(error);
+        }
+      }
       const picker = await getGooglePickerConfig(owner);
       return {
         configured: await isGoogleDocsOAuthConfigured(owner),
@@ -167,6 +192,7 @@ export const getGoogleDocsStatus = defineEventHandler(
         googleSlidesUrlImportReady: accounts.some((account) =>
           hasGoogleDriveExportScope(account.scope),
         ),
+        googleSlidesUrlImportError,
         accounts,
         pickerConfigured: !!(picker.apiKey && picker.appId),
         pickerApiKey: picker.apiKey,
@@ -206,7 +232,9 @@ export const getGoogleDocsPickerToken = defineEventHandler(
     }
 
     try {
-      const token = await getGoogleDocsAccessToken(owner);
+      const token = await withSlidesRequestContext(event, () =>
+        getAvailableGoogleDocsAccessToken(owner),
+      );
       if (!token) {
         setResponseStatus(event, 401);
         return {

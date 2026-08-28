@@ -179,7 +179,7 @@ export function ExtensionsListPage({
     } finally {
       setDeletingId(null);
       setConfirmDeleteId(null);
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
   };
 
@@ -192,7 +192,7 @@ export function ExtensionsListPage({
         { method: "POST" },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
   };
 

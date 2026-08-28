@@ -22,7 +22,7 @@
  * See DESIGN-STUDIO-PLAN.md §6.1 and §7 (preview vs apply contract).
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";

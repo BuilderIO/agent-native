@@ -161,17 +161,37 @@ export function normalizeGuidedAnswers(
   );
 }
 
+/**
+ * Answers travel to the model as one message, and history trimming decides
+ * independently whether the turn that asked survives alongside it. The agent's
+ * `ask-question` tool also ids every question it ever asks `q1`, so a bare
+ * `q1: Weekly` says nothing on its own and nothing distinguishes one answer
+ * message from the next. Restate the question next to its answer whenever the
+ * question is known, so the answer means the same thing no matter what else
+ * survives. Ids stay as the label when no question matches — app callers pass
+ * meaningful ones (`density`, `sections`).
+ */
 export function formatGuidedAnswersForAgent(
   answers: GuidedQuestionAnswers,
+  questions?: readonly GuidedQuestion[],
 ): string {
+  const questionTextById = new Map(
+    (questions ?? [])
+      .filter((question) => question.question?.trim())
+      .map((question) => [question.id, question.question.trim()] as const),
+  );
   return Object.entries(normalizeGuidedAnswers(answers))
     .filter(([, value]) => hasGuidedAnswer(value))
     .map(([id, value]) => {
-      if (Array.isArray(value)) return `${id}: ${value.join(", ")}`;
-      return `${id}: ${String(value)}`;
+      const answer = Array.isArray(value) ? value.join(", ") : String(value);
+      const question = questionTextById.get(id);
+      return question ? `Q: ${question}\nA: ${answer}` : `${id}: ${answer}`;
     })
     .join("\n");
 }
+
+const SETTLED_ANSWERS_INSTRUCTION =
+  "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
 
 function defaultGuidedSubmitContext(formattedAnswers: string): string {
   return [
@@ -181,6 +201,10 @@ function defaultGuidedSubmitContext(formattedAnswers: string): string {
     "Answers:",
     formattedAnswers,
   ].join("\n");
+}
+
+function settledGuidedSubmitContext(context: string): string {
+  return [context, SETTLED_ANSWERS_INSTRUCTION].filter(Boolean).join("\n\n");
 }
 
 /** A single option for {@link askUserQuestion}. Mirrors the agent `ask-question`
@@ -1129,8 +1153,8 @@ export function useGuidedQuestionFlow({
     const del = (key: string) => deleteClientAppState(key).catch(() => {});
     // Clear whichever key actually held the payload (scoped or bare) so the
     // card doesn't reappear on the next poll.
-    del(scopedKey);
-    if (scopedKey !== stateKey) del(stateKey);
+    void del(scopedKey);
+    if (scopedKey !== stateKey) void del(stateKey);
   }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
   const handleSubmit = useCallback(
@@ -1144,12 +1168,17 @@ export function useGuidedQuestionFlow({
         clear();
         return;
       }
-      const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const formattedAnswers = formatGuidedAnswersForAgent(
+        answers,
+        visiblePayload?.questions,
+      );
       const resolvedSubmitMessage =
         visiblePayload?.submitMessage ?? submitMessage;
       const context = [
-        buildSubmitContext?.({ answers, formattedAnswers }) ??
-          defaultGuidedSubmitContext(formattedAnswers),
+        settledGuidedSubmitContext(
+          buildSubmitContext?.({ answers, formattedAnswers }) ??
+            defaultGuidedSubmitContext(formattedAnswers),
+        ),
         visiblePayload?.submitContext,
       ]
         .filter(Boolean)

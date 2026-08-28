@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconArrowLeft,
   IconClipboard,
@@ -52,6 +53,16 @@ export default function AssetDetailPage() {
   const exportAsset = useActionMutation("export-asset");
   const deleteAsset = useActionMutation("delete-asset");
   const asset = assetQuery.data;
+
+  useEffect(() => {
+    if (!asset) return;
+    const nextTitle = `${normalizeDocumentTitle(asset.title, "Asset")} — Assets`;
+    const previousTitle = document.title;
+    document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = previousTitle;
+    };
+  }, [asset?.title]);
 
   if (!asset) {
     if (assetQuery.isLoading || assetQuery.isPending || assetQuery.isFetching) {

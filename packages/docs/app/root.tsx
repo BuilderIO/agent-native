@@ -7,7 +7,14 @@ import {
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import {
   Links,
   Meta,
@@ -22,6 +29,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { getGithubStarCountFromCache } from "../lib/github-star-count";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -35,12 +43,14 @@ import {
   docsAlternateLinksForPath,
   docsMarkdownPathForPath,
 } from "./components/docs-seo";
-import Footer from "./components/Footer";
-import Header from "./components/Header";
+import { Footer } from "./components/website-redesign/footer";
+import { SiteHeader } from "./components/website-redesign/site-header";
 import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
+import { ShellSettledProvider } from "./shell-ready";
 
+import tokensCss from "./components/website-redesign/tokens.css?url";
 import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
@@ -61,6 +71,20 @@ const JSON_LD = JSON.stringify({
       name: "Builder.io",
       url: "https://builder.io",
       sameAs: ["https://github.com/BuilderIO/agent-native"],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "support@builder.io",
+        url: `${SITE_URL}${sitePathForLocale("/contact")}`,
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "95 3rd Street, 2nd Floor",
+        addressLocality: "San Francisco",
+        addressRegion: "CA",
+        postalCode: "94103",
+        addressCountry: "US",
+      },
     },
     {
       "@type": "WebSite",
@@ -105,6 +129,7 @@ export async function loader({ request, url }: LoaderFunctionArgs) {
     locale,
     preference: { locale },
     messages: await initialMessagesForLocale(locale),
+    starCount: getGithubStarCountFromCache(),
   };
 }
 
@@ -122,6 +147,7 @@ function fallbackRootLocaleData(pathname: string): RootLocaleData {
     locale,
     preference: { locale },
     messages: null,
+    starCount: null,
   };
 }
 
@@ -136,6 +162,13 @@ function useRootLocaleData() {
 
 export const links = () => [
   { rel: "stylesheet", href: appCss },
+  // Every selector in tokens.css is scoped under .builder-brand-tokens, which
+  // the header, the footer, and the homepage opt into. It deliberately stays
+  // off <body>: global.css has `:where(:not(.builder-brand-tokens *))`
+  // exclusions carrying the docs prose chrome, and a body-level opt-in would
+  // silently make all three of them match nothing. The page background is
+  // unified through --bg in global.css instead, which mirrors --b-bg-page.
+  { rel: "stylesheet", href: tokensCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
   { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
 ];
@@ -163,11 +196,17 @@ export const meta = () => [
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
+  const { starCount } = useRootLocaleData();
+
   return (
-    <div className="w-full min-w-0 overflow-x-hidden">
+    // core's `.agent-sidebar-shell` sits between <body> and this chrome and
+    // paints an opaque surface from the shadcn `--sidebar-background` token, so
+    // the background on <body> never shows and every route inherited a color
+    // from a token system the brand palette knows nothing about. Painting --bg
+    // here is what actually decides the page color, on every route.
+    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
       <ScrollManager />
-      <Header />
-      <div aria-hidden="true" className="h-16" />
+      <SiteHeader starCount={starCount} />
       {children}
       <Footer />
     </div>
@@ -192,6 +231,8 @@ function DocsI18nProvider({ children }: { children: React.ReactNode }) {
 }
 
 const SCROLL_MANAGER_MARKER = "docs-scroll-manager-marker";
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function SeoLinks() {
   const location = useLocation();
@@ -291,7 +332,7 @@ function ScrollManager() {
   const ref = useRef<HTMLSpanElement>(null);
   const isInitialEffectRef = useRef(true);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const isInitialEffect = isInitialEffectRef.current;
     isInitialEffectRef.current = false;
 
@@ -456,7 +497,7 @@ export default function Root() {
   );
 }
 
-function RootShell({ mounted }: { mounted: boolean }) {
+export function RootShell({ mounted }: { mounted: boolean }) {
   const t = useT();
   const content = (
     <DocsChrome>
@@ -475,27 +516,39 @@ function RootShell({ mounted }: { mounted: boolean }) {
     </div>
   );
 
-  if (!mounted) return fallback;
-
+  // One tree shape for every phase. Returning `fallback` bare before mount and
+  // a fragment+Suspense after put the placeholder at two different positions,
+  // so React tore the whole page down and rebuilt it on the `mounted` flip --
+  // on top of the rebuild the lazy swap itself causes. Keeping the fragment and
+  // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
-      <AgentNativeRouteWarmup />
+      {mounted && <AgentNativeRouteWarmup />}
       <Suspense fallback={fallback}>
-        <LazyAgentSidebar
-          storageKey="docs"
-          position="right"
-          defaultOpen={false}
-          defaultSidebarWidth={400}
-          emptyStateText={t("agent.emptyState")}
-          suggestions={[
-            t("agent.suggestionGettingStarted"),
-            t("agent.suggestionActions"),
-            t("agent.suggestionPolling"),
-            t("agent.suggestionDeploy"),
-          ]}
-        >
-          {content}
-        </LazyAgentSidebar>
+        {mounted ? (
+          <LazyAgentSidebar
+            storageKey="docs"
+            position="right"
+            defaultOpen={false}
+            defaultSidebarWidth={400}
+            emptyStateText={t("agent.emptyState")}
+            suggestions={[
+              t("agent.suggestionGettingStarted"),
+              t("agent.suggestionActions"),
+              t("agent.suggestionPolling"),
+              t("agent.suggestionDeploy"),
+            ]}
+          >
+            {/* Provided from inside the final tree, not from a state flag: the
+                lazy component still resolves a tick after its chunk arrives, so
+                anything keyed off "chunk loaded" opens while Suspense is still
+                showing the placeholder -- and mounts into the subtree that is
+                about to be thrown away. */}
+            <ShellSettledProvider value>{content}</ShellSettledProvider>
+          </LazyAgentSidebar>
+        ) : (
+          fallback
+        )}
       </Suspense>
     </>
   );

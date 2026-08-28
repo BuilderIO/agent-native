@@ -81,6 +81,7 @@ export interface CommentsPanelProps {
   comments: Comment[];
   currentMs: number;
   currentUserEmail?: string;
+  currentUserName?: string;
   enableComments: boolean;
   canComment: boolean;
   onSeek: (ms: number) => void;
@@ -118,6 +119,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     comments,
     currentMs,
     currentUserEmail,
+    currentUserName,
     enableComments,
     canComment,
     onSeek,
@@ -157,7 +159,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         threadId: vars.threadId ?? tempId,
         parentId: vars.parentId ?? null,
         authorEmail: currentUserEmail ?? "",
-        authorName: null,
+        authorName: currentUserName ?? null,
         content: vars.content,
         videoTimestampMs: vars.videoTimestampMs ?? 0,
         emojiReactionsJson: "{}",
@@ -355,8 +357,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
           videoTimestampMs: target.videoTimestampMs,
           threadId: target.threadId,
           parentId: target.id,
+          ...(currentUserName ? { authorName: currentUserName } : {}),
         }
-      : { recordingId, content: text, videoTimestampMs: currentMs };
+      : {
+          recordingId,
+          content: text,
+          videoTimestampMs: currentMs,
+          ...(currentUserName ? { authorName: currentUserName } : {}),
+        };
     // Clear composer state before firing the mutation so the UI feels instant —
     // the optimistic cache patch in onMutate puts the comment in the list.
     if (target) {
@@ -406,6 +414,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       draft={draft}
       currentMs={currentMs}
       currentUserEmail={currentUserEmail}
+      currentUserName={currentUserName}
       isSignedIn={isSignedIn}
       isSharePresentation={isSharePresentation}
       enableComments={enableComments}
@@ -417,7 +426,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-transparent">
       <div
         className={cn(
           "flex-1 overflow-y-auto",
@@ -431,12 +440,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
             isSharePresentation={isSharePresentation}
           />
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="space-y-3">
             {sortedThreads.map((thread) => {
               const root = thread[0];
               const replies = thread.slice(1);
               return (
-                <li key={root.threadId} className="p-3 space-y-2">
+                <li key={root.threadId} className="space-y-2 px-3 pt-3">
                   <CommentCard
                     comment={root}
                     currentUserEmail={currentUserEmail}
@@ -459,7 +468,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                     onUnauthenticated={onUnauthenticated}
                   />
                   {replies.length ? (
-                    <ul className="pl-8 space-y-2 border-l-2 border-border ml-3">
+                    <ul className="ml-3 space-y-2 pl-8">
                       {replies.map((r) => (
                         <li key={r.id}>
                           <CommentCard
@@ -508,7 +517,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       </div>
 
       {isSharePresentation && enableComments ? (
-        <div className="border-t border-border px-4 py-4">{composer}</div>
+        <div className="px-4 py-4">{composer}</div>
       ) : !isSharePresentation ? (
         composer
       ) : null}
@@ -586,6 +595,7 @@ function CommentComposer({
   draft,
   currentMs,
   currentUserEmail,
+  currentUserName,
   isSignedIn,
   isSharePresentation,
   enableComments,
@@ -597,6 +607,7 @@ function CommentComposer({
   draft: string;
   currentMs: number;
   currentUserEmail?: string;
+  currentUserName?: string;
   isSignedIn: boolean;
   isSharePresentation: boolean;
   enableComments: boolean;
@@ -606,9 +617,10 @@ function CommentComposer({
   onUnauthenticated?: (intent: "comment" | "react") => void;
 }) {
   const t = useT();
+  const avatarUrl = useAvatarUrl(currentUserEmail);
   if (!enableComments) {
     return (
-      <div className="border-t border-border p-3 text-xs text-muted-foreground">
+      <div className="p-3 text-xs text-muted-foreground">
         {t("commentsPanel.disabled")}
       </div>
     );
@@ -622,7 +634,7 @@ function CommentComposer({
         <button
           type="button"
           onClick={() => onUnauthenticated("comment")}
-          className="flex min-h-16 w-full items-center gap-3 rounded-md border border-border bg-background px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-16 w-full items-center gap-3 rounded-md border-0 bg-background px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Avatar className="size-7 shrink-0">
             <AvatarFallback className="bg-primary/15 text-xs text-primary">
@@ -638,7 +650,7 @@ function CommentComposer({
     }
 
     return (
-      <div className="flex items-center justify-between gap-3 border-t border-border bg-background p-3">
+      <div className="flex items-center justify-between gap-3 px-3 py-3">
         <span className="text-xs text-muted-foreground">
           {t("commentsPanel.signInToComment")}
         </span>
@@ -654,14 +666,7 @@ function CommentComposer({
   }
 
   return (
-    <div
-      className={cn(
-        "bg-background",
-        isSharePresentation
-          ? "space-y-2"
-          : "space-y-2 border-t border-border p-3",
-      )}
-    >
+    <div className={cn(isSharePresentation ? "space-y-2" : "space-y-2 p-3")}>
       {!isSharePresentation ? (
         <div className="px-1 text-[11px] text-muted-foreground">
           {t("commentsPanel.commentAt")}{" "}
@@ -672,13 +677,19 @@ function CommentComposer({
         className={cn(
           "flex gap-2",
           isSharePresentation &&
-            "items-start rounded-md border border-border bg-background p-3 shadow-sm",
+            "items-start rounded-md border border-border p-3 shadow-sm",
         )}
       >
         {isSharePresentation ? (
           <Avatar className="mt-0.5 size-7 shrink-0">
+            {avatarUrl ? (
+              <AvatarImage
+                src={avatarUrl}
+                alt={currentUserName || currentUserEmail || "Anonymous"}
+              />
+            ) : null}
             <AvatarFallback className="bg-primary/15 text-xs text-primary">
-              {initials(currentUserEmail ?? "Anonymous")}
+              {initials(currentUserName || currentUserEmail || "Anonymous")}
             </AvatarFallback>
           </Avatar>
         ) : null}
@@ -687,9 +698,9 @@ function CommentComposer({
           onChange={(e) => onDraftChange(e.target.value)}
           placeholder={t("commentsPanel.leaveComment")}
           className={cn(
-            "resize-none text-sm",
+            "resize-none border-0 bg-background text-sm",
             isSharePresentation
-              ? "min-h-10 flex-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               : "min-h-[60px]",
           )}
           onKeyDown={(e) => {
@@ -731,14 +742,14 @@ function InlineReplyComposer({
   const t = useT();
 
   return (
-    <div className="ml-9 mt-2 rounded-lg border border-border bg-muted/20 p-2">
+    <div className="ml-9 mt-2 rounded-lg p-2">
       <Textarea
         ref={textareaRef}
         autoFocus
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         placeholder={t("commentsPanel.writeReply")}
-        className="min-h-16 resize-none bg-background text-sm"
+        className="min-h-16 resize-none border-0 bg-background text-sm"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -787,13 +798,13 @@ function InlineEditComposer({
   const normalizedDraft = draft.trim();
 
   return (
-    <div className="mt-2 rounded-lg border border-border bg-muted/20 p-2">
+    <div className="mt-2 rounded-lg p-2">
       <Textarea
         autoFocus
         value={draft}
         onChange={(event) => onDraftChange(event.target.value)}
         aria-label={t("commentsPanel.editComment")}
-        className="min-h-16 resize-none bg-background text-sm"
+        className="min-h-16 resize-none border-0 bg-background text-sm"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();

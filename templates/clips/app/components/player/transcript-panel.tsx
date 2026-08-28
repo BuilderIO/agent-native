@@ -32,6 +32,8 @@ export interface TranscriptSegment {
   startMs: number;
   endMs: number;
   text: string;
+  source?: "mic" | "system";
+  speaker?: string | null;
 }
 
 export interface TranscriptPanelProps {
@@ -42,18 +44,93 @@ export interface TranscriptPanelProps {
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
-  cleanup?: {
-    status?: string | null;
-    provider?: string | null;
-    failureReason?: string | null;
-    updatedAt?: string | null;
-  } | null;
   recordingTitle?: string;
   /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
   /** Called when the user asks for a fresh transcript from the recording media. */
   onRegenerate?: () => void;
   isRegenerating?: boolean;
+}
+
+const DISPLAY_MAX_WORDS = 36;
+const DISPLAY_MIN_WORDS_BEFORE_SENTENCE_BREAK = 18;
+const DISPLAY_MAX_GAP_MS = 3_500;
+
+export function mergeTranscriptSegmentsForDisplay(
+  segments: TranscriptSegment[],
+): TranscriptSegment[] {
+  const merged: TranscriptSegment[] = [];
+  let current: TranscriptSegment | null = null;
+
+  for (const segment of segments) {
+    if (!current) {
+      current = { ...segment };
+      continue;
+    }
+
+    const currentWords = countWords(current.text);
+    const segmentWords = countWords(segment.text);
+    const sameSpeaker =
+      current.source === segment.source && current.speaker === segment.speaker;
+    const shouldBreak =
+      !sameSpeaker ||
+      segment.startMs - current.endMs > DISPLAY_MAX_GAP_MS ||
+      (currentWords >= DISPLAY_MIN_WORDS_BEFORE_SENTENCE_BREAK &&
+        endsSentence(current.text)) ||
+      currentWords + segmentWords > DISPLAY_MAX_WORDS;
+
+    if (shouldBreak) {
+      merged.push(current);
+      current = { ...segment };
+      continue;
+    }
+
+    current = {
+      ...current,
+      endMs: segment.endMs,
+      text: `${current.text} ${segment.text}`,
+    };
+  }
+
+  if (current) merged.push(current);
+  return merged;
+}
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function endsSentence(text: string): boolean {
+  return /[.!?]["')\]}]*$/.test(text.trim());
+}
+
+export function getTranscriptSeekMs(
+  displaySegment: TranscriptSegment,
+  query: string,
+  segments: TranscriptSegment[],
+): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery || segments.length === 0) return displaySegment.startMs;
+
+  const displaySegments = segments.filter(
+    (segment) =>
+      segment.startMs >= displaySegment.startMs &&
+      segment.endMs <= displaySegment.endMs,
+  );
+  const searchableText = displaySegments
+    .map((segment) => segment.text)
+    .join(" ")
+    .toLowerCase();
+  const matchIndex = searchableText.indexOf(normalizedQuery);
+  if (matchIndex < 0) return displaySegment.startMs;
+
+  let offset = 0;
+  for (const segment of displaySegments) {
+    if (matchIndex < offset + segment.text.length) return segment.startMs;
+    offset += segment.text.length + 1;
+  }
+
+  return displaySegment.startMs;
 }
 
 export function TranscriptPanel(props: TranscriptPanelProps) {
@@ -66,7 +143,6 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onSeek,
     status,
     failureReason,
-    cleanup,
     recordingTitle,
     onRetry,
     onRegenerate,
@@ -76,7 +152,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   const [copied, setCopied] = useState(false);
 
   const displaySegments = useMemo<TranscriptSegment[]>(() => {
-    if (segments.length > 0) return segments;
+    if (segments.length > 0) return mergeTranscriptSegmentsForDisplay(segments);
     const text = fullText?.trim();
     if (!text) return [];
     return [
@@ -104,13 +180,13 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
   function copyAll() {
     const text = displaySegments.map((s) => s.text).join(" ");
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
   function downloadSrt() {
-    const srt = toSrt(displaySegments);
+    const srt = toSrt(segments.length > 0 ? segments : displaySegments);
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -133,7 +209,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   if (status === "failed" && builderCreditsPaused) {
     return (
       <div className="p-4">
-        <BuilderCreditsPausedNotice mode="transcription" onRetry={onRetry} />
+        <BuilderCreditsPausedNotice onRetry={onRetry} />
       </div>
     );
   }
@@ -219,7 +295,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 p-3 border-b border-border">
+      <div className="flex items-center gap-2 border-b border-border p-3">
         <div className="relative flex-1">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -229,62 +305,49 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             className="pl-8 h-8 text-xs"
           />
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={copyAll}>
-              {copied ? (
-                <IconCheck className="h-4 w-4 text-green-600" />
-              ) : (
-                <IconCopy className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("transcriptPanel.copyTranscript")}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={downloadSrt}>
-              <IconDownload className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
-        </Tooltip>
-        {onRegenerate ? (
+        <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onRegenerate}
-                disabled={isRegenerating}
-                aria-label={t("transcriptPanel.regenerate")}
-              >
-                <IconRefresh
-                  className={cn("h-4 w-4", isRegenerating && "animate-spin")}
-                />
+              <Button variant="ghost" size="icon" onClick={copyAll}>
+                {copied ? (
+                  <IconCheck className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <IconCopy className="h-4 w-4" />
+                )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{t("transcriptPanel.regenerate")}</TooltipContent>
+            <TooltipContent>
+              {t("transcriptPanel.copyTranscript")}
+            </TooltipContent>
           </Tooltip>
-        ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={downloadSrt}>
+                <IconDownload className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
+          </Tooltip>
+          {onRegenerate ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onRegenerate}
+                  disabled={isRegenerating}
+                  aria-label={t("transcriptPanel.regenerate")}
+                >
+                  <IconRefresh
+                    className={cn("h-4 w-4", isRegenerating && "animate-spin")}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("transcriptPanel.regenerate")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </div>
       </div>
-
-      {cleanup?.status === "running" ? (
-        <div className="mx-3 mt-3 rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
-          <IconLoader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-          <span>{t("transcriptPanel.cleanupRunning")}</span>
-        </div>
-      ) : null}
-
-      {cleanup?.status === "failed" &&
-      isBuilderCreditsExhaustedMessage(cleanup.failureReason) ? (
-        <BuilderCreditsPausedNotice mode="cleanup" className="mx-3 mt-3" />
-      ) : cleanup?.status === "failed" ? (
-        <div className="mx-3 mt-3 rounded-md border border-border bg-accent/30 px-3 py-2 text-xs text-muted-foreground flex items-start gap-2">
-          <IconBolt className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          <span>{friendlyCleanupFailure(cleanup.failureReason, t)}</span>
-        </div>
-      ) : null}
 
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
@@ -297,6 +360,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <ul className="py-1">
             {filtered.map((seg) => {
               const isActive = displaySegments[activeIndex] === seg;
+              const seekMs = getTranscriptSeekMs(seg, query, segments);
               return (
                 <li key={seg.startMs}>
                   <TranscriptSegmentRow
@@ -305,12 +369,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                     gutter="panel"
                     onClick={(event) => {
                       if (hasSelectionWithin(event.currentTarget)) return;
-                      onSeek(seg.startMs);
+                      onSeek(seekMs);
                     }}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      onSeek(seg.startMs);
+                      onSeek(seekMs);
                     }}
                   >
                     <span
@@ -382,17 +446,14 @@ function sanitizeFilename(s: string): string {
 
 const BUILDER_CREDITS_FEATURE_LABELS = [
   "builderCredits.featureBackupTranscription",
-  "builderCredits.featureCleanup",
   "builderCredits.featureSummaries",
   "builderCredits.featureTitles",
 ] as const;
 
 function BuilderCreditsPausedNotice({
-  mode,
   onRetry,
   className,
 }: {
-  mode: "transcription" | "cleanup";
   onRetry?: () => void;
   className?: string;
 }) {
@@ -414,9 +475,7 @@ function BuilderCreditsPausedNotice({
               {t("builderCredits.pausedTitle")}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-amber-900/80 dark:text-amber-100/80">
-              {mode === "cleanup"
-                ? t("builderCredits.cleanupDescription")
-                : t("builderCredits.transcriptionDescription")}
+              {t("builderCredits.transcriptionDescription")}
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -541,31 +600,6 @@ function friendlyTranscriptFailure(
     return t("transcriptPanel.backupNotSetup");
   }
   return reason;
-}
-
-function friendlyCleanupFailure(
-  reason: string | null | undefined,
-  t: ReturnType<typeof useT>,
-): string {
-  if (!reason) return t("transcriptPanel.cleanupKept");
-  const normalized = reason.toLowerCase();
-  if (
-    normalized.includes("is connected, but") ||
-    normalized.includes("returned no text") ||
-    normalized.includes("service failed")
-  ) {
-    return t("transcriptPanel.cleanupBuilderFailed");
-  }
-  if (
-    normalized.includes("incomplete") ||
-    isBuilderCreditsExhaustedMessage(reason) ||
-    normalized.includes("connect builder") ||
-    normalized.includes("not configured") ||
-    normalized.includes("api key")
-  ) {
-    return t("transcriptPanel.cleanupPaused");
-  }
-  return t("transcriptPanel.cleanupKept");
 }
 
 /**
@@ -694,7 +728,7 @@ function TranscriptSetupCard({
       if (!document.hidden) void tick();
     };
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [onRetry, stopVisibilityHandler]);
+  }, [onRetry, stopVisibilityHandler, t]);
 
   const isProviderError =
     !isBuilderCreditsExhaustedMessage(failureReason) &&

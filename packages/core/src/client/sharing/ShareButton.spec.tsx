@@ -25,6 +25,7 @@ const popoverOpenChangeHandlers = vi.hoisted(
 const popoverTestState = vi.hoisted(() => ({
   simulateMounting: false,
 }));
+const sharesError = vi.hoisted(() => ({ current: false }));
 const sharesData = vi.hoisted(() => ({
   current: {
     ownerEmail: "owner@example.com",
@@ -38,6 +39,7 @@ const sharesData = vi.hoisted(() => ({
 vi.mock("../use-action.js", () => ({
   useActionQuery: () => ({
     data: sharesData.current,
+    isError: sharesError.current,
     refetch: refetchShares,
   }),
   useActionMutation: (name: string) => ({
@@ -153,6 +155,7 @@ describe("ShareButton", () => {
     popoverInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
     popoverTestState.simulateMounting = false;
+    sharesError.current = false;
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: null,
@@ -517,6 +520,37 @@ describe("ShareButton", () => {
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 
+  it("reports a failed shares read instead of skeletoning forever", async () => {
+    sharesData.current = undefined as any;
+    sharesError.current = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="plan"
+            resourceId="plan-1"
+            shareUrl="https://plan.agent-native.com/plans/plan-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Couldn't load sharing settings.");
+    expect(container.querySelector(".animate-pulse")).toBeFalsy();
+
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    if (!retry) throw new Error("Retry button not found");
+    const refetchesBefore = refetchShares.mock.calls.length;
+    act(() => {
+      retry.click();
+    });
+
+    expect(refetchShares.mock.calls.length).toBe(refetchesBefore + 1);
+  });
+
   it("renders both primary and secondary share URLs", async () => {
     await act(async () => {
       root.render(
@@ -870,7 +904,14 @@ describe("ShareButton", () => {
       const url = String(input);
       if (url.includes("/_agent-native/org/members")) {
         return Response.json({
-          members: [{ email: "akash@builder.io", role: "member" }],
+          members: [
+            {
+              email: "akash@builder.io",
+              image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+              name: "Akash",
+              role: "member",
+            },
+          ],
           hasMore: false,
           nextOffset: null,
         });
@@ -906,6 +947,16 @@ describe("ShareButton", () => {
     expect(String(memberSearchCall?.[0])).toContain("search=aka");
     expect(String(memberSearchCall?.[0])).toContain("limit=25");
     expect(container.textContent).toContain("akash@builder.io");
+    expect(
+      container.querySelector(
+        'img[src="https://lh3.googleusercontent.com/a/avatar.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/_agent-native/avatar/"),
+      ),
+    ).toBe(false);
 
     act(() => {
       input.dispatchEvent(
@@ -922,22 +973,25 @@ describe("ShareButton", () => {
   });
 
   it("requests the next org-member page from the share autocomplete", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({
-          members: [{ email: "first@builder.io", role: "member" }],
-          hasMore: true,
-          nextOffset: 25,
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          members: [{ email: "second@builder.io", role: "member" }],
-          hasMore: false,
-          nextOffset: null,
-        }),
-      );
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/_agent-native/org/members")) {
+        return Promise.resolve(
+          url.includes("offset=25")
+            ? Response.json({
+                members: [{ email: "second@builder.io", role: "member" }],
+                hasMore: false,
+                nextOffset: null,
+              })
+            : Response.json({
+                members: [{ email: "first@builder.io", role: "member" }],
+                hasMore: true,
+                nextOffset: 25,
+              }),
+        );
+      }
+      return Promise.resolve(Response.json({ image: null }));
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await act(async () => {
@@ -970,7 +1024,10 @@ describe("ShareButton", () => {
       await Promise.resolve();
     });
 
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=25");
+    const loadMoreCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("offset=25"),
+    );
+    expect(String(loadMoreCall?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
   });
 

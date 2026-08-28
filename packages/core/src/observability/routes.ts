@@ -22,6 +22,7 @@
 
 import {
   defineEventHandler,
+  getHeader,
   getMethod,
   getQuery,
   setResponseStatus,
@@ -209,7 +210,11 @@ export function createObservabilityHandler() {
             ? JSON.stringify(rawValue)
             : String(rawValue);
       const id = nanoid();
-      await insertFeedback({
+      const idempotencyKey =
+        feedbackType === "text"
+          ? getHeader(event, "idempotency-key")?.trim() || null
+          : null;
+      const inserted = await insertFeedback({
         id,
         runId: body.runId ? String(body.runId) : null,
         threadId: body.threadId ? String(body.threadId) : null,
@@ -217,9 +222,11 @@ export function createObservabilityHandler() {
           typeof body.messageSeq === "number" ? body.messageSeq : null,
         feedbackType,
         value,
+        idempotencyKey,
         userId: owner,
         createdAt: Date.now(),
       });
+      if (!inserted) return { id };
       {
         const runId = body.runId ? String(body.runId) : null;
         const threadId = body.threadId ? String(body.threadId) : null;
@@ -269,8 +276,16 @@ export function createObservabilityHandler() {
           threadId,
           userId: owner,
           feedbackType,
-          value: isThumb ? feedbackType : value,
-          submissionId: id,
+          value,
+          // One PostHog response per rated message, not per row: a thumbs-down
+          // and the free text it opens are two answers to the same survey, and
+          // a fresh id per row would file them as two unrelated responses.
+          // Falls back to the row id when there is no message to key on, which
+          // groups nothing — the honest outcome when nothing can be grouped.
+          submissionId:
+            runId && typeof body.messageSeq === "number"
+              ? `${runId}:${body.messageSeq}`
+              : id,
           model,
           browserSessionId: getRequestContext()?.browserSessionId,
         });

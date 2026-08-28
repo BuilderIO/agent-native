@@ -3,7 +3,7 @@ import type {
   EqualGapGuide,
   FrameBounds,
 } from "@shared/canvas-math";
-import type { PenPath } from "@shared/pen-path";
+import type { PenCuspLatch, PenPath } from "@shared/pen-path";
 import type { ReactNode } from "react";
 
 import type {
@@ -344,7 +344,10 @@ export interface MultiScreenCanvasProps {
    *
    * Replaces the legacy onCreateBoardObject.
    */
-  onBoardDrawPrimitive?: (primitive: CanvasPrimitiveInsert) => boolean | string;
+  onBoardDrawPrimitive?: (
+    primitive: CanvasPrimitiveInsert,
+    options?: { nextTool?: "move" | "pen" },
+  ) => boolean | string;
   // ── Board edit callbacks (active-target model) ───────────────────────────
   /**
    * When true the board <DesignCanvas> is in edit mode.
@@ -799,6 +802,7 @@ export interface PenNodeDragState {
    * being an instant, undraggable straight-line close.
    */
   closing?: boolean;
+  cuspLatch: PenCuspLatch;
 }
 
 /** Dragging an anchor square of a `vectorEdit` overlay path (P-VE1). Anchor
@@ -825,6 +829,9 @@ export interface VectorEditHandleDragState {
   which: "in" | "out";
   pathBefore: PenPath;
   hasMoved: boolean;
+  /** Alt is a one-way latch for the drag: releasing it must not re-mirror the
+   *  pair the user just broke. */
+  symmetryBroken: boolean;
 }
 
 export interface DraftCreationPreview {
@@ -850,10 +857,9 @@ export type DragState =
 export type PendingWheelGesture =
   | {
       mode: "zoom";
-      deltaY: number;
-      /** Trackpad pinch rather than a discrete mouse notch — the two use
-       *  different sensitivities, so accumulation must not mix them. */
-      pinch: boolean;
+      /** Already-curved multiplier, not a raw delta: the two devices' curves
+       *  differ, so only the factor is safe to accumulate across events. */
+      factor: number;
       cursor: Point;
       clientX: number;
       clientY: number;

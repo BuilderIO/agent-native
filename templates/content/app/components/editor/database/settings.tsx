@@ -502,11 +502,11 @@ export function builderSourceLiveWriteControlState(
     showAction: safeTarget,
     actionLabel: enabled ? "Disable" : "Enable",
     description: enabled
-      ? "Enabled for autosave writes to the Agent Native test collection."
+      ? "Enabled for autosave writes to the Agent-Native test collection."
       : safeTarget
-        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
+        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent-Native test collection."
         : isBuilderSource
-          ? "Unavailable here; live writes are locked to the Agent Native test collection."
+          ? "Unavailable here; live writes are locked to the Agent-Native test collection."
           : "Live writes are not available for this source.",
   };
 }

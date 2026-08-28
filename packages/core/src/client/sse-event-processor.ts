@@ -59,7 +59,12 @@ export type ContentPart =
        * tells that apart from the same ask simply re-rendering (see
        * `ApprovalAffordance` in chat/tool-call-display.tsx).
        */
-      approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
+      approval?: {
+        approvalKey: string;
+        dismissed?: boolean;
+        askId?: string;
+        allowPersistentApproval?: false;
+      };
       /**
        * Structured metadata from the coding-tools executor side-channel.
        * Present only on code-agent tool calls from executors new enough to
@@ -89,6 +94,8 @@ export interface SSEEvent {
   toolCallId?: string;
   /** Identifies this `approval_required` gate hit (mirrors AgentChatEvent). */
   askId?: string;
+  /** False when this action requires a fresh approval for every call. */
+  allowPersistentApproval?: false;
   error?: string;
   seq?: number;
   agent?: string;
@@ -1649,6 +1656,9 @@ export function processEvent(
           part.approval = {
             approvalKey,
             ...(ev.askId ? { askId: ev.askId } : {}),
+            ...(ev.allowPersistentApproval === false
+              ? { allowPersistentApproval: false }
+              : {}),
           };
         }
       }

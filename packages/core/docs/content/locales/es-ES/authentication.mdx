@@ -166,6 +166,26 @@ no se envía la verificación y el correo electrónico de verificación de regis
 o obtener una vista previa de los entornos y nombrar cuentas de prueba con una dirección `+qa`
 (`name+qa@example.com`) para que sean fáciles de identificar.
 
+## Política de verificación de correo electrónico {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` es una comodidad local y de control de calidad:
+una implementación alojada la ignora. Para declarar la política en cualquier
+entorno, incluida la producción, decláresela en la configuración:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+El alias de implementación es `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. Un valor
+declarado prevalece tanto sobre `AUTH_SKIP_EMAIL_VERIFICATION` como sobre el
+valor predeterminado de cada entorno.
+
+`false` acepta una dirección no verificada como credencial de inicio de sesión
+—cualquiera puede reclamar cualquier correo electrónico—, así que úselo solo
+donde el registro ya esté restringido de otra manera. `true` en una
+implementación sin proveedor de correo electrónico deshabilita el registro con
+contraseña, porque la verificación nunca podría entregarse.
+
 ## Proveedores sociales {#social-providers}
 
 Establezca variables de entorno para habilitar el inicio de sesión social. Better Auth los detecta automáticamente:
@@ -438,6 +458,7 @@ La ruta `/_agent-native/google/auth-url` predeterminada hace esto automáticamen
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | Clave de firma para una mejor autenticación (generada automáticamente si no está configurada)                                                                                                                               |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Establezca en `1` en entornos de control de calidad/vista previa para permitir que los registros de correo electrónico/contraseña se realicen sin verificación; El desarrollo/prueba local se salta de forma predeterminada |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Establezca en `0` o `1` para declarar la política de verificación del registro con contraseña en cualquier entorno, incluida la producción; prevalece sobre `AUTH_SKIP_EMAIL_VERIFICATION`                                  |
 | `AUTH_DISABLED`                         | Establezca en `true` o `1` para omitir el inicio de sesión/registro; todas las solicitudes se ejecutan como un usuario compartido (solo desarrollo/vista previa local, no para producción con usuarios reales)              |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Establezca en `1` para deshabilitar el inicio de sesión automático de localhost en una base de datos de desarrollo nueva                                                                                                    |
 | `AUTH_MODE`                             | `local` resuelve solo la identidad de CLI/agente (con la que se ejecuta el usuario de desarrollo `pnpm action`); nunca una omisión de inicio de sesión del navegador                                                        |

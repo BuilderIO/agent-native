@@ -17,9 +17,9 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import { ClipsAvatar } from "@/components/clips-avatar";
 import { AgentViewCount } from "@/components/player/recording-views-badge";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -92,7 +92,12 @@ export function RecordingCard({
   readOnly = false,
 }: RecordingCardProps) {
   const t = useT();
-  const { formatDate, formatRelativeTime } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = (date: Date) => formatters.formatDate(date);
+  const formatRelativeTime = (
+    value: number,
+    unit: Parameters<typeof formatters.formatRelativeTime>[1],
+  ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pendingTrashRef = useRef(false);
@@ -133,6 +138,7 @@ export function RecordingCard({
   const displayTitle = hasDefaultTitle
     ? t("editableTitle.untitled")
     : recording.title;
+  const displayOwnerName = recording.ownerName?.trim() || recording.ownerEmail;
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -141,9 +147,12 @@ export function RecordingCard({
   }, [hovered, recording.animatedThumbnailUrl, recording.thumbnailUrl]);
 
   const ownerInitials = useMemo(() => {
-    const [local] = recording.ownerEmail.split("@");
-    return (local || "?").slice(0, 2).toUpperCase();
-  }, [recording.ownerEmail]);
+    const words = displayOwnerName.split(/\s+/).filter(Boolean);
+    if (words.length > 1) {
+      return `${words[0]?.[0] ?? ""}${words[words.length - 1]?.[0] ?? ""}`.toUpperCase();
+    }
+    return (words[0] || "?").slice(0, 2).toUpperCase();
+  }, [displayOwnerName]);
 
   const recordingPath = `/r/${recording.id}`;
 
@@ -340,13 +349,14 @@ export function RecordingCard({
               </div>
             )}
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Avatar className="h-4 w-4 shrink-0">
-                <AvatarImage src="" alt={recording.ownerEmail} />
-                <AvatarFallback className="bg-primary/15 text-[8px] text-primary">
-                  {ownerInitials}
-                </AvatarFallback>
-              </Avatar>
-              <span className="min-w-0 truncate">{recording.ownerEmail}</span>
+              <ClipsAvatar
+                email={recording.ownerEmail}
+                alt={displayOwnerName}
+                fallback={ownerInitials}
+                className="h-4 w-4 shrink-0"
+                fallbackClassName="bg-primary/15 text-[8px] text-primary"
+              />
+              <span className="min-w-0 truncate">{displayOwnerName}</span>
               <span aria-hidden>•</span>
               <span className="shrink-0">{relative}</span>
             </div>

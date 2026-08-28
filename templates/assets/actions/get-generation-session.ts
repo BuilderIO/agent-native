@@ -1,15 +1,16 @@
-import { defineAction } from "@agent-native/core";
-import { asc, eq, inArray } from "drizzle-orm";
+import { defineAction } from "@agent-native/core/action";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   requireLibrary,
   serializeAsset,
-  serializeGenerationPreset,
+  serializeTemplate,
   serializeGenerationRun,
   serializeGenerationSession,
 } from "./_helpers.js";
+import { accessibleTemplateFilter } from "./_template-access.js";
 
 export default defineAction({
   description:
@@ -49,12 +50,20 @@ export default defineAction({
           .filter((runId): runId is string => Boolean(runId)),
       ),
     ];
+    const templateAccess = session.presetId
+      ? await accessibleTemplateFilter()
+      : null;
     const [presetRows, assets, runs] = await Promise.all([
       session.presetId
         ? db
             .select()
-            .from(schema.assetGenerationPresets)
-            .where(eq(schema.assetGenerationPresets.id, session.presetId))
+            .from(schema.assetTemplates)
+            .where(
+              and(
+                eq(schema.assetTemplates.id, session.presetId),
+                templateAccess!,
+              ),
+            )
         : Promise.resolve([]),
       assetIds.length
         ? db
@@ -71,7 +80,7 @@ export default defineAction({
     ]);
     return {
       session: serializeGenerationSession(session),
-      preset: presetRows[0] ? serializeGenerationPreset(presetRows[0]) : null,
+      preset: presetRows[0] ? serializeTemplate(presetRows[0]) : null,
       items,
       assets: assets.map(serializeAsset),
       runs: runs.map(serializeGenerationRun),

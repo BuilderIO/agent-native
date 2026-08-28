@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { resolveConnectorSecret } from "../server/connectors/credentials.js";
@@ -16,6 +16,7 @@ import {
   orgFactoryRunFilter,
   orgFactoryScopedItemWhere,
   readTriageConfigRow,
+  requireExistingFactory,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
@@ -24,7 +25,10 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { createAiServicesGitReadClient } from "../server/triage/ai-services-git.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
-import { createGitHubClient } from "../server/triage/github-client.js";
+import {
+  GitHubRequestError,
+  createGitHubClient,
+} from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
   parseTriageMetadata,
@@ -33,7 +37,11 @@ import {
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
-  hasCurrentPullRequestApproval,
+  hasActiveCredibleSafetyFinding,
+  currentPullRequestApprovals,
+  FACTORY_APPROVAL_BODY_MARKER,
+  hasCurrentBlockingPullRequestReview,
+  isUltraScaryChange,
 } from "../server/triage/pr-policy.js";
 
 function repositoryRef(value: string): { owner: string; repo: string } {
@@ -41,6 +49,18 @@ function repositoryRef(value: string): { owner: string; repo: string } {
   if (!match)
     throw new Error("Repository must use the owner/repository format.");
   return { owner: match[1], repo: match[2] };
+}
+
+function hasUsableChangedFiles(
+  changedFiles: readonly string[] | undefined,
+): changedFiles is readonly [string, ...string[]] {
+  return (
+    Array.isArray(changedFiles) &&
+    changedFiles.length > 0 &&
+    changedFiles.every(
+      (file) => typeof file === "string" && file.trim().length > 0,
+    )
+  );
 }
 
 function requiredAiServicesEnv(
@@ -114,12 +134,12 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
     pullRequestNumber: z.number().int().positive(),
-    itemId: z.string().min(1).optional(),
+    itemId: z.string().min(1),
     clearBug: z.boolean(),
     productUxImplications: z.boolean().default(false),
     reason: z.string().trim().min(1).max(4_000),
@@ -209,16 +229,88 @@ export default defineAction({
         "BUILDER_PRIVATE_KEY is required to read PR review evidence.",
       );
     const projectId = requiredAiServicesEnv("BUILDER_PROJECT_ID");
-    const snapshot = await createAiServicesGitReadClient({
+    const aiServicesGit = createAiServicesGitReadClient({
       baseUrl: requiredAiServicesEnv("BUILDER_AI_SERVICES_URL"),
       authorization: `Bearer ${privateKey.startsWith("bpk-") ? privateKey : `bpk-${privateKey}`}`,
-    }).fetchPullRequest({ projectId, repo, pullRequestNumber });
+    });
+    const reconcileClaim = async (headSha: string, reason: string) => {
+      if (!itemId) return;
+      await getDb().transaction(async (tx) => {
+        const released = await tx
+          .update(triageDecisions)
+          .set({ outcome: "needs_manual", reason })
+          .where(
+            and(
+              eq(
+                triageDecisions.id,
+                stableId("pr-governance", orgId, itemId, headSha),
+              ),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          )
+          .returning({ id: triageDecisions.id });
+        if (!released[0]) return;
+        await tx
+          .update(triageItems)
+          .set({
+            status: "reconciliation_required",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      });
+    };
+    const snapshot = await aiServicesGit.fetchPullRequest({
+      projectId,
+      repo,
+      pullRequestNumber,
+    });
     if (snapshot.headSha !== pullRequest.headSha) {
       throw new Error(
         `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
       );
     }
-    if (hasCurrentPullRequestApproval(snapshot.reviews)) {
+    const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
+      snapshot.reviews,
+      snapshot.headSha,
+    );
+    const safetyFindingsClean =
+      !snapshot.commentsTruncated &&
+      !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
+    let currentApprovals;
+    try {
+      currentApprovals = currentPullRequestApprovals(
+        snapshot.reviews,
+        snapshot.headSha,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "unknown approval evidence error";
+      await reconcileClaim(
+        snapshot.headSha,
+        `Approval evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+      );
+      throw error;
+    }
+    const currentApproval = currentApprovals[0] ?? null;
+    if (!hasUsableChangedFiles(snapshot.changedFiles)) {
+      const missingFilesReason =
+        "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
+      await reconcileClaim(snapshot.headSha, missingFilesReason);
+      await getDb()
+        .update(triageItems)
+        .set({
+          status: "needs_manual",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+      return { ok: true, action: "needs_manual", reason: missingFilesReason };
+    }
+    if (currentApproval) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -235,14 +327,204 @@ export default defineAction({
         },
         factoryId,
       );
+      let recoveredApproval = false;
+      let previouslyFinalized = false;
       if (itemId) {
-        await getDb()
-          .update(triageItems)
+        const existingItem = (
+          await getDb()
+            .select({
+              metadataJson: triageItems.metadataJson,
+              status: triageItems.status,
+            })
+            .from(triageItems)
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+            .limit(1)
+        )[0];
+        if (!existingItem) {
+          throw new Error("Factory item disappeared during approval recovery.");
+        }
+        const existingMetadata = parseTriageMetadata(existingItem.metadataJson);
+        let livePullRequest;
+        try {
+          livePullRequest = await github.getPullRequestSummary(
+            repository,
+            pullRequestNumber,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "unknown GitHub error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Live GitHub state could not be revalidated during approval recovery: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        if (
+          livePullRequest.headSha !== snapshot.headSha ||
+          livePullRequest.state !== "open" ||
+          livePullRequest.draft
+        ) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "Live GitHub pull-request state changed during approval recovery; reconciliation is required before approval.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "Live GitHub pull-request state changed during approval recovery; no approval state was finalized.",
+          };
+        }
+        previouslyFinalized =
+          existingItem.status === "auto_approved" &&
+          existingMetadata.autoApprovalHeadSha === snapshot.headSha &&
+          typeof existingMetadata.autoApprovalUrl === "string";
+        const decisionId = stableId(
+          "pr-governance",
+          orgId,
+          itemId,
+          snapshot.headSha,
+        );
+        if (previouslyFinalized) {
+          await getDb()
+            .update(triageDecisions)
+            .set({ outcome: "auto_approve" })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approval_claimed"),
+              ),
+            );
+        }
+        const authenticatedUser = await github.getAuthenticatedUser();
+        const currentAuthorMembership =
+          await github.checkOrganizationMemberById(
+            "BuilderIO",
+            pullRequest.userId,
+            pullRequest.userLogin,
+          );
+        const attributedApproval = currentApprovals.find(
+          (approval) =>
+            approval.reviewerLogin ===
+              authenticatedUser.login.trim().toLowerCase() &&
+            approval.body?.startsWith(
+              `${FACTORY_APPROVAL_BODY_MARKER}${decisionId};`,
+            ),
+        );
+        const attributedApprovalUrl =
+          attributedApproval?.htmlUrl ?? pullRequest.htmlUrl;
+        if (
+          attributedApproval &&
+          currentAuthorMembership.isMember &&
+          blockingReviewStatesClean &&
+          safetyFindingsClean &&
+          hasUsableChangedFiles(snapshot.changedFiles) &&
+          !isUltraScaryChange(snapshot.changedFiles)
+        ) {
+          recoveredApproval = await getDb().transaction(async (tx) => {
+            const recovered = await tx
+              .update(triageDecisions)
+              .set({ outcome: "auto_approve" })
+              .where(
+                and(
+                  eq(triageDecisions.id, decisionId),
+                  eq(triageDecisions.itemId, itemId),
+                  eq(triageDecisions.orgId, orgId),
+                  eq(triageDecisions.factoryId, factoryId),
+                  eq(triageDecisions.outcome, "auto_approval_claimed"),
+                ),
+              )
+              .returning({ id: triageDecisions.id });
+            if (!recovered[0]) return false;
+            const latestItem = (
+              await tx
+                .select({ metadataJson: triageItems.metadataJson })
+                .from(triageItems)
+                .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+                .limit(1)
+            )[0];
+            if (!latestItem) {
+              throw new Error(
+                "Factory item disappeared during approval recovery.",
+              );
+            }
+            const metadata = parseTriageMetadata(latestItem.metadataJson);
+            metadata.autoApprovedAt = new Date().toISOString();
+            metadata.autoApprovalUrl = attributedApprovalUrl;
+            metadata.autoApprovalHeadSha = snapshot.headSha;
+            await tx
+              .update(triageItems)
+              .set({
+                metadataJson: serializeTriageMetadata(metadata),
+                status: "auto_approved",
+                updatedAt: new Date().toISOString(),
+              })
+              .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+            return true;
+          });
+        }
+        if (recoveredApproval) {
+          await recordFactoryAudit(
+            context,
+            { userEmail, orgId },
+            {
+              action: "govern-agent-native-pull-request",
+              kind: "external_action",
+              status: "success",
+              itemId,
+              source: "github",
+              sourceUrl: attributedApprovalUrl,
+              summary:
+                "Recovered the attributed Factory approval after an ambiguous provider result.",
+              details: {
+                repo,
+                pullRequestNumber,
+                decisionId,
+                approvalUrl: attributedApprovalUrl,
+              },
+            },
+            factoryId,
+          );
+        }
+      }
+      if (itemId && !recoveredApproval && !previouslyFinalized) {
+        const uncorrelatedClaim = await getDb()
+          .update(triageDecisions)
           .set({
-            status: "pr_observed",
-            updatedAt: new Date().toISOString(),
+            outcome: "needs_manual",
+            reason:
+              "A current approval could not be correlated to the Factory claim; reconciliation is required.",
           })
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+          .where(
+            and(
+              eq(
+                triageDecisions.id,
+                stableId("pr-governance", orgId, itemId, snapshot.headSha),
+              ),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          )
+          .returning({ id: triageDecisions.id });
+        if (uncorrelatedClaim[0]) {
+          await getDb()
+            .update(triageItems)
+            .set({
+              status: "reconciliation_required",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(
+                orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                ne(triageItems.status, "auto_approved"),
+              ),
+            );
+        }
       }
       return {
         ok: true,
@@ -256,10 +538,6 @@ export default defineAction({
       snapshot.coverage === "complete" &&
       snapshot.checks.length > 0 &&
       snapshot.checks.every((check) => check.state === "passed");
-    const reviewStateClean = snapshot.reviews.every(
-      (review) =>
-        review.state !== "changes_requested" && review.state !== "pending",
-    );
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
       checks: snapshot.checks,
@@ -271,7 +549,8 @@ export default defineAction({
         "builderio[bot]",
       ],
     });
-    const reviewFeedbackHandled = reviewStateClean && reviewFeedback.isClean;
+    const reviewFeedbackHandled =
+      blockingReviewStatesClean && reviewFeedback.isClean;
     const internalMember = await github.checkOrganizationMember(
       "BuilderIO",
       pullRequest.userLogin,
@@ -285,14 +564,17 @@ export default defineAction({
     });
     const governance = decidePullRequestGovernance({
       author: pullRequest.userLogin,
+      authorId: pullRequest.userId,
       repository: repo,
       title: pullRequest.title,
       summary: pullRequest.body,
-      changedFiles: snapshot.changedFiles ?? [],
+      changedFiles: snapshot.changedFiles,
       clearBug,
       productUxImplications,
       checksPassed,
       reviewFeedbackHandled,
+      blockingReviewStatesClean,
+      safetyFindingsClean,
       openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
       internalBuilderMember: internalMember.isMember,
       factoryTriggered,
@@ -304,7 +586,7 @@ export default defineAction({
       {
         action: "govern-agent-native-pull-request",
         kind: "governance",
-        status: governance.autoApprove ? "success" : "skipped",
+        status: "skipped",
         itemId: itemId ?? null,
         source: "github",
         sourceUrl: pullRequest.htmlUrl,
@@ -321,6 +603,7 @@ export default defineAction({
           autoApprove: governance.autoApprove,
           autoMerge: governance.autoMerge,
           ownerException: governance.ownerException,
+          trustException: governance.trustException,
           ownerOwnedArea: governance.ownerOwnedArea ?? null,
           guardResults: governance.guardResults,
         },
@@ -343,28 +626,93 @@ export default defineAction({
         itemId,
         snapshot.headSha,
       );
-      await getDb()
-        .insert(triageDecisions)
-        .values({
-          id: decisionId,
-          itemId,
-          ruleId: null,
-          mode: "automation",
-          outcome: governance.autoMerge
-            ? "auto_merge"
-            : governance.autoApprove
-              ? "auto_approve"
-              : "needs_manual",
-          reason: `${reason} ${governance.reason}`.trim(),
-          guardResultsJson: JSON.stringify(governance.guardResults),
-          model: "factory-pr-governance",
-          promptVersion: 1,
-          createdAt: new Date().toISOString(),
-          ownerEmail: userEmail,
+      await getDb().transaction(async (tx) => {
+        const inserted = await tx
+          .insert(triageDecisions)
+          .values({
+            id: decisionId,
+            itemId,
+            ruleId: null,
+            mode: "automation",
+            outcome: governance.autoMerge
+              ? "auto_merge"
+              : governance.autoApprove
+                ? "auto_approval_claimed"
+                : "needs_manual",
+            reason: `${reason} ${governance.reason}`.trim(),
+            guardResultsJson: JSON.stringify(governance.guardResults),
+            model: "factory-pr-governance",
+            promptVersion: 1,
+            createdAt: new Date().toISOString(),
+            ownerEmail: userEmail,
+            orgId,
+            factoryId,
+          })
+          .onConflictDoNothing()
+          .returning({ id: triageDecisions.id });
+        if (governance.autoApprove && !inserted[0]) {
+          const staleFinalized = await tx
+            .update(triageDecisions)
+            .set({
+              outcome: "needs_manual",
+              reason:
+                "A previously posted Factory approval was dismissed; reconciliation is required before retrying.",
+            })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approve"),
+              ),
+            )
+            .returning({ id: triageDecisions.id });
+          if (staleFinalized[0]) {
+            await tx
+              .update(triageItems)
+              .set({
+                status: "reconciliation_required",
+                updatedAt: new Date().toISOString(),
+              })
+              .where(
+                and(
+                  orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                  eq(triageItems.status, "auto_approved"),
+                ),
+              );
+          }
+          const reclaimed = await tx
+            .update(triageDecisions)
+            .set({
+              outcome: "auto_approval_claimed",
+              reason: `${reason} ${governance.reason}`.trim(),
+              guardResultsJson: JSON.stringify(governance.guardResults),
+              createdAt: new Date().toISOString(),
+              ownerEmail: userEmail,
+            })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "needs_manual"),
+              ),
+            )
+            .returning({ id: triageDecisions.id });
+          if (!reclaimed[0]) {
+            throw new Error(
+              "A pull-request approval intent already exists; reconcile the provider result before retrying.",
+            );
+          }
+        }
+        await requireExistingFactory(
+          tx as unknown as ReturnType<typeof getDb>,
           orgId,
           factoryId,
-        })
-        .onConflictDoNothing();
+        );
+      });
     }
 
     if (!governance.autoApprove) {
@@ -387,6 +735,159 @@ export default defineAction({
       };
     }
 
+    if (itemId) {
+      let postClaimSnapshot: Awaited<
+        ReturnType<typeof aiServicesGit.fetchPullRequest>
+      >;
+      try {
+        postClaimSnapshot = await aiServicesGit.fetchPullRequest({
+          projectId,
+          repo,
+          pullRequestNumber,
+        });
+        if (postClaimSnapshot.headSha !== snapshot.headSha) {
+          throw new Error(
+            `PR evidence changed after approval claim: expected ${snapshot.headSha}, received ${postClaimSnapshot.headSha}.`,
+          );
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "unknown evidence error";
+        await reconcileClaim(
+          snapshot.headSha,
+          `Post-claim PR evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+        );
+        throw error;
+      }
+      const postClaimBlockingReviewStatesClean =
+        !hasCurrentBlockingPullRequestReview(
+          postClaimSnapshot.reviews,
+          postClaimSnapshot.headSha,
+        );
+      const postClaimSafetyFindingsClean =
+        !postClaimSnapshot.commentsTruncated &&
+        !hasActiveCredibleSafetyFinding(
+          postClaimSnapshot.reviews,
+          postClaimSnapshot.comments,
+        );
+      if (!hasUsableChangedFiles(postClaimSnapshot.changedFiles)) {
+        await reconcileClaim(
+          snapshot.headSha,
+          "Changed-file evidence disappeared after approval claim; reconciliation is required before approval.",
+        );
+        return {
+          ok: true,
+          action: "needs_manual",
+          reason:
+            "Changed-file evidence disappeared after approval claim; no approval was posted.",
+        };
+      }
+      const postClaimChecksPassed =
+        postClaimSnapshot.coverage === "complete" &&
+        postClaimSnapshot.checks.length > 0 &&
+        postClaimSnapshot.checks.every((check) => check.state === "passed");
+      const postClaimReviewFeedback = reconcileBabysitState({
+        comments: postClaimSnapshot.comments,
+        checks: postClaimSnapshot.checks,
+        commentsTruncated: postClaimSnapshot.commentsTruncated,
+        botAuthors: [
+          "github-actions",
+          "github-actions[bot]",
+          "dependabot[bot]",
+          "builderio[bot]",
+        ],
+      });
+      const postClaimReviewFeedbackHandled =
+        postClaimBlockingReviewStatesClean && postClaimReviewFeedback.isClean;
+      const postClaimInternalMember = await github.checkOrganizationMemberById(
+        "BuilderIO",
+        pullRequest.userId,
+        pullRequest.userLogin,
+      );
+      const postClaimGovernance = decidePullRequestGovernance({
+        author: pullRequest.userLogin,
+        authorId: pullRequest.userId,
+        repository: repo,
+        title: postClaimSnapshot.title,
+        summary: postClaimSnapshot.summary,
+        changedFiles: postClaimSnapshot.changedFiles,
+        clearBug,
+        productUxImplications,
+        checksPassed: postClaimChecksPassed,
+        reviewFeedbackHandled: postClaimReviewFeedbackHandled,
+        blockingReviewStatesClean: postClaimBlockingReviewStatesClean,
+        safetyFindingsClean: postClaimSafetyFindingsClean,
+        openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
+        internalBuilderMember: postClaimInternalMember.isMember,
+        factoryTriggered,
+      });
+      if (!postClaimGovernance.autoApprove) {
+        await reconcileClaim(
+          snapshot.headSha,
+          `Post-claim PR evidence no longer satisfies the approval gates: ${postClaimGovernance.reason}`,
+        );
+        return {
+          ok: true,
+          action: "needs_manual",
+          reason:
+            "Post-claim PR evidence no longer satisfies the approval gates; reconciliation is required.",
+        };
+      }
+      let postClaimApprovals;
+      try {
+        postClaimApprovals = currentPullRequestApprovals(
+          postClaimSnapshot.reviews,
+          postClaimSnapshot.headSha,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "unknown approval evidence error";
+        await reconcileClaim(
+          snapshot.headSha,
+          `Post-claim approval evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+        );
+        throw error;
+      }
+      if (postClaimApprovals.length > 0) {
+        await getDb().transaction(async (tx) => {
+          await tx
+            .update(triageDecisions)
+            .set({
+              outcome: "needs_manual",
+              reason:
+                "A current approval appeared after the Factory claim; reconciliation is required before posting another review.",
+            })
+            .where(
+              and(
+                eq(
+                  triageDecisions.id,
+                  stableId("pr-governance", orgId, itemId, snapshot.headSha),
+                ),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approval_claimed"),
+              ),
+            );
+          await tx
+            .update(triageItems)
+            .set({
+              status: "reconciliation_required",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+        });
+        return {
+          ok: true,
+          action: "needs_manual",
+          reason:
+            "A current approval appeared after the Factory claim; no duplicate review was created.",
+        };
+      }
+    }
+
     let approvalUrl: string | null = null;
     if (itemId) {
       const item = (
@@ -407,36 +908,258 @@ export default defineAction({
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
-        const approval = await github.approvePullRequest(
-          repository,
-          pullRequestNumber,
-          governance.ownerException
-            ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-            : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
+        let livePullRequest;
+        try {
+          livePullRequest = await github.getPullRequestSummary(
+            repository,
+            pullRequestNumber,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "unknown GitHub error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Live GitHub state could not be revalidated: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        if (
+          livePullRequest.headSha !== snapshot.headSha ||
+          livePullRequest.state !== "open" ||
+          livePullRequest.draft
+        ) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "Live GitHub pull-request state changed after review; reconciliation is required before approval.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "Live GitHub pull-request state changed after review; no approval was posted.",
+          };
+        }
+        let finalReviewSnapshot;
+        try {
+          finalReviewSnapshot = await aiServicesGit.fetchPullRequest({
+            projectId,
+            repo,
+            pullRequestNumber,
+          });
+          if (finalReviewSnapshot.headSha !== snapshot.headSha) {
+            throw new Error(
+              `PR review evidence changed before approval: expected ${snapshot.headSha}, received ${finalReviewSnapshot.headSha}.`,
+            );
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown review evidence error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Review evidence could not be revalidated before approval: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        let finalApprovals;
+        try {
+          finalApprovals = currentPullRequestApprovals(
+            finalReviewSnapshot.reviews,
+            finalReviewSnapshot.headSha,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown approval evidence error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Approval evidence could not be revalidated before approval: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        if (
+          finalApprovals.length > 0 ||
+          hasCurrentBlockingPullRequestReview(
+            finalReviewSnapshot.reviews,
+            finalReviewSnapshot.headSha,
+          ) ||
+          finalReviewSnapshot.commentsTruncated ||
+          hasActiveCredibleSafetyFinding(
+            finalReviewSnapshot.reviews,
+            finalReviewSnapshot.comments,
+          )
+        ) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "Review evidence changed before approval; reconciliation is required before retrying.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "Review evidence changed before approval; no duplicate or unsafe approval was posted.",
+          };
+        }
+        const decisionId = stableId(
+          "pr-governance",
+          orgId,
+          itemId,
+          snapshot.headSha,
         );
+        let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
+        try {
+          approval = await github.approvePullRequest(
+            repository,
+            pullRequestNumber,
+            governance.trustException
+              ? `Factory auto-approved under decision ${decisionId}; verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
+              : governance.ownerException
+                ? `Factory auto-approved under decision ${decisionId}; verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
+                : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
+            snapshot.headSha,
+          );
+        } catch (error) {
+          if (error instanceof GitHubRequestError) {
+            const definitiveRejection =
+              error.status !== null &&
+              error.status >= 400 &&
+              error.status < 500 &&
+              !error.rateLimited;
+            const claimCanBeReleased =
+              definitiveRejection || !error.requestAttempted;
+            if (claimCanBeReleased) {
+              const rejectionReason = definitiveRejection
+                ? `GitHub rejected the approval request definitively: ${error.message}`
+                : `GitHub approval request was unavailable before the provider call: ${error.message}`;
+              await getDb().transaction(async (tx) => {
+                const released = await tx
+                  .update(triageDecisions)
+                  .set({ outcome: "needs_manual", reason: rejectionReason })
+                  .where(
+                    and(
+                      eq(
+                        triageDecisions.id,
+                        stableId(
+                          "pr-governance",
+                          orgId,
+                          itemId,
+                          snapshot.headSha,
+                        ),
+                      ),
+                      eq(triageDecisions.itemId, itemId),
+                      eq(triageDecisions.orgId, orgId),
+                      eq(triageDecisions.factoryId, factoryId),
+                      eq(triageDecisions.outcome, "auto_approval_claimed"),
+                    ),
+                  )
+                  .returning({ id: triageDecisions.id });
+                if (released[0] && definitiveRejection) {
+                  await tx
+                    .update(triageItems)
+                    .set({
+                      status: "needs_manual",
+                      updatedAt: new Date().toISOString(),
+                    })
+                    .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+                }
+              });
+              if (definitiveRejection) {
+                await recordFactoryAudit(
+                  context,
+                  { userEmail, orgId },
+                  {
+                    action: "govern-agent-native-pull-request",
+                    kind: "external_action",
+                    status: "error",
+                    itemId,
+                    source: "github",
+                    sourceUrl: pullRequest.htmlUrl,
+                    summary: rejectionReason,
+                    details: {
+                      repo,
+                      pullRequestNumber,
+                      status: error.status,
+                    },
+                  },
+                  factoryId,
+                );
+              }
+            }
+          }
+          throw error;
+        }
         approvalUrl = approval.htmlUrl;
-        metadata.autoApprovedAt = new Date().toISOString();
-        metadata.autoApprovalUrl = approval.htmlUrl;
-        metadata.autoApprovalHeadSha = snapshot.headSha;
+        let postApprovalPullRequest;
+        try {
+          postApprovalPullRequest = await github.getPullRequestSummary(
+            repository,
+            pullRequestNumber,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "unknown GitHub error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Live GitHub state could not be revalidated after approval: ${message}. Reconciliation is required before finalizing.`,
+          );
+          throw error;
+        }
+        if (postApprovalPullRequest.headSha !== snapshot.headSha) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "The pull request changed after approval was posted; reconciliation is required before finalizing.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "The pull request changed after approval was posted; durable approval state was not finalized.",
+          };
+        }
+        const latestItem = (
+          await getDb()
+            .select({ metadataJson: triageItems.metadataJson })
+            .from(triageItems)
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+            .limit(1)
+        )[0];
+        if (!latestItem) {
+          throw new Error("Factory item disappeared after GitHub approval.");
+        }
+        const latestMetadata = parseTriageMetadata(latestItem.metadataJson);
+        latestMetadata.autoApprovedAt = new Date().toISOString();
+        latestMetadata.autoApprovalUrl = approval.htmlUrl;
+        latestMetadata.autoApprovalHeadSha = snapshot.headSha;
         await getDb()
           .update(triageItems)
           .set({
-            metadataJson: serializeTriageMetadata(metadata),
+            metadataJson: serializeTriageMetadata(latestMetadata),
             status: "auto_approved",
             updatedAt: new Date().toISOString(),
           })
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+        await getDb()
+          .update(triageDecisions)
+          .set({ outcome: "auto_approve" })
+          .where(
+            and(
+              eq(
+                triageDecisions.id,
+                stableId("pr-governance", orgId, itemId, snapshot.headSha),
+              ),
+              eq(triageDecisions.itemId, itemId),
+              eq(triageDecisions.orgId, orgId),
+              eq(triageDecisions.factoryId, factoryId),
+              eq(triageDecisions.outcome, "auto_approval_claimed"),
+            ),
+          );
       }
     } else {
-      approvalUrl = (
-        await github.approvePullRequest(
-          repository,
-          pullRequestNumber,
-          governance.ownerException
-            ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-            : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
-        )
-      ).htmlUrl;
+      throw new Error(
+        "PR governance requires a Factory item for an atomic approval claim.",
+      );
     }
 
     await recordFactoryAudit(

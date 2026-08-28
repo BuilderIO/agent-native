@@ -84,14 +84,19 @@ describe("desktop update asset route", () => {
     const event = createEvent("latest-mac.yml");
 
     await expect(handler(event as any)).resolves.toEqual({
-      error: "Upstream releases fetch failed (504)",
+      error: {
+        code: "desktop_release_unavailable",
+        message: "Desktop release information is temporarily unavailable.",
+        resolution:
+          "Retry shortly. If the problem persists, check the Agent-Native release page.",
+      },
     });
 
     expect(mockCreateError).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(
       event,
       504,
-      "Upstream releases fetch failed (504)",
+      "Desktop release information is temporarily unavailable.",
     );
     expect(mockSetResponseHeaders).toHaveBeenCalledWith(event, {
       "content-type": "application/json; charset=utf-8",
@@ -99,11 +104,57 @@ describe("desktop update asset route", () => {
     });
     expect(event).toMatchObject({
       status: 504,
-      statusMessage: "Upstream releases fetch failed (504)",
+      statusMessage: "Desktop release information is temporarily unavailable.",
       headers: {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "public, max-age=30",
       },
+    });
+  });
+
+  it("returns structured JSON for invalid and missing assets", async () => {
+    const invalid = createEvent("../secrets");
+    await expect(handler(invalid as any)).resolves.toMatchObject({
+      error: {
+        code: "invalid_desktop_update_asset",
+        resolution: expect.any(String),
+      },
+    });
+    expect(invalid).toMatchObject({
+      status: 400,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                tag_name: "v1.0.0",
+                name: "v1.0.0",
+                published_at: "2026-01-01T00:00:00Z",
+                draft: false,
+                prerelease: false,
+                assets: [],
+              },
+            ],
+          }) as Response,
+      ),
+    );
+    const missing = createEvent("latest-mac.yml");
+    await expect(handler(missing as any)).resolves.toMatchObject({
+      error: {
+        code: "desktop_update_asset_not_found",
+        resolution: expect.any(String),
+      },
+    });
+    expect(missing).toMatchObject({
+      status: 404,
+      headers: { "content-type": "application/json; charset=utf-8" },
     });
   });
 
@@ -117,7 +168,7 @@ describe("desktop update asset route", () => {
           json: async () => [
             {
               tag_name: "v0.1.0-nightly.1",
-              name: "Agent Native Nightly v0.1.0-nightly.1",
+              name: "Agent-Native Nightly v0.1.0-nightly.1",
               published_at: "2026-01-02T00:00:00Z",
               draft: false,
               prerelease: true,

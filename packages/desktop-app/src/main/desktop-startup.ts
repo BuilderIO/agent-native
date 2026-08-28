@@ -1,11 +1,17 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
+
+import type { DesktopReleaseChannel } from "@shared/release-channel";
 
 import { resolveDesktopUserDataDirectoryName } from "./ipc/update-policy.js";
 
 export interface DesktopStartupDependencies {
   isPackaged: boolean;
   version: string;
+  releaseChannel: DesktopReleaseChannel;
   appDataPath: string;
+  defaultUserDataPath: string;
+  pathExists?: (directoryPath: string) => boolean;
   requestedUserDataPath?: string;
   createDirectory: (directoryPath: string) => void;
   setUserDataPath: (directoryPath: string) => void;
@@ -37,6 +43,20 @@ export function resolveDesktopSsoBrokerStatePath(userDataPath: string): string {
   return path.join(userDataPath, "desktop-sso.json");
 }
 
+export function resolveStableUserDataPath(
+  appDataPath: string,
+  defaultUserDataPath: string,
+  pathExists: (directoryPath: string) => boolean = existsSync,
+): string {
+  const legacyUserDataPath = path.join(
+    appDataPath,
+    "Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+  );
+  return pathExists(legacyUserDataPath)
+    ? legacyUserDataPath
+    : defaultUserDataPath;
+}
+
 export async function runDesktopStartupStep({
   start,
   isShuttingDown,
@@ -51,7 +71,10 @@ export async function runDesktopStartupStep({
 export function initializeDesktopStartup({
   isPackaged,
   version,
+  releaseChannel,
   appDataPath,
+  defaultUserDataPath,
+  pathExists,
   requestedUserDataPath,
   createDirectory,
   setUserDataPath,
@@ -64,13 +87,23 @@ export function initializeDesktopStartup({
     isPackaged,
     version,
   );
+  const stableUserDataPath =
+    isPackaged &&
+    releaseChannel === "production" &&
+    !requestedUserDataPath &&
+    !isolatedUserDataDirectoryName
+      ? resolveStableUserDataPath(appDataPath, defaultUserDataPath, pathExists)
+      : null;
   const isolatedUserDataPath = requestedUserDataPath
     ? path.resolve(requestedUserDataPath)
     : isolatedUserDataDirectoryName
       ? path.join(appDataPath, isolatedUserDataDirectoryName)
       : !isPackaged
-        ? path.join(appDataPath, "Agent Native Dev")
-        : null;
+        ? path.join(
+            appDataPath,
+            "Agent Native Dev", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+          )
+        : stableUserDataPath;
   if (isolatedUserDataPath) {
     try {
       createDirectory(isolatedUserDataPath);

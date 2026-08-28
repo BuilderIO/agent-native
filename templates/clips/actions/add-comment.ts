@@ -7,9 +7,12 @@
  *   pnpm action add-comment --recordingId=<id> --content="Nice moment" --videoTimestampMs=12345
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -62,6 +65,8 @@ export default defineAction({
     if (!authorEmail) {
       throw new Error("Sign in required to comment on recordings.");
     }
+    const authorName =
+      getRequestUserName()?.trim() || args.authorName?.trim() || null;
 
     const db = getDb();
     const id = nanoid();
@@ -89,7 +94,7 @@ export default defineAction({
       threadId,
       parentId,
       authorEmail,
-      authorName: args.authorName ?? null,
+      authorName,
       content: args.content,
       videoTimestampMs,
       createdAt: now,
@@ -100,7 +105,7 @@ export default defineAction({
       recordingId: args.recordingId,
       threadId,
       authorEmail,
-      authorName: args.authorName,
+      authorName: authorName ?? undefined,
       content: args.content,
       videoTimestampMs: args.videoTimestampMs,
       isReply: Boolean(parentId),

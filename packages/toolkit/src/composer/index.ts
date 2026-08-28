@@ -29,6 +29,7 @@ export {
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
+export { useEagerFileUploads } from "./use-eager-file-uploads.js";
 export type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 export {
   RealtimeVoiceModeDock,
@@ -81,6 +82,8 @@ export type {
   FileResult,
   SkillResult,
   MentionItem,
+  MentionItemMedia,
+  MentionReferenceInsert,
   Reference,
   SlashCommand,
 } from "./types.js";

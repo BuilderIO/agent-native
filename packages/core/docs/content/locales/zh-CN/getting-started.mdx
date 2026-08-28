@@ -9,6 +9,8 @@ Agent-Native 是一个开源 TypeScript 框架，用于构建同时服务于人�
 
 本指南中，你将创建一个 Chat 应用，并从智能体和 UI 调用其中自带的 `hello` 动作。
 
+<GettingStartedPaths />
+
 ## 前提条件
 
 - [Node.js](https://nodejs.org) 22 或更高版本
@@ -142,11 +144,11 @@ return { message: `Welcome, ${name}.` };
 
 你已从智能体和 UI 调用了同一个动作。这个动作还可以通过以下方式调用：
 
-| 调用方 | 用途 |
-| --- | --- |
-| [HTTP API](/docs/http-api) | 从脚本、后端或集成调用动作。 |
-| [CLI](/docs/actions-other-surfaces#cli) | 在终端中运行或测试动作。 |
-| [MCP](/docs/actions-other-surfaces#mcp) | 让外部 AI 客户端发现并以工具形式调用动作。 |
+| 调用方                                  | 用途                                           |
+| --------------------------------------- | ---------------------------------------------- |
+| [HTTP API](/docs/http-api)              | 从脚本、后端或集成调用动作。                   |
+| [CLI](/docs/actions-other-surfaces#cli) | 在终端中运行或测试动作。                       |
+| [MCP](/docs/actions-other-surfaces#mcp) | 让外部 AI 客户端发现并以工具形式调用动作。     |
 | [A2A](/docs/actions-other-surfaces#a2a) | 让另一个 Agent-Native 应用请求此应用完成工作。 |
 
 每个调用方都使用相同的动作定义。你不需要为每一种调用方分别实现。这个共享动作模型是 Agent-Native 的核心：随着应用变化，UI、智能体和集成之间的行为、验证和权限始终保持一致。

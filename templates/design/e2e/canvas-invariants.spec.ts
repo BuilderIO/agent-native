@@ -792,7 +792,7 @@ test.describe("drawing fidelity", () => {
     ).toBe(false);
   });
 
-  test("a drawn frame stays unstyled and is shown by selection chrome instead", async ({
+  test("a drawn frame commits a real surface that selection chrome tracks", async ({
     page,
   }) => {
     const id = await newDesign(page, BLANK_PAGE);
@@ -804,9 +804,6 @@ test.describe("drawing fidelity", () => {
       height: 200,
     });
 
-    // A frame commits as unstyled structure on purpose (see the frame branch
-    // in canvas-primitive-insert.ts); baking a tint into the design's real
-    // HTML would be styling pollution. Its bounds come from selection chrome.
     const state = await inFrame(page, "body")
       .first()
       .evaluate(() => {
@@ -830,12 +827,11 @@ test.describe("drawing fidelity", () => {
     expect(state, "no frame rendered in the preview").not.toBeNull();
     expect(
       state!.inlineBackground,
-      "a committed frame must not bake in a fill",
-    ).toBe("");
+      "a committed frame carries the default surface, not the draft tint",
+    ).toBe("rgb(255, 255, 255)");
     expect(
       state!.selectionTracksFrame,
-      "an unstyled frame is only visible via selection chrome, so it must be " +
-        "selected and outlined the moment it is drawn",
+      "a drawn frame must be selected and outlined the moment it is drawn",
     ).toBe(true);
   });
 });
@@ -920,7 +916,7 @@ test.describe("moving", () => {
 // ── Selection ─────────────────────────────────────────────────────────────
 
 test.describe("selection", () => {
-  test("clicking selects the deepest node, and Escape walks up to the parent", async ({
+  test("clicking selects the deepest node, and Backslash walks up to the parent", async ({
     page,
   }) => {
     const id = await newDesign(page, INTRO_PAGE);
@@ -941,7 +937,7 @@ test.describe("selection", () => {
       `a plain click selects the deepest node under the pointer; got "${clicked}"`,
     ).toContain("Title");
 
-    await page.keyboard.press("Escape");
+    await page.keyboard.press("\\");
     await page.waitForTimeout(1500);
     const parent = (
       await page
@@ -951,9 +947,57 @@ test.describe("selection", () => {
     )?.trim();
     expect(
       parent,
-      `Escape is how this editor reaches the ancestor Figma would have picked ` +
+      `"\\" is how this editor reaches the ancestor Figma would have picked ` +
         `on click; got "${parent}"`,
     ).toContain("Intro");
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1500);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      "Escape is select-none, not one more step up the ancestor chain",
+    ).toHaveCount(0);
+  });
+
+  test("Escape on a rect drawn inside a frame clears, and never lands on the screen", async ({
+    page,
+  }) => {
+    const id = await newDesign(page, BLANK_PAGE);
+    await openEditor(page, id);
+    await drawWith(page, "Frame", {
+      left: 60,
+      top: 80,
+      width: 320,
+      height: 260,
+    });
+    await drawWith(page, "Rectangle", {
+      left: 110,
+      top: 130,
+      width: 140,
+      height: 110,
+    });
+
+    const rect = inFrame(page, '[data-an-primitive="rectangle"]').first();
+    const box = await rect.boundingBox();
+    if (!box) throw new Error("drawn rectangle has no hit box");
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(1800);
+
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1800);
+    const selectedName = await page
+      .locator('[role="treeitem"][aria-selected="true"]')
+      .first()
+      .textContent()
+      .catch(() => null);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      `Escape left "${selectedName?.trim()}" selected instead of clearing`,
+    ).toHaveCount(0);
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Escape escalated the selection to the screen frame",
+    ).toHaveCount(0);
   });
 
   test("selecting a second element deselects the first", async ({ page }) => {

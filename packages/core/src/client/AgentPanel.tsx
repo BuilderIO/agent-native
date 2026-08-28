@@ -38,6 +38,7 @@ import {
   IconArrowsMaximize,
   IconExternalLink,
   IconShare3,
+  IconBulb,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -63,8 +64,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
 import { normalizeTooltipText } from "./components/ui/tooltip.js";
@@ -72,6 +78,10 @@ import { ErrorReportActions } from "./ErrorReportActions.js";
 import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
+import {
+  ThinkingDisplayProvider,
+  useThinkingDisplayControl,
+} from "./thinking-display.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
 // assistant-ui + zod block schemas) so it is NOT in the static import closure of
 // every page. The header/tab chrome renders immediately; chat streams in once the
@@ -153,6 +163,15 @@ const AgentTerminal = lazy(() =>
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
+
+export function shouldHandleAgentSidebarToggle(
+  event: Event,
+  toggleScopeId?: string | null,
+): boolean {
+  const detail = (event as CustomEvent<{ scopeId?: unknown }>).detail;
+  if (!detail || detail.scopeId === undefined) return true;
+  return typeof detail.scopeId === "string" && detail.scopeId === toggleScopeId;
+}
 
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
@@ -308,6 +327,51 @@ interface AvailableCli {
   command: string;
   label: string;
   available: boolean;
+}
+
+/**
+ * Reasoning visibility for this browser. Absent when a host pinned the mode
+ * through `thinkingDisplay`, so the menu never offers a control that cannot
+ * change anything.
+ */
+function ThinkingDisplayMenuItem() {
+  const t = useT();
+  const { mode, setMode, pinned } = useThinkingDisplayControl();
+  if (pinned) return null;
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <IconBulb size={14} className="shrink-0" />
+        {t("agentChat.thinking.display")}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <DropdownMenuRadioGroup
+          value={mode}
+          onValueChange={(next) => {
+            // The radio group hands back a bare string; anything that is not a
+            // known mode would silently persist and read back as the default.
+            if (
+              next === "expanded" ||
+              next === "collapsed" ||
+              next === "hidden"
+            ) {
+              setMode(next);
+            }
+          }}
+        >
+          <DropdownMenuRadioItem value="expanded">
+            {t("agentChat.thinking.expanded")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="collapsed">
+            {t("agentChat.thinking.collapsed")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="hidden">
+            {t("agentChat.thinking.hidden")}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
 }
 
 function useAvailableClis() {
@@ -1059,7 +1123,7 @@ function AgentPanelInner({
         requestKey: prev.requestKey + 1,
       }));
       if (!allowSettingsMode) {
-        navigate({
+        void navigate({
           pathname: "/settings",
           hash: settingsRouteHashForSection(section),
         });
@@ -1610,6 +1674,7 @@ function AgentPanelInner({
                 <DropdownMenuSeparator />
               </>
             )}
+            {mode === "chat" && <ThinkingDisplayMenuItem />}
             {allowSettingsMode && (
               <DropdownMenuItem
                 onSelect={() => switchMode("settings")}
@@ -2186,218 +2251,226 @@ function AgentPanelInner({
   );
 
   return (
-    <div
-      className={cn(
-        "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
-        className,
-      )}
-      style={{
-        ...AGENT_PANEL_ROOT_STYLE,
-        ...style,
-        // The chat view-transition container otherwise traps fixed onboarding
-        // chrome below the app's own header instead of the viewport edge.
-        ...(isFirstRunOnboardingSurface ? { contain: "none" } : {}),
-      }}
-      data-agent-fullscreen={isFullscreen ? "true" : undefined}
-    >
-      {/* Tailwind group-hover/tab doesn't work in core package — inject directly.
+    <ThinkingDisplayProvider value={assistantChatProps.thinkingDisplay}>
+      <div
+        className={cn(
+          "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
+          className,
+        )}
+        style={{
+          ...AGENT_PANEL_ROOT_STYLE,
+          ...style,
+          // The chat view-transition container otherwise traps fixed onboarding
+          // chrome below the app's own header instead of the viewport edge.
+          ...(isFirstRunOnboardingSurface ? { contain: "none" } : {}),
+        }}
+        data-agent-fullscreen={isFullscreen ? "true" : undefined}
+      >
+        {/* Tailwind group-hover/tab doesn't work in core package — inject directly.
           Fullscreen rules center the message stream and composer to a Claude-style
           column while leaving the header bar at full width so the action buttons
           stay pinned to the top corners. */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html:
-            "@media (hover:hover) and (pointer:fine){" +
-            ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
-            ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
-            ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}" +
-            "}" +
-            ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
-            ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
-            ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
-            `[data-agent-fullscreen='true'] .agent-thread-content,` +
-            `[data-agent-fullscreen='true'] .agent-running-activity{` +
-            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
-            `margin-left:auto;margin-right:auto;width:100%;}` +
-            `[data-agent-fullscreen='true'] .agent-composer-area,` +
-            `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
-            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
-            `margin-left:auto;margin-right:auto;width:100%;}` +
-            `[data-agent-fullscreen='true'] .agent-composer-area:not(.agent-composer-area--compact){` +
-            `padding-left:0;padding-right:0;}` +
-            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,` +
-            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion-error--composer{` +
-            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
-            `margin-left:auto;margin-right:auto;width:100%;}`,
-        }}
-      />
-      {/* Framework onboarding — appears above the chat/cli/settings tabs
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              "@media (hover:hover) and (pointer:fine){" +
+              ".agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:0;pointer-events:none;transition:opacity 150ms ease-out;}" +
+              ".agent-panel-root:hover .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-panel-root:focus-within .agent-sidebar-chat-header[data-agent-sidebar-chat-header],.agent-sidebar-chat-header[data-agent-sidebar-chat-header][data-agent-sidebar-chat-header-active]{opacity:1;pointer-events:auto;}" +
+              ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}" +
+              "}" +
+              ".agent-tab-close{opacity:0}.agent-tab:hover .agent-tab-close{opacity:1}" +
+              ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
+              ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
+              `[data-agent-fullscreen='true'] .agent-thread-content,` +
+              `[data-agent-fullscreen='true'] .agent-running-activity{` +
+              `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+              `margin-left:auto;margin-right:auto;width:100%;}` +
+              `[data-agent-fullscreen='true'] .agent-composer-area,` +
+              `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
+              `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+              `margin-left:auto;margin-right:auto;width:100%;}` +
+              `[data-agent-fullscreen='true'] .agent-composer-area:not(.agent-composer-area--compact){` +
+              `padding-left:0;padding-right:0;}` +
+              `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,` +
+              `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion-error--composer{` +
+              `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+              `margin-left:auto;margin-right:auto;width:100%;}`,
+          }}
+        />
+        {/* Framework onboarding — appears above the chat/cli/settings tabs
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user dismisses
           it. */}
-      {SHOW_ONBOARDING && mounted && (
-        <Suspense fallback={null}>
-          <OnboardingPanel />
-        </Suspense>
-      )}
+        {SHOW_ONBOARDING && mounted && (
+          <Suspense fallback={null}>
+            <OnboardingPanel />
+          </Suspense>
+        )}
 
-      {showFirstRunOnboarding && mounted && !insideAgentSidebar && (
-        <Suspense fallback={null}>
-          <FirstRunOnboarding />
-        </Suspense>
-      )}
+        {showFirstRunOnboarding && mounted && !insideAgentSidebar && (
+          <Suspense fallback={null}>
+            <FirstRunOnboarding />
+          </Suspense>
+        )}
 
-      {/* Chat view — always mounted to preserve state.
+        {/* Chat view — always mounted to preserve state.
           Header (with tabs + mode buttons) is always visible.
           Chat content is hidden when CLI or resources mode is active.
           The wrapper collapses (no flex-1) when another mode is active
           so it only takes the height of its header.
           The Suspense boundary renders the header chrome immediately while
           the lazy assistant-ui chunk loads in the background. */}
-      <div
-        className={cn(
-          "flex flex-col min-h-0",
-          mode === "chat" ? "flex-1" : "shrink-0",
-        )}
-      >
-        {mounted && (
-          <Suspense
-            fallback={
-              <ChatLoadingSkeleton
-                renderHeader={showHeader ? renderChatHeader : undefined}
-                centerComposerWhenEmpty={
-                  assistantChatProps.centerComposerWhenEmpty
-                }
-                composerSlot={assistantChatProps.composerSlot}
-                composerAreaClassName={assistantChatProps.composerAreaClassName}
-                composerLayoutVariant={assistantChatProps.composerLayoutVariant}
-              />
-            }
-          >
-            <MultiTabAssistantChatLazy
-              {...assistantChatProps}
-              agentChatSurface={effectiveAgentChatSurface}
-              apiUrl={apiUrl}
-              showHeader={false}
-              renderHeader={showHeader ? renderChatHeader : undefined}
-              showTabBar={showTabBar}
-              renderOverlay={
-                showPageNewChatButton && !showHeader
-                  ? renderPageChatOverlay
-                  : undefined
-              }
-              contentHidden={mode !== "chat"}
-              emptyStateText={emptyStateText}
-              emptyStateAddon={emptyStateAddon}
-              suggestions={suggestions}
-              dynamicSuggestions={dynamicSuggestions}
-              onSwitchToCli={() => switchMode("cli")}
-              execMode={execMode}
-              onExecModeChange={switchExecMode}
-              storageKey={storageKey}
-              restoreActiveThread={restoreActiveThread}
-              scope={scope}
-              isolateHistoryByScope={isolateHistoryByScope}
-              showScopeBadge={showScopeBadge}
-              browserTabId={browserTabId}
-              threadUrlSync={threadUrlSync}
-            />
-          </Suspense>
-        )}
-      </div>
-
-      {/* CLI terminals — code-capable dev mode: real terminal, otherwise handoff. */}
-      {canUseCodeTools
-        ? mode === "cli" &&
-          cliTabs.map((id) => (
-            <div
-              key={id}
-              className="min-h-0 relative flex-1"
-              style={{
-                display: id === activeCliTab ? undefined : "none",
-              }}
-            >
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    {t("agentPanel.loadingTerminal")}
-                  </div>
-                }
-              >
-                <AgentTerminal
-                  command={selectedCli}
-                  hideInFrame={false}
-                  className="h-full"
-                  style={{ background: "transparent" }}
-                />
-              </Suspense>
-            </div>
-          ))
-        : mode === "cli" && (
-            <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
-              <CodeAccessUnavailablePanel
-                title={
-                  codeAccessEnabled
-                    ? t("agentPanel.cliRequiresDevMode")
-                    : codeUnavailableTitle
-                }
-                description={
-                  codeAccessEnabled
-                    ? t("agentPanel.cliRequiresDevModeDescription")
-                    : codeUnavailableDescription
-                }
-                ctaLabel={codeUnavailableCtaLabel}
-                ctaHref={codeAccessEnabled ? undefined : codeUnavailableCtaHref}
-                secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
-                secondaryCtaHref={codeUnavailableSecondaryCtaHref}
-              />
-            </div>
+        <div
+          className={cn(
+            "flex flex-col min-h-0",
+            mode === "chat" ? "flex-1" : "shrink-0",
           )}
+        >
+          {mounted && (
+            <Suspense
+              fallback={
+                <ChatLoadingSkeleton
+                  renderHeader={showHeader ? renderChatHeader : undefined}
+                  centerComposerWhenEmpty={
+                    assistantChatProps.centerComposerWhenEmpty
+                  }
+                  composerSlot={assistantChatProps.composerSlot}
+                  composerAreaClassName={
+                    assistantChatProps.composerAreaClassName
+                  }
+                  composerLayoutVariant={
+                    assistantChatProps.composerLayoutVariant
+                  }
+                />
+              }
+            >
+              <MultiTabAssistantChatLazy
+                {...assistantChatProps}
+                agentChatSurface={effectiveAgentChatSurface}
+                apiUrl={apiUrl}
+                showHeader={false}
+                renderHeader={showHeader ? renderChatHeader : undefined}
+                showTabBar={showTabBar}
+                renderOverlay={
+                  showPageNewChatButton && !showHeader
+                    ? renderPageChatOverlay
+                    : undefined
+                }
+                contentHidden={mode !== "chat"}
+                emptyStateText={emptyStateText}
+                emptyStateAddon={emptyStateAddon}
+                suggestions={suggestions}
+                dynamicSuggestions={dynamicSuggestions}
+                onSwitchToCli={() => switchMode("cli")}
+                execMode={execMode}
+                onExecModeChange={switchExecMode}
+                storageKey={storageKey}
+                restoreActiveThread={restoreActiveThread}
+                scope={scope}
+                isolateHistoryByScope={isolateHistoryByScope}
+                showScopeBadge={showScopeBadge}
+                browserTabId={browserTabId}
+                threadUrlSync={threadUrlSync}
+              />
+            </Suspense>
+          )}
+        </div>
 
-      {/* Resources view */}
-      {mode === "resources" && (
-        <div className="flex flex-1 flex-col min-h-0">
-          <Suspense
-            fallback={
-              <div className="flex h-full flex-col min-h-0">
-                <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
-                  <div className="flex items-center gap-1">
-                    <div className="h-5 w-16 rounded bg-muted animate-pulse" />
-                    <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+        {/* CLI terminals — code-capable dev mode: real terminal, otherwise handoff. */}
+        {canUseCodeTools
+          ? mode === "cli" &&
+            cliTabs.map((id) => (
+              <div
+                key={id}
+                className="min-h-0 relative flex-1"
+                style={{
+                  display: id === activeCliTab ? undefined : "none",
+                }}
+              >
+                <Suspense
+                  fallback={
+                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                      {t("agentPanel.loadingTerminal")}
+                    </div>
+                  }
+                >
+                  <AgentTerminal
+                    command={selectedCli}
+                    hideInFrame={false}
+                    className="h-full"
+                    style={{ background: "transparent" }}
+                  />
+                </Suspense>
+              </div>
+            ))
+          : mode === "cli" && (
+              <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-6 gap-3">
+                <CodeAccessUnavailablePanel
+                  title={
+                    codeAccessEnabled
+                      ? t("agentPanel.cliRequiresDevMode")
+                      : codeUnavailableTitle
+                  }
+                  description={
+                    codeAccessEnabled
+                      ? t("agentPanel.cliRequiresDevModeDescription")
+                      : codeUnavailableDescription
+                  }
+                  ctaLabel={codeUnavailableCtaLabel}
+                  ctaHref={
+                    codeAccessEnabled ? undefined : codeUnavailableCtaHref
+                  }
+                  secondaryCtaLabel={codeUnavailableSecondaryCtaLabel}
+                  secondaryCtaHref={codeUnavailableSecondaryCtaHref}
+                />
+              </div>
+            )}
+
+        {/* Resources view */}
+        {mode === "resources" && (
+          <div className="flex flex-1 flex-col min-h-0">
+            <Suspense
+              fallback={
+                <div className="flex h-full flex-col min-h-0">
+                  <div className="flex shrink-0 items-center justify-between border-b border-border px-2 py-1.5">
+                    <div className="flex items-center gap-1">
+                      <div className="h-5 w-16 rounded bg-muted animate-pulse" />
+                      <div className="h-5 w-14 rounded bg-muted animate-pulse" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            }
-          >
-            <ResourcesPanel />
-          </Suspense>
-        </div>
-      )}
+              }
+            >
+              <ResourcesPanel />
+            </Suspense>
+          </div>
+        )}
 
-      {/* Settings / Setup view */}
-      {mode === "settings" && (
-        <div className="flex flex-col flex-1 min-h-0">
-          <Suspense
-            fallback={
-              <div className="p-3 space-y-2">
-                <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-              </div>
-            }
-          >
-            <SettingsPanel
-              isDevMode={isDevMode}
-              onToggleDevMode={() => setDevMode(!isDevMode)}
-              showDevToggle={showDevToggle}
-              devAppUrl={devAppUrl}
-              initialSection={settingsSection.section}
-              sectionRequestKey={settingsSection.requestKey}
-            />
-          </Suspense>
-        </div>
-      )}
-    </div>
+        {/* Settings / Setup view */}
+        {mode === "settings" && (
+          <div className="flex flex-col flex-1 min-h-0">
+            <Suspense
+              fallback={
+                <div className="p-3 space-y-2">
+                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
+                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
+                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
+                </div>
+              }
+            >
+              <SettingsPanel
+                isDevMode={isDevMode}
+                onToggleDevMode={() => setDevMode(!isDevMode)}
+                showDevToggle={showDevToggle}
+                devAppUrl={devAppUrl}
+                initialSection={settingsSection.section}
+                sectionRequestKey={settingsSection.requestKey}
+              />
+            </Suspense>
+          </div>
+        )}
+      </div>
+    </ThinkingDisplayProvider>
   );
 }
 
@@ -2594,8 +2667,8 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }).catch(() => {});
-    write(appStateKey("__url__"));
-    if (normalizedBrowserTabId) write("__url__");
+    void write(appStateKey("__url__"));
+    if (normalizedBrowserTabId) void write("__url__");
   }, [
     appStateKey,
     location.pathname,
@@ -2756,7 +2829,7 @@ function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
     // Mark every cached query stale without kicking off a refetch. The
     // subtree-level refetches happen naturally when the new tree mounts
     // below and child components re-subscribe.
-    queryClient.invalidateQueries({ refetchType: "none" });
+    void queryClient.invalidateQueries({ refetchType: "none" });
   }
   return <React.Fragment key={key}>{children}</React.Fragment>;
 }
@@ -3113,6 +3186,8 @@ export interface AgentSidebarProps {
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Identity used to route host-scoped sidebar toggle events. */
+  toggleScopeId?: string;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
@@ -3125,6 +3200,8 @@ export interface AgentSidebarProps {
   agentPageHref?: string;
   /** Suppress first-run onboarding while a deep-linked resource is open. */
   suppressFirstRunOnboarding?: boolean;
+  /** Pin how much model reasoning the chat shows. Omit to let the reader choose. */
+  thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
 }
 
 interface HostedHarnessStatus {
@@ -3177,12 +3254,14 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  toggleScopeId,
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
   agentPageHref,
   suppressFirstRunOnboarding = false,
+  thinkingDisplay,
 }: AgentSidebarProps) {
   const staticHostedHarnessEnabled = isHostedHarnessConfigured(
     injectedAgentNativeConfig().harness,
@@ -3544,7 +3623,8 @@ export function AgentSidebar({
   }, [setOpenPersisted]);
 
   useEffect(() => {
-    const toggleHandler = () => {
+    const toggleHandler = (event: Event) => {
+      if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
       if (isPerAppChatHosted) {
         requestPerAppChatCommand("toggle");
         return;
@@ -3595,7 +3675,7 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted]);
+  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted, toggleScopeId]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.
@@ -4003,6 +4083,7 @@ export function AgentSidebar({
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
+            thinkingDisplay={thinkingDisplay}
             allowSettingsMode={false}
             chatOnly
           />

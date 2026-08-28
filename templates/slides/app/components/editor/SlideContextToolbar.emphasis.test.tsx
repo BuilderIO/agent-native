@@ -26,6 +26,7 @@ function textSnapshot(
     slideWidth: 1280,
     slideHeight: 720,
     color: "#ffffff",
+    fontFamily: "'Poppins', sans-serif",
     backgroundColor: "transparent",
     fontSize: 40,
     fontWeight: "700",
@@ -166,5 +167,42 @@ describe("contextual toolbar emphasis toggles", () => {
 
     expect(screen.queryByRole("button", { name: "Italic" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Underline" })).toBeNull();
+  });
+
+  // Menus render in a portal outside the toolbar, so the mousedown that
+  // precedes Radix's onSelect ends the inline text edit unless the content
+  // itself carries the marker SlideEditor exempts.
+  it("marks the portalled weight and align menus as inline-edit surfaces", () => {
+    renderToolbar(textSnapshot());
+
+    for (const name of ["Weight", "Align"]) {
+      const trigger = screen.getByRole("button", { name });
+      fireEvent.pointerDown(trigger, { button: 0 });
+      fireEvent.pointerUp(trigger, { button: 0 });
+
+      const menu = screen.getByRole("menu");
+      expect(menu.closest("[data-slide-inline-edit-surface]")).toBeTruthy();
+
+      fireEvent.keyDown(menu, { key: "Escape" });
+    }
+  });
+});
+
+describe("contextual toolbar font family", () => {
+  afterEach(cleanup);
+
+  it("applies the selected font family to the text selection", () => {
+    const onChange = renderToolbar(textSnapshot());
+    const trigger = screen.getByRole("combobox", { name: "Font family" });
+
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole("listbox").closest("[data-slide-inline-edit-surface]"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "Inter" }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      fontFamily: "'Inter', sans-serif",
+    });
   });
 });

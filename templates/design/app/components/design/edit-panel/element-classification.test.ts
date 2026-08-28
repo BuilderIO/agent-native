@@ -13,11 +13,18 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { AutoLayoutSizingAxis } from "../inspector";
 import type { ElementInfo } from "../types";
 import {
+  availableSizingForElement,
+  canHugContent,
   commitElementMinMax,
+  commitElementSizing,
   componentNameForElementInfo,
+  inferElementSizing,
   isContainerElement,
+  measuredElementSize,
+  parentFlexDirection,
   isTextElement,
 } from "./element-classification";
 
@@ -297,5 +304,290 @@ describe("commitElementMinMax — meta forwarding", () => {
     const onStyleChange = vi.fn();
     commitElementMinMax("horizontal", "max", null, onStyleChange);
     expect(onStyleChange).toHaveBeenCalledWith("maxWidth", "none", undefined);
+  });
+});
+
+// Clip B 16:39-16:46 (7xCLOlVaAj3n): the reviewer repeatedly sets "Hug
+// contents" on the `1W` button of a 1D/1W/1M/1Y segmented control and the
+// inspector keeps reading W 42px, X 754, Y 340, Grow 0 / Shrink 1 /
+// Basis auto across four sampled frames six seconds apart. `button` is in
+// neither the container nor the text tag set, so Hug was never in the
+// offered options at all.
+describe("availableSizingForElement — hug availability", () => {
+  const hugFor = (element: ElementInfo, axis: AutoLayoutSizingAxis) =>
+    availableSizingForElement(element)[axis]?.includes("hug") ?? false;
+
+  it("offers hug on a button that is a flex child", () => {
+    const element = makeElement({
+      tagName: "button",
+      isFlexChild: true,
+      parentDisplay: "flex",
+      childElementCount: 0,
+      textContent: "1W",
+      computedStyles: { width: "42px", height: "29.5px" },
+      parentLayout: { flexDirection: "row" },
+    });
+    expect(hugFor(element, "horizontal")).toBe(true);
+  });
+
+  it.each(["td", "th", "summary", "figcaption", "output"])(
+    "offers hug on <%s>, which is in neither tag set",
+    (tagName) => {
+      const element = makeElement({
+        tagName,
+        childElementCount: 0,
+        textContent: "content",
+      });
+      expect(hugFor(element, "horizontal")).toBe(true);
+    },
+  );
+
+  it.each(["img", "input", "svg", "iframe", "select"])(
+    "withholds hug from the replaced leaf <%s>",
+    (tagName) => {
+      expect(hugFor(makeElement({ tagName }), "horizontal")).toBe(false);
+    },
+  );
+
+  it("withholds hug from a drawn shape, which has no content to measure", () => {
+    const element = makeElement({ tagName: "div", primitiveKind: "ellipse" });
+    expect(hugFor(element, "horizontal")).toBe(false);
+  });
+});
+
+describe("inferElementSizing — authored vs resolved size", () => {
+  it("reads hug from the authored width when computedStyles resolved it to px", () => {
+    // A bridge selection payload: getComputedStyle always resolves
+    // width:fit-content to a pixel value, so computedStyles alone can never
+    // report hug.
+    const element = makeElement({
+      computedStyles: { width: "68px" },
+      inlineStyles: { width: "fit-content" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("hug");
+  });
+
+  it("still reports fixed when the authored width is a pixel value", () => {
+    const element = makeElement({
+      computedStyles: { width: "42px" },
+      inlineStyles: { width: "42px" },
+    });
+    expect(inferElementSizing(element, "horizontal")).toBe("fixed");
+  });
+
+  it("reads a stretch child of a row parent as filling the cross axis", () => {
+    // An undeclared flex direction is a row, so height IS the cross axis here.
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      computedStyles: { height: "120px", alignSelf: "stretch" },
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fill");
+  });
+
+  it("does not invent a cross axis when no parent is flex at all", () => {
+    const element = makeElement({
+      computedStyles: { height: "120px", alignSelf: "stretch" },
+    });
+    expect(inferElementSizing(element, "vertical")).toBe("fixed");
+  });
+});
+
+describe("commitElementSizing — hug must undo a previous fill", () => {
+  it("clears the cross-axis stretch a prior Fill wrote", () => {
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { flexDirection: "row" },
+      computedStyles: { height: "120px", alignSelf: "stretch" },
+    });
+    commitElementSizing(
+      element,
+      "vertical",
+      "hug",
+      onStyleChange,
+      onStylesChange,
+    );
+    const patch = onStylesChange.mock.calls[0]?.[0] as Record<string, string>;
+    expect(patch.height).toBe("fit-content");
+    expect(patch.alignSelf).toBe("auto");
+  });
+
+  it("uses justifySelf for a grid child's horizontal axis, both ways", () => {
+    const element = makeElement({
+      parentDisplay: "grid",
+      computedStyles: { width: "200px" },
+    });
+    const fill = vi.fn();
+    commitElementSizing(element, "horizontal", "fill", vi.fn(), fill);
+    expect(
+      (fill.mock.calls[0]?.[0] as Record<string, string> | undefined)
+        ?.justifySelf,
+    ).toBe("stretch");
+    const hug = vi.fn();
+    commitElementSizing(element, "horizontal", "hug", vi.fn(), hug);
+    expect(
+      (hug.mock.calls[0]?.[0] as Record<string, string> | undefined)
+        ?.justifySelf,
+    ).toBe("auto");
+  });
+});
+
+// The W field showed "437 Hug" — the mode was right, the number was the
+// pre-commit boundingRect. Figma re-measures and shows the real width; without
+// a fresh measurement the only honest readout is none.
+describe("measuredElementSize", () => {
+  it("reports the resolved px when the payload has one", () => {
+    const element = makeElement({
+      computedStyles: { width: "202px" },
+      boundingRect: { x: 0, y: 0, width: 202, height: 20 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBe(202);
+  });
+
+  it("reports null for a keyword size instead of the stale rect", () => {
+    const element = makeElement({
+      computedStyles: { width: "fit-content" },
+      boundingRect: { x: 0, y: 0, width: 202, height: 20 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBeNull();
+  });
+
+  it.each(["auto", "max-content", "min-content"])(
+    "treats %s as unmeasurable",
+    (value) => {
+      expect(
+        measuredElementSize(
+          makeElement({
+            computedStyles: { height: value },
+            boundingRect: { x: 0, y: 0, width: 10, height: 44 },
+          }),
+          "vertical",
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("falls back to the rect when computed styles carry no size at all", () => {
+    const element = makeElement({
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 120, height: 40 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBe(120);
+  });
+
+  it("reports null when neither source has a usable number", () => {
+    const element = makeElement({
+      computedStyles: { width: "fit-content" },
+      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBeNull();
+  });
+});
+
+// PR #3585 review: `<div class="flex">` is the most common row container there
+// is, and the projection reports no direction for it because CSS already
+// defaults to row. Treating that as unknown sent horizontal Fill down the
+// cross-axis path and wrote align-self:stretch instead of flex: 1 0 0.
+describe("parentFlexDirection — unknown parent vs unknown direction", () => {
+  it("defaults a flex parent with no authored direction to row", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentDisplay: "flex",
+      parentLayout: { display: "flex" },
+    });
+    expect(parentFlexDirection(element)).toBe("horizontal");
+  });
+
+  it("still reports null when nothing says the parent is flex", () => {
+    expect(parentFlexDirection(makeElement({}))).toBeNull();
+  });
+
+  it("honours an authored column direction", () => {
+    const element = makeElement({
+      isFlexChild: true,
+      parentLayout: { display: "flex", flexDirection: "column" },
+    });
+    expect(parentFlexDirection(element)).toBe("vertical");
+  });
+
+  it("fills the main axis of an undeclared row parent", () => {
+    const onStylesChange = vi.fn();
+    commitElementSizing(
+      makeElement({
+        isFlexChild: true,
+        parentDisplay: "flex",
+        parentLayout: { display: "flex" },
+        computedStyles: { width: "120px" },
+      }),
+      "horizontal",
+      "fill",
+      vi.fn(),
+      onStylesChange,
+    );
+    const patch = onStylesChange.mock.calls[0]?.[0] as Record<string, string>;
+    expect(patch.flexGrow).toBe("1");
+    expect(patch.flexBasis).toBe("0");
+    expect(patch.alignSelf).toBeUndefined();
+  });
+});
+
+// PR #3585 review round 2.
+describe("measuredElementSize — zero is a size, not an absence", () => {
+  it("reports 0 for a collapsed layer", () => {
+    const element = makeElement({
+      computedStyles: { width: "0px" },
+      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBe(0);
+  });
+
+  it("still reports null for the projection's placeholder rect", () => {
+    // No computed size at all plus an all-zero rect is "never measured".
+    const element = makeElement({
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+    });
+    expect(measuredElementSize(element, "horizontal")).toBeNull();
+  });
+});
+
+describe("canHugContent — hug needs something to measure", () => {
+  it("withholds hug from an empty drawn rectangle", () => {
+    const element = makeElement({
+      primitiveKind: "rectangle",
+      childElementCount: 0,
+      textContent: undefined,
+    });
+    expect(canHugContent(element)).toBe(false);
+  });
+
+  it("offers hug to a rectangle that has children", () => {
+    const element = makeElement({
+      primitiveKind: "rectangle",
+      childElementCount: 2,
+    });
+    expect(canHugContent(element)).toBe(true);
+  });
+
+  it("withholds hug from an empty plain container", () => {
+    expect(
+      canHugContent(makeElement({ tagName: "div", childElementCount: 0 })),
+    ).toBe(false);
+  });
+
+  it("offers hug to a text primitive even while empty", () => {
+    const element = makeElement({
+      primitiveKind: "text",
+      childElementCount: 0,
+    });
+    expect(canHugContent(element)).toBe(true);
+  });
+
+  it("treats an absent content signal as unknown, not empty", () => {
+    // Older/hover payloads omit both; denying hug there would be a guess.
+    expect(canHugContent(makeElement({ tagName: "div" }))).toBe(true);
   });
 });

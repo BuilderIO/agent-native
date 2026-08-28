@@ -40,6 +40,11 @@ declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
 declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
+/** Head inner HTML of the document this srcdoc was built from. The live head
+ *  cannot supply it: a blocking script src (the Tailwind runtime) has already
+ *  injected into it by the time this bridge runs, and adopting that as the
+ *  source baseline makes the first diff delete the compiled stylesheet. */
+declare var __INITIAL_SOURCE_HEAD__: string;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -323,7 +328,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
    * never executes scripts. The screen then renders unstyled for good.
    */
-  var lastSourceHeadHtml: string | null = null;
+  var lastSourceHeadHtml: string | null =
+    typeof __INITIAL_SOURCE_HEAD__ === "string"
+      ? __INITIAL_SOURCE_HEAD__ || null
+      : null;
 
   /**
    * Swaps only the nodes the previous source head contributed. Assigning
@@ -332,6 +340,45 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    * `<script src>` re-inserted in its place can never rebuild it, because
    * innerHTML does not execute scripts.
    */
+  /**
+   * Stable identity for the head nodes a source document owns and can change
+   * in place. Deliberately narrow: anything without a signature is only ever
+   * matched by exact `outerHTML`, so a runtime-injected node is never a
+   * replacement target.
+   */
+  function headNodeSignature(node: Element): string {
+    var tag = node.tagName.toLowerCase();
+    if (tag === "title" || tag === "base") return tag;
+    if (tag === "style") {
+      var attrs = node.attributes;
+      for (var i = 0; i < attrs.length; i += 1) {
+        var name = attrs[i]!.name;
+        if (name.indexOf("data-agent-native-") === 0) return "style:" + name;
+      }
+      return "";
+    }
+    if (tag === "meta") {
+      var meta = ["name", "property", "http-equiv", "charset"];
+      for (var m = 0; m < meta.length; m += 1) {
+        if (node.hasAttribute(meta[m]!)) {
+          return "meta:" + meta[m] + "=" + node.getAttribute(meta[m]!);
+        }
+      }
+      return "";
+    }
+    return "";
+  }
+
+  function findHeadNodeBySignature(signature: string): Element | null {
+    var children = document.head ? document.head.children : null;
+    if (!children) return null;
+    for (var i = 0; i < children.length; i += 1) {
+      var candidate = children[i]!;
+      if (headNodeSignature(candidate) === signature) return candidate;
+    }
+    return null;
+  }
+
   function replaceSourceHeadNodes(
     previousSourceHtml: string | null,
     nextSourceHtml: string,
@@ -344,6 +391,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var key = node.outerHTML;
       staleCounts[key] = (staleCounts[key] || 0) + 1;
     });
+    // A node the next head still carries is not stale. Removing and
+    // re-inserting it cancels an async script that has not finished loading,
+    // and the replacement is inert — innerHTML-built scripts never execute.
+    var retained = document.createElement("head");
+    retained.innerHTML = nextSourceHtml || "";
+    Array.prototype.forEach.call(retained.children, function (node: Element) {
+      var key = node.outerHTML;
+      if (staleCounts[key]) staleCounts[key] -= 1;
+    });
     Array.prototype.slice.call(document.head.children).forEach(function (
       node: Element,
     ) {
@@ -354,8 +410,39 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
     var next = document.createElement("head");
     next.innerHTML = nextSourceHtml || "";
+    var present: Record<string, number> = {};
+    Array.prototype.forEach.call(
+      document.head.children,
+      function (node: Element) {
+        var key = node.outerHTML;
+        present[key] = (present[key] || 0) + 1;
+      },
+    );
     var anchor = document.head.firstChild;
     Array.prototype.slice.call(next.children).forEach(function (node: Element) {
+      // The seed pass below passes a null previous head, so every node it
+      // carries would otherwise be inserted on top of the identical one the
+      // srcdoc already rendered — two copies of the managed stylesheet.
+      var key = node.outerHTML;
+      if (present[key]) {
+        present[key] -= 1;
+        return;
+      }
+      // Still the seed pass: with no previous head to diff against, an
+      // existing node whose CONTENT changed cannot be matched by outerHTML.
+      // Left alone it survives alongside its replacement, and because new
+      // nodes are prepended the stale one wins the cascade. Match it by
+      // identity instead and swap in place. Unmatched live nodes stay put —
+      // they are what the page's own runtime injected.
+      var signature =
+        previousSourceHtml === null ? headNodeSignature(node) : "";
+      if (signature) {
+        var existing = findHeadNodeBySignature(signature);
+        if (existing) {
+          document.head.replaceChild(document.importNode(node, true), existing);
+          return;
+        }
+      }
       document.head.insertBefore(document.importNode(node, true), anchor);
     });
   }
@@ -401,6 +488,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   function attributeSelector(el: Element | null, name: string): string {
     var value = el && el.getAttribute && el.getAttribute(name);
     return value ? "[" + name + '="' + escapeAttribute(value) + '"]' : "";
+  }
+
+  // True only for a selector that names one node's own identity: the stable
+  // source-id attributes getSelector prefers, or an id. Anything with a
+  // combinator or an :nth-* step describes a POSITION, which a sibling can
+  // inherit after a delete or a reorder.
+  function isStableIdentitySelector(selector: string): boolean {
+    if (!selector || /[\s>+~,]/.test(selector)) return false;
+    if (/^#[^#.:[\]()]+$/.test(selector)) return true;
+    return /^\[(data-agent-native-node-id|data-code-layer-id|data-layer-id|data-builder-id|data-loc)="/.test(
+      selector,
+    );
   }
 
   function classSelectorSuffix(el: Element | null, maxCount: number): string {
@@ -1421,6 +1520,63 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return el === document.body || el === document.documentElement;
   }
 
+  // A hairline and a zero-height flow container are both real layers. Pad them
+  // for hit-testing and outlines instead of dropping them, or a click can
+  // select what a marquee cannot.
+  // Both this bridge and the lightweight hit-test bridge are injected into the
+  // same document unless Interact mode drops this one. The fallback answers
+  // selectable-rects only when this flag is absent, or two replies race and the
+  // host keeps whichever arrives first.
+  (window as unknown as Record<string, boolean>).__agentNativeEditorChrome =
+    true;
+
+  var MIN_SELECTABLE_EXTENT_PX = 4;
+  var NON_SELECTABLE_TAGS = [
+    "script",
+    "style",
+    "template",
+    "link",
+    "meta",
+    "title",
+    "noscript",
+    "br",
+  ];
+
+  /** A rect padded so a hairline or empty box can still be hit and outlined. */
+  function selectableBounds(el: Element): {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  } {
+    var rect = el.getBoundingClientRect();
+    var padX =
+      rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+    var padY =
+      rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+    return {
+      left: rect.left - padX,
+      top: rect.top - padY,
+      right: rect.right + padX,
+      bottom: rect.bottom + padY,
+      width: rect.width + padX * 2,
+      height: rect.height + padY * 2,
+    };
+  }
+
+  /** The outermost <svg> above `el`, or null when `el` is not SVG geometry. */
+  function outermostSvgAncestor(el: Element | null): Element | null {
+    var owner = el && (el as SVGElement).ownerSVGElement;
+    if (!owner) return null;
+    var root: Element = owner;
+    while ((root as SVGElement).ownerSVGElement) {
+      root = (root as SVGElement).ownerSVGElement as Element;
+    }
+    return root;
+  }
+
   function isBoardRootMarqueeSurface(el: Element | null): boolean {
     if (!designCanvasBoardSurface || !el) return false;
     if (isDocumentRootElement(el)) return true;
@@ -1487,6 +1643,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
   function selectionTargetForHit(hit: Element | null): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
+    // A <path>/<polygon> is geometry, not a layer: its tight bbox is 0-height
+    // for a horizontal line, and only the outermost <svg> carries the id and a
+    // layout box.
+    var svgRoot = outermostSvgAncestor(hit);
+    if (svgRoot) return svgRoot;
     // Select the deepest element under the pointer on the first click. The
     // bridge can mint a pending node id and build a source-equivalent selector
     // for id-less descendants, so climbing to the nearest tagged ancestor is
@@ -2229,15 +2390,19 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     (window.parent as Window).postMessage(message, "*");
   }
 
+  // Every element the click path can reach, not just the id-bearing ones: an id
+  // attribute is a persistence detail, and generated markup routinely has none,
+  // so keying selectability off it made a marquee miss what a click hits.
   function collectSelectableElements(): Element[] {
     var nodes = Array.prototype.slice.call(
-      document.querySelectorAll(
-        "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]",
-      ),
+      document.body ? document.body.querySelectorAll("*") : [],
     ) as Element[];
     var seen = new Set<Element>();
     var elements: Element[] = [];
     nodes.forEach(function (node) {
+      if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
+        return;
+      }
       var target = selectionTargetForHit(node);
       if (
         !target ||
@@ -2245,16 +2410,32 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         isBoardRootMarqueeSurface(target) ||
         isOverlayElement(target) ||
         isLayerInteractionBlocked(target) ||
-        seen.has(target)
+        isTemplateCloneElement(target) ||
+        seen.has(target) ||
+        isPaddedAwayFromView(target)
       ) {
         return;
       }
-      var rect = target.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return;
       seen.add(target);
       elements.push(target);
     });
     return elements;
+  }
+
+  /** True for a node the padding above would otherwise rescue into the band:
+   *  `display:none` and `visibility:hidden` both measure 0x0, and inflating
+   *  them makes a layer nobody can see selectable. Computed style is read only
+   *  for degenerate boxes, so a whole-document sweep stays cheap. */
+  function isPaddedAwayFromView(el: Element): boolean {
+    var rect = el.getBoundingClientRect();
+    if (
+      rect.width >= MIN_SELECTABLE_EXTENT_PX &&
+      rect.height >= MIN_SELECTABLE_EXTENT_PX
+    ) {
+      return false;
+    }
+    var cs = window.getComputedStyle(el);
+    return cs.display === "none" || cs.visibility === "hidden";
   }
 
   function collectSelectableElementInfos(): unknown[] {
@@ -2484,6 +2665,25 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
   document.body.appendChild(spacingBadge);
 
+  // Figma's constraint indicator: dashed lines running from the dragged
+  // element to the frame edges it is pinned to. Distinct from the snap
+  // guides above — this shows how the element will REFLOW when its parent
+  // resizes, not what it is currently aligned with.
+  var constraintGuideLayer = document.createElement("div");
+  constraintGuideLayer.setAttribute(
+    "data-agent-native-edit-overlay",
+    "constraint-guide",
+  );
+  constraintGuideLayer.style.cssText =
+    "position:fixed;inset:0;z-index:99999;display:none;pointer-events:none;";
+  document.body.appendChild(constraintGuideLayer);
+
+  var sizeBadge = document.createElement("div");
+  sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
+  sizeBadge.style.cssText =
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+  document.body.appendChild(sizeBadge);
+
   var insertionGuide = document.createElement("div");
   insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
   insertionGuide.setAttribute(
@@ -2494,24 +2694,35 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
   document.body.appendChild(insertionGuide);
 
-  // Alignment/smart-guide lines shown while dragging (and resizing) an
-  // element inside the iframe — Figma-style snap-to-sibling guides. Two
-  // shared singleton divs (one per axis) are repositioned per-frame rather
-  // than pooled, matching the insertionGuide convention above. Tagged as an
+  // Alignment and spacing guides shown while dragging (and resizing) an
+  // element inside the iframe — Figma-style snap-to-sibling guides. One
+  // container whose children are rebuilt per drag tick, since a snapped
+  // position can sit on any number of guide lines at once. Tagged as an
   // edit-overlay so elementFromEditorPoint/isOverlayElement never treat a
   // guide line as a hit-test or drop target. Color matches the overview
-  // canvas's alignment guides (bg-destructive/90) translated to raw CSS.
-  var snapGuideV = document.createElement("div");
-  snapGuideV.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-  snapGuideV.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;width:1px;background:hsl(var(--destructive) / 0.9);";
-  document.body.appendChild(snapGuideV);
+  // canvas's alignment guides, in the forwarded measure colour.
+  var snapGuideLayer = document.createElement("div");
+  snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+  snapGuideLayer.style.cssText =
+    "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
+  document.body.appendChild(snapGuideLayer);
 
-  var snapGuideH = document.createElement("div");
-  snapGuideH.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-  snapGuideH.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;height:1px;background:hsl(var(--destructive) / 0.9);";
-  document.body.appendChild(snapGuideH);
+  // Cell boundaries of a selected grid container, empty cells included: the
+  // gap handles alone leave a two-child grid looking like a flex row.
+  var gridCellOverlay = document.createElement("div");
+  gridCellOverlay.setAttribute("data-agent-native-edit-overlay", "grid-cells");
+  gridCellOverlay.style.cssText =
+    "position:fixed;inset:0;z-index:99993;display:none;pointer-events:none;";
+  document.body.appendChild(gridCellOverlay);
+
+  // Name labels above the outermost frames, the in-screen twin of the overview
+  // canvas's screen labels. Above the shield's z-index so a label click can
+  // select its frame.
+  var frameLabelLayer = document.createElement("div");
+  frameLabelLayer.setAttribute("data-agent-native-edit-overlay", "frame-label");
+  frameLabelLayer.style.cssText =
+    "position:fixed;inset:0;z-index:99992;display:block;pointer-events:none;";
+  document.body.appendChild(frameLabelLayer);
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
@@ -2705,7 +2916,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
   function hideSelectionOverlay(): void {
     selectionOverlay.style.display = "none";
+    hideSizeBadge();
     hideSpacingOverlay();
+    hideGridCellOverlay();
+    refreshFrameNameLabels();
     hideParentAutoLayoutOverlay();
     clearComponentTag();
   }
@@ -2759,6 +2973,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     additive: boolean;
     moved: boolean;
     pointerId?: number;
+    candidates?: Element[];
     move: string;
     up: string;
     onMove: (ev: MouseEvent) => void;
@@ -3024,7 +3239,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       );
       handle.setAttribute("data-corner", pos);
       handle.style.cssText =
-        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:none;";
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+        (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") +
+        ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3061,6 +3278,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       )
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-corner") || "";
+        // A viewer must not get four dead 7px squares over their content.
+        handle.style.pointerEvents = readOnly ? "none" : "auto";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -3200,6 +3419,513 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
   }
 
+  interface MorphContext {
+    keyed: Map<string, Element>;
+    nextKeys: Set<string>;
+    /** Keys whose live element cannot be reused because its tag changed, so
+     *  the unkeyed probe must treat it as doomed even though the key lives on
+     *  in the next document. */
+    obsolete: Set<string>;
+  }
+
+  /**
+   * What the SOURCE document declared for one element, as of the last time the
+   * source was applied to it.
+   *
+   * The morph needs this because the live DOM is authored by two writers: the
+   * design source, and whatever runtime the prototype loads (Alpine above all).
+   * Only the source's own contributions may be reconciled away — an x-show
+   * `display:none`, an `:class` token or an x-for clone has no counterpart in
+   * source and must survive an unrelated edit. Inferring that from directive
+   * names cannot work: it misses plugins, and it cannot tell an authored class
+   * the user just deleted from a class Alpine computed.
+   */
+  interface SourceMeta {
+    attrs: string[];
+    className: string;
+    style: string;
+  }
+
+  function sourceMetaFor(element: Element): SourceMeta | undefined {
+    return (element as Element & { __anSourceMeta?: SourceMeta })
+      .__anSourceMeta;
+  }
+
+  function isSourceOwned(node: Node): boolean {
+    return (node as Node & { __anSource?: boolean }).__anSource === true;
+  }
+
+  function recordSourceOwnership(node: Node): void {
+    (node as Node & { __anSource?: boolean }).__anSource = true;
+    if (node.nodeType !== 1) return;
+    var element = node as Element;
+    var names: string[] = [];
+    for (var i = 0; i < element.attributes.length; i += 1) {
+      names.push(element.attributes[i]!.name);
+    }
+    (element as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta = {
+      attrs: names,
+      className: element.getAttribute("class") ?? "",
+      style: element.getAttribute("style") ?? "",
+    };
+  }
+
+  function recordSourceSubtree(root: Node): void {
+    if (
+      root.nodeType === 1 &&
+      (root as Element).hasAttribute("data-agent-native-edit-overlay")
+    ) {
+      return;
+    }
+    recordSourceOwnership(root);
+    if (root.nodeType !== 1) return;
+    var template = templateContentOf(root as Element);
+    if (template) {
+      var held = template.childNodes;
+      for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]!);
+      return;
+    }
+    var children = (root as Element).childNodes;
+    for (var i = 0; i < children.length; i += 1) {
+      recordSourceSubtree(children[i]!);
+    }
+  }
+
+  /** A template's authored children live in `.content`, not as child nodes, so
+   *  a walk over childNodes silently ignores every edit inside an x-if/x-for
+   *  template until Alpine instantiates the stale markup. */
+  function templateContentOf(element: Element): DocumentFragment | null {
+    if (element.nodeName !== "TEMPLATE") return null;
+    return (element as HTMLTemplateElement).content ?? null;
+  }
+
+  function scopedMorphContext(
+    liveRoot: ParentNode,
+    nextRoot: ParentNode,
+  ): MorphContext {
+    var keyed = new Map<string, Element>();
+    liveRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      if (!isSourceOwned(element)) return;
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key && !keyed.has(key)) keyed.set(key, element);
+    });
+    var nextKeys = new Set<string>();
+    nextRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key) nextKeys.add(key);
+    });
+    return { keyed: keyed, nextKeys: nextKeys, obsolete: new Set<string>() };
+  }
+
+  /**
+   * Seeds ownership from the document the srcdoc was built from: this runs
+   * inline at the end of body during parsing, before any deferred script, so
+   * Alpine and every other deferred runtime has yet to render.
+   *
+   * Two things it cannot see. The head is already contaminated — a blocking
+   * script src such as the Tailwind runtime has injected there — which is why
+   * the head baseline is baked in at build time instead. And DOM appended by
+   * the design's OWN synchronous body scripts, which ran before this point, is
+   * indistinguishable from authored markup and will be treated as source. Our
+   * injected bridges are exempt: everything they add carries
+   * data-agent-native-edit-overlay, which recordSourceSubtree skips.
+   */
+  function captureInitialSourceOwnership(): void {
+    if (document.body) recordSourceSubtree(document.body);
+  }
+
+  function classTokens(value: string): string[] {
+    return value.split(/\s+/).filter(function (token) {
+      return token.length > 0;
+    });
+  }
+
+  /** Keeps class tokens the runtime added while applying the source's edit. */
+  function applyClassAttribute(
+    live: Element,
+    previousSource: string,
+    nextSource: string,
+  ): void {
+    var previous = classTokens(previousSource);
+    var current = classTokens(live.getAttribute("class") ?? "");
+    var result = classTokens(nextSource);
+    for (var i = 0; i < current.length; i += 1) {
+      var token = current[i]!;
+      if (previous.indexOf(token) !== -1) continue;
+      if (result.indexOf(token) === -1) result.push(token);
+    }
+    var value = result.join(" ");
+    if ((live.getAttribute("class") ?? "") === value) return;
+    if (value) live.setAttribute("class", value);
+    else live.removeAttribute("class");
+  }
+
+  /** Parsed through a real CSSStyleDeclaration so quoted values and
+   *  `!important` survive a round trip that a split on ";" would corrupt. */
+  var styleProbe: HTMLElement | null = null;
+
+  function styleDeclarations(value: string): Array<[string, string, string]> {
+    var probe = styleProbe || (styleProbe = document.createElement("div"));
+    probe.style.cssText = value || "";
+    var out: Array<[string, string, string]> = [];
+    for (var i = 0; i < probe.style.length; i += 1) {
+      var property = probe.style.item(i);
+      out.push([
+        property,
+        probe.style.getPropertyValue(property),
+        probe.style.getPropertyPriority(property),
+      ]);
+    }
+    return out;
+  }
+
+  /** Property-level counterpart to applyClassAttribute: a property the source
+   *  never declared belongs to the runtime (x-show writes display). */
+  function applyStyleAttribute(
+    live: Element,
+    previousSource: string,
+    nextSource: string,
+  ): void {
+    var previousOwned: Record<string, string> = {};
+    styleDeclarations(previousSource).forEach(function (entry) {
+      previousOwned[entry[0]] = entry[1];
+    });
+    var nextOwned: Record<string, true> = {};
+    styleDeclarations(nextSource).forEach(function (entry) {
+      nextOwned[entry[0]] = true;
+    });
+    var target = document.createElement("div");
+    target.style.cssText = nextSource || "";
+    styleDeclarations(live.getAttribute("style") ?? "").forEach(
+      function (entry) {
+        if (nextOwned[entry[0]]) return;
+        var wasSource = Object.prototype.hasOwnProperty.call(
+          previousOwned,
+          entry[0],
+        );
+        // Source declared this property and the live value still matches, so
+        // it is the source's to drop. A live value that has diverged is the
+        // runtime's — x-show writing display over an authored one — and
+        // dropping it un-hides the element.
+        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+        target.style.setProperty(entry[0], entry[1], entry[2]);
+      },
+    );
+    var value = target.style.cssText;
+    if ((live.getAttribute("style") ?? "") === value) return;
+    if (value) live.setAttribute("style", value);
+    else live.removeAttribute("style");
+  }
+
+  /** Form controls carry live state in properties the attributes do not
+   *  mirror. Gated on the DEFAULT changing, so a value the user typed is never
+   *  overwritten by an unrelated edit. */
+  function morphFormState(live: Element, next: Element): void {
+    if (live.nodeName === "INPUT") {
+      var input = live as HTMLInputElement;
+      var nextChecked = next.hasAttribute("checked");
+      if (input.defaultChecked !== nextChecked) {
+        input.defaultChecked = nextChecked;
+        input.checked = nextChecked;
+      }
+      var nextValue = next.getAttribute("value");
+      if (nextValue !== null && input.defaultValue !== nextValue) {
+        input.defaultValue = nextValue;
+        input.value = nextValue;
+      }
+      return;
+    }
+    if (live.nodeName === "TEXTAREA") {
+      var area = live as HTMLTextAreaElement;
+      var nextText = next.textContent ?? "";
+      if (area.defaultValue !== nextText) {
+        area.defaultValue = nextText;
+        area.value = nextText;
+      }
+      return;
+    }
+    if (live.nodeName === "OPTION") {
+      var option = live as HTMLOptionElement;
+      var nextSelected = next.hasAttribute("selected");
+      if (option.defaultSelected !== nextSelected) {
+        option.defaultSelected = nextSelected;
+        option.selected = nextSelected;
+      }
+    }
+  }
+
+  /** x-text and x-html hand their entire child list to the runtime; whatever
+   *  the source still carries inside them is pre-hydration fallback, not
+   *  content to reconcile. */
+  function declaresRuntimeChildren(element: Element): boolean {
+    return (
+      element.hasAttribute("x-text") ||
+      element.hasAttribute("x-html") ||
+      element.hasAttribute("v-text") ||
+      element.hasAttribute("v-html")
+    );
+  }
+
+  function scopeDirectiveChanged(live: Element, next: Element): boolean {
+    return (
+      (live.getAttribute("x-data") ?? "") !==
+      (next.getAttribute("x-data") ?? "")
+    );
+  }
+
+  function morphNodeKey(node: Node): string | null {
+    if (node.nodeType !== 1) return null;
+    return (node as Element).getAttribute("data-agent-native-node-id");
+  }
+
+  function morphAttributes(live: Element, next: Element): void {
+    var meta = sourceMetaFor(live);
+    var previousAttrs = meta ? meta.attrs : [];
+    var previousClass = meta ? meta.className : "";
+    var previousStyle = meta ? meta.style : "";
+    var nextNames: string[] = [];
+
+    var nextAttrs = next.attributes;
+    for (var i = 0; i < nextAttrs.length; i += 1) {
+      var attr = nextAttrs[i]!;
+      nextNames.push(attr.name);
+      if (attr.name === "class") {
+        applyClassAttribute(live, previousClass, attr.value);
+        continue;
+      }
+      if (attr.name === "style") {
+        applyStyleAttribute(live, previousStyle, attr.value);
+        continue;
+      }
+      // Alpine strips x-cloak the moment it initialises a tree. Source still
+      // carries it, and putting it back re-hides an element that is running.
+      if (attr.name === "x-cloak" && !live.hasAttribute("x-cloak")) continue;
+      if (live.getAttribute(attr.name) === attr.value) continue;
+      // A namespaced attribute (xlink:href inside an SVG) set through the
+      // plain setter becomes an inert same-named attribute the renderer
+      // ignores.
+      if (attr.namespaceURI) {
+        live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+      } else {
+        live.setAttribute(attr.name, attr.value);
+      }
+    }
+
+    for (var j = 0; j < previousAttrs.length; j += 1) {
+      var name = previousAttrs[j]!;
+      if (nextNames.indexOf(name) !== -1) continue;
+      if (name === "class") {
+        applyClassAttribute(live, previousClass, "");
+        continue;
+      }
+      if (name === "style") {
+        applyStyleAttribute(live, previousStyle, "");
+        continue;
+      }
+      live.removeAttribute(name);
+    }
+
+    (live as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta = {
+      attrs: nextNames,
+      className: next.getAttribute("class") ?? "",
+      style: next.getAttribute("style") ?? "",
+    };
+  }
+
+  function morphChildren(
+    live: Element | DocumentFragment,
+    next: Element | DocumentFragment,
+    context: MorphContext,
+  ): void {
+    var cursor = live.firstChild;
+    var nextChild = next.firstChild;
+    while (nextChild) {
+      var key = morphNodeKey(nextChild);
+      var reuse: Node | null = null;
+      if (key) {
+        var candidate = context.keyed.get(key) ?? null;
+        // A keyed node that already contains this parent cannot be moved
+        // inside itself; recreate it instead of building a cycle. A candidate
+        // whose tag changed cannot be morphed into the new one either — the
+        // iframe would keep a div where source now says button.
+        if (
+          candidate &&
+          !candidate.contains(live) &&
+          candidate.nodeName === nextChild.nodeName &&
+          candidate.namespaceURI === (nextChild as Element).namespaceURI
+        ) {
+          reuse = candidate;
+          // Claim it: authored markup can repeat an id, and reusing one live
+          // element for both would move the same node twice and drop one.
+          context.keyed.delete(key);
+        } else if (candidate) {
+          context.obsolete.add(key);
+        }
+      } else {
+        // Skip live siblings that cannot be this source child: runtime output,
+        // and keyed nodes already destined to disappear. Stopping at one would
+        // import a fresh copy of the unchanged node behind it and destroy the
+        // original's listeners and state.
+        var probe: Node | null = cursor;
+        while (probe) {
+          var probeKey = morphNodeKey(probe);
+          if (probeKey) {
+            if (
+              context.nextKeys.has(probeKey) &&
+              !context.obsolete.has(probeKey)
+            ) {
+              break;
+            }
+            probe = probe.nextSibling;
+            continue;
+          }
+          if (!isSourceOwned(probe)) {
+            probe = probe.nextSibling;
+            continue;
+          }
+          if (
+            probe.nodeType === nextChild.nodeType &&
+            probe.nodeName === nextChild.nodeName
+          ) {
+            reuse = probe;
+          }
+          break;
+        }
+      }
+      if (
+        reuse &&
+        reuse.nodeType === 1 &&
+        scopeDirectiveChanged(reuse as Element, nextChild as Element)
+      ) {
+        // Rebuild just this component rather than the frame: Alpine evaluates
+        // x-data once at init, so patching it in place leaves every binding
+        // underneath reading the previous scope. Alpine's own observer
+        // initialises the replacement.
+        var rebuilt = document.importNode(nextChild as Element, true);
+        // Anchor on `cursor`, not on `reuse`: a keyed candidate can live
+        // anywhere in the document, so when this parent is itself newly
+        // inserted the old node is not its child and insertBefore throws.
+        live.insertBefore(rebuilt, cursor);
+        if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
+        recordSourceSubtree(rebuilt);
+        cursor = rebuilt.nextSibling;
+        nextChild = nextChild.nextSibling;
+        continue;
+      }
+      if (reuse) {
+        if (reuse !== cursor) live.insertBefore(reuse, cursor);
+        if (reuse.nodeType === 1) {
+          morphElement(reuse as Element, nextChild as Element, context);
+        } else if (reuse.nodeValue !== nextChild.nodeValue) {
+          reuse.nodeValue = nextChild.nodeValue;
+        }
+        cursor = reuse.nextSibling;
+      } else if (nextChild.nodeType === 1) {
+        // Shell first, then reconcile: a deep import would clone keyed
+        // descendants that already exist live, and the originals would be
+        // swept as stale right after. Wrapping a component in a new parent
+        // (the Group action) has to move the existing child, not rebuild it.
+        var shell = document.importNode(nextChild as Element, false) as Element;
+        live.insertBefore(shell, cursor);
+        recordSourceOwnership(shell);
+        morphElement(shell, nextChild as Element, context);
+        // That reconcile can pull `cursor` itself into the shell, leaving the
+        // outer walk holding a node this parent no longer owns.
+        cursor = shell.nextSibling;
+      } else {
+        var imported = document.importNode(nextChild, true);
+        live.insertBefore(imported, cursor);
+        recordSourceSubtree(imported);
+      }
+      nextChild = nextChild.nextSibling;
+    }
+    while (cursor) {
+      var stale = cursor;
+      cursor = cursor.nextSibling;
+      // A keyed node can have been moved into a subtree inserted earlier in
+      // this same pass; it is no longer this parent's to remove.
+      if (stale.parentNode !== live) continue;
+      // Only the source's own children are the source's to delete. What is
+      // left is runtime output — an x-for clone, x-text's text node — and the
+      // runtime holds the same parent element, so it never re-renders it.
+      if (!isSourceOwned(stale)) continue;
+      live.removeChild(stale);
+    }
+  }
+
+  function morphElement(
+    live: Element,
+    next: Element,
+    context: MorphContext,
+  ): void {
+    // Before morphAttributes: writing the `value` attribute moves
+    // defaultValue, and the guard inside morphFormState reads defaultValue to
+    // decide whether the SOURCE default changed. Run it after and a dirty
+    // input never sees an explicit source edit.
+    morphFormState(live, next);
+    morphAttributes(live, next);
+    if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+    var liveTemplate = templateContentOf(live);
+    var nextTemplate = templateContentOf(next);
+    if (liveTemplate && nextTemplate) {
+      // Its own key scope: a node id can legitimately appear both inside a
+      // template and in the instantiated body, and the outer map must not
+      // hand the live one over to the template.
+      morphChildren(
+        liveTemplate,
+        nextTemplate,
+        scopedMorphContext(liveTemplate, nextTemplate),
+      );
+      return;
+    }
+    morphChildren(live, next, context);
+  }
+
+  /**
+   * Reconcile the live body against the parsed next document, reusing every
+   * node whose `data-agent-native-node-id` is unchanged.
+   *
+   * Never `body.innerHTML = next`. That rebuilds every node in the screen, so
+   * editing one element restarts Alpine components, CSS transitions and media,
+   * drops focus and inner scroll positions, and re-decodes every image — the
+   * "the frame refreshed" report. This walk touches only what differs.
+   *
+   * Like innerHTML it does not execute an inserted script, so a changed script
+   * is still the caller's cue to rebuild the document — see
+   * `runtimeDocumentNeedsReload` in DesignCanvas.tsx.
+   */
+  function morphRuntimeBody(nextBody: Element): void {
+    var keyed = new Map<string, Element>();
+    document.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      // An x-for clone copies the template's markup, node id and all. Indexing
+      // one would let the morph adopt a runtime clone as the source node and
+      // move it out of the list it belongs to.
+      if (!isSourceOwned(element)) return;
+      var key = element.getAttribute("data-agent-native-node-id");
+      // First occurrence wins: a duplicated id in authored markup must not
+      // let a later node steal an earlier node's identity.
+      if (key && !keyed.has(key)) keyed.set(key, element);
+    });
+    var nextKeys = new Set<string>();
+    nextBody.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key) nextKeys.add(key);
+    });
+    morphElement(document.body, nextBody, {
+      keyed: keyed,
+      nextKeys: nextKeys,
+      obsolete: new Set<string>(),
+    });
+  }
+
   function replaceRuntimeDocument(
     html: string,
     preferredSelector: string,
@@ -3257,13 +3983,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       document.querySelectorAll("[data-agent-native-edit-overlay]"),
     );
     // A forced whole-document replace is used for structural edits (duplicate,
-    // delete, cut/paste, undo/redo). Never fall back to the current selection
-    // in that mode: doing so activates the single-subtree fast path below,
-    // which can faithfully replace the selected node while silently omitting
-    // newly inserted or removed siblings elsewhere in the document.
-    var activeSelector = forceFullDocument
-      ? ""
-      : preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
+    // delete, cut/paste, undo/redo). The single-subtree fast path below must
+    // never run in that mode — it can faithfully replace the selected node
+    // while silently omitting inserted or removed siblings elsewhere — but the
+    // selectors still re-anchor the selection AFTER the morph, or an edit that
+    // keeps the same node selected (a layout flow change) leaves the canvas
+    // looking deselected while the inspector still shows it.
+    var activeSelector =
+      preferredSelector || (selectedEl ? getSelector(selectedEl) : "");
     var activeCandidates: string[] = [];
     if (Array.isArray(selectorCandidates)) {
       selectorCandidates.forEach(function (selector) {
@@ -3283,9 +4010,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
     if (lastSourceHeadHtml === null) {
-      // First patch after a srcdoc build, so the document already carries this
-      // source head. Forced replacements adopt too: treating the live head as
-      // the baseline is what wipes the runtime's own nodes.
+      // First patch after a srcdoc build. The document already carries the
+      // head it was built from, so this seeds the baseline — but it cannot
+      // just adopt: when the first patch is itself a head edit (a breakpoint,
+      // motion or token write, none of which reload the frame any more),
+      // adopting means that stylesheet never reaches the live document and
+      // every later diff is measured against a head that was never applied.
+      // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
+      // already present.
+      replaceSourceHeadNodes(null, nextHeadHtml);
       lastSourceHeadHtml = nextHeadHtml;
     }
     var currentHeadHtml = lastSourceHeadHtml;
@@ -3376,27 +4109,32 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       ensureEditorChromeStyle();
       lastSourceHeadHtml = nextHeadHtml;
     }
-    Array.prototype.slice.call(document.body.attributes).forEach(function (
-      attribute: Attr,
-    ) {
-      document.body.removeAttribute(attribute.name);
+    // Detached first so the keyed walk below never sees editor chrome as a
+    // stale child of the source document and removes it.
+    persistentNodes.forEach(function (node) {
+      if (node.parentNode) node.parentNode.removeChild(node);
     });
-    Array.prototype.slice.call(nextDoc.body.attributes).forEach(function (
-      attribute: Attr,
-    ) {
-      document.body.setAttribute(attribute.name, attribute.value);
-    });
-    document.body.innerHTML = nextDoc.body.innerHTML;
+    morphRuntimeBody(nextDoc.body);
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
     applyLayerStateSelectors();
+    // The morph can swap a frame for an equivalent element with the same name
+    // and box, which the label cache cannot see: rebuild so no label's click
+    // closure keeps pointing at a detached node.
+    frameLabelRenderKey = "";
 
     selectedEl = null;
     clearHoverGate();
-    for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
+    // A structural replace can have deleted the selected node, and a stale
+    // positional candidate then matches whichever sibling shifted into its
+    // place — so only whole-selector stable identity may re-anchor one.
+    var reanchorCandidates = forceFullDocument
+      ? activeCandidates.filter(isStableIdentitySelector)
+      : activeCandidates;
+    for (var i = 0; i < reanchorCandidates.length && !selectedEl; i += 1) {
       try {
-        var match = document.querySelector(activeCandidates[i]);
+        var match = document.querySelector(reanchorCandidates[i]);
         // Skip the editor's own injected overlay chrome and re-anchor to a
         // source-backed element. A stale positional candidate like
         // body > div:nth-of-type(6) can otherwise re-match an overlay div
@@ -4551,6 +5289,19 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     overlay.style.cssText =
       "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
     appendPassiveSelectionHandles(overlay);
+    overlay.addEventListener(
+      "mousedown",
+      function (e) {
+        if (readOnly) return;
+        var corner =
+          e.target &&
+          (e.target as Element).getAttribute &&
+          (e.target as Element).getAttribute("data-corner");
+        if (!corner) return;
+        startGroupResize(corner, e);
+      },
+      true,
+    );
     document.body.appendChild(overlay);
     multiSelectionBoundsOverlay = overlay;
     return overlay;
@@ -4564,6 +5315,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     passiveSelectionEls.forEach(function (el) {
       if (el && document.documentElement.contains(el)) members.push(el);
     });
+    // One set of handles per multi-selection: the primary member's own sit
+    // over the group's at a shared corner and win the hit test.
+    setSelectionOverlayResizeChromeVisible(
+      !readOnly && !activeTextEditEl && members.length < 2,
+    );
     if (members.length < 2 || selectionChromeHidden) {
       if (multiSelectionBoundsOverlay) {
         multiSelectionBoundsOverlay.style.display = "none";
@@ -4616,11 +5372,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
     if (!placedRotatedLocalBox) {
       var rect = el.getBoundingClientRect();
+      // Only a degenerate box is padded, so every normal outline still matches
+      // the element rect exactly.
+      var box = selectableBounds(el);
       overlay.style.display = "block";
-      overlay.style.top = rect.top + "px";
-      overlay.style.left = rect.left + "px";
-      overlay.style.width = rect.width + "px";
-      overlay.style.height = rect.height + "px";
+      overlay.style.top = box.top + "px";
+      overlay.style.left = box.left + "px";
+      overlay.style.width = box.width + "px";
+      overlay.style.height = box.height + "px";
       overlay.style.transform = "";
     }
     if (overlay === selectionOverlay) {
@@ -4630,13 +5389,311 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // (see applySelectionHandleHitGeometry).
       applySelectionHandleHitGeometry(el);
       updateSpacingOverlay(el);
+      updateGridCellOverlay(el);
+      // A label paints in the accent colour while its frame is selected, so it
+      // has to repaint on every selection change, not only on a geometry tick.
+      refreshFrameNameLabels();
       // `rect` is undefined on the rotated-local-box path; updateComponentTag
       // falls back to its own read in that case.
       updateComponentTag(el, rect);
       updateParentAutoLayoutOverlay(el);
+      showSizeBadge(el);
     } else {
       applyElementOverlayChrome(overlay, el);
     }
+  }
+
+  var gridCellOverlayRenderKey = "";
+
+  function hideGridCellOverlay(): void {
+    gridCellOverlay.style.display = "none";
+    if (gridCellOverlayRenderKey) {
+      gridCellOverlay.innerHTML = "";
+      gridCellOverlayRenderKey = "";
+    }
+  }
+
+  // Computed grid templates resolve to used px track sizes; a 0px track still
+  // occupies a line, so only a genuinely non-numeric token (a line name) drops.
+  function gridTrackSizes(template: string): number[] {
+    var sizes: number[] = [];
+    if (!template || template === "none") return sizes;
+    template.split(/\s+/).forEach(function (token) {
+      var size = readFinitePx(token);
+      if (size !== null) sizes.push(size);
+    });
+    return sizes;
+  }
+
+  /**
+   * Where the tracks actually start, and how far apart they sit, once
+   * justify-content / align-content has distributed the space the tracks do
+   * not fill. Reading only the content-box origin paints the cells of a
+   * centered or distributed grid away from its real tracks.
+   */
+  function gridTrackDistribution(
+    tracks: number[],
+    contentSize: number,
+    gap: number,
+    distribution: string,
+  ): { offset: number; gap: number } {
+    var used = 0;
+    for (var i = 0; i < tracks.length; i += 1) used += tracks[i];
+    used += gap * Math.max(0, tracks.length - 1);
+    var leftover = contentSize - used;
+    if (!(leftover > 0.01)) return { offset: 0, gap: gap };
+    var mode = (distribution || "normal").split(" ").pop() || "normal";
+    if (mode === "center") return { offset: leftover / 2, gap: gap };
+    if (mode === "end" || mode === "flex-end" || mode === "right") {
+      return { offset: leftover, gap: gap };
+    }
+    if (mode === "space-between" && tracks.length > 1) {
+      return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+    }
+    if (mode === "space-around" && tracks.length > 0) {
+      var around = leftover / tracks.length;
+      return { offset: around / 2, gap: gap + around };
+    }
+    if (mode === "space-evenly" && tracks.length > 0) {
+      var evenly = leftover / (tracks.length + 1);
+      return { offset: evenly, gap: gap + evenly };
+    }
+    return { offset: 0, gap: gap };
+  }
+
+  function updateGridCellOverlay(el: Element | null): void {
+    if (!el || !document.documentElement.contains(el)) {
+      hideGridCellOverlay();
+      return;
+    }
+    if (selectionChromeHidden || activeTextEditEl) {
+      hideGridCellOverlay();
+      return;
+    }
+    var cs = window.getComputedStyle(el);
+    if (cs.display !== "grid" && cs.display !== "inline-grid") {
+      hideGridCellOverlay();
+      return;
+    }
+    if (Math.abs(currentRotation(el)) > 0.01) {
+      hideGridCellOverlay();
+      return;
+    }
+    var columns = gridTrackSizes(cs.gridTemplateColumns);
+    var rows = gridTrackSizes(cs.gridTemplateRows);
+    if (columns.length === 0 || rows.length === 0) {
+      hideGridCellOverlay();
+      return;
+    }
+    var rect = el.getBoundingClientRect();
+    var contentLeft =
+      rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
+    var contentTop =
+      rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+    var contentWidth =
+      rect.width -
+      readPx(cs.borderLeftWidth) -
+      readPx(cs.borderRightWidth) -
+      readPx(cs.paddingLeft) -
+      readPx(cs.paddingRight);
+    var contentHeight =
+      rect.height -
+      readPx(cs.borderTopWidth) -
+      readPx(cs.borderBottomWidth) -
+      readPx(cs.paddingTop) -
+      readPx(cs.paddingBottom);
+    var columnFlow = gridTrackDistribution(
+      columns,
+      contentWidth,
+      readPx(cs.columnGap),
+      cs.justifyContent,
+    );
+    var rowFlow = gridTrackDistribution(
+      rows,
+      contentHeight,
+      readPx(cs.rowGap),
+      cs.alignContent,
+    );
+    var originX = contentLeft + columnFlow.offset;
+    var originY = contentTop + rowFlow.offset;
+    var columnGap = columnFlow.gap;
+    var rowGap = rowFlow.gap;
+    var line = Math.max(1, chromeLineScale());
+    var nextKey = [
+      originX,
+      originY,
+      columnGap,
+      rowGap,
+      line,
+      columns.join(","),
+      rows.join(","),
+    ].join("|");
+    if (
+      gridCellOverlay.style.display === "block" &&
+      gridCellOverlayRenderKey === nextKey
+    ) {
+      return;
+    }
+    gridCellOverlayRenderKey = nextKey;
+    gridCellOverlay.innerHTML = "";
+    gridCellOverlay.style.display = "block";
+    var color = chromeColorForElement(el);
+    var cellY = originY;
+    for (var row = 0; row < rows.length; row += 1) {
+      var cellX = originX;
+      for (var column = 0; column < columns.length; column += 1) {
+        var cell = document.createElement("div");
+        cell.setAttribute("data-agent-native-grid-cell", column + ":" + row);
+        cell.style.cssText =
+          "position:absolute;box-sizing:border-box;pointer-events:none;left:" +
+          cellX +
+          "px;top:" +
+          cellY +
+          "px;width:" +
+          columns[column] +
+          "px;height:" +
+          rows[row] +
+          "px;border:" +
+          line +
+          "px solid color-mix(in srgb," +
+          color +
+          " 42%,transparent);";
+        gridCellOverlay.appendChild(cell);
+        cellX += columns[column] + columnGap;
+      }
+      cellY += rows[row] + rowGap;
+    }
+  }
+
+  // ── Frame name labels ───────────────────────────────────────────────────
+  // This chrome paints over the design's own page, never over editor surfaces.
+  // guard:allow-raw-color — a mid grey is legible on white screens and dark boards.
+  var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
+  var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
+  var frameLabelRenderKey = "";
+
+  function outermostFrameElements(): Element[] {
+    var frames = Array.prototype.slice.call(
+      document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR),
+    ) as Element[];
+    return frames.filter(function (frame) {
+      if (isOverlayElement(frame)) return false;
+      var parent = frame.parentElement;
+      return !parent || !parent.closest(FRAME_PRIMITIVE_SELECTOR);
+    });
+  }
+
+  function frameLabelText(frame: Element): string {
+    var name =
+      frame.getAttribute("data-agent-native-layer-name") ||
+      frame.getAttribute("aria-label") ||
+      "";
+    return name.trim() || "Frame" /* i18n-ignore canvas frame label */;
+  }
+
+  function selectFrameFromLabel(frame: Element, e: MouseEvent): void {
+    if (isLayerInteractionBlocked(frame)) return;
+    blurActiveTextEditor();
+    var previousSelectedEl = selectedEl;
+    selectedEl = frame;
+    positionOverlay(selectionOverlay, selectedEl);
+    // Same collapse the shield's own plain select does (phantom-passenger
+    // fix, §3.5): a drag started before the host mirrors this selection back
+    // would otherwise carry the previous multi-selection's members along.
+    if (!e.shiftKey && passiveSelectionEls.length) {
+      setPassiveSelectionElements([]);
+    }
+    preservePreviousSelectedElementForShiftClick(
+      previousSelectedEl,
+      selectedEl,
+      e,
+    );
+    postElementSelect(selectedEl, e);
+  }
+
+  function refreshFrameNameLabels(): void {
+    var frames = outermostFrameElements();
+    var line = chromeLineScale();
+    var fontSize = 11 * line;
+    var labelHeight = 16 * line;
+    var placements: {
+      frame: Element;
+      text: string;
+      left: number;
+      top: number;
+      maxWidth: number;
+      selected: boolean;
+    }[] = [];
+    frames.forEach(function (frame) {
+      var rect = frame.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      // A frame flush against the document top would have its label clipped by
+      // the iframe edge, so it rides just inside the frame instead.
+      var top = rect.top - labelHeight - 2 * line;
+      if (top < 0) top = rect.top + 2 * line;
+      placements.push({
+        frame: frame,
+        text: frameLabelText(frame),
+        left: rect.left,
+        top: top,
+        maxWidth: Math.max(48 * line, rect.width),
+        selected: frame === selectedEl,
+      });
+    });
+    var nextKey =
+      placements
+        .map(function (placement) {
+          return [
+            placement.text,
+            Math.round(placement.left),
+            Math.round(placement.top),
+            Math.round(placement.maxWidth),
+            placement.selected ? "1" : "0",
+          ].join(",");
+        })
+        .join("|") +
+      "@" +
+      line;
+    if (frameLabelRenderKey === nextKey) return;
+    frameLabelRenderKey = nextKey;
+    frameLabelLayer.innerHTML = "";
+    placements.forEach(function (placement) {
+      var label = document.createElement("button");
+      label.type = "button";
+      label.setAttribute("data-agent-native-frame-label", "");
+      label.textContent = placement.text;
+      label.title = placement.text;
+      label.style.cssText =
+        "position:absolute;margin:0;padding:0;border:0;background:transparent;" +
+        "max-width:" +
+        placement.maxWidth +
+        "px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" +
+        "pointer-events:auto;cursor:default;text-align:left;" +
+        "font:500 " +
+        fontSize +
+        "px/" +
+        labelHeight +
+        "px ui-sans-serif,system-ui,-apple-system,sans-serif;" +
+        "left:" +
+        placement.left +
+        "px;top:" +
+        placement.top +
+        "px;height:" +
+        labelHeight +
+        "px;color:" +
+        (placement.selected
+          ? "var(--design-editor-accent-color)"
+          : FRAME_LABEL_IDLE_COLOR);
+      label.addEventListener("mousedown", function (event) {
+        event.stopPropagation();
+      });
+      label.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectFrameFromLabel(placement.frame, event as MouseEvent);
+      });
+      frameLabelLayer.appendChild(label);
+    });
   }
 
   function refreshOverlays(): void {
@@ -4674,8 +5731,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var overlay = passiveSelectionOverlays[index];
       if (overlay) positionOverlay(overlay, el);
     });
+    // A multi-selection has no single size to report; positionOverlay owns
+    // the badge for the single-selection case.
+    if (passiveSelectionEls.length > 0) hideSizeBadge();
     positionMultiSelectionBounds();
     positionGradientOverlay();
+    refreshFrameNameLabels();
     syncOverlayObservers();
   }
 
@@ -4804,7 +5865,17 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     target: EventTarget | null,
   ): boolean {
     if (!target) return false;
-    return target === selectedEl || target === hoveredEl;
+    if (target === selectedEl || target === hoveredEl) return true;
+    // Frame labels are always-on chrome, so a transition that moves or
+    // resizes a labelled frame — on the frame, an ancestor, or a child that
+    // grows a hug-sized one — has to drive this loop even with nothing
+    // selected. Mutation records never fire for a running keyframe.
+    var el = target as Element;
+    if (!el || typeof el.closest !== "function") return false;
+    return Boolean(
+      el.closest(FRAME_PRIMITIVE_SELECTOR) ||
+      (el.querySelector && el.querySelector(FRAME_PRIMITIVE_SELECTOR)),
+    );
   }
 
   function tickOverlayAnimationTracking(): void {
@@ -5082,7 +6153,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   function stopNativeInteraction(e: Event): void {
-    e.preventDefault();
+    // A fling's wheel events are not cancelable; cancelling one logs a browser
+    // Intervention per event and scrolls anyway.
+    if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
   }
@@ -5212,6 +6285,64 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     );
   }
 
+  // Option composes a different character on macOS (Option+A -> "å"), so an
+  // alt-held chord matched on e.key forwards on Windows and vanishes on a Mac.
+  // Mirrors ALT_CODE_KEYS / normalizedKey in useDesignHotkeys.ts.
+  var ALT_CODE_KEYS = {
+    KeyA: "a",
+    KeyB: "b",
+    KeyC: "c",
+    KeyD: "d",
+    KeyE: "e",
+    KeyF: "f",
+    KeyG: "g",
+    KeyH: "h",
+    KeyI: "i",
+    KeyJ: "j",
+    KeyK: "k",
+    KeyL: "l",
+    KeyM: "m",
+    KeyN: "n",
+    KeyO: "o",
+    KeyP: "p",
+    KeyQ: "q",
+    KeyR: "r",
+    KeyS: "s",
+    KeyT: "t",
+    KeyU: "u",
+    KeyV: "v",
+    KeyW: "w",
+    KeyX: "x",
+    KeyY: "y",
+    KeyZ: "z",
+    BracketRight: "]",
+    BracketLeft: "[",
+  };
+
+  function normalizedHotkeyChar(e) {
+    if (e.altKey) {
+      var fromCode = ALT_CODE_KEYS[e.code];
+      if (fromCode) return fromCode;
+    }
+    var key = e.key;
+    return key && key.length === 1 ? key.toLowerCase() : key;
+  }
+
+  function isApplePlatformBridge(): boolean {
+    var nav = navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    };
+    var platform =
+      (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+    return /Mac|iPhone|iPad|iPod/i.test(platform);
+  }
+
+  function isPlatformPrimaryChord(e): boolean {
+    return isApplePlatformBridge()
+      ? e.metaKey && !e.ctrlKey
+      : e.ctrlKey && !e.metaKey;
+  }
+
   function isShowShortcutsChord(e) {
     if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
     // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
@@ -5237,7 +6368,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
       return false;
     var key = e.key;
-    var normalized = key && key.length === 1 ? key.toLowerCase() : key;
+    var normalized = normalizedHotkeyChar(e);
     var primary = e.metaKey || e.ctrlKey;
     if (key === "Escape" || key === "Enter") return true;
     // Space arms Figma-style temporary hand-tool panning while the cursor is
@@ -5285,13 +6416,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           "[",
           // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
           "u",
-          // Cmd/Ctrl+F — find (onFind). Bridge's "primary" doesn't distinguish
-          // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
-          // forwarding is harmless when the host has no match for the combo.
-          "f",
-          // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
-          // onPasteToReplace) — both live under bare primary+r.
-          "r",
+          // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
+          // so browser refresh keeps its expected meaning.
           // Cmd/Ctrl+K — open the host command menu even while the iframe has
           // focus. DesignEditor routes this chord to openCommandMenu().
           "k",
@@ -5305,33 +6431,82 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
+        // Cmd/Ctrl+F — find (onFind). Gated on the platform's own primary
+        // modifier, matching isPlatformPrimaryModifier host-side: forwarding
+        // is NOT harmless, because the shield preventDefaults before posting,
+        // so a forwarded-then-ignored macOS Ctrl+F loses browser Find.
+        (isPlatformPrimaryChord(e) &&
+          !e.altKey &&
+          !e.shiftKey &&
+          normalized === "f") ||
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
+        (e.shiftKey && normalized === "r") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
         (e.altKey && (normalized === "b" || normalized === "k")) ||
-        // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
-        // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
-        // on LITERAL Control on every platform (never remapped to Cmd), so
-        // this mirrors that exact gate instead of the generic "primary" flag
-        // — a blanket "t" entry above would otherwise swallow the common
-        // Cmd+T "new tab" browser shortcut for a combo the host never binds.
+        // Ctrl+Alt+H/V/T distribute + tidy up: LITERAL Control on every
+        // platform, so gate on ctrlKey rather than `primary` — a blanket "t"
+        // above would swallow Cmd+T, a combo the host never binds.
         (e.ctrlKey &&
           e.altKey &&
           !e.metaKey &&
           !e.shiftKey &&
-          (normalized === "h" || normalized === "t"))
+          ["h", "v", "t"].indexOf(normalized) !== -1)
       );
     }
-    if (
-      e.shiftKey &&
-      (e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2")
-    )
-      return true;
+
+    // Non-primary families, mirroring handleDesignHotkey in
+    // useDesignHotkeys.ts. A chord absent here is dead for anyone whose focus
+    // is in the canvas iframe — where it lands the moment you click a layer.
+    if (e.altKey) {
+      if (e.shiftKey) return false;
+      // Alt+A/D/W/S/H/V align selection; Alt+1/Alt+2 navigation panels.
+      return (
+        ["a", "d", "w", "s", "h", "v"].indexOf(normalized) !== -1 ||
+        e.code === "Digit1" ||
+        e.code === "Digit2"
+      );
+    }
+    if (e.shiftKey) {
+      // Shift+A auto layout, Shift+H/V flip, Shift+X swap fill/stroke,
+      // Shift+C comments, Shift+L arrow tool, Shift+Y draw tool,
+      // Shift+N previous frame, Shift+1/2 zoom, Shift+= zoom in.
+      return (
+        ["a", "h", "v", "x", "c", "l", "y", "n", "=", "+"].indexOf(
+          normalized,
+        ) !== -1 ||
+        e.code === "Digit1" ||
+        e.code === "Digit2" ||
+        key === "1" ||
+        key === "2"
+      );
+    }
+    // Unmodified: tool shortcuts, next frame, select parent, z-order, zoom,
+    // and digit opacity.
     return (
-      !e.altKey &&
-      !e.shiftKey &&
-      ["v", "f", "r", "t", "p", "h", "c", "k"].indexOf(normalized) !== -1
+      [
+        "v",
+        "f",
+        "r",
+        "o",
+        "l",
+        "t",
+        "p",
+        "h",
+        "k",
+        "c",
+        "i",
+        "n",
+        "\\",
+        "]",
+        "[",
+        "=",
+        "+",
+        "-",
+      ].indexOf(normalized) !== -1 ||
+      /^Digit[0-9]$/.test(e.code || "") ||
+      /^[0-9]$/.test(key || "")
     );
   }
 
@@ -5662,9 +6837,24 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     marqueeSelectionOverlay.style.width = rect.width + "px";
     marqueeSelectionOverlay.style.height = rect.height + "px";
 
-    var hitElements = collectSelectableElements().filter(function (el) {
-      var bounds = el.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0) return false;
+    // Collected once per gesture: this runs on every pointermove, and a
+    // generated screen can hold thousands of nodes.
+    if (!activeMarqueeSelection.candidates) {
+      activeMarqueeSelection.candidates = collectSelectableElements();
+    }
+    var hitElements = activeMarqueeSelection.candidates.filter(function (el) {
+      var bounds = selectableBounds(el);
+      // A candidate that encloses the band is the container being banded
+      // inside, not something aimed at: sweeping it in selects the whole
+      // screen and every later drag moves everything.
+      if (
+        bounds.left <= rect.left &&
+        bounds.top <= rect.top &&
+        bounds.right >= rect.right &&
+        bounds.bottom >= rect.bottom
+      ) {
+        return false;
+      }
       return rectsIntersect(rect, {
         left: bounds.left,
         top: bounds.top,
@@ -7171,6 +8361,89 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return true;
   }
 
+  // Chromium's execCommand emits legacy <b>/<i>/<u> tags, which persist into
+  // the design source as child layers the text pipeline never models — T12's
+  // span normalizer above only ever sees spans. Keep these chords on the same
+  // span-based helper the inspector styling path uses.
+  var TEXT_EDIT_FORMATS: Record<
+    string,
+    {
+      property: string;
+      on: string;
+      off: string;
+      isOn: (styles: CSSStyleDeclaration) => boolean;
+    }
+  > = {
+    b: {
+      property: "font-weight",
+      on: "700",
+      off: "400",
+      isOn: function (styles) {
+        var weight = styles.fontWeight;
+        return weight === "bold" || Number(weight) >= 600;
+      },
+    },
+    i: {
+      property: "font-style",
+      on: "italic",
+      off: "normal",
+      isOn: function (styles) {
+        return styles.fontStyle === "italic";
+      },
+    },
+    u: {
+      property: "text-decoration",
+      on: "underline",
+      off: "none",
+      isOn: function (styles) {
+        return (styles.textDecorationLine || "").indexOf("underline") !== -1;
+      },
+    },
+  };
+
+  // Select-all puts the common ancestor on the editable, not on the inline
+  // span carrying the format, so the toggle has to read every text run the
+  // range actually covers or Cmd+U stops being able to turn underline off.
+  function rangeFormatIsOn(
+    range: Range,
+    spec: { isOn: (styles: CSSStyleDeclaration) => boolean },
+  ): boolean {
+    var root = range.commonAncestorContainer;
+    var rootEl = root.nodeType === 1 ? (root as Element) : root.parentElement;
+    if (!rootEl) return false;
+    var walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+    var sawText = false;
+    var current = walker.nextNode();
+    while (current) {
+      if (
+        current.nodeValue &&
+        current.nodeValue.trim() &&
+        range.intersectsNode(current)
+      ) {
+        sawText = true;
+        var parent = current.parentElement;
+        if (!parent || !spec.isOn(window.getComputedStyle(parent))) {
+          return false;
+        }
+      }
+      current = walker.nextNode();
+    }
+    return sawText ? true : spec.isOn(window.getComputedStyle(rootEl));
+  }
+
+  function applyTextEditFormat(key: string): boolean {
+    var spec = TEXT_EDIT_FORMATS[key];
+    if (!spec) return false;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.rangeCount === 0) return false;
+    var range = selection.getRangeAt(0);
+    // Known gap: applyTextRangeStyle can only SET a property, so an "off"
+    // value cannot beat an inner run that sets the format itself. Toggling off
+    // works for a single covering run, not for a format split across several.
+    var next = rangeFormatIsOn(range, spec) ? spec.off : spec.on;
+    return applyTextRangeStyle(spec.property, next);
+  }
+
   function showTransformBadge(
     text: string,
     clientX: number,
@@ -7260,17 +8533,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return true;
   }
 
-  // Multi-select group move: when the user drags an element that is a member
-  // of the current multi-selection (primary selectedEl + the passive
-  // shift-click/marquee set), the whole group moves together — Figma
-  // behavior. Returns the full member list in DOCUMENT ORDER (so a group
-  // flow-insert lands the members consecutively in their existing visual
-  // order) when gestureEl belongs to a 2+ selection, or just [gestureEl]
-  // otherwise. Members nested inside another member are dropped: moving the
-  // ancestor already moves them, and double-applying the delta would fling
-  // them.
-  function collectMoveGroupMembers(gestureEl: Element): Element[] {
-    if (!gestureEl) return [];
+  /** The current multi-selection's own elements: the primary plus the passive
+   *  shift-click/marquee set, minus blocked layers and anything contained by
+   *  another member. */
+  function collectSelectionMembers(): Element[] {
     var raw: Element[] = [];
     if (selectedEl) raw.push(selectedEl);
     for (var i = 0; i < passiveSelectionEls.length; i += 1) {
@@ -7291,12 +8557,25 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       }
       members.push(candidate);
     }
-    // Drop members contained by another member.
-    members = members.filter(function (member) {
+    return members.filter(function (member) {
       return !members.some(function (other) {
         return other !== member && other.contains(member);
       });
     });
+  }
+
+  // Multi-select group move: when the user drags an element that is a member
+  // of the current multi-selection (primary selectedEl + the passive
+  // shift-click/marquee set), the whole group moves together — Figma
+  // behavior. Returns the full member list in DOCUMENT ORDER (so a group
+  // flow-insert lands the members consecutively in their existing visual
+  // order) when gestureEl belongs to a 2+ selection, or just [gestureEl]
+  // otherwise. Members nested inside another member are dropped: moving the
+  // ancestor already moves them, and double-applying the delta would fling
+  // them.
+  function collectMoveGroupMembers(gestureEl: Element): Element[] {
+    if (!gestureEl) return [];
+    var members = collectSelectionMembers();
     var gestureMember: Element | null = null;
     for (var k = 0; k < members.length; k += 1) {
       if (
@@ -7349,93 +8628,109 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     );
   }
 
+  var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
+    img: true,
+    video: true,
+    picture: true,
+    audio: true,
+    canvas: true,
+    svg: true,
+    path: true,
+    input: true,
+    textarea: true,
+    select: true,
+    br: true,
+    hr: true,
+    iframe: true,
+  };
+  var BRIDGE_ADOPTING_PRIMITIVES: Record<string, boolean> = {
+    frame: true,
+    rectangle: true,
+    rect: true,
+  };
+
+  // KEEP IN SYNC with hit-test.bridge.ts — pinned by bridge.guard.spec.ts.
+  // Layout decides, not the tag: a group has no data-an-primitive and a
+  // generated container is often a <section>.
+
+  // keep in sync with hit-test.bridge.ts isFreeformRelativeContainer
+  // Complements isAbsolutePrimitiveContainer below, which requires the
+  // container itself to be absolute/fixed. A generated screen wraps content in
+  // a `position:relative` full-bleed div, and calling that flow strips a
+  // dropped layer's left/top into the corner. Every child must be out of flow:
+  // one absolute badge in a flex row does not make the row freeform.
+  function isFreeformRelativeContainer(el: Element | null): boolean {
+    if (!el || el === document.body || el === document.documentElement) {
+      return false;
+    }
+    if (window.getComputedStyle(el).position === "static") return false;
+    var children = el.children;
+    if (children.length === 0) return false;
+    for (var i = 0; i < children.length; i += 1) {
+      if (isOverlayElement(children[i])) continue;
+      var childPosition = window.getComputedStyle(children[i]).position;
+      if (childPosition !== "absolute" && childPosition !== "fixed") {
+        return false;
+      }
+    }
+    return true;
+  }
+
   function isAbsolutePrimitiveContainer(el: Element | null): boolean {
-    if (!el || (el.tagName || "").toLowerCase() !== "div") return false;
+    if (!el || el.nodeType !== 1) return false;
+    if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
     var primitive = (
       el.getAttribute("data-an-primitive") ||
       el.getAttribute("data-agent-native-primitive") ||
       ""
     ).toLowerCase();
-    // Frames adopt; a rectangle is a vector shape and never becomes a
-    // container (same contract appendCanvasPrimitiveToHtml enforces on draw).
-    if (primitive !== "frame") return false;
+    if (primitive) {
+      // A declared frame or rectangle is authored free-form even when empty;
+      // other drawn shapes stay leaves, matching what
+      // appendCanvasPrimitiveToHtml enforces on draw.
+      if (!BRIDGE_ADOPTING_PRIMITIVES[primitive]) return false;
+    } else if (isAutoLayoutElement(el) || !hasAbsolutePositionedChild(el)) {
+      // Unmarked markup is judged by how it positions its CHILDREN, not by its
+      // own position: an absolutely positioned card whose children are in
+      // normal flow still has slots, and pinning a drop into it is wrong.
+      return false;
+    }
     var cs = window.getComputedStyle(el);
     return cs.position === "absolute" || cs.position === "fixed";
   }
 
-  // Figma-parity "drop into a frame" conversion: when a plain rect/div drop
-  // target isn't already auto-layout, dropping a child into it turns it into
-  // one. Direction/gap are inferred from the container's existing children
-  // (same spread-axis heuristic as inferAutoLayoutFromChildren in
-  // DesignEditor.tsx: whichever axis the children's bounding boxes spread
-  // further along wins) when it already has other children; an empty
-  // container defaults to flex-direction:column, matching the product
-  // decision for a fresh single-child drop with no layout signal yet.
-  function inferAutoLayoutConversionForContainer(
+  function hasAbsolutePositionedChild(el: Element): boolean {
+    var kids = el.children;
+    for (var i = 0; i < kids.length; i += 1) {
+      if (isOverlayElement(kids[i])) continue;
+      var kidPosition = window.getComputedStyle(kids[i]).position;
+      if (kidPosition === "absolute" || kidPosition === "fixed") return true;
+    }
+    return false;
+  }
+
+  // A frame with any content of its own has a layout that adopting auto
+  // layout would reflow, so only an empty one converts on drop. A member
+  // already parented here is reordering, not arriving.
+  function isEmptyDropContainer(
     container: Element,
-    excludeEls: Element[],
-  ): { direction: "row" | "column"; gap: number } {
-    var siblings = draggableElementChildren(container).filter(function (child) {
-      return excludeEls.indexOf(child) === -1;
-    });
-    if (siblings.length === 0) {
-      return { direction: "column", gap: 10 };
+    dragged: Element[],
+  ): boolean {
+    for (var i = 0; i < dragged.length; i += 1) {
+      if (dragged[i] && dragged[i].parentElement === container) return false;
     }
-    var rects = siblings.map(function (child) {
-      return child.getBoundingClientRect();
-    });
-    var minX = Math.min.apply(
-      null,
-      rects.map(function (r) {
-        return r.left;
-      }),
-    );
-    var maxX = Math.max.apply(
-      null,
-      rects.map(function (r) {
-        return r.left + r.width;
-      }),
-    );
-    var minY = Math.min.apply(
-      null,
-      rects.map(function (r) {
-        return r.top;
-      }),
-    );
-    var maxY = Math.max.apply(
-      null,
-      rects.map(function (r) {
-        return r.top + r.height;
-      }),
-    );
-    var direction: "row" | "column" =
-      maxX - minX >= maxY - minY ? "row" : "column";
-    if (rects.length < 2) {
-      return { direction: direction, gap: 10 };
+    var nodes = container.childNodes;
+    for (var j = 0; j < nodes.length; j += 1) {
+      var node = nodes[j];
+      if (node.nodeType === 3) {
+        if ((node.textContent || "").trim()) return false;
+        continue;
+      }
+      if (node.nodeType !== 1) continue;
+      if (isOverlayElement(node as Element)) continue;
+      return false;
     }
-    var sorted = rects.slice().sort(function (a, b) {
-      return direction === "row" ? a.left - b.left : a.top - b.top;
-    });
-    var gaps: number[] = [];
-    for (var i = 1; i < sorted.length; i += 1) {
-      var prev = sorted[i - 1];
-      var current = sorted[i];
-      var gapValue =
-        direction === "row"
-          ? current.left - (prev.left + prev.width)
-          : current.top - (prev.top + prev.height);
-      if (isFinite(gapValue) && gapValue > 0) gaps.push(gapValue);
-    }
-    if (gaps.length === 0) {
-      return { direction: direction, gap: 10 };
-    }
-    gaps.sort(function (a, b) {
-      return a - b;
-    });
-    var mid = Math.floor(gaps.length / 2);
-    var median =
-      gaps.length % 2 === 0 ? (gaps[mid - 1] + gaps[mid]) / 2 : gaps[mid];
-    return { direction: direction, gap: Math.round(median) };
+    return true;
   }
 
   // Applies the flex conversion to `container` and posts it to the host as a
@@ -7446,22 +8741,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // visual-structure-change post so the host's synchronous same-tick content
   // refs (see DesignEditor.tsx's getFreshActiveContent) compose the two
   // edits in order: container becomes flex, then the child moves into it.
-  // `excludeEls`: the dragged element(s) — every member of a group drag —
-  // so the direction/gap inference only looks at the container's existing
-  // children, never the incoming ones.
-  function applyAutoLayoutConversionForDrop(
-    container: Element,
-    excludeEls: Element[],
-  ): void {
-    var inferred = inferAutoLayoutConversionForContainer(container, excludeEls);
+  function applyAutoLayoutConversionForDrop(container: Element): void {
     var el = container as HTMLElement;
     el.style.display = "flex";
-    el.style.flexDirection = inferred.direction;
-    el.style.gap = inferred.gap + "px";
+    el.style.flexDirection = "column";
+    el.style.gap = "10px";
     var styles = {
       display: "flex",
-      "flex-direction": inferred.direction,
-      gap: inferred.gap + "px",
+      "flex-direction": "column",
+      gap: "10px",
     };
     (window.parent as Window).postMessage(
       {
@@ -7973,9 +9261,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
             anchor: hit,
             placement: "inside",
             axis: parentFlowAxis(hit),
-            dropMode: isAbsolutePrimitiveContainer(hit)
-              ? "absolute-container"
-              : "flow-insert",
+            dropMode:
+              isAbsolutePrimitiveContainer(hit) ||
+              isFreeformRelativeContainer(hit)
+                ? "absolute-container"
+                : "flow-insert",
           };
         }
         return {
@@ -8021,9 +9311,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         anchor: parent,
         placement: "inside",
         axis: axis,
-        dropMode: isAbsolutePrimitiveContainer(parent)
-          ? "absolute-container"
-          : "flow-insert",
+        dropMode:
+          isAbsolutePrimitiveContainer(parent) ||
+          isFreeformRelativeContainer(parent)
+            ? "absolute-container"
+            : "flow-insert",
       };
     }
     var beforeTarget = null;
@@ -8125,16 +9417,17 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       };
     }
 
-    // Flow child (a real flow-reorder gesture) dropped into a plain container:
-    // convert it to auto layout before the structural move. This is the flow
-    // path only; the absolute/free drag keeps shapes free (no conversion).
+    // Flow child (a real flow-reorder gesture) dropped into an empty plain
+    // container: convert it to auto layout before the structural move. This is
+    // the flow path only; the absolute/free drag keeps shapes free.
     if (
       target &&
       target.dropMode === "flow-insert" &&
       container &&
       container !== document.body &&
       isContainerDropTarget(container) &&
-      !isAutoLayoutElement(container)
+      !isAutoLayoutElement(container) &&
+      isEmptyDropContainer(container, dragged)
     ) {
       target.needsAutoLayoutConversion = true;
       target.conversionTarget = container;
@@ -8266,7 +9559,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // recognizes it via this same helper and assigns dropMode
       // "absolute-container" so onUp skips the auto-layout conversion and
       // keeps the moved element's position:absolute.
-      if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+      if (
+        cursor !== document.body &&
+        (isAbsolutePrimitiveContainer(cursor) ||
+          isFreeformRelativeContainer(cursor))
+      ) {
+        // Same-parent drop is a pure reposition: a target here re-appends the
+        // element as its parent's last child and changes its z-order.
+        if (cursor === el.parentElement) return null;
         return {
           anchor: cursor,
           placement: "inside",
@@ -9039,97 +10339,883 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return rects;
   }
 
-  // Mirrors getAxisSnapCandidates/getBestCandidate/getVerticalGuide/
-  // getHorizontalGuide from shared/canvas-math.ts: for each axis, compare the
-  // moving rect's left/center/right (or top/center/bottom) against every
-  // candidate's same three values and keep the closest match within
-  // threshold. Exported off the IIFE closure via the return-value shape below
-  // so tests can exercise it directly (see the "extractable pure logic"
-  // convention used by motion-preview.bridge.ts).
-  function computeMoveSnapOffset(movingRect, candidates, threshold) {
-    var moving = rectBounds(movingRect);
-    var bestX = null;
-    var bestY = null;
-    for (var i = 0; i < candidates.length; i += 1) {
-      var candidate = candidates[i];
-      var xValues = [moving.left, moving.centerX, moving.right];
-      var xTargets = [candidate.left, candidate.centerX, candidate.right];
-      for (var xi = 0; xi < xValues.length; xi += 1) {
-        for (var xj = 0; xj < xTargets.length; xj += 1) {
-          var offsetX = xTargets[xj] - xValues[xi];
-          var distanceX = Math.abs(offsetX);
-          if (distanceX > threshold) continue;
-          if (!bestX || distanceX < bestX.distance) {
-            bestX = {
-              distance: distanceX,
-              offset: offsetX,
-              guide: {
-                position: xTargets[xj],
-                start: Math.min(moving.top, candidate.top),
-                end: Math.max(moving.bottom, candidate.bottom),
-              },
-            };
-          }
-        }
-      }
-      var yValues = [moving.top, moving.centerY, moving.bottom];
-      var yTargets = [candidate.top, candidate.centerY, candidate.bottom];
-      for (var yi = 0; yi < yValues.length; yi += 1) {
-        for (var yj = 0; yj < yTargets.length; yj += 1) {
-          var offsetY = yTargets[yj] - yValues[yi];
-          var distanceY = Math.abs(offsetY);
-          if (distanceY > threshold) continue;
-          if (!bestY || distanceY < bestY.distance) {
-            bestY = {
-              distance: distanceY,
-              offset: offsetY,
-              guide: {
-                position: yTargets[yj],
-                start: Math.min(moving.left, candidate.left),
-                end: Math.max(moving.right, candidate.right),
-              },
-            };
-          }
-        }
-      }
-    }
+  // Hand-port of shared/canvas-math.ts computeDragSnap and its helpers:
+  // alignment offset per axis, then every guide line the snapped position
+  // actually sits on, then a spacing snap on whichever axes alignment left
+  // free. Keep the two in sync — canvas-math is the reference implementation
+  // and editor-chrome-bridge.snap.test.ts proves this copy against it.
+  var SNAP_ALIGN_EPSILON = 1e-6;
+  // Guides are drawn at this tight tolerance, not the snap pull: on an axis
+  // locked by an alignment guide the element never moved, so a near-equal
+  // pair would otherwise get labelled as an equal gap it does not have.
+  var SPACING_MATCH_EPSILON = 0.5;
+  // Screen px: beyond this a neighbour is not what the user is positioning
+  // against, and its measurement is a line stretched over empty space.
+  var PROXIMITY_RANGE_PX = 160;
+
+  function axisSnapValues(bounds, axis) {
+    return axis === "x"
+      ? [bounds.left, bounds.centerX, bounds.right]
+      : [bounds.top, bounds.centerY, bounds.bottom];
+  }
+
+  function axisStart(bounds, axis) {
+    return axis === "x" ? bounds.left : bounds.top;
+  }
+
+  function axisEnd(bounds, axis) {
+    return axis === "x" ? bounds.right : bounds.bottom;
+  }
+
+  function crossStart(bounds, axis) {
+    return axis === "x" ? bounds.top : bounds.left;
+  }
+
+  function crossEnd(bounds, axis) {
+    return axis === "x" ? bounds.bottom : bounds.right;
+  }
+
+  function crossAxisOverlaps(axis, a, b) {
+    return (
+      crossStart(a, axis) < crossEnd(b, axis) &&
+      crossEnd(a, axis) > crossStart(b, axis)
+    );
+  }
+
+  function translateRectBounds(bounds, dx, dy) {
     return {
-      dx: bestX ? bestX.offset : 0,
-      dy: bestY ? bestY.offset : 0,
-      guideV: bestX ? bestX.guide : null,
-      guideH: bestY ? bestY.guide : null,
+      left: bounds.left + dx,
+      right: bounds.right + dx,
+      centerX: bounds.centerX + dx,
+      top: bounds.top + dy,
+      bottom: bounds.bottom + dy,
+      centerY: bounds.centerY + dy,
     };
   }
 
-  function showSnapGuides(guideV, guideH) {
-    // Constant-screen-size chrome: guide THICKNESS compensates for the
-    // host's iframe scale (chromeLineScale) so the line stays a crisp 1px
-    // on screen at any zoom; the guide's span/position stays in content
-    // coordinates.
-    var line = 1 * chromeLineScale();
-    if (guideV) {
-      snapGuideV.style.display = "block";
-      snapGuideV.style.width = line + "px";
-      snapGuideV.style.left = Math.round(guideV.position) + "px";
-      snapGuideV.style.top = Math.round(guideV.start) + "px";
-      snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
-    } else {
-      snapGuideV.style.display = "none";
+  function findAxisSnapOffset(axis, moving, candidates, threshold) {
+    var offset = null;
+    var bestDistance = Infinity;
+    var movingValues = axisSnapValues(moving, axis);
+    for (var i = 0; i < candidates.length; i += 1) {
+      var targets = axisSnapValues(candidates[i], axis);
+      for (var mi = 0; mi < movingValues.length; mi += 1) {
+        for (var ti = 0; ti < targets.length; ti += 1) {
+          var candidate = targets[ti] - movingValues[mi];
+          var distance = Math.abs(candidate);
+          if (distance > threshold || distance >= bestDistance) continue;
+          bestDistance = distance;
+          offset = candidate;
+        }
+      }
     }
-    if (guideH) {
-      snapGuideH.style.display = "block";
-      snapGuideH.style.height = line + "px";
-      snapGuideH.style.top = Math.round(guideH.position) + "px";
-      snapGuideH.style.left = Math.round(guideH.start) + "px";
-      snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
-    } else {
-      snapGuideH.style.display = "none";
+    return offset;
+  }
+
+  function buildAxisGuides(axis, moving, candidates) {
+    var positions: number[] = [];
+    var spans: { start: number; end: number }[] = [];
+    var movingValues = axisSnapValues(moving, axis);
+    for (var i = 0; i < candidates.length; i += 1) {
+      var candidate = candidates[i];
+      var targets = axisSnapValues(candidate, axis);
+      for (var mi = 0; mi < movingValues.length; mi += 1) {
+        for (var ti = 0; ti < targets.length; ti += 1) {
+          if (Math.abs(targets[ti] - movingValues[mi]) > SNAP_ALIGN_EPSILON) {
+            continue;
+          }
+          var slot = positions.indexOf(targets[ti]);
+          if (slot === -1) {
+            positions.push(targets[ti]);
+            spans.push({
+              start: Math.min(
+                crossStart(moving, axis),
+                crossStart(candidate, axis),
+              ),
+              end: Math.max(crossEnd(moving, axis), crossEnd(candidate, axis)),
+            });
+          } else {
+            spans[slot].start = Math.min(
+              spans[slot].start,
+              crossStart(candidate, axis),
+            );
+            spans[slot].end = Math.max(
+              spans[slot].end,
+              crossEnd(candidate, axis),
+            );
+          }
+        }
+      }
+    }
+    var guides: {
+      orientation: string;
+      position: number;
+      start: number;
+      end: number;
+    }[] = [];
+    for (var g = 0; g < positions.length; g += 1) {
+      guides.push({
+        orientation: axis === "x" ? "vertical" : "horizontal",
+        position: positions[g],
+        start: spans[g].start,
+        end: spans[g].end,
+      });
+    }
+    return guides;
+  }
+
+  function collectAxisGapCandidates(axis, moving, candidates) {
+    var gaps: {
+      side: string;
+      gap: number;
+      gapStart: number;
+      gapEnd: number;
+      crossStart: number;
+      crossEnd: number;
+    }[] = [];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var bounds = candidates[i];
+      if (!crossAxisOverlaps(axis, bounds, moving)) continue;
+      var band = {
+        crossStart: Math.max(
+          crossStart(bounds, axis),
+          crossStart(moving, axis),
+        ),
+        crossEnd: Math.min(crossEnd(bounds, axis), crossEnd(moving, axis)),
+      };
+      if (axisEnd(bounds, axis) <= axisStart(moving, axis)) {
+        gaps.push({
+          side: "before",
+          gap: axisStart(moving, axis) - axisEnd(bounds, axis),
+          gapStart: axisEnd(bounds, axis),
+          gapEnd: axisStart(moving, axis),
+          crossStart: band.crossStart,
+          crossEnd: band.crossEnd,
+        });
+      } else if (axisStart(bounds, axis) >= axisEnd(moving, axis)) {
+        gaps.push({
+          side: "after",
+          gap: axisStart(bounds, axis) - axisEnd(moving, axis),
+          gapStart: axisEnd(moving, axis),
+          gapEnd: axisStart(bounds, axis),
+          crossStart: band.crossStart,
+          crossEnd: band.crossEnd,
+        });
+      }
+    }
+    return gaps;
+  }
+
+  function closestGapCandidate(gaps, side) {
+    var best = null;
+    for (var i = 0; i < gaps.length; i += 1) {
+      if (gaps[i].side !== side) continue;
+      if (!best || gaps[i].gap < best.gap) best = gaps[i];
+    }
+    return best;
+  }
+
+  function collectRhythmGaps(axis, moving, candidates) {
+    var row: any[] = [];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var entry = candidates[i];
+      if (!crossAxisOverlaps(axis, entry, moving)) continue;
+      // A candidate that spans the whole moving element — the parent content
+      // box — is a wrapper, not a neighbour in the rhythm, and its span would
+      // swallow every real gap in the row.
+      if (
+        axisStart(entry, axis) <= axisStart(moving, axis) &&
+        axisEnd(entry, axis) >= axisEnd(moving, axis)
+      ) {
+        continue;
+      }
+      row.push(entry);
+    }
+    row.sort(function (a, b) {
+      return axisStart(a, axis) - axisStart(b, axis);
+    });
+    var gaps: { gap: number; band: any }[] = [];
+    var previous: any = null;
+    for (var r = 0; r < row.length; r += 1) {
+      var bounds = row[r];
+      var gap = previous
+        ? axisStart(bounds, axis) - axisEnd(previous, axis)
+        : 0;
+      if (previous && gap > 0 && crossAxisOverlaps(axis, previous, bounds)) {
+        gaps.push({
+          gap: gap,
+          band: {
+            gapStart: axisEnd(previous, axis),
+            gapEnd: axisStart(bounds, axis),
+            crossStart: Math.max(
+              crossStart(previous, axis),
+              crossStart(bounds, axis),
+            ),
+            crossEnd: Math.min(
+              crossEnd(previous, axis),
+              crossEnd(bounds, axis),
+            ),
+          },
+        });
+      }
+      if (!previous || axisEnd(bounds, axis) > axisEnd(previous, axis)) {
+        previous = bounds;
+      }
+    }
+    return gaps;
+  }
+
+  // Returns the matched side with the offset: picking a side independently
+  // builds chrome for a gap the snap never used.
+  function findSpacingSnapOffset(axis, moving, candidates, tolerance) {
+    var gaps = collectAxisGapCandidates(axis, moving, candidates);
+    var before = closestGapCandidate(gaps, "before");
+    var after = closestGapCandidate(gaps, "after");
+    if (!before && !after) return { offset: 0, side: null };
+
+    var offset = 0;
+    var side = null;
+    var bestDistance = Infinity;
+    function consider(value, matched) {
+      var distance = Math.abs(value);
+      if (distance > tolerance || distance >= bestDistance) return;
+      bestDistance = distance;
+      offset = value;
+      side = matched;
+    }
+    if (before && after) consider((after.gap - before.gap) / 2, "both");
+    var rhythms = collectRhythmGaps(axis, moving, candidates);
+    for (var i = 0; i < rhythms.length; i += 1) {
+      if (before) consider(rhythms[i].gap - before.gap, "before");
+      if (after) consider(after.gap - rhythms[i].gap, "after");
+    }
+    return { offset: offset, side: side };
+  }
+
+  function gapCandidateBand(candidate) {
+    return {
+      gapStart: candidate.gapStart,
+      gapEnd: candidate.gapEnd,
+      crossStart: candidate.crossStart,
+      crossEnd: candidate.crossEnd,
+    };
+  }
+
+  // Every gap already in the row/column that matches: Figma and tldraw both
+  // light the whole run, not only the pair the snap landed on.
+  function matchingRhythmBands(rhythms, gap, tolerance) {
+    var bands: any[] = [];
+    for (var i = 0; i < rhythms.length; i += 1) {
+      if (Math.abs(rhythms[i].gap - gap) <= tolerance)
+        bands.push(rhythms[i].band);
+    }
+    return bands;
+  }
+
+  function buildSpacingGuides(
+    axis,
+    moving,
+    candidates,
+    tolerance,
+    gaps,
+    matchedSide,
+  ) {
+    gaps = gaps || collectAxisGapCandidates(axis, moving, candidates);
+    var before = closestGapCandidate(gaps, "before");
+    var after = closestGapCandidate(gaps, "after");
+    var orientation = axis === "x" ? "vertical" : "horizontal";
+    var rhythms = collectRhythmGaps(axis, moving, candidates);
+    if (before && after && Math.abs(before.gap - after.gap) <= tolerance) {
+      var pairGap = (before.gap + after.gap) / 2;
+      return [
+        {
+          orientation: orientation,
+          gap: pairGap,
+          bands: [gapCandidateBand(before), gapCandidateBand(after)].concat(
+            matchingRhythmBands(rhythms, pairGap, tolerance),
+          ),
+        },
+      ];
+    }
+    var neighbor =
+      matchedSide === "after"
+        ? after
+        : matchedSide === "before"
+          ? before
+          : before || after;
+    if (!neighbor) return [];
+    var matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
+    if (!matched.length) return [];
+    return [
+      {
+        orientation: orientation,
+        gap: neighbor.gap,
+        bands: [gapCandidateBand(neighbor)].concat(matched),
+      },
+    ];
+  }
+
+  // Nearest neighbour per axis, within range. Stock Figma only prints a gap
+  // that matches an existing one; showing the nearest unconditionally is a
+  // deliberate divergence (see canvas-math computeProximityMeasurements).
+  function computeProximityMeasurements(moving, candidates, range, gapsByAxis) {
+    var measurements: any[] = [];
+    var axes = ["x", "y"];
+    for (var a = 0; a < axes.length; a += 1) {
+      var axis = axes[a];
+      var gaps =
+        (gapsByAxis && gapsByAxis[axis]) ||
+        collectAxisGapCandidates(axis, moving, candidates);
+      var nearest = null;
+      for (var i = 0; i < gaps.length; i += 1) {
+        if (!nearest || gaps[i].gap < nearest.gap) nearest = gaps[i];
+      }
+      if (!nearest || nearest.gap > range) continue;
+      measurements.push({
+        orientation: axis === "x" ? "vertical" : "horizontal",
+        gap: nearest.gap,
+        band: gapCandidateBand(nearest),
+      });
+    }
+    return measurements;
+  }
+
+  function computeMoveSnapOffset(
+    movingRect,
+    candidates,
+    threshold,
+    isGroup,
+    locked,
+  ) {
+    var moving = rectBounds(movingRect);
+    locked = locked || {};
+    var dx = locked.x
+      ? null
+      : findAxisSnapOffset("x", moving, candidates, threshold);
+    var dy = locked.y
+      ? null
+      : findAxisSnapOffset("y", moving, candidates, threshold);
+    var snapped = translateRectBounds(moving, dx || 0, dy || 0);
+    var guides = (
+      locked.x ? [] : buildAxisGuides("x", snapped, candidates)
+    ).concat(locked.y ? [] : buildAxisGuides("y", snapped, candidates));
+
+    // Figma drops spacing guides for a multi-select drag, and so does the
+    // overview canvas; a grouped iframe drag must not diverge from either.
+    if (isGroup) {
+      return {
+        dx: dx || 0,
+        dy: dy || 0,
+        guides: guides,
+        spacingGuides: [],
+        measurements: [],
+      };
+    }
+
+    // Spacing only gets the axes alignment left free — moving a claimed axis
+    // would pull the element off the guide line the user can already see.
+    var idle = { offset: 0, side: null };
+    var spacingXResult = guides.some(function (guide) {
+      return guide.orientation === "vertical";
+    })
+      ? idle
+      : locked.x
+        ? idle
+        : findSpacingSnapOffset("x", snapped, candidates, threshold);
+    var spacingYResult = guides.some(function (guide) {
+      return guide.orientation === "horizontal";
+    })
+      ? idle
+      : locked.y
+        ? idle
+        : findSpacingSnapOffset("y", snapped, candidates, threshold);
+    var spacingX = spacingXResult.offset;
+    var spacingY = spacingYResult.offset;
+    var spaced = translateRectBounds(snapped, spacingX, spacingY);
+    // Spacing and proximity ask the same question of the same bounds; one
+    // scan per axis feeds both instead of four scans per drag tick.
+    var settledGaps = {
+      x: collectAxisGapCandidates("x", spaced, candidates),
+      y: collectAxisGapCandidates("y", spaced, candidates),
+    };
+    var spacingGuides = buildSpacingGuides(
+      "x",
+      spaced,
+      candidates,
+      SPACING_MATCH_EPSILON,
+      settledGaps.x,
+      spacingXResult.side,
+    ).concat(
+      buildSpacingGuides(
+        "y",
+        spaced,
+        candidates,
+        SPACING_MATCH_EPSILON,
+        settledGaps.y,
+        spacingYResult.side,
+      ),
+    );
+
+    var measurements = computeProximityMeasurements(
+      spaced,
+      candidates,
+      (PROXIMITY_RANGE_PX * threshold) / SNAP_THRESHOLD_PX,
+      settledGaps,
+    ).filter(function (measurement) {
+      return !spacingGuides.some(function (guide) {
+        return guide.orientation === measurement.orientation;
+      });
+    });
+
+    return {
+      dx: (dx || 0) + spacingX,
+      dy: (dy || 0) + spacingY,
+      guides: guides,
+      spacingGuides: spacingGuides,
+      measurements: measurements,
+    };
+  }
+
+  // Pooled, not rebuilt: this runs on every rAF of a drag, and tearing the
+  // layer down with innerHTML each frame costs a full style recalc for nodes
+  // that are almost always identical in count from one frame to the next.
+  var snapGuideNodeCount = 0;
+
+  function beginSnapGuideNodes() {
+    snapGuideNodeCount = 0;
+  }
+
+  function appendSnapGuideNode(cssText) {
+    var node = snapGuideLayer.children[snapGuideNodeCount] as
+      | HTMLElement
+      | undefined;
+    if (!node) {
+      node = document.createElement("div");
+      snapGuideLayer.appendChild(node);
+    }
+    node.style.cssText = "position:fixed;" + cssText;
+    node.textContent = "";
+    snapGuideNodeCount += 1;
+    return node;
+  }
+
+  function endSnapGuideNodes() {
+    while (snapGuideLayer.children.length > snapGuideNodeCount) {
+      snapGuideLayer.removeChild(snapGuideLayer.lastChild!);
     }
   }
 
+  // Constant-screen-size chrome: guide THICKNESS and the spacing serifs
+  // compensate for the host's iframe scale (chromeLineScale) so they stay
+  // crisp at any zoom; positions and spans stay in content coordinates.
+  function showSnapGuides(guides, spacingGuides, measurements) {
+    measurements = measurements || [];
+    if (!guides.length && !spacingGuides.length && !measurements.length) {
+      hideSnapGuides();
+      return;
+    }
+    beginSnapGuideNodes();
+    if (snapGuideLayer.style.display !== "block") {
+      snapGuideLayer.style.display = "block";
+    }
+    var scale = chromeLineScale();
+    var line = 1 * scale;
+    // Must be a forwarded var (see EDITOR_BRIDGE_VAR_NAMES in DesignCanvas):
+    // an unknown custom property paints transparent, not red, and a guide
+    // with correct geometry and no colour looks exactly like no guide.
+    var fill = "background:var(--design-editor-measure-color);";
+
+    for (var i = 0; i < guides.length; i += 1) {
+      var guide = guides[i];
+      var span = Math.max(1, guide.end - guide.start);
+      appendSnapGuideNode(
+        guide.orientation === "vertical"
+          ? "left:" +
+              guide.position +
+              "px;top:" +
+              guide.start +
+              "px;width:" +
+              line +
+              "px;height:" +
+              span +
+              "px;" +
+              fill
+          : "top:" +
+              guide.position +
+              "px;left:" +
+              guide.start +
+              "px;height:" +
+              line +
+              "px;width:" +
+              span +
+              "px;" +
+              fill,
+      );
+    }
+
+    for (var s = 0; s < spacingGuides.length; s += 1) {
+      var spacing = spacingGuides[s];
+      for (var b = 0; b < spacing.bands.length; b += 1) {
+        appendSnapGuideNode(
+          spacingBandCss(spacing.orientation, spacing.bands[b], line, fill),
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            spacing.orientation,
+            spacing.bands[b],
+            line,
+            5 * scale,
+            fill,
+            true,
+          ),
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            spacing.orientation,
+            spacing.bands[b],
+            line,
+            5 * scale,
+            fill,
+            false,
+          ),
+        );
+      }
+      var label = appendSnapGuideNode(
+        spacingLabelCss(spacing.orientation, spacing.bands[0], scale),
+      );
+      label.textContent = String(Math.round(spacing.gap));
+    }
+
+    for (var m = 0; m < measurements.length; m += 1) {
+      var measurement = measurements[m];
+      appendSnapGuideNode(
+        spacingBandCss(measurement.orientation, measurement.band, line, fill),
+      );
+      appendSnapGuideNode(
+        spacingSerifCss(
+          measurement.orientation,
+          measurement.band,
+          line,
+          5 * scale,
+          fill,
+          true,
+        ),
+      );
+      appendSnapGuideNode(
+        spacingSerifCss(
+          measurement.orientation,
+          measurement.band,
+          line,
+          5 * scale,
+          fill,
+          false,
+        ),
+      );
+      var measureLabel = appendSnapGuideNode(
+        spacingLabelCss(measurement.orientation, measurement.band, scale),
+      );
+      measureLabel.textContent = String(Math.round(measurement.gap));
+    }
+    endSnapGuideNodes();
+  }
+
+  function spacingBandCss(orientation, band, line, fill) {
+    var crossMid = (band.crossStart + band.crossEnd) / 2;
+    var length = Math.max(0, band.gapEnd - band.gapStart);
+    return orientation === "vertical"
+      ? "left:" +
+          band.gapStart +
+          "px;top:" +
+          (crossMid - line / 2) +
+          "px;width:" +
+          length +
+          "px;height:" +
+          line +
+          "px;" +
+          fill
+      : "top:" +
+          band.gapStart +
+          "px;left:" +
+          (crossMid - line / 2) +
+          "px;height:" +
+          length +
+          "px;width:" +
+          line +
+          "px;" +
+          fill;
+  }
+
+  function spacingSerifCss(orientation, band, line, serif, fill, atStart) {
+    var crossMid = (band.crossStart + band.crossEnd) / 2;
+    var along = atStart ? band.gapStart : band.gapEnd;
+    return orientation === "vertical"
+      ? "left:" +
+          (along - line / 2) +
+          "px;top:" +
+          (crossMid - serif) +
+          "px;width:" +
+          line +
+          "px;height:" +
+          serif * 2 +
+          "px;" +
+          fill
+      : "top:" +
+          (along - line / 2) +
+          "px;left:" +
+          (crossMid - serif) +
+          "px;height:" +
+          line +
+          "px;width:" +
+          serif * 2 +
+          "px;" +
+          fill;
+  }
+
+  function spacingLabelCss(orientation, band, scale) {
+    var crossMid = (band.crossStart + band.crossEnd) / 2;
+    var alongMid = (band.gapStart + band.gapEnd) / 2;
+    return (
+      (orientation === "vertical"
+        ? "left:" + alongMid + "px;top:" + crossMid + "px;"
+        : "left:" + crossMid + "px;top:" + alongMid + "px;") +
+      "transform:translate(-50%,-50%);border-radius:" +
+      3 * scale +
+      "px;padding:" +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px;font:" +
+      10 * scale +
+      "px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;" +
+      "background:var(--design-editor-measure-color);color:white;"
+    );
+  }
+
+  // Hand-port of deriveConstraintsValue in edit-panel/position-layout-
+  // properties.tsx — the bridge cannot import. Reads AUTHORED inline offsets
+  // only: an absolutely positioned left-only element still has a computed
+  // `right`, and treating that as a pin would draw a line that lies.
+  function authoredOffset(value) {
+    if (!value || value === "auto") return "";
+    return value;
+  }
+
+  function elementConstraints(el) {
+    var style = (el as HTMLElement).style;
+    var left = authoredOffset(style.left);
+    var right = authoredOffset(style.right);
+    var top = authoredOffset(style.top);
+    var bottom = authoredOffset(style.bottom);
+    var transform = style.transform || "";
+    return {
+      horizontal:
+        style.width === "100%"
+          ? "scale"
+          : left && right
+            ? "left-right"
+            : right && !left
+              ? "right"
+              : transform.indexOf("translateX(-50%)") !== -1
+                ? "center"
+                : "left",
+      vertical:
+        style.height === "100%"
+          ? "scale"
+          : top && bottom
+            ? "top-bottom"
+            : bottom && !top
+              ? "bottom"
+              : transform.indexOf("translateY(-50%)") !== -1
+                ? "center"
+                : "top",
+    };
+  }
+
+  // Pooled for the same reason as the snap guides: this runs every rAF of a
+  // drag, and rebuilding the layer each frame costs a needless style recalc.
+  var constraintNodeCount = 0;
+
+  function appendConstraintLine(
+    from,
+    to,
+    crossPosition,
+    horizontal,
+    thickness,
+  ) {
+    var start = Math.min(from, to);
+    var length = Math.max(1, Math.abs(to - from));
+    var node = constraintGuideLayer.children[constraintNodeCount] as
+      | HTMLElement
+      | undefined;
+    if (!node) {
+      node = document.createElement("div");
+      constraintGuideLayer.appendChild(node);
+    }
+    constraintNodeCount += 1;
+    node.style.cssText =
+      "position:fixed;" +
+      (horizontal
+        ? "left:" +
+          start +
+          "px;top:" +
+          (crossPosition - thickness / 2) +
+          "px;width:" +
+          length +
+          "px;height:0;border-top:"
+        : "top:" +
+          start +
+          "px;left:" +
+          (crossPosition - thickness / 2) +
+          "px;height:" +
+          length +
+          "px;width:0;border-left:") +
+      thickness +
+      "px dashed var(--design-editor-accent-color);";
+  }
+
+  function showConstraintGuides(el) {
+    if (!el || dragChromeSuppressed) return hideConstraintGuides();
+    // body counts here: it is the screen root, which is exactly the frame an
+    // element's offsets are resolved against. (Auto-layout nesting excludes
+    // body for the opposite reason — it is not a drop target.)
+    var parent =
+      (el as HTMLElement).offsetParent || (el as HTMLElement).parentElement;
+    if (!parent) return hideConstraintGuides();
+    var rect = el.getBoundingClientRect();
+    var frame = parent.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return hideConstraintGuides();
+    if (!constraintGuideLayer.isConnected) {
+      document.body.appendChild(constraintGuideLayer);
+    }
+    constraintNodeCount = 0;
+    if (constraintGuideLayer.style.display !== "block") {
+      constraintGuideLayer.style.display = "block";
+    }
+
+    var thickness = chromeLineScale();
+    var midY = rect.top + rect.height / 2;
+    var midX = rect.left + rect.width / 2;
+    var constraints = elementConstraints(el);
+
+    if (constraints.horizontal === "scale") {
+      appendConstraintLine(frame.left, frame.right, midY, true, thickness);
+    } else {
+      if (
+        constraints.horizontal !== "right" &&
+        constraints.horizontal !== "center"
+      ) {
+        appendConstraintLine(frame.left, rect.left, midY, true, thickness);
+      }
+      if (
+        constraints.horizontal === "right" ||
+        constraints.horizontal === "left-right"
+      ) {
+        appendConstraintLine(rect.right, frame.right, midY, true, thickness);
+      }
+      if (constraints.horizontal === "center") {
+        appendConstraintLine(
+          frame.left + frame.width / 2,
+          midX,
+          midY,
+          true,
+          thickness,
+        );
+      }
+    }
+
+    if (constraints.vertical === "scale") {
+      appendConstraintLine(frame.top, frame.bottom, midX, false, thickness);
+    } else {
+      if (
+        constraints.vertical !== "bottom" &&
+        constraints.vertical !== "center"
+      ) {
+        appendConstraintLine(frame.top, rect.top, midX, false, thickness);
+      }
+      if (
+        constraints.vertical === "bottom" ||
+        constraints.vertical === "top-bottom"
+      ) {
+        appendConstraintLine(rect.bottom, frame.bottom, midX, false, thickness);
+      }
+      if (constraints.vertical === "center") {
+        appendConstraintLine(
+          frame.top + frame.height / 2,
+          midY,
+          midX,
+          false,
+          thickness,
+        );
+      }
+    }
+    trimConstraintNodes();
+  }
+
+  function trimConstraintNodes() {
+    while (constraintGuideLayer.children.length > constraintNodeCount) {
+      constraintGuideLayer.removeChild(constraintGuideLayer.lastChild!);
+    }
+  }
+
+  function hideConstraintGuides() {
+    if (constraintGuideLayer.style.display === "none") return;
+    constraintGuideLayer.style.display = "none";
+    constraintGuideLayer.innerHTML = "";
+    constraintNodeCount = 0;
+  }
+
+  // Figma pins the dragged object's dimensions just under it, in canvas
+  // space — unlike the transform badge, which tracks the cursor.
+  var sizeBadgeKey = "";
+  // Set while a drag is in a state that suppresses free-placement chrome (an
+  // auto-layout insert, or the pointer outside the iframe). refreshOverlays
+  // runs on the same pointer event and would otherwise re-show the badge and
+  // constraint lines the drag just hid.
+  var dragChromeSuppressed = false;
+
+  function showSizeBadge(el) {
+    if (!el || dragChromeSuppressed) return hideSizeBadge();
+    var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+    var scale = chromeLineScale();
+    // refreshOverlays fires on every ResizeObserver/MutationObserver tick, so
+    // re-writing identical styles here would invalidate layout for nothing.
+    var key =
+      rect.left +
+      "|" +
+      rect.bottom +
+      "|" +
+      rect.width +
+      "|" +
+      rect.height +
+      "|" +
+      scale;
+    if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
+    sizeBadgeKey = key;
+    if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
+    sizeBadge.textContent =
+      Math.round(rect.width) + " × " + Math.round(rect.height);
+    sizeBadge.style.display = "block";
+    sizeBadge.style.borderRadius = 3 * scale + "px";
+    sizeBadge.style.padding = 2 * scale + "px " + 4 * scale + "px";
+    sizeBadge.style.fontSize = 10 * scale + "px";
+    sizeBadge.style.left = rect.left + rect.width / 2 + "px";
+    sizeBadge.style.top = rect.bottom + 6 * scale + "px";
+    sizeBadge.style.transform = "translateX(-50%)";
+  }
+
+  function hideSizeBadge() {
+    if (sizeBadge.style.display === "none") return;
+    sizeBadge.style.display = "none";
+    sizeBadgeKey = "";
+  }
+
   function hideSnapGuides() {
-    snapGuideV.style.display = "none";
-    snapGuideH.style.display = "none";
+    dragChromeSuppressed = false;
+    if (snapGuideLayer.style.display === "none") return;
+    snapGuideLayer.style.display = "none";
+    snapGuideLayer.innerHTML = "";
+    snapGuideNodeCount = 0;
   }
 
   // `gestureElParam` (optional): the specific multi-selection member the
@@ -9292,6 +11378,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       });
       var reorderSelector = getSelector(reorderEl);
       var reorderSourceId = getSourceId(reorderEl);
+      crossScreenClaimedByHost = false;
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
       var reorderRect = reorderEl.getBoundingClientRect();
       var reorderPointerStart = pointerStartParam || e;
@@ -9664,6 +11751,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
               iframeY: cy,
               viewportW: vw,
               viewportH: vh,
+              // Without a size the host can only draw a 16px cursor dot, so
+              // the element being dragged is invisible once it leaves here.
+              elementRect: {
+                left: reorderRect.left,
+                top: reorderRect.top,
+                width: reorderRect.width,
+                height: reorderRect.height,
+              },
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
             },
@@ -9680,6 +11775,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           clearReorderReflow();
           showTransformBadge("Move layer", cx, cy);
         } else {
+          // Back inside: the host stops receiving cross-screen moves, so its
+          // claim goes stale and a release here would commit nowhere.
+          crossScreenClaimedByHost = false;
           // Cursor is inside this iframe — use existing in-iframe behavior,
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
@@ -9717,6 +11815,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
         document.removeEventListener("pointercancel", onReorderEscape, true);
+        window.removeEventListener("blur", onReorderEscape, true);
+        document.removeEventListener(
+          "visibilitychange",
+          onReorderVisibilityChange,
+          true,
+        );
         document.removeEventListener("keydown", onReorderKeyDown, true);
         document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
@@ -9725,6 +11829,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // in the final slot with no back-to-origin flicker.
         clearReorderLift();
         clearReorderReflow();
+      }
+      function onReorderVisibilityChange() {
+        if (document.visibilityState === "hidden") onReorderEscape();
       }
       function onReorderEscape() {
         cleanupReorderDrag();
@@ -9766,14 +11873,32 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         ev.preventDefault();
       }
       function onReorderUp(ev) {
+        // A release with no usable point is not a release at the origin: 0,0
+        // reads as "inside this iframe" and drops the element in the top-left
+        // corner. Cancel instead, which restores it where it started.
+        if (
+          !ev ||
+          !Number.isFinite(ev.clientX) ||
+          !Number.isFinite(ev.clientY)
+        ) {
+          onReorderEscape();
+          return;
+        }
         cleanupReorderDrag();
         hideTransformBadge();
         hideInsertionGuide();
         var vw = window.innerWidth;
         var vh = window.innerHeight;
-        var cx = ev ? ev.clientX : 0;
-        var cy = ev ? ev.clientY : 0;
-        var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
+        var cx = ev.clientX;
+        var cy = ev.clientY;
+        var outsideOnDrop =
+          cx < 0 ||
+          cy < 0 ||
+          cx > vw ||
+          cy > vh ||
+          // Claimed by the host: committing here too would write the node
+          // twice, from two different ideas of where it landed.
+          crossScreenClaimedByHost;
         // Post the end message so the host can finalize a cross-screen drop.
         // Group drags never armed the host (see onReorderMove), so posting
         // end here would trigger a bogus single-element cross-screen move.
@@ -9788,6 +11913,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
               iframeY: cy,
               viewportW: vw,
               viewportH: vh,
+              // Without a size the host can only draw a 16px cursor dot, so
+              // the element being dragged is invisible once it leaves here.
+              elementRect: {
+                left: reorderRect.left,
+                top: reorderRect.top,
+                width: reorderRect.width,
+                height: reorderRect.height,
+              },
               pointerOffset: reorderPointerOffset,
               styleSnapshot: reorderStyleSnapshot,
             },
@@ -9844,10 +11977,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           currentTarget.needsAutoLayoutConversion &&
           currentTarget.conversionTarget
         ) {
-          applyAutoLayoutConversionForDrop(
-            currentTarget.conversionTarget,
-            groupEls,
-          );
+          applyAutoLayoutConversionForDrop(currentTarget.conversionTarget);
         }
         prepareFlowMembersForAbsoluteDrop(
           groupEls,
@@ -9923,6 +12053,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
       document.addEventListener("pointercancel", onReorderEscape, true);
+      // A drag that never receives its release — the pointer left for another
+      // window, or the tab was hidden — must not leave the element lifted out
+      // of place with an orphaned ghost on the canvas.
+      window.addEventListener("blur", onReorderEscape, true);
+      document.addEventListener(
+        "visibilitychange",
+        onReorderVisibilityChange,
+        true,
+      );
       document.addEventListener("keydown", onReorderKeyDown, true);
       document.addEventListener("keyup", onReorderKeyUp, true);
       setActiveDragCancel(onReorderEscape);
@@ -9940,7 +12079,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         originalPosition: m.style.position,
         originalLeft: m.style.left,
         originalTop: m.style.top,
-        originalOpacity: m.style.opacity,
         originLeft: 0,
         originTop: 0,
       };
@@ -9955,11 +12093,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
     var originLeft = gestureState.originLeft;
     var originTop = gestureState.originTop;
-    function setMembersOpacity(value: string | null): void {
-      memberStates.forEach(function (state) {
-        state.el.style.opacity = value === null ? state.originalOpacity : value;
-      });
-    }
     var startX = e.clientX;
     var startY = e.clientY;
     // Snapshot the element being moved so that a concurrent select-element or
@@ -10026,6 +12159,28 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
+    // Client px per CSS px for this element. 1 unless an ancestor between it
+    // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
+    // Client px per CSS px contributed by ANCESTORS. Measured on the offset
+    // parent, never on dragEl: its own rect already carries its own
+    // transform, so a rotated or scaled layer would report its local
+    // transform as if the parent were scaled. 1 means "no mapping known",
+    // which is the identity, not a measurement.
+    function ancestorScale(el, axis) {
+      var host = el && (el as HTMLElement).offsetParent;
+      if (!host) return 1;
+      var rect = (host as HTMLElement).getBoundingClientRect();
+      var layout =
+        axis === "x"
+          ? (host as HTMLElement).offsetWidth
+          : (host as HTMLElement).offsetHeight;
+      var client = axis === "x" ? rect.width : rect.height;
+      if (!(layout > 0)) return 1;
+      var scale = client / layout;
+      return scale > 0 && Number.isFinite(scale) ? scale : 1;
+    }
+    var dragElOffsetScaleX = ancestorScale(dragEl, "x");
+    var dragElOffsetScaleY = ancestorScale(dragEl, "y");
     if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
@@ -10084,18 +12239,45 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         !snapBypass && !duplicatedForDrag
           ? computeMoveSnapOffset(
               {
-                left: nextLeft,
-                top: nextTop,
+                // snapCandidateRects are client space; nextLeft/nextTop are
+                // offset-parent CSS space. Convert, or nothing ever matches.
+                left:
+                  dragElStartRect.left +
+                  (nextLeft - originLeft) * dragElOffsetScaleX,
+                top:
+                  dragElStartRect.top +
+                  (nextTop - originTop) * dragElOffsetScaleY,
                 width: dragElStartWidth,
                 height: dragElStartHeight,
               },
               snapCandidateRects,
               // Convert the screen-space base to content px (1/zoom).
               SNAP_THRESHOLD_PX * chromeLineScale(),
+              isGroupDrag,
+              ev.shiftKey ? { x: rawDx === 0, y: rawDy === 0 } : null,
             )
-          : { dx: 0, dy: 0, guideV: null, guideH: null };
-      nextLeft += snapResult.dx;
-      nextTop += snapResult.dy;
+          : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
+      if ((window as any).__DND_DEBUG)
+        dndLog("snap:tick", {
+          // Ordered so the fields that decide whether snapping ran at all come
+          // first: the console collapses long objects behind an ellipsis.
+          bypass: snapBypass,
+          duplicated: duplicatedForDrag,
+          mods:
+            (ev.metaKey ? "M" : "") +
+              (ev.ctrlKey ? "C" : "") +
+              (ev.altKey ? "A" : "") +
+              (ev.shiftKey ? "S" : "") || "none",
+          guides: snapResult.guides.length,
+          measurements: snapResult.measurements.length,
+          candidates: snapCandidateRects.length,
+          dropMode: currentAutoLayoutTarget
+            ? currentAutoLayoutTarget.dropMode || "(none)"
+            : "no-target",
+        });
+      // Back to CSS space before it is written to style.left/top.
+      nextLeft += snapResult.dx / dragElOffsetScaleX;
+      nextTop += snapResult.dy / dragElOffsetScaleY;
       // Apply the SAME delta to every member (one entry for single drags)
       // so relative offsets within a multi-selection are preserved. For the
       // gesture member this reduces exactly to the previous
@@ -10115,8 +12297,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       ) {
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
-        setMembersOpacity(null);
       } else {
+        // Back inside: the host stops receiving cross-screen moves here, so its
+        // claim is about to go stale. Reclaim the gesture or the release commits
+        // nowhere.
+        crossScreenClaimedByHost = false;
         currentAutoLayoutTarget =
           !duplicatedForDrag && !bridgeSpaceKeyPressed
             ? autoLayoutInsertionTargetForPoint(
@@ -10133,10 +12318,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         }
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
-          setMembersOpacity("0.4");
         } else {
           hideInsertionGuide();
-          setMembersOpacity(null);
         }
       }
       // Snap guides only make sense for a free absolute placement — never at
@@ -10144,13 +12327,31 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // about to be reflowed into a flex/grid slot, not placed at an x/y
       // coordinate), and never while the pointer has left the iframe (the
       // host owns a cross-screen drop at that point).
+      //
+      // An "absolute-container" target is a free placement: the element keeps
+      // its x/y inside the frame it lands in, so it is precisely the case
+      // guides are for. Hiding them there left every board drag — where the
+      // primitives live inside an absolutely positioned frame — with no
+      // guides at all.
+      var flowInsertPending =
+        !!currentAutoLayoutTarget &&
+        currentAutoLayoutTarget.dropMode !== "absolute-container";
       if (
-        currentAutoLayoutTarget ||
+        flowInsertPending ||
         (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY))
       ) {
         hideSnapGuides();
+        dragChromeSuppressed = true;
+        hideSizeBadge();
+        hideConstraintGuides();
       } else {
-        showSnapGuides(snapResult.guideV, snapResult.guideH);
+        dragChromeSuppressed = false;
+        showSnapGuides(
+          snapResult.guides,
+          snapResult.spacingGuides,
+          snapResult.measurements,
+        );
+        showConstraintGuides(dragEl);
       }
       showTransformBadge(
         Math.round(nextLeft) + ", " + Math.round(nextTop),
@@ -10164,7 +12365,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         state.el.style.position = state.originalPosition;
         state.el.style.left = state.originalLeft;
         state.el.style.top = state.originalTop;
-        state.el.style.opacity = state.originalOpacity;
       });
       selectedEl = originalSelectedEl;
       positionOverlay(selectionOverlay, selectedEl);
@@ -10185,6 +12385,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();
+      hideSizeBadge();
+      hideConstraintGuides();
       currentAutoLayoutTarget = null;
       if (duplicatedForDrag) {
         if (dragEl && dragEl.parentElement) {
@@ -10215,15 +12417,23 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
         return;
       }
       cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();
+      hideSizeBadge();
+      hideConstraintGuides();
       if (!dragEl) return;
+      // The board surface iframe covers the screens, so a release over one is
+      // still "inside" it. Only the host knows that, and it says so by claiming
+      // the drop; committing here as well writes the node twice.
       var outsideOnDrop = ev
-        ? isOutsideIframeViewport(ev.clientX, ev.clientY)
+        ? isOutsideIframeViewport(ev.clientX, ev.clientY) ||
+          crossScreenClaimedByHost
         : false;
       if (
         ev &&
@@ -10278,7 +12488,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (duplicatedForDrag) {
         postVisualDuplicateChange(originalSelectedEl, dragEl);
       } else if (currentAutoLayoutTarget) {
-        setMembersOpacity(null);
         // Nest-on-drop: a free element nests as an absolute child of a plain
         // container ("absolute-container", keeps left/top) or flow-inserts into
         // an existing auto-layout frame. The resolver never requests an implicit
@@ -10325,7 +12534,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           });
         }
       } else {
-        setMembersOpacity(null);
         dndLog("commit:free-absolute", { count: memberStates.length });
         // Free absolute placement: one style-change message per member, in
         // order — the host composes them against its synchronous same-tick
@@ -10354,6 +12562,47 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onMoveKeyDown, true);
     setActiveDragCancel(cancelMoveDrag);
+  }
+
+  /**
+   * K-scale descendant text (Figma scales the type inside a frame too). Only
+   * elements carrying their OWN size are listed: an inherited size is already
+   * covered by the root's font-size write and a relative inline unit tracks
+   * its parent, so writing either here would scale it twice.
+   */
+  function collectScaleFontTargets(root: Element) {
+    var targets: Array<{
+      el: HTMLElement;
+      originFontSize: number;
+      originalInlineFontSize: string;
+    }> = [];
+    var nodes = root.querySelectorAll("*");
+    for (var i = 0; i < nodes.length; i += 1) {
+      var el = nodes[i] as HTMLElement;
+      if (isOverlayElement(el)) continue;
+      var inlineFontSize = el.style.fontSize || "";
+      if (inlineFontSize && !/px\s*$/i.test(inlineFontSize)) continue;
+      var parent = el.parentElement;
+      var cs = window.getComputedStyle(el);
+      if (
+        !inlineFontSize &&
+        parent &&
+        window.getComputedStyle(parent).fontSize === cs.fontSize
+      ) {
+        continue;
+      }
+      var originFontSize = readPx(inlineFontSize || cs.fontSize);
+      if (!(originFontSize > 0)) continue;
+      // The revert baseline is recorded on first sight, and the commit is too
+      // late: by then the preview has already written the scaled size.
+      rememberLiveVisualEditOriginalStyles(el);
+      targets.push({
+        el: el,
+        originFontSize: originFontSize,
+        originalInlineFontSize: el.style.fontSize,
+      });
+    }
+    return targets;
   }
 
   function startResize(handle, e) {
@@ -10473,6 +12722,17 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     // in onUp.
     var widthTouched = false;
     var heightTouched = false;
+    // Captured on the first K-scale tick, not at drag start: the host can arm
+    // scale-tool-mode mid-gesture.
+    var scaledTextTargetsCache: ReturnType<
+      typeof collectScaleFontTargets
+    > | null = null;
+    function scaledTextTargets() {
+      if (!scaledTextTargetsCache) {
+        scaledTextTargetsCache = collectScaleFontTargets(resizeEl);
+      }
+      return scaledTextTargetsCache;
+    }
     function nextRect(ev) {
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
@@ -10608,11 +12868,44 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
             Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) +
             "px";
         }
+        scaledTextTargets().forEach(function (target) {
+          target.el.style.fontSize =
+            Math.max(
+              1,
+              Math.round(target.originFontSize * kScaleFactor * 100) / 100,
+            ) + "px";
+        });
       }
       showTransformBadge(
         Math.round(rect.width) + " x " + Math.round(rect.height),
         ev.clientX,
         ev.clientY,
+      );
+      // Keep the host Inspector in lockstep with the live DOM. This is a
+      // preview only: the final pointerup message is still the one persistence
+      // boundary, so a drag does not create a history entry per pixel.
+      var previewStyles: Record<string, string> = {
+        position: resizeEl.style.position,
+        left: resizeEl.style.left,
+        top: resizeEl.style.top,
+      };
+      if (widthTouched) previewStyles.width = resizeEl.style.width;
+      if (heightTouched) previewStyles.height = resizeEl.style.height;
+      if (scaleToolEnabled && originBorderWidth > 0) {
+        previewStyles.borderWidth = resizeEl.style.borderWidth;
+      }
+      if (scaleToolEnabled && originFontSize > 0) {
+        previewStyles.fontSize = resizeEl.style.fontSize;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "visual-style-change",
+          phase: "preview",
+          selector: getSelector(resizeEl),
+          styles: previewStyles,
+          payload: getElementInfo(resizeEl),
+        },
+        "*",
       );
       refreshOverlays();
     }
@@ -10634,8 +12927,33 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         resizeEl.style.height = originalInlineHeight;
         resizeEl.style.borderWidth = originalInlineBorderWidth;
         resizeEl.style.fontSize = originalInlineFontSize;
+        (scaledTextTargetsCache || []).forEach(function (target) {
+          target.el.style.fontSize = target.originalInlineFontSize;
+        });
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
+        // Cancellation restores the iframe DOM without a commit packet. Send
+        // the restored snapshot back so the host Inspector does not keep
+        // displaying the last previewed dimensions.
+        var restoredComputed = window.getComputedStyle(resizeEl);
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: {
+              position: restoredComputed.position,
+              left: restoredComputed.left,
+              top: restoredComputed.top,
+              width: restoredComputed.width,
+              height: restoredComputed.height,
+              borderWidth: restoredComputed.borderWidth,
+              fontSize: restoredComputed.fontSize,
+            },
+            payload: getElementInfo(resizeEl),
+          },
+          "*",
+        );
       }
       suppressNextShieldClickBriefly();
       refreshOverlays();
@@ -10683,6 +13001,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       (window.parent as Window).postMessage(
         {
           type: "visual-style-change",
+          phase: "commit",
           selector: getSelector(resizeEl),
           styles: styles,
           originalStyles: originalInlineStylesForPatch(resizeEl, styles),
@@ -10690,11 +13009,350 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         },
         "*",
       );
+      if (scaleToolEnabled) {
+        (scaledTextTargetsCache || []).forEach(function (target) {
+          var textStyles: Record<string, string> = {
+            fontSize: target.el.style.fontSize,
+          };
+          (window.parent as Window).postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(target.el),
+              styles: textStyles,
+              originalStyles: originalInlineStylesForPatch(
+                target.el,
+                textStyles,
+              ),
+              payload: getElementInfo(target.el),
+              preserveSelection: true,
+            },
+            "*",
+          );
+        });
+      }
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onResizeKeyDown, true);
     setActiveDragCancel(cancelResizeDrag);
+  }
+
+  /**
+   * Scales a multi-selection as one box: the drag resizes the group's bounds
+   * and every member keeps its position and size relative to them. Separate
+   * from startResize, whose single-element invariants (Alt-from-center,
+   * per-axis touch tracking) have no group analogue.
+   */
+  function startGroupResize(handle, e) {
+    if (readOnly) return;
+    var members = collectSelectionMembers();
+    if (members.length < 2) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var groupLeft = Infinity;
+    var groupTop = Infinity;
+    var groupRight = -Infinity;
+    var groupBottom = -Infinity;
+    var memberStates = members.map(function (member) {
+      var el = member as HTMLElement;
+      // Snapshot before ensurePositionable, or Escape restores the position
+      // it just wrote onto a static member instead of the authored one.
+      var snapshot = {
+        el: el,
+        originalInlinePosition: el.style.position,
+        originalInlineLeft: el.style.left,
+        originalInlineTop: el.style.top,
+        originalInlineWidth: el.style.width,
+        originalInlineHeight: el.style.height,
+        originalInlineBorderWidth: el.style.borderWidth,
+        originalInlineFontSize: el.style.fontSize,
+        originLeft: 0,
+        originTop: 0,
+        originWidth: 0,
+        originHeight: 0,
+        // The center is the one point rotation leaves alone: a rotated
+        // member's client rect is its inflated axis-aligned box, so corners
+        // would scale it to the wrong place.
+        originCenterX: 0,
+        originCenterY: 0,
+        originBorderWidth: 0,
+        originFontSize: 0,
+        textTargets: null as ReturnType<typeof collectScaleFontTargets> | null,
+      };
+      rememberLiveVisualEditOriginalStyles(el);
+      ensurePositionable(el);
+      var cs = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      groupLeft = Math.min(groupLeft, rect.left);
+      groupTop = Math.min(groupTop, rect.top);
+      groupRight = Math.max(groupRight, rect.right);
+      groupBottom = Math.max(groupBottom, rect.bottom);
+      snapshot.originLeft = readPx(el.style.left || cs.left);
+      snapshot.originTop = readPx(el.style.top || cs.top);
+      snapshot.originWidth = readPx(cs.width);
+      snapshot.originHeight = readPx(cs.height);
+      snapshot.originCenterX = rect.left + rect.width / 2;
+      snapshot.originCenterY = rect.top + rect.height / 2;
+      snapshot.originBorderWidth = readPx(
+        el.style.borderWidth || cs.borderWidth,
+      );
+      snapshot.originFontSize = readPx(el.style.fontSize || cs.fontSize);
+      return snapshot;
+    });
+    var groupWidth = Math.max(1, groupRight - groupLeft);
+    var groupHeight = Math.max(1, groupBottom - groupTop);
+    // The group's fixed corner for this handle — every member scales away
+    // from it, so the opposite side of the selection stays put.
+    var anchorX = handle.indexOf("w") !== -1 ? groupRight : groupLeft;
+    var anchorY = handle.indexOf("n") !== -1 ? groupBottom : groupTop;
+    // Clamp by the SMALLEST member, not by the group box: a factor that keeps
+    // the group above 8px can still collapse (or mirror) a small member.
+    var minMemberWidth = Math.max(
+      1,
+      Math.min.apply(
+        null,
+        memberStates.map(function (state) {
+          return Math.max(1, state.originWidth);
+        }),
+      ),
+    );
+    var minMemberHeight = Math.max(
+      1,
+      Math.min.apply(
+        null,
+        memberStates.map(function (state) {
+          return Math.max(1, state.originHeight);
+        }),
+      ),
+    );
+    var minFactorX = 8 / minMemberWidth;
+    var minFactorY = 8 / minMemberHeight;
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var groupGestureViewport = bridgeGestureViewport();
+    var bridgeGroupResizeController = createCanvasGestureController({
+      capabilities: { move: true, resize: true },
+      drag: { threshold: 3, duplicateModifier: "alt" },
+      minSize: 8,
+      adapter: {
+        preview: function () {
+          return { handled: true };
+        },
+        commit: function () {
+          return { handled: true };
+        },
+        cancel: function () {
+          return { handled: true };
+        },
+      },
+    });
+    bridgeGroupResizeController.pointerDown({
+      kind: "resize",
+      objectIds: memberStates.map(function (state) {
+        return getSelector(state.el);
+      }),
+      pointer: bridgeGesturePointer(e),
+      viewport: groupGestureViewport,
+      canvas: {
+        width: groupGestureViewport.width,
+        height: groupGestureViewport.height,
+      },
+      handle: handle,
+      rect: {
+        x: groupLeft,
+        y: groupTop,
+        width: groupWidth,
+        height: groupHeight,
+      },
+    });
+
+    function groupFactors(ev) {
+      var dx = ev.clientX - startX;
+      var dy = ev.clientY - startY;
+      var nextWidth =
+        handle.indexOf("e") !== -1 ? groupWidth + dx : groupWidth - dx;
+      var nextHeight =
+        handle.indexOf("s") !== -1 ? groupHeight + dy : groupHeight - dy;
+      var factorX = nextWidth / groupWidth;
+      var factorY = nextHeight / groupHeight;
+      if (ev.shiftKey || scaleToolEnabled) {
+        // Clamping the axes separately against their own minimums would
+        // break the very lock this branch applies.
+        var uniform = Math.max(
+          Math.max(minFactorX, minFactorY),
+          Math.abs(dx) > Math.abs(dy) ? factorX : factorY,
+        );
+        return { x: uniform, y: uniform };
+      }
+      return {
+        x: Math.max(minFactorX, factorX),
+        y: Math.max(minFactorY, factorY),
+      };
+    }
+
+    function memberTextTargets(state) {
+      if (!state.textTargets) {
+        state.textTargets = collectScaleFontTargets(state.el);
+      }
+      return state.textTargets;
+    }
+
+    function onMove(ev) {
+      var controllerMove = bridgeGroupResizeController.pointerMove(
+        bridgeGesturePointer(ev),
+      );
+      if (controllerMove.phase !== "active") return;
+      var factor = groupFactors(ev);
+      memberStates.forEach(function (state) {
+        var nextCenterX = anchorX + (state.originCenterX - anchorX) * factor.x;
+        var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
+        var nextWidth = state.originWidth * factor.x;
+        var nextHeight = state.originHeight * factor.y;
+        state.el.style.left =
+          Math.round(
+            state.originLeft +
+              (nextCenterX - state.originCenterX) -
+              (nextWidth - state.originWidth) / 2,
+          ) + "px";
+        state.el.style.top =
+          Math.round(
+            state.originTop +
+              (nextCenterY - state.originCenterY) -
+              (nextHeight - state.originHeight) / 2,
+          ) + "px";
+        state.el.style.width = Math.round(nextWidth) + "px";
+        state.el.style.height = Math.round(nextHeight) + "px";
+        if (!scaleToolEnabled) return;
+        if (state.originBorderWidth > 0) {
+          state.el.style.borderWidth =
+            Math.max(
+              0,
+              Math.round(state.originBorderWidth * factor.x * 100) / 100,
+            ) + "px";
+        }
+        if (state.originFontSize > 0) {
+          state.el.style.fontSize =
+            Math.max(
+              1,
+              Math.round(state.originFontSize * factor.x * 100) / 100,
+            ) + "px";
+        }
+        memberTextTargets(state).forEach(function (target) {
+          target.el.style.fontSize =
+            Math.max(
+              1,
+              Math.round(target.originFontSize * factor.x * 100) / 100,
+            ) + "px";
+        });
+      });
+      showTransformBadge(
+        Math.round(groupWidth * factor.x) +
+          " x " +
+          Math.round(groupHeight * factor.y),
+        ev.clientX,
+        ev.clientY,
+      );
+      refreshOverlays();
+    }
+
+    function cleanupGroupResizeDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onGroupResizeKeyDown, true);
+      clearActiveDragCancel(cancelGroupResizeDrag);
+    }
+
+    function cancelGroupResizeDrag() {
+      bridgeGroupResizeController.cancel();
+      cleanupGroupResizeDrag();
+      hideTransformBadge();
+      memberStates.forEach(function (state) {
+        if (!document.documentElement.contains(state.el)) return;
+        state.el.style.position = state.originalInlinePosition;
+        state.el.style.left = state.originalInlineLeft;
+        state.el.style.top = state.originalInlineTop;
+        state.el.style.width = state.originalInlineWidth;
+        state.el.style.height = state.originalInlineHeight;
+        state.el.style.borderWidth = state.originalInlineBorderWidth;
+        state.el.style.fontSize = state.originalInlineFontSize;
+        (state.textTargets || []).forEach(function (target) {
+          target.el.style.fontSize = target.originalInlineFontSize;
+        });
+      });
+      suppressNextShieldClickBriefly();
+      refreshOverlays();
+      return true;
+    }
+
+    function onGroupResizeKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelGroupResizeDrag();
+    }
+
+    function onUp(ev) {
+      var controllerEnd = bridgeGroupResizeController.pointerUp(
+        bridgeGesturePointer(ev),
+      );
+      cleanupGroupResizeDrag();
+      hideTransformBadge();
+      if (!controllerEnd.committed) return;
+      // One style-change message per member, in order — the host composes
+      // them against its same-tick content refs exactly like a group move.
+      memberStates.forEach(function (state) {
+        var styles: Record<string, string> = {
+          position: state.el.style.position,
+          left: state.el.style.left,
+          top: state.el.style.top,
+          width: state.el.style.width,
+          height: state.el.style.height,
+        };
+        if (scaleToolEnabled && state.originBorderWidth > 0) {
+          styles.borderWidth = state.el.style.borderWidth;
+        }
+        if (scaleToolEnabled && state.originFontSize > 0) {
+          styles.fontSize = state.el.style.fontSize;
+        }
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            selector: getSelector(state.el),
+            styles: styles,
+            originalStyles: originalInlineStylesForPatch(state.el, styles),
+            payload: getElementInfo(state.el),
+          },
+          "*",
+        );
+        if (!scaleToolEnabled) return;
+        (state.textTargets || []).forEach(function (target) {
+          var textStyles: Record<string, string> = {
+            fontSize: target.el.style.fontSize,
+          };
+          (window.parent as Window).postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(target.el),
+              styles: textStyles,
+              originalStyles: originalInlineStylesForPatch(
+                target.el,
+                textStyles,
+              ),
+              payload: getElementInfo(target.el),
+              // A scaled descendant is a side effect of the gesture, not the
+              // object the user is holding.
+              preserveSelection: true,
+            },
+            "*",
+          );
+        });
+      });
+    }
+
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onGroupResizeKeyDown, true);
+    setActiveDragCancel(cancelGroupResizeDrag);
   }
 
   function startRotate(e) {
@@ -10850,6 +13508,20 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return candidateKeys[(idx + 1) % candidateKeys.length];
   }
 
+  // Figma parity: a drag on a container's own background rubber-bands its
+  // children. A leaf object, or one already selected, still moves.
+  function isContainerBackgroundHit(el: Element | null): boolean {
+    if (!el || el === selectedEl) return false;
+    if (isDocumentRootElement(el)) return false;
+    if (outermostSvgAncestor(el) === el) return false;
+    return Boolean(el.firstElementChild);
+  }
+
+  // The board surface iframe spans the whole canvas, screens included, so
+  // "the release was inside my viewport" cannot decide who owns the drop. The
+  // host claims the gesture whenever the pointer is over a screen frame.
+  var crossScreenClaimedByHost = false;
+
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
     if (e.button !== 0) return;
@@ -10863,7 +13535,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       !hit ||
       hit === document.body ||
       hit === document.documentElement ||
-      isBoardRootMarqueeSurface(hitTarget)
+      isBoardRootMarqueeSurface(hitTarget) ||
+      isContainerBackgroundHit(hitTarget)
     ) {
       beginMarqueeSelection(e);
       return;
@@ -10884,12 +13557,24 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       preferSelected: selectedLayerDragPriorityEnabled,
     });
     var clickTarget = hitTarget;
+    if ((window as any).__DND_DEBUG)
+      dndLog("shield:down", {
+        hit: getSelector(hit),
+        dragTarget: getSelector(dragTarget),
+        board: designCanvasBoardSurface,
+        readOnly: readOnly,
+        position: dragTarget
+          ? window.getComputedStyle(dragTarget as Element).position
+          : null,
+        flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null,
+      });
     if (
       !dragTarget ||
       dragTarget === document.body ||
       dragTarget === document.documentElement ||
       isLayerInteractionBlocked(dragTarget)
     ) {
+      dndLog("shield:reject", { reason: "no-drag-target" });
       return;
     }
     if (
@@ -10930,6 +13615,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (readOnly) return;
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
       clearPendingShieldDrag();
+      if (!didStartDrag)
+        dndLog("shield:drag-start", { board: designCanvasBoardSurface });
       didStartDrag = true;
       // Multi-select group move: when the drag starts on a member of the
       // current 2+ selection, PRESERVE the whole selection (no
@@ -11413,6 +14100,29 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
             );
           }
         });
+        return;
+      }
+      // A paste carrying nothing importable stays silent, unless it plainly
+      // came from Figma — the user expected a screen and must be told why they
+      // got nothing. The parent applies the same rule to its own listener, but
+      // a paste inside the iframe never reaches it, so relay the strings and
+      // let that one rule decide both.
+      var pastedHtml = e.clipboardData
+        ? e.clipboardData.getData("text/html") || ""
+        : "";
+      var pastedText = e.clipboardData
+        ? e.clipboardData.getData("text/plain") || ""
+        : "";
+      if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+        (window.parent as Window).postMessage(
+          {
+            type: "figma-clipboard-paste",
+            content: "",
+            html: pastedHtml,
+            text: pastedText,
+          },
+          "*",
+        );
       }
     },
     true,
@@ -11806,21 +14516,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         postDesignHotkey(ev);
         return;
       }
-      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
+      var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+      if (TEXT_EDIT_FORMATS[formatKey]) {
         ev.preventDefault();
-        document.execCommand("bold");
-        scheduleTextEditingChromeUpdate();
-        return;
-      }
-      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "i") {
-        ev.preventDefault();
-        document.execCommand("italic");
-        scheduleTextEditingChromeUpdate();
-        return;
-      }
-      if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "u") {
-        ev.preventDefault();
-        document.execCommand("underline");
+        applyTextEditFormat(formatKey);
         scheduleTextEditingChromeUpdate();
         return;
       }
@@ -12269,6 +14968,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       );
       applyEditorChromeScale();
       if (selectedEl || hoveredEl) refreshOverlays();
+      else refreshFrameNameLabels();
       return;
     }
     if (e.data.type === "scale-tool-mode") {
@@ -12387,6 +15087,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       statePreviewElement = nextStatePreviewElement;
       return;
     }
+    if (e.data.type === "agent-native:cross-screen-claim") {
+      crossScreenClaimedByHost = Boolean(e.data.claimed);
+      return;
+    }
     if (e.data.type === "agent-native:cancel-active-drag") {
       cancelActiveBridgeDrag();
       return;
@@ -12405,6 +15109,43 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // clear-selection state. Keep the drag-owned rectangle alive until pointer-up.
       if (activeMarqueeSelection) return;
       clearRuntimeSelection();
+      return;
+    }
+    // A host-side inspector commit never reaches this bridge, so nothing
+    // re-measures the element it changed. `fit-content` leaves the host holding
+    // the keyword plus a pre-commit rect, i.e. no current width at all.
+    if (e.data.type === "agent-native:measure-selection") {
+      // The host broadcasts to every frame, so a reply from the wrong screen
+      // or the wrong element is worse than no reply: it lands in the inspector
+      // as a confident number for something else. Stay silent unless this
+      // frame owns both the screen and the element.
+      var measureScreenId: string =
+        typeof e.data.screenId === "string" ? e.data.screenId : "";
+      if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
+      var measureSelector: string =
+        typeof e.data.selector === "string" ? e.data.selector : "";
+      var measureTarget: Element | null = null;
+      if (measureSelector) {
+        try {
+          measureTarget = document.querySelector(measureSelector);
+        } catch (_err) {
+          measureTarget = null;
+        }
+      } else {
+        measureTarget = selectedEl;
+      }
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:selection-measured",
+          correlationId:
+            typeof e.data.correlationId === "string"
+              ? e.data.correlationId
+              : "",
+          screenId: designCanvasScreenId,
+          payload: measureTarget ? getElementInfo(measureTarget) : null,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type === "agent-native:collect-selectable-rects") {
@@ -13018,8 +15759,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       activeNodeHtmlPreview = null;
       replaceRuntimeDocument(
         e.data.content,
-        e.data.forceFullDocument ? "" : e.data.selectedSelector,
-        e.data.forceFullDocument ? [] : e.data.selectorCandidates,
+        e.data.selectedSelector,
+        e.data.selectorCandidates,
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
       );
@@ -13300,6 +16041,41 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       ],
     });
   }
+  // Frame labels are always-on chrome, so unlike the selection overlays they
+  // cannot ride selection-scoped observers: a frame added, renamed, moved, or
+  // arriving with a replaced document must relabel with nothing selected.
+  var frameLabelRefreshScheduled = false;
+  function scheduleFrameNameLabels(): void {
+    if (frameLabelRefreshScheduled) return;
+    frameLabelRefreshScheduled = true;
+    window.requestAnimationFrame(function () {
+      frameLabelRefreshScheduled = false;
+      refreshFrameNameLabels();
+    });
+  }
+  if (typeof MutationObserver !== "undefined" && document.body) {
+    new MutationObserver(function (mutations) {
+      // Skip our own label writes, or every refresh schedules the next one.
+      var touchedContent = mutations.some(function (mutation) {
+        var target = mutation.target;
+        return !(target instanceof Element) || !isOverlayElement(target);
+      });
+      if (touchedContent) scheduleFrameNameLabels();
+    }).observe(document.body, {
+      attributes: true,
+      attributeFilter: [
+        "data-agent-native-layer-name",
+        "data-an-primitive",
+        "class",
+        "style",
+      ],
+      childList: true,
+      subtree: true,
+    });
+  }
+  refreshFrameNameLabels();
+
+  captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
 
   // One-time ready signal: tells the host that every message listener above is

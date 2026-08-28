@@ -10,7 +10,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
 import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { act, createElement } from "react";
+import {
+  act,
+  createElement,
+  type ComponentProps,
+  type ComponentType,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { Markdown } from "tiptap-markdown";
@@ -19,6 +24,13 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+type TooltipProviderProps = Omit<
+  ComponentProps<typeof TooltipProvider>,
+  "children"
+>;
+const TooltipProviderWithoutChildren =
+  TooltipProvider as ComponentType<TooltipProviderProps>;
 
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
@@ -343,16 +355,17 @@ describe("media draft persistence", () => {
     (type, src) => {
       const editor = createFullEditor();
       const persisted: string[] = [];
-      const querySelectorAll = Element.prototype.querySelectorAll;
+      const querySelectorAll = (element: Element, selector: string) =>
+        Element.prototype.querySelectorAll.call(element, selector);
       const querySelectorAllSpy = vi
         .spyOn(Element.prototype, "querySelectorAll")
         .mockImplementation(function (this: Element, selector: string) {
           try {
-            return querySelectorAll.call(this, selector);
+            return querySelectorAll(this, selector);
           } catch {
             const matches = selector.split(",").flatMap((part) => {
               try {
-                return Array.from(querySelectorAll.call(this, part));
+                return Array.from(querySelectorAll(this, part));
               } catch {
                 return [];
               }
@@ -1098,9 +1111,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1112,7 +1126,7 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
       );
 
     try {
@@ -1200,9 +1214,10 @@ describe("VisualEditor markdown round-tripping", () => {
       createElement(
         MemoryRouter,
         null,
-        createElement(TooltipProvider, {
-          delayDuration: 0,
-          children: createElement(
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
             QueryClientProvider,
             { client: queryClient },
             createElement(VisualEditor, {
@@ -1214,7 +1229,30 @@ describe("VisualEditor markdown round-tripping", () => {
               editable: true,
             }),
           ),
-        }),
+        ),
+      );
+
+    const editorParagraphs = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+        (node) => node.textContent,
+      );
+    // The seed → reconcile handoff inside useCollabReconcile is a chain of
+    // real (unfaked) setTimeout hops — never a fixed number of React ticks —
+    // so its wall-clock latency has no tight upper bound under load. Poll for
+    // the DOM it actually produces instead of sleeping a guessed duration:
+    // that keeps this fast when the machine is idle and merely patient (never
+    // silently wrong) when it is not. Confirmed against this exact test with
+    // an artificially widened reconcile retry interval: with a blind sleep it
+    // fails on stale content; with this poll it converges to the right
+    // content every time, proving the reconcile itself is not racy — only a
+    // fixed sleep waiting on it was.
+    const waitForParagraphs = (expected: string[]) =>
+      vi.waitFor(
+        () => {
+          expect(editorParagraphs()).toEqual(expected);
+        },
+        { timeout: 5000, interval: 20 },
       );
 
     try {
@@ -1224,7 +1262,14 @@ describe("VisualEditor markdown round-tripping", () => {
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      await act(() =>
+        waitForParagraphs([
+          "→ → slack questions",
+          'much simpler "what"',
+          "what is it and how different from other app builders",
+          "when to engage prospects",
+        ]),
+      );
       act(() => root.unmount());
       root = createRoot(container);
 
@@ -1233,30 +1278,19 @@ describe("VisualEditor markdown round-tripping", () => {
           renderEditor("Initial local block", "2026-07-09T20:00:00.000Z"),
         );
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
-          (node) => node.textContent,
-        ),
-      ).toEqual(["Initial local block"]);
+      await act(() => waitForParagraphs(["Initial local block"]));
 
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T20:00:01.000Z"));
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
-          (node) => node.textContent,
-        ),
-      ).toEqual([
-        "→ → slack questions",
-        'much simpler "what"',
-        "what is it and how different from other app builders",
-        "when to engage prospects",
-      ]);
+      await act(() =>
+        waitForParagraphs([
+          "→ → slack questions",
+          'much simpler "what"',
+          "what is it and how different from other app builders",
+          "when to engage prospects",
+        ]),
+      );
       expect(emitted).not.toContain("<empty-block/>");
     } finally {
       await act(async () => root.unmount());
@@ -1282,8 +1316,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1295,7 +1331,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1328,8 +1364,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1341,7 +1379,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });
@@ -1382,8 +1420,10 @@ describe("VisualEditor markdown round-tripping", () => {
           createElement(
             MemoryRouter,
             null,
-            createElement(TooltipProvider, {
-              children: createElement(
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
                 QueryClientProvider,
                 { client: queryClient },
                 createElement(VisualEditor, {
@@ -1397,7 +1437,7 @@ describe("VisualEditor markdown round-tripping", () => {
                   editable: true,
                 }),
               ),
-            }),
+            ),
           ),
         );
       });

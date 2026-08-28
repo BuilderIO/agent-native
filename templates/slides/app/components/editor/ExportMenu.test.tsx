@@ -5,6 +5,14 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +45,10 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/agent${path}`,
   appBasePath: () => "/slides",
+}));
+
+vi.mock("@agent-native/core/client/integrations", () => ({
+  startWorkspaceProviderOAuth: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -75,6 +87,8 @@ vi.mock("sonner", () => ({
     warning: toastWarningMock,
   }),
 }));
+
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 
 import {
   DropdownMenu,
@@ -352,14 +366,6 @@ describe("<ExportMenu>", () => {
   it("asks for Google OAuth when export needs a connection", async () => {
     const openedTab = { location: { href: "" }, close: vi.fn() };
     vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          url: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
-        }),
-        { headers: { "Content-Type": "application/json" } },
-      ),
-    );
     renderMenu({
       onExportGoogleSlides: vi.fn().mockResolvedValue({
         url: null,
@@ -373,20 +379,16 @@ describe("<ExportMenu>", () => {
     fireEvent.click(await screen.findByText("Export to Google Slides"));
 
     expect(window.open).toHaveBeenCalledWith("", "_blank");
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "/agent/_agent-native/google-docs/auth-url?return=",
-        ),
-        { credentials: "same-origin" },
-      ),
-    );
-    expect(openedTab.location.href).toBe(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=test",
-    );
+    await waitFor(() => {
+      expect(openedTab.close).toHaveBeenCalledOnce();
+      expect(startWorkspaceProviderOAuth).toHaveBeenCalledWith(
+        "google_drive",
+        expect.objectContaining({ appId: "slides", scope: "user" }),
+      );
+    });
   });
 
-  it("does not navigate the editor when the OAuth popup is blocked", async () => {
+  it("starts managed OAuth when the export target is blocked", async () => {
     renderMenu({
       onExportGoogleSlides: vi.fn().mockResolvedValue({
         url: null,
@@ -399,14 +401,11 @@ describe("<ExportMenu>", () => {
     fireEvent.click(await screen.findByText("Export to Google Slides"));
 
     await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith(
-        "Export failed",
-        expect.objectContaining({
-          description: "Could not export Google Slides.",
-        }),
+      expect(startWorkspaceProviderOAuth).toHaveBeenCalledWith(
+        "google_drive",
+        expect.objectContaining({ appId: "slides", scope: "user" }),
       ),
     );
-    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("falls back to the import dialog when Drive is unavailable", async () => {
@@ -494,7 +493,7 @@ describe("<ExportMenu>", () => {
         body: JSON.stringify({ deckId: "deck-1" }),
       }),
     );
-    expect(String(vi.mocked(fetch).mock.calls[0][0])).not.toContain(
+    expect(requestString(vi.mocked(fetch).mock.calls[0][0])).not.toContain(
       "/_agent-native/actions/export-html",
     );
     expect(URL.createObjectURL).toHaveBeenCalled();

@@ -31,6 +31,7 @@ import {
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
   registerGroundingActions,
+  stripInjectedAnalyticsGuardContext,
 } from "../lib/real-data-actions";
 
 // Which actions return real data-source evidence is a fact each action states
@@ -107,7 +108,10 @@ function hasPartialDashboardBuild(
 }
 
 export const BOUNDED_STRUCTURED_LOOKUP_GUIDANCE =
-  "BOUNDED STRUCTURED LOOKUP FAST PATH — Treat existing analytics work like an engineer treats existing code: grep before writing. For an ordinary count, aggregate, grouped metric, trend, or record lookup, first call `search-analytics-query-catalog` once with focused metric/entity terms. It searches accessible dashboard names, chart titles/descriptions/saved queries, shipped dashboard patterns, and data-dictionary definitions together. Prefer the strongest approved dictionary or saved-chart match, preserve its source and business logic, adapt only the requested filters and explicit time window, then run one bounded query against that source. A user-named source wins, but still use a matching saved definition when it supplies the source's proven query shape. If there is no useful match, inspect only the most likely source schema or ask one clarification; do not fan out across providers. Do not separately list every dashboard, call data-source status, browse the whole dictionary, load provider catalogs/corpus tools, or query a second source after a strong match. Once the query succeeds, answer immediately with its source, time window, filters, row count, and only necessary caveats. Do not enrich, cross-check, retry, or add breakdowns unless the user requested them, the first query failed, or its result conflicts with the known definition. The words `all`, `total`, or `exact` in a structured aggregate do not by themselves make it a corpus investigation. Never repeat an identical invalid or failed tool call; correct its arguments once or surface the error. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
+  "BOUNDED STRUCTURED LOOKUP FAST PATH — Treat existing analytics work like an engineer treats existing code: grep before writing. For an ordinary count, aggregate, grouped metric, trend, or record lookup, first call `search-analytics-query-catalog` once with focused metric/entity terms. It searches accessible dashboard names, chart titles/descriptions/saved queries, shipped dashboard patterns, and data-dictionary definitions together. Prefer the strongest approved dictionary or saved-chart match, preserve its source and business logic, adapt only the requested filters and explicit time window, then run one bounded query against that source. A user-named source wins, but still use a matching saved definition when it supplies the source's proven query shape. If there is no useful match, inspect the most likely source schema before asking a clarification about business meaning; do not ask the user to provide internal dataset, table, column, or SQL identifiers. Do not fan out across providers. Do not separately list every dashboard, call data-source status, browse the whole dictionary, load provider catalogs/corpus tools, or query a second source after a strong match. Once the query succeeds, answer immediately with its source, time window, filters, row count, and only necessary caveats. Do not enrich, cross-check, retry, or add breakdowns unless the user requested them, the first query failed, or its result conflicts with the known definition. The words `all`, `total`, or `exact` in a structured aggregate do not by themselves make it a corpus investigation. Never repeat an identical invalid or failed tool call; correct its arguments once or surface the error. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
+
+export const INTERNAL_PRODUCT_USAGE_GUIDANCE =
+  "INTERNAL PRODUCT USAGE / CROSS-SOURCE ROUTING — Requests for product usage, AI credits, credit consumption, allowances, quotas, branch creation, branch creators, or user-level adoption by month are live data requests even when they say pull, export, or prepare a report. For workspace-wide internal Builder.io usage, route to Dispatch with `call-agent` and `list-dispatch-usage-metrics`; use its `monthlyByUser` and `workspaceAppCreationsByUserMonth` result. Do not ask for a user export or BigQuery schema on that path. For a named customer or account such as OCBC, preserve the customer scope and do not substitute workspace metrics. Start with `search-analytics-query-catalog`; if it has no usable definition, call `list-data-dictionary` with focused metric terms and `search-bigquery-schema` with the same terms. `search-bigquery-schema` can search the configured project without a dataset, so do not ask the user to name the dataset, table, columns, or SQL. Use the exact discovered schema in one bounded `bigquery` query, and resolve the named account identity before attributing rows to it. A table that contains limits, plans, or changelog metadata is not proof of actual consumption or creator identity. If the configured actions prove that the source or metric is unavailable, report that exact gap and the inspected coverage instead of asking the user to identify internal tables. ";
 
 export const ANALYTICS_ACCOUNT_HEALTH_GUIDANCE =
   "ACCOUNT HEALTH / CUSTOMER SCOPE GUARD — Use this for a named customer, organization ID, account-health, QBR, renewal, contract-usage, risk, or adoption request. Treat a prompt-supplied org ID as a lookup key, not proof of row ownership: resolve it against canonical account data first, carry the resolved customer name plus organization/root-organization identifiers through every usage query, and stop if results contain a different customer, mixed IDs, or an unresolved identity. Use the account-health skill. Account health is incomplete until verified usage queries cover each requested product or feature dimension separately. Before warehouse SQL, use the catalog/dictionary and schema metadata. Do not run definitions marked deprecated or retired, or use a source whose freshness cannot be verified; use the current approved definition instead. Do not call a current partial-period snapshot a completed period without proving the period/as-of row and freshness. Distinguish contract metrics from similarly named platform metrics, total distinct contracted users from DAU/WAU, and actual usage from contracted capacity. Always surface utilization at or above 100%, report adoption window and coverage, and state gaps instead of inferring them. ";
@@ -123,6 +127,7 @@ export const ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE =
 
 export const ANALYTICS_CROSS_APP_ROUTING_GUIDANCE =
   "WORKSPACE APP ROUTING — Analytics is the sibling app for first-party product usage, app/template events, agent-native signups, conversions, and other curated product metrics. When another app delegates one of these questions with `call-agent`, answer it here using the built-in first-party source and query catalog; do not send the user back to another app or ask the caller to invent SQL. " +
+  'INTERNAL USAGE EXCEPTION — Builder.io or AI credit spend, LLM usage by workspace member or month, and workspace app or Builder branch creation history are Dispatch-owned internal metrics. For workspace-wide internal requests, call `call-agent` with agent `dispatch`, action `list-dispatch-usage-metrics`, and the exact read-only input `{ sinceDays, scope: "workspace" }` (add `userEmail` only when the user explicitly narrows the request). The result includes `monthlyByUser` and `workspaceAppCreationsByUserMonth` from the shared `token_usage` and Dispatch audit tables. Do not ask for a user export or BigQuery schema. A request scoped to a named customer or account, such as OCBC, is different: keep that customer scope and use the catalog, dictionary, configured warehouse schema, and one bounded query; do not substitute the current workspace metrics. ' +
   "WORKSPACE APP ROUTING — Brain is the sibling app that owns company knowledge and indexed Slack context. Brain is not an Analytics extension and will not appear in `list-extensions`. When the user asks about company knowledge, decisions, meeting context, or Slack messages/context such as a named channel or thread, use `call-agent` with agent `brain` and a narrow natural-language question. Use `describe-workspace-apps` only when you need to confirm the sibling capability. Do not use `list-extensions` to find Brain, and do not use `provider-api-request` to call Brain. If Brain reports an access or source error, preserve that exact error; do not infer that the Slack bot is absent from a channel or tell the user to re-invite it. Stay in Analytics for metrics and aggregates over a named provider. ";
 
 export const NON_ANALYTICS_REQUEST_GUIDANCE =
@@ -156,6 +161,7 @@ export function analyticsSourceGuidanceOpening(): string {
     // Measured in production: this ran in under 1% of data threads while the
     // equivalent instruction sat ~7000 words deep. Threads that did call it used
     // roughly a third the tool calls. Keep it first and keep it imperative.
+    "INTERNAL USAGE OVERRIDE — For workspace-wide Builder.io or AI credit spend, LLM usage by workspace member or month, or workspace app/Builder branch creation history, your FIRST tool call is `call-agent` for Dispatch with action `list-dispatch-usage-metrics`, scope `workspace`, and the requested `sinceDays`. Do not start with a user list, `search-bigquery-schema`, or a request for dataset/table/column names. If the request names a customer or account such as OCBC, preserve that customer scope and use the Analytics catalog/warehouse path instead of substituting workspace metrics. " +
     "START HERE — For an ordinary metric, cohort, list, count, or trend question, your FIRST tool call is `search-analytics-query-catalog`. For a request to replicate, clone, or adapt an existing dashboard, your FIRST tool call is `search-dashboard-references` instead; inspect the returned dashboard before choosing a source or writing anything. The catalog path is the analytics equivalent of grepping a codebase before writing new code: someone has very likely already built and saved the query you need, and its saved SQL tells you the exact source, table, and column names so you do not have to discover them. Adapt the closest saved query to the requested filters and time window, run it once, and stop. Only fall back to schema discovery or provider catalogs when the catalog search returns nothing usable — and never run more than one schema-discovery pass before querying. " +
     ANALYTICS_CROSS_APP_ROUTING_GUIDANCE +
     'ONE BOUNDED CALL — List, filter, count, and cohort questions ("which X, excluding Y") are a single query, not a loop. Express the include filter, the exclude filter, and the aggregation in one SQL statement or one `run-code` script that filters server-side. Never page through a cohort across separate tool calls and never fan out per item to apply a filter; that is what turns a ten-second answer into a twenty-minute one. ' +
@@ -163,6 +169,7 @@ export function analyticsSourceGuidanceOpening(): string {
     NON_ANALYTICS_REQUEST_GUIDANCE +
     DASHBOARD_REFERENCE_GUIDANCE +
     BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +
+    INTERNAL_PRODUCT_USAGE_GUIDANCE +
     ANALYTICS_ACCOUNT_HEALTH_GUIDANCE +
     BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
     ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
@@ -171,9 +178,18 @@ export function analyticsSourceGuidanceOpening(): string {
   );
 }
 
+const SCHEMA_DETAILS_REQUEST_PATTERN =
+  /\b(?:could you|can you|would you|please\s+(?:provide|share|send|tell)|provide|share|send(?: me)?|tell me|i need(?: you to)?|what (?:is|are)|which)\b[\s\S]{0,260}\b(?:bigquery\s+)?(?:dataset(?: name)?s?|table(?: name)?s?|column(?: name)?s?|field(?: name)?s?|schema|sql query)\b/i;
+
+function looksLikeSchemaDetailsRequest(text: string): boolean {
+  return SCHEMA_DETAILS_REQUEST_PATTERN.test(
+    stripInjectedAnalyticsGuardContext(String(text ?? "")),
+  );
+}
+
 export function analyticsDataDictionaryRoutingContext(): string {
   return `<data-dictionary-routing>
-Data-dictionary definitions are available through \`search-analytics-query-catalog\`, which combines focused dictionary lookup with a search over existing dashboard/chart SQL. Use that combined catalog search as the normal preflight for a bounded metric lookup. Call \`list-data-dictionary\` separately only when the user asks to browse definitions or filter them by department. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. After the catalog identifies one source and query shape, query that source once and stop on success. If no matching definition or chart exists, inspect only the most likely source schema or ask the user instead of fanning out across providers.
+Data-dictionary definitions are available through \`search-analytics-query-catalog\`, which combines focused dictionary lookup with a search over existing dashboard/chart SQL. Use that combined catalog search as the normal preflight for a bounded metric lookup. Call \`list-data-dictionary\` separately when the catalog has no usable match or when the user asks to browse definitions or filter them by department. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. After the catalog identifies one source and query shape, query that source once and stop on success. If no matching definition or chart exists, inspect the most likely source schema before asking a clarification about business meaning. Never ask the user to supply internal dataset, table, column, or SQL identifiers that the configured Analytics actions can discover.
 </data-dictionary-routing>`;
 }
 
@@ -477,10 +493,18 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = source as Record<string, unknown>;
-      const provider = String(record.provider ?? "")
+      const provider = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
-      const via = String(record.via ?? "")
+      const via = (
+        typeof record.via === "string"
+          ? record.via
+          : (JSON.stringify(record.via) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (provider === "first-party" || via === "built-in") continue;
@@ -508,7 +532,11 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = provider as Record<string, unknown>;
-      const providerId = String(record.provider ?? "")
+      const providerId = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (providerId === "first-party") continue;
@@ -782,8 +810,22 @@ export function realDataFinalGuard(
     };
   }
 
-  if (dataQueryAttempted) return null;
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  if (looksLikeSchemaDetailsRequest(context.text)) {
+    const failedQueryRecovery = failedQueryMessage
+      ? ` ${failedQueryMessage}`
+      : "";
+    return {
+      retryMessage:
+        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `search-analytics-query-catalog`, then `list-data-dictionary` and `search-bigquery-schema` with focused metric terms when the catalog has no usable definition, and run one authoritative `bigquery` query using the exact discovered references. `search-bigquery-schema` searches the configured project without a dataset. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
+        failedQueryRecovery,
+      fallbackMessage:
+        "I couldn't complete that lookup from the configured Analytics sources yet. Please retry and I'll inspect the catalog and warehouse schema directly rather than asking you to provide internal table names.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
+  if (dataQueryAttempted) return null;
   // Whether the built-in source is worth trying is decided by tool evidence,
   // not by how the draft is worded, so it is asked once for every draft shape.
   // A source that already failed this turn is not an untried source: steering
@@ -969,6 +1011,7 @@ export default createAgentChatPlugin({
       "For named deal, account, renewal, churn-risk, or customer deep dives that need HubSpot and Gong context, `account-deep-dive` can provide a bounded evidence bundle. Do not answer a requested transcript deep dive from call metadata alone. " +
       "When the user refers to the current dashboard artifact, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned dashboard details; for an explicitly named legacy analysis id, call `get-analysis` before responding and preserve its legacy deep link only for compatibility. " +
       "If a query action fails because its arguments are invalid, correct the arguments once. Never repeat the identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error instead of trying unrelated providers. " +
+      "EXPORT DELIVERY: For a user-requested CSV, Markdown, or other file, deliver it in the same chat turn. For compact first-party tabular results, use `query-agent-native-analytics` so the chat table's Download CSV control is visible. For a durable export, write only verified successful data to a non-scratch workspace path, then call `show-workspace-file` with that exact path so chat renders a direct download card. Never save an error or failed response as the requested export, and never finish with only a path or filename. " +
       "For ordinary ad-hoc structured data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. The words all, total, or exact do not require cross-source validation when a single structured query fully covers the requested source and filters. " +
       "If the user challenges coverage, asks why more records were not included, or asks for the updated answer, rerun the relevant source query or revise from the corrected cohort and provide the updated deliverable directly. Do not claim a dashboard artifact was revised unless the revised answer is included in the response or saved with `update-dashboard`. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +

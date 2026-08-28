@@ -69,7 +69,8 @@ export type ManageJobInput = {
 export type ManageAutomationInput = ManageJobInput;
 
 export interface RunAutomationNowInput {
-  name: string;
+  name?: string;
+  path?: string;
   scope: "personal" | "organization";
 }
 
@@ -213,17 +214,16 @@ export function useRunAutomationNow() {
       onSuccess: (_result, variables) => {
         const scope =
           variables.scope === "organization" ? "organization" : "personal";
-        queryClient.invalidateQueries({
-          queryKey: [
-            "action",
-            "list-automation-runs",
-            { scope, name: variables.name },
-          ],
+        const name =
+          variables.name ??
+          variables.path?.replace(/^jobs\//, "").replace(/\.md$/, "");
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-automation-runs", { scope, name }],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-automations", { scope }],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-recurring-jobs", { scope }],
         });
       },

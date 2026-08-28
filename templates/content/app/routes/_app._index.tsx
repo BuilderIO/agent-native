@@ -63,7 +63,7 @@ export default function IndexRoute() {
       if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
-      navigate(`/page/${result.documentId}`, { replace: true });
+      void navigate(`/page/${result.documentId}`, { replace: true });
     } catch (error) {
       // Keep the typed mutation error available to QueryErrorState. Retrying
       // starts a fresh resolver attempt rather than pretending arrival worked.

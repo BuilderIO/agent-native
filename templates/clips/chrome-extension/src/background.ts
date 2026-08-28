@@ -1,6 +1,13 @@
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
+  MediaPermissionRequiredError,
+  mediaPermissionErrorFromResponse,
+  mediaPermissionRequirements,
+  permissionPageUrl,
+  writeCachedMediaPermission,
+} from "./media-permission";
+import {
   restartUploadModeFromResponse,
   restartUploadResetBody,
   shouldReconcilePersistedRecording,
@@ -1060,21 +1067,56 @@ async function ensureOffscreenDocument(): Promise<void> {
   });
 }
 
+type OffscreenErrorResponse = {
+  error?: string;
+  errorCode?: string;
+  errorDevice?: string;
+};
+
+// The offscreen document can only answer with plain data, so rebuild the typed
+// error here — callers branch on the class, not on a message string.
+function offscreenError(response: OffscreenErrorResponse): Error {
+  return (
+    mediaPermissionErrorFromResponse(response) ?? new Error(response.error)
+  );
+}
+
 function sendOffscreenMessage<T>(message: Record<string, unknown>): Promise<T> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response: T & { error?: string }) => {
-      const error = chromeLastError();
-      if (error) {
-        reject(error);
-        return;
-      }
-      if (response && typeof response.error === "string") {
-        reject(new Error(response.error));
-        return;
-      }
-      resolve(response);
-    });
+    chrome.runtime.sendMessage(
+      message,
+      (response: T & OffscreenErrorResponse) => {
+        const error = chromeLastError();
+        if (error) {
+          reject(error);
+          return;
+        }
+        if (response && typeof response.error === "string") {
+          reject(offscreenError(response));
+          return;
+        }
+        resolve(response);
+      },
+    );
   });
+}
+
+// MV3 suspends an idle worker after ~30 seconds. The native picker routinely
+// stays open longer than that, and a worker that dies mid-acquire takes the
+// popup's pending sendResponse channel with it ("the message channel closed
+// before a response was received"). Any extension API call resets the idle
+// timer, so ping while the user is still choosing.
+const WORKER_KEEPALIVE_INTERVAL_MS = 20_000;
+
+async function withWorkerKeepAlive<T>(run: () => Promise<T>): Promise<T> {
+  const timer = setInterval(() => {
+    void chrome.runtime.getPlatformInfo().catch(() => undefined);
+  }, WORKER_KEEPALIVE_INTERVAL_MS);
+  try {
+    return await run();
+  } finally {
+    clearInterval(timer);
+  }
 }
 
 // The author's own dashboard. Fine to OPEN for the person who just recorded;
@@ -1172,8 +1214,13 @@ async function handlePopupStart(message: PopupStartMessage) {
 async function startRecordingFromTab(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
+  // False for the start that the permission page itself triggered: sending that
+  // one back to a fresh permission tab on failure would open a new tab per
+  // round, so it reports the failure instead.
+  allowPermissionRecovery?: boolean;
 }) {
   const { tab, settings } = args;
+  const allowPermissionRecovery = args.allowPermissionRecovery !== false;
   await reconcilePersistedNativeRecording();
   // The persisted value is authoritative (survives a worker suspension during
   // arming); the in-memory var is only a same-tick fast path on top of it.
@@ -1201,7 +1248,12 @@ async function startRecordingFromTab(args: {
   await setArmingGuard(sessionId);
   try {
     await storageSet(settings);
-    return await armRecording({ sessionId, tab, settings });
+    return await armRecording({
+      sessionId,
+      tab,
+      settings,
+      allowPermissionRecovery,
+    });
   } finally {
     if (armingNativeRecordingSessionId === sessionId) {
       await setArmingGuard(null);
@@ -1243,7 +1295,52 @@ async function handlePermissionStartAfterGrant() {
     return { ok: false, error: "The original tab is no longer available." };
   }
   await activateTab(tab);
-  return startRecordingFromTab({ tab, settings: pending.settings });
+  return startRecordingFromTab({
+    tab,
+    settings: pending.settings,
+    allowPermissionRecovery: false,
+  });
+}
+
+// The popup's gate let this start because the cached grant said the device was
+// allowed, and Chrome then refused a prompt the offscreen recorder could not
+// show. Drop the stale cache entry so the gate stops trusting it, and send the
+// user through the permission page — the only surface Chrome will prompt from —
+// with the recording queued to resume once the grant lands.
+async function recoverMissingMediaPermission(args: {
+  error: MediaPermissionRequiredError;
+  tab: ChromeTab;
+  settings: ExtensionSettings;
+  openPermissionPage: boolean;
+}): Promise<{ ok: false; error: string }> {
+  const { error, tab, settings, openPermissionPage } = args;
+  captureExtensionError(error, {
+    tags: {
+      surface: "background",
+      recordingStep: "offscreen-acquire",
+      permission: error.device,
+    },
+  });
+  await writeCachedMediaPermission({ [error.device]: false });
+  if (!openPermissionPage) {
+    return {
+      ok: false,
+      error: `Chrome still has not granted Clips ${error.device} access. Allow it from Chrome's address-bar icon, then start the recording again.`,
+    };
+  }
+  if (typeof tab.id === "number") {
+    await writePendingPermissionStart({
+      settings,
+      targetTabId: tab.id,
+      createdAtMs: Date.now(),
+    });
+  }
+  await createTab(
+    permissionPageUrl(mediaPermissionRequirements(settings), {
+      startAfterGrant: typeof tab.id === "number",
+    }),
+  ).catch(() => undefined);
+  return { ok: false, error: error.message };
 }
 
 // Arm a Loom-style in-page recording: show the native picker, create the row,
@@ -1254,8 +1351,9 @@ async function armRecording(args: {
   sessionId: string;
   tab: ChromeTab;
   settings: ExtensionSettings;
+  allowPermissionRecovery: boolean;
 }) {
-  const { sessionId, tab, settings } = args;
+  const { sessionId, tab, settings, allowPermissionRecovery } = args;
   const mode: CaptureMode =
     settings.captureSurface === "camera" ? "camera" : "screen";
   const surface: "browser" | "window" | "monitor" =
@@ -1268,20 +1366,31 @@ async function armRecording(args: {
 
   // 1) Native "Choose what to share" picker. Do this before any network round
   //    trip so the picker stays tied to the user gesture. Throws if cancelled.
-  const acq = await sendOffscreenMessage<{
-    ok: boolean;
-    width: number;
-    height: number;
-  }>({
-    type: "CLIPS_OFFSCREEN_ACQUIRE",
-    sessionId,
-    mode,
-    surface,
-    includeMicrophone: settings.includeMicrophone,
-    includeCamera: settings.includeCamera,
-    videoDeviceId: settings.videoDeviceId,
-    audioDeviceId: settings.audioDeviceId,
-  });
+  let acq: { ok: boolean; width: number; height: number };
+  try {
+    acq = await withWorkerKeepAlive(() =>
+      sendOffscreenMessage<{ ok: boolean; width: number; height: number }>({
+        type: "CLIPS_OFFSCREEN_ACQUIRE",
+        sessionId,
+        mode,
+        surface,
+        includeMicrophone: settings.includeMicrophone,
+        includeCamera: settings.includeCamera,
+        videoDeviceId: settings.videoDeviceId,
+        audioDeviceId: settings.audioDeviceId,
+      }),
+    );
+  } catch (err) {
+    if (err instanceof MediaPermissionRequiredError) {
+      return recoverMissingMediaPermission({
+        error: err,
+        tab,
+        settings,
+        openPermissionPage: allowPermissionRecovery,
+      });
+    }
+    throw err;
+  }
   console.log("[clips-bg] arm: acquired stream", acq);
 
   // 2) Show the countdown overlay IMMEDIATELY — before the network round-trip —
@@ -1330,8 +1439,7 @@ async function armRecording(args: {
       sourceAppName: "Chrome",
       sourceWindowTitle: tab.title ?? null,
       hasCamera: cameraInvolved,
-      hasAudio:
-        settings.includeMicrophone || settings.captureSurface !== "camera",
+      hasAudio: settings.includeMicrophone,
       mimeType: "video/webm",
       requestStreaming: true,
     });
@@ -2329,7 +2437,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       captureExtensionError(err, {
         tags: {
           surface: "background",
-          messageType: String((message as { type?: unknown })?.type ?? ""),
+          messageType:
+            typeof (message as { type?: unknown })?.type === "string"
+              ? (message as { type: string }).type
+              : "",
         },
       });
       response = {

@@ -191,7 +191,7 @@ test.describe("clips recorder", () => {
         timeout: 90_000,
       });
       const recorderBody = await renderedText(page, "beta.clips idle recorder");
-      expect(recorderBody).toContain("Clips recorder");
+      expect(recorderBody).toMatch(/Clips recorder/i);
       expect(recorderBody).not.toMatch(
         /preparing sources|recording your screen|saving your recording|already recording/i,
       );

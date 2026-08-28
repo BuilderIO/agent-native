@@ -17,10 +17,7 @@ export type {
   ExperimentAssignment,
   ExperimentMetricResult,
   ObservabilityConfig,
-  ObservabilityExporterConfig,
 } from "./types.js";
-
-export { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 export {
   ensureObservabilityTables,

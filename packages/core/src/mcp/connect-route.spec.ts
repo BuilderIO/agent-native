@@ -129,17 +129,25 @@ vi.mock("./connect-store.js", () => ({
 }));
 
 const { handleMcpConnect } = await import("./connect-route.js");
+const { defineAppConfig, resetAppConfigForTests } =
+  await import("../app-config/index.js");
 
 function ev(opts: {
   method?: string;
   path?: string;
   body?: any;
   host?: string;
+  acceptLanguage?: string;
 }): any {
   return {
     method: opts.method ?? "GET",
     body: opts.body,
-    headers: { host: opts.host ?? "mail.agent-native.com" },
+    headers: {
+      host: opts.host ?? "mail.agent-native.com",
+      ...(opts.acceptLanguage
+        ? { "accept-language": opts.acceptLanguage }
+        : {}),
+    },
     node: { req: { url: opts.path ?? "/" } },
     path: opts.path ?? "/",
     url: { pathname: (opts.path ?? "/").split("?")[0] },
@@ -176,7 +184,7 @@ describe("handleMcpConnect", () => {
       const body = await res.text();
       expect(res.status).toBe(200);
       expect(body).not.toContain("Connect an external agent");
-      expect(body).not.toContain(">Agent Native<");
+      expect(body).not.toContain(">Agent-Native<");
       expect(body).not.toContain("app-pill");
       expect(body).not.toContain('connectionsStateEl.textContent = "None"');
       expect(body).toContain(
@@ -210,6 +218,32 @@ describe("handleMcpConnect", () => {
       );
     });
 
+    it("localizes the shared guide copy from the request language", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("Tu URL de MCP");
+      expect(body).toContain("Conexiones existentes");
+      expect(body).not.toContain("Existing connections");
+      expect(body).not.toContain("Signed in as");
+      expect(body).toContain('id="mcp-guide-tab-claude"');
+      expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
+    });
+
+    it("uses a validated locale from the Settings connect link", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ path: "/?locale=es-ES", acceptLanguage: "en-US" }),
+        "/",
+      );
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain('<html lang="es-ES" dir="ltr">');
+    });
+
     it("shows the device user_code when present and well-formed", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(
@@ -218,23 +252,30 @@ describe("handleMcpConnect", () => {
       );
       const body = await res.text();
       expect(body).toContain("ABCD-2345");
-      expect(body).toContain("Authorize this device");
+      expect(body).toContain("Authorize device");
       expect(body).not.toContain("From your terminal");
       expect(body).not.toContain("Connect an external agent");
       expect(body).not.toContain(">None<");
       expect(body).toContain("Authorizing device...");
       expect(body).toContain(
-        'showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized")',
+        'showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized)',
       );
       expect(body).toContain(
-        'showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected")',
+        'showMsg(COPY.connectedDescription, "ok", COPY.connected)',
+      );
+      expect(body).toContain(
+        "if (response.status === 404) return COPY.unknownDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 410) return COPY.expiredDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 409) return COPY.alreadyUsedDeviceCode;",
       );
       expect(body).toContain(".msg-title");
       expect(body).toContain(".msg-copy");
       expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
-      expect(body).not.toContain("Your MCP URL");
-      expect(body).not.toContain("Advanced options");
     });
   });
 
@@ -651,5 +692,80 @@ describe("handleMcpConnect", () => {
       );
       expect((await res.json()).status).toBe("expired");
     });
+  });
+});
+
+// Every beta deployment is `beta.<app>.agent-native.com`, so the leading
+// hostname label is `beta` for all of them. Deriving the server name from it
+// gave all 18 apps the same id, and a client keys its MCP config by that id —
+// so connecting a second beta app silently replaced the first.
+describe("server name on a multi-label host", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue({
+      email: "u@example.com",
+      orgId: "org-1",
+    });
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  async function serverNameFor(host: string): Promise<string> {
+    const res = await handleMcpConnect(
+      ev({ method: "POST", host, body: { label: "laptop", ttlDays: 30 } }),
+      "/token",
+    );
+    expect(res.status).toBe(200);
+    return (await res.json()).serverName;
+  }
+
+  it("uses declared app identity instead of the leading hostname label", async () => {
+    defineAppConfig({ app: { id: "mail" } });
+    expect(await serverNameFor("beta.mail.agent-native.com")).toBe(
+      "agent-native-mail",
+    );
+  });
+
+  it("distinguishes two beta apps that share a leading label", async () => {
+    defineAppConfig({ app: { id: "mail" } });
+    const mail = await serverNameFor("beta.mail.agent-native.com");
+    resetAppConfigForTests();
+    defineAppConfig({ app: { id: "calendar" } });
+    const calendar = await serverNameFor("beta.calendar.agent-native.com");
+    expect(mail).not.toBe(calendar);
+  });
+
+  it("still falls back to the hostname when nothing declares an identity", async () => {
+    expect(await serverNameFor("mail.agent-native.com")).toBe(
+      "agent-native-mail",
+    );
+  });
+});
+
+describe("explicit server name", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue({
+      email: "u@example.com",
+      orgId: "org-1",
+    });
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  // Plan ships `plan` as its server id in
+  // `.agents/plugins/agent-native-visual-plans/.mcp.json`, and the CLI config
+  // writers key existing client entries by it. Falling back to the derived
+  // `agent-native-plan` would write a duplicate on the next connect rather than
+  // updating the entry a user already has.
+  it("wins over the derived name, prefix included", async () => {
+    defineAppConfig({ app: { id: "plan" } });
+    const res = await handleMcpConnect(
+      ev({
+        method: "POST",
+        host: "plan.agent-native.com",
+        body: { label: "laptop", ttlDays: 30 },
+      }),
+      "/token",
+      { serverName: "plan" },
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).serverName).toBe("plan");
   });
 });

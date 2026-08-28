@@ -51,7 +51,8 @@ function oauthTokensTable(): string {
 }
 
 function isDuplicateColumnError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
+  const codeValue = (err as { code?: unknown })?.code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = String((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();
@@ -411,6 +412,17 @@ export async function saveOAuthTokens(
     ...(existingTokens ?? {}),
     ...cleanedIncomingTokens,
   };
+  const existingScope = existingTokens?.scope;
+  const incomingScope = cleanedIncomingTokens.scope;
+  if (typeof existingScope === "string" && typeof incomingScope === "string") {
+    tokensToStore.scope = Array.from(
+      new Set(
+        `${existingScope} ${incomingScope}`
+          .split(/[\s,]+/)
+          .filter((scope) => scope.length > 0),
+      ),
+    ).join(" ");
+  }
 
   const result = await client.execute({
     sql: isPostgres()

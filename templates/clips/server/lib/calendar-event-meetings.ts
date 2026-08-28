@@ -182,7 +182,11 @@ export async function recordCalendarFetchError(
   options: { needsReauth?: boolean } = {},
 ): Promise<CalendarFetchError> {
   const message =
-    error instanceof Error ? error.message : String(error || "Calendar failed");
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error || "Calendar failed"
+        : "Calendar failed";
   const needsReauth = options.needsReauth ?? shouldMarkNeedsReauth(message);
   if (!account.ownerEmail) {
     return { accountId: account.id, error: message, needsReauth };
@@ -251,7 +255,7 @@ export function calendarEventParticipants(event: CalendarEvent) {
 export function calendarEventToMeetingView(args: {
   account: CalendarAccountForEvents;
   event: CalendarEvent;
-  meeting?: any | null;
+  meeting?: any;
 }) {
   const startIso = eventStartIso(args.event);
   const endIso = eventEndIso(args.event);
@@ -304,6 +308,23 @@ export async function lockCalendarAccount(
   return locked.length > 0;
 }
 
+/**
+ * The calendar could not be read. Distinct from `null` (no such event, or the
+ * caller cannot see it): the event may well exist and be visible, so callers
+ * must offer a retry rather than reporting it permanently gone.
+ */
+export class CalendarEventUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = "CalendarEventUnavailableError";
+    // Assigned rather than passed to `super`: the Error `cause` option needs
+    // the ES2022 lib, which this template does not target.
+    if (options && "cause" in options) {
+      (this as { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
 export async function fetchLiveCalendarEventFromId(virtualId: string) {
   const parsed = parseCalendarMeetingId(virtualId);
   if (!parsed) return null;
@@ -325,13 +346,18 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     // Transient refresh failure — record the real error (won't match
     // shouldMarkNeedsReauth) instead of a permanent needs-reauth marker.
     await recordCalendarFetchError(account, err);
-    return null;
+    throw new CalendarEventUnavailableError(
+      "Could not reach Google Calendar to load this event.",
+      { cause: err },
+    );
   }
   if (!accessToken) {
     await recordCalendarFetchError(account, new Error("Token refresh failed"), {
       needsReauth: true,
     });
-    return null;
+    throw new CalendarEventUnavailableError(
+      "Google Calendar needs to be reconnected before this event can load.",
+    );
   }
 
   try {
@@ -345,7 +371,10 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     return { account, event };
   } catch (err) {
     await recordCalendarFetchError(account, err);
-    return null;
+    throw new CalendarEventUnavailableError(
+      "Could not load this event from Google Calendar.",
+      { cause: err },
+    );
   }
 }
 

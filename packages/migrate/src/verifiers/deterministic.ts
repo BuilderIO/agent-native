@@ -63,7 +63,7 @@ export const routeParityVerifier: Verifier = {
 
 export const agentNativeConformanceVerifier: Verifier = {
   id: "agent-native-conformance-summary",
-  label: "Agent-native conformance summary",
+  label: "Agent-Native conformance summary",
   async run(context): Promise<VerifierResult> {
     const checks = [
       {

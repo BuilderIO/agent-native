@@ -141,10 +141,13 @@ const messages = {
     pageTitle: "ミーティング · Clips",
   },
   recordingPage: {
+    back: "戻る",
+    done: "完了",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
     backToLibrary: "ライブラリに戻る",
+    sharedWithYou: "あなたと共有",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
       "Builder.io ポップアップを終了するか、S3 ストレージを構成してから、再試行してください。",
@@ -207,8 +210,6 @@ const messages = {
     retryImport: "インポートを再試行します",
     retryUpload: "アップロードを再試行します",
     checkAgain: "再確認",
-    back: "戻る",
-    done: "完了",
     edit: "編集",
     aiTools: "AIツール",
     enhanceRecording: "この録音を強化する",
@@ -361,6 +362,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "無題の会議",
+    recordedBy: "{{name}} が記録",
     unassigned: "未割り当て",
     them: "彼ら",
     me: "自分",
@@ -368,6 +370,10 @@ const messages = {
     meetingRemoved: "会議が削除されました",
     couldNotRemoveMeeting: "会議を削除できませんでした",
     couldNotLoadMeeting: "この会議を読み込めませんでした。",
+    retry: "再試行",
+    meetingNotFound: "会議が見つかりません",
+    meetingUnavailable: "この会議は利用できません。",
+    noAccess: "この会議にアクセスできない可能性があります。",
     transcriptCopied: "トランスクリプトをコピーしました",
     couldNotCopyTranscript: "トランスクリプトをコピーできませんでした",
     allMeetings: "すべての会議",
@@ -498,7 +504,9 @@ const messages = {
     agentPrompt:
       "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
     agentTokenDescription:
-      "この一時的なエージェント URL により、クリップを公開せずにエージェントが読み取れます。2 時間後に期限切れになります。",
+      "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
+    agentPublicDescription:
+      "エージェント用の読み取り専用リンク。クリップが公開されている間は有効です。",
     agentLinkUnavailable: "エージェント用リンクを作成できませんでした。",
     retryAgentLink: "再試行",
     gifPreview: "GIF プレビュー",
@@ -523,16 +531,15 @@ const messages = {
     autoplay: "自動再生",
     startAt: "(秒)から開始",
     embedCode: "埋め込みコード",
+    copyEmbedCode: "埋め込みコードをコピー",
+    more: "その他",
     sharePlainTitle: "{{title}}を共有する",
   },
   shareUi: {
     owner: "所有者: {{email}}",
-    generalAccess: "一般アクセス",
-    restrictedLinkDescription:
-      "このリンクは、すでにアクセス権を持っている人のみが機能します。",
-    makingPublic: "公開中…",
-    makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
+    copied: "コピーしました",
+    copyLink: "リンクをコピー",
     addPeopleByEmail: "メールで人を追加",
     invite: "招待",
     notifyPeople: "人々に通知する",
@@ -540,6 +547,18 @@ const messages = {
     ownerRole: "所有者",
     remove: "取り除く",
     noAccessYet: "まだ誰もアクセスしていません。",
+    whoHasAccess: "アクセスできる人",
+    canAccess: "アクセス可能",
+    onlyYou: "自分のみ",
+    othersCount_one: "{{email}} 他{{count}}人",
+    othersCount_other: "{{email}} 他{{count}}人",
+    selectAccess: "アクセス権を選択",
+    accessOptions: {
+      public: "リンクを知っている全員が閲覧できます",
+      org: "{{orgName}} のメンバー全員が閲覧できます",
+      orgFallback: "組織のメンバー全員が閲覧できます",
+      private: "招待した人のみ閲覧できます",
+    },
     visibility: {
       private: {
         label: "プライベート",
@@ -626,6 +645,8 @@ const messages = {
     macSublabel: "ユニバーサル (Apple Silicon + Intel)",
     windowsSublabel: "64 ビット MSI インストーラー",
     downloadFor: "翻訳済み: Download for {{platform}}",
+    downloadStarted: "ダウンロードを開始しました",
+    downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
     clipsDesktop: "Clips Desktop",
@@ -1000,8 +1021,6 @@ const messages = {
     editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
-    mentionSomeone: "メンバーをメンション",
-    addEmoji: "絵文字を追加",
   },
   shareMeeting: {
     pageTitle: "会議メモ · Clips",
@@ -1553,6 +1572,7 @@ const messages = {
     invite: "招待",
     inviteFailed: "招待できませんでした",
     removePersonFailed: "削除できませんでした",
+    permissionUpdateFailed: "権限を更新できませんでした",
     passwordProtectedDescription:
       "この動画は保護されています。視聴するにはパスワードを入力してください。",
     password: "パスワード",

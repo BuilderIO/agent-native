@@ -321,23 +321,32 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
-  it("falls back to the authenticated workspace action for hosted gateways", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response("not found", { status: 404 }))
-      .mockResolvedValueOnce(
-        new Response(
+  it("uses the authenticated workspace action for hosted gateways", async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/_workspace/apps")) {
+        return new Response(
           JSON.stringify([
             {
-              id: "atlas",
-              name: "Atlas",
-              path: "/atlas",
-              url: "https://agent-workspace.builder.io/atlas",
+              id: "private-app",
+              name: "Private app",
+              path: "/private-app",
             },
           ]),
           { headers: { "content-type": "application/json" } },
-        ),
+        );
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            id: "atlas",
+            name: "Atlas",
+            path: "/atlas",
+            url: "https://agent-workspace.builder.io/atlas",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
       );
+    });
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
@@ -347,11 +356,11 @@ describe("listWorkspaceApps", () => {
       () => listWorkspaceApps({ includeAgentCards: false }),
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://agent-workspace.builder.io/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
     );
-    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
         headers: expect.objectContaining({
           accept: "application/json",
@@ -361,6 +370,57 @@ describe("listWorkspaceApps", () => {
     );
     expect(apps.map((app) => app.id)).toEqual(["atlas"]);
     expect(apps[0]?.url).toBe("https://agent-workspace.builder.io/atlas");
+  });
+
+  it("projects hosted workspace discovery onto the beta request lane", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify([
+          {
+            id: "private-app",
+            name: "Private app",
+            path: "/private-app",
+          },
+        ]),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://beta.agent-workspace.builder.io/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(apps[0]?.url).toBe(
+      "https://beta.agent-workspace.builder.io/private-app",
+    );
+  });
+
+  it("does not recursively call the hosted registry action", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "dev@example.test",
+        requestOrigin: "https://agent-workspace.builder.io",
+      },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
   it("keeps the exact request org in hosted registry tokens", async () => {
@@ -381,7 +441,7 @@ describe("listWorkspaceApps", () => {
       () => listWorkspaceApps({ includeAgentCards: false }),
     );
 
-    const authorization = fetchMock.mock.calls[1]?.[1]?.headers
+    const authorization = fetchMock.mock.calls[0]?.[1]?.headers
       ?.Authorization as string;
     const tokenPayload = JSON.parse(
       Buffer.from(

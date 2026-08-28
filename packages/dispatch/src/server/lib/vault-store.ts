@@ -5,6 +5,7 @@ import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
+  last4,
   listAppSecretsForScope,
   writeAppSecret,
   type SecretScope,
@@ -812,6 +813,36 @@ export async function revokeGrant(
 // ─── Shared Credential Store Sync ─────────────────────────────────
 
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
+
+export interface VaultSecretMetadata {
+  id: string;
+  name: string;
+  credentialKey: string;
+  last4: string;
+  provider: string | null;
+  description: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Return the fields safe to expose to clients, agents, and action callers. */
+export function toVaultSecretMetadata(
+  secret: VaultSecretRow | null,
+): VaultSecretMetadata | null {
+  if (!secret) return null;
+  return {
+    id: secret.id,
+    name: secret.name,
+    credentialKey: secret.credentialKey,
+    last4: last4(secret.value),
+    provider: secret.provider,
+    description: secret.description,
+    createdBy: secret.createdBy,
+    createdAt: secret.createdAt,
+    updatedAt: secret.updatedAt,
+  };
+}
 
 export function credentialStoreScopeForVaultCtx(ctx: VaultCtx): {
   scope: Extract<SecretScope, "org" | "workspace">;

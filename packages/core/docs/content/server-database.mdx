@@ -5,6 +5,8 @@ description: "Connect a portable SQL database to your agent-native app: schema h
 
 # Database
 
+<!-- i18n-copy-ignore: Agent-Native is a proper name; punctuation is locale-invariant, including migration runner references. -->
+
 Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
 
 <Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
@@ -247,6 +249,52 @@ For local development, schema changes can run through a Nitro plugin in
 skips it on later runs. Give new entries a stable `name`; named migrations are
 tracked independently of their version number.
 
+### Generate new app migrations with Drizzle Kit {#drizzle-migrations}
+
+For new app-owned schema changes, use Drizzle Kit to generate reviewed SQL:
+
+```bash
+pnpm db:generate
+```
+
+<!-- i18n-copy-ignore: Agent-Native punctuation is locale-invariant; localized copies use the same product spelling; formatting-only source edit. -->
+
+This creates `server/db/migrations/<id_name>.sql`. Commit the generated file and
+review its SQL before shipping it. `runDrizzleMigrations`
+loads those files into the shared Agent-Native runner on Node.js and Node-based
+serverless runtimes, so release authorization, dialect handling, and bookkeeping
+stay in one place:
+
+```ts filename="server/db/migrations.ts"
+import { runDrizzleMigrations } from "@agent-native/core/db/drizzle-migrations";
+
+export default runDrizzleMigrations(new URL("./migrations", import.meta.url), {
+  table: "my_app_migrations",
+  dialect: "postgresql",
+});
+```
+
+Re-export that plugin from `server/plugins/db.ts` so the same `./migrations`
+path works from source and from the emitted server bundle:
+
+```ts filename="server/plugins/db.ts"
+export { default } from "../db/migrations.js";
+```
+
+The filesystem-backed loader is not available in Cloudflare Workers/Pages or
+other filesystem-free edge runtimes, including D1. Keep using `runMigrations()`
+there with SQL entries embedded in the worker bundle. A single Drizzle output
+folder has one dialect-specific metadata baseline, so generate against the
+primary deployment dialect and do not switch the same folder between SQLite and
+PostgreSQL.
+
+If an app already has handwritten entries, keep that history and load generated
+entries into the same `runMigrations()` source after it. Do not give one schema
+two independent migration owners. Generate against the primary deployment
+dialect and keep using handwritten `runMigrations()` entries for framework
+tables, D1-only or dialect-specific SQL, data backfills, and deferred JavaScript
+steps.
+
 <Callout tone="warning">
   For production or serverless deployments, run migrations in a release or
   deploy step instead of on the first request. The Chat template provides `pnpm
@@ -275,14 +323,14 @@ tracked independently of their version number.
   drop them, causing immediate data loss.
 </Callout>
 
-`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection:
+`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection and migration generation. If one migration folder serves multiple runtime backends, pass its primary dialect explicitly, for example `createDrizzleConfig({ dialect: "postgresql" })`:
 
 ```ts filename="drizzle.config.ts"
 import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
 export default createDrizzleConfig();
 ```
 
-Use `pnpm db:generate` to inspect your schema and `pnpm db:push` against a local database only.
+Use `pnpm db:generate` to create reviewed migration files and `pnpm db:push` against a local database only. Production schema changes go through the release migration command.
 
 ### 4. Query in actions {#querying}
 
@@ -354,7 +402,7 @@ See [Security — Data Scoping](/docs/security#data-scoping) and [Sharing](/docs
 
 ## SQL-Backed Sync {#sync}
 
-Agent-native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
+Agent-Native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
 
 This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
 

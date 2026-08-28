@@ -81,7 +81,7 @@ export interface CodeAgentsIpcDeps {
   submitCodeAgentRemoteWaitlist: (
     input: unknown,
   ) => Promise<CodeAgentRemoteWaitlistResult>;
-  getCodeAgentModelList: () => CodeAgentModelListResult;
+  getCodeAgentModelList: (input?: unknown) => CodeAgentModelListResult;
   readCodeAgentTranscript: (input: unknown) => CodeAgentTranscriptResult;
   removeCodeAgentTranscriptSubscription: (subscriptionId: string) => void;
   initializeCodeAgentTranscriptSubscriptionKeys: (
@@ -301,7 +301,8 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
 
   ipcMain.handle(
     IPC.CODE_AGENTS_LIST_MODELS,
-    (): CodeAgentModelListResult => getCodeAgentModelList(),
+    (_event: IpcMainInvokeEvent, input?: unknown): CodeAgentModelListResult =>
+      getCodeAgentModelList(input),
   );
 
   ipcMain.handle(

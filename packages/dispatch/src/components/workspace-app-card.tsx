@@ -31,6 +31,7 @@ import {
   isPathMountedWorkspaceApp,
   isWorkspaceSsoApp,
   navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppHref,
   workspaceAppRoute,
@@ -83,6 +84,22 @@ function deferWorkspaceAppOverlayOpen(
   } else {
     setTimeout(openOverlay, 0);
   }
+}
+
+// The settings menu's own DropdownMenuContent restores focus to its trigger
+// once its FocusScope unmounts, independent of the requestAnimationFrame
+// above. If that restore lands after the deferred overlay's DismissableLayer
+// has already mounted, the resulting focusin event reads as an outside
+// interaction and immediately dismisses the overlay we just opened. Skip the
+// default restore whenever we're mid-handoff to a sibling overlay — mirrors
+// AgentPanel's identical guard (consumeAgentPanelOverlayFocusRestore).
+function consumeWorkspaceAppOverlayFocusRestore(
+  pendingOverlayRef: { current: boolean },
+  event: { preventDefault: () => void },
+): void {
+  if (!pendingOverlayRef.current) return;
+  pendingOverlayRef.current = false;
+  event.preventDefault();
 }
 
 export function WorkspaceAppCard({
@@ -223,7 +240,9 @@ export function WorkspaceAppCard({
           <WorkspaceAppOpenActions
             app={app}
             href={directHref ?? href}
-            openDirectly={Boolean(directHref)}
+            openDirectly={Boolean(
+              directHref && shouldOpenWorkspaceAppInTopWindow(),
+            )}
             isPinned={isPinned}
             pinLabel={pinLabel}
             pendingOpenLabel={pendingOpenLabel}
@@ -413,6 +432,7 @@ function WorkspaceAppSettings({
   const [shareOpen, setShareOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+  const pendingShareOverlayRef = useRef(false);
 
   const handleShareOpenChange = (open: boolean) => {
     setShareOpen(open);
@@ -452,6 +472,12 @@ function WorkspaceAppSettings({
         <DropdownMenuContent
           align="end"
           className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
+          onCloseAutoFocus={(event) =>
+            consumeWorkspaceAppOverlayFocusRestore(
+              pendingShareOverlayRef,
+              event,
+            )
+          }
         >
           <DropdownMenuItem onSelect={onEdit}>
             <IconEdit size={14} aria-hidden="true" />
@@ -462,7 +488,10 @@ function WorkspaceAppSettings({
               onSelect={(event) =>
                 deferWorkspaceAppOverlayOpen(
                   event,
-                  () => setSettingsOpen(false),
+                  () => {
+                    pendingShareOverlayRef.current = true;
+                    setSettingsOpen(false);
+                  },
                   () => setShareOpen(true),
                 )
               }

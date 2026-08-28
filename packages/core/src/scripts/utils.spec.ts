@@ -4,9 +4,11 @@ import path from "path";
 
 import { describe, it, expect } from "vitest";
 
+import { isActionContractError } from "../action.js";
 import {
   parseArgs,
   camelCaseArgs,
+  fail,
   isValidPath,
   isValidProjectPath,
   loadEnv,
@@ -199,5 +201,49 @@ describe("isValidProjectPath", () => {
 
   it("rejects uppercase characters", () => {
     expect(isValidProjectPath("MyProject")).toBe(false);
+  });
+});
+
+describe("fail", () => {
+  it("raises a typed contract error so the message survives the action route", () => {
+    // A bare `throw new Error(...)` is replaced by a generic 500 there; only a
+    // contract error is declared safe to echo to HTTP callers.
+    const error = (() => {
+      try {
+        fail("Meeting not found");
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    expect(error).toBeInstanceOf(Error);
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      message: "Meeting not found",
+      errorCode: "action_failed",
+      // 400, not 409: a refusal must not read as retryable to a browser query.
+      statusCode: 400,
+    });
+  });
+
+  it("carries an explicit code, status, and details", () => {
+    const error = (() => {
+      try {
+        fail("No such meeting", {
+          errorCode: "not_found",
+          statusCode: 404,
+          details: { meetingId: "m_1" },
+        });
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    expect(error).toMatchObject({
+      message: "No such meeting",
+      errorCode: "not_found",
+      statusCode: 404,
+      details: { meetingId: "m_1" },
+    });
   });
 });

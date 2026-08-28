@@ -177,11 +177,11 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(36);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(35);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(36);
+    ).toBe(35);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon)(?:;base64,|,)/,
@@ -259,11 +259,6 @@ describe("MCP integration catalog", () => {
       ["exa", "https://mcp.exa.ai/mcp", "ready"],
       ["gong", "https://mcp.gong.io/mcp", "provider-setup"],
       ["grafana", "https://mcp.grafana.com/mcp", "beta"],
-      [
-        "google-workspace",
-        "https://workspacemcp.googleapis.com/mcp/v1",
-        "beta",
-      ],
       ["pylon", "https://mcp.usepylon.com/", "provider-setup"],
       ["builder-cms", "https://mcp.builder.io/mcp/publish", "ready"],
     ] as const;

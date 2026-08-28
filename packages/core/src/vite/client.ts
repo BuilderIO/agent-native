@@ -445,7 +445,7 @@ function mirrorReactRouterVirtualInvalidation(
  *
  * `@react-router/dev`'s framework-mode plugin invalidates its virtual modules
  * through `server.moduleGraph` — Vite's deprecated back-compat graph, which
- * proxies only the `client` and `ssr` environments. Agent Native serves SSR
+ * proxies only the `client` and `ssr` environments. Agent-Native serves SSR
  * from Nitro's `nitro` environment, so that invalidation never reaches the
  * `virtual:react-router/server-build` the request path evaluates, and the route
  * table stays frozen at whatever it was when the dev server booted. A new route
@@ -1090,6 +1090,7 @@ const CORE_CLIENT_SUBPATHS = [
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
   "@agent-native/core/client/api-path",
   "@agent-native/core/client/clipboard",
+  "@agent-native/core/client/zoom-gesture",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -1206,6 +1207,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "clsx" },
     { specifier: "cmdk" },
     { specifier: "date-fns" },
+    { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
@@ -1509,6 +1511,10 @@ function getCoreSourceAliases(
       coreSrc,
       "client/clipboard.ts",
     ),
+    "@agent-native/core/client/zoom-gesture": path.join(
+      coreSrc,
+      "client/zoom-gesture.ts",
+    ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
@@ -1800,7 +1806,7 @@ function fullReloadOnOptimizeDep504(): Plugin {
       let lastReloadAt: number | null = null;
       let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
-        const originalEnd = res.end;
+        const originalEnd = res.end.bind(res);
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
           ...endArgs: unknown[]
         ) => {
@@ -1968,10 +1974,19 @@ function frameworkDevDynamicForwarder(): Plugin {
               ? `text/html,${accept}`
               : "text/html";
           }
-          // Embed-start uses document/iframe to select its transplant response.
-          // Only supply the classifier hint when the browser did not provide a
-          // destination; never overwrite the request's original intent.
-          if (req.headers["sec-fetch-dest"] === undefined) {
+          // Embed-start uses document/iframe to select its transplant response,
+          // and Nitro's own dev classifier already treats document/iframe/frame
+          // as non-asset, so those (and an already-"empty" value) pass through
+          // untouched. Everything else — undefined, or a real browser's
+          // destination for a fetch this route never anticipated, like
+          // "speculationrules" for the native Speculation-Rules auto-fetch —
+          // gets normalized to "empty" so Nitro's classifier falls back to its
+          // extension check instead of treating the request as a static asset.
+          const fetchDest = req.headers["sec-fetch-dest"];
+          if (
+            fetchDest === undefined ||
+            !/^(document|iframe|frame|empty)$/.test(String(fetchDest))
+          ) {
             req.headers["sec-fetch-dest"] = "empty";
           }
         }
@@ -2221,13 +2236,17 @@ async function loadMountedEmbedRuntimeModule(
   runtimeUrl: string,
 ): Promise<string | null> {
   const virtualId = virtualModuleIdFromRuntimeUrl(runtimeUrl);
+
+  // transform import to encode virtual modules in vite as these imports don't work in the browser
+  const result = await server.transformRequest(virtualId ?? runtimeUrl);
+  if (typeof result?.code === "string") return result.code;
+
   if (virtualId) {
     const loaded = await server.pluginContainer?.load?.(virtualId);
     if (typeof loaded === "string") return loaded;
     if (loaded && typeof loaded.code === "string") return loaded.code;
   }
-  const result = await server.transformRequest(runtimeUrl);
-  return result?.code ?? null;
+  return null;
 }
 
 function serveMountedEmbedRuntimeModule(
@@ -2536,6 +2555,19 @@ function rolldownInputFix(): Plugin {
  * The template lists the packages in its `defineConfig({ ssrStubs })` call —
  * the framework never hardcodes package names.
  */
+/**
+ * Optional peers reached only through a `React.lazy` boundary whose module body
+ * guards on `typeof window === "undefined"`. The server can never import them,
+ * so their SSR chunk is pure unpack weight in every app that ships a terminal
+ * surface. Defaulted here rather than repeated in sixteen vite configs, where
+ * it would drift.
+ */
+const ALWAYS_SSR_STUBBED = [
+  "@xterm/xterm",
+  "@xterm/addon-fit",
+  "@xterm/addon-web-links",
+];
+
 function ssrStubPlugin(packages: string[]): Plugin | null {
   if (!packages.length) return null;
   const stubbed = new Set(packages);
@@ -2835,14 +2867,18 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
 type NitroModuleNode = {
   id: string | null;
   ssrError?: Error | null;
-  transformResult: unknown | null;
+  transformResult: unknown;
 };
 
 type NitroModuleGraph = {
   idToModuleMap: Map<string, NitroModuleNode>;
 };
 
-const NITRO_STARTUP_SETTLE_MS = 1_000;
+// Nitro's worker can expose a transformed module graph before its entry
+// module has finished importing. Keep the recovery page up for the same
+// cold-start window instead of letting the first poll render a 500 error.
+const NITRO_STARTUP_SETTLE_MS = 3_000;
+const NITRO_STARTUP_POLL_INTERVAL_MS = 100;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
 const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
 const NITRO_STARTUP_RETRY_MAX_DELAY_MS = 3_000;
@@ -2969,17 +3005,26 @@ function nitroStartupGate(
       let graphSignature: string | null = null;
       let graphStableAt: number | undefined;
       let startupComplete = false;
+      let readinessTimer: ReturnType<typeof setInterval> | undefined;
 
-      server.middlewares.use((req, res, next) => {
-        if (startupComplete || !isHtmlDocumentRequest(req)) {
-          next();
-          return;
+      const completeStartup = () => {
+        startupComplete = true;
+        if (readinessTimer) {
+          clearInterval(readinessTimer);
+          readinessTimer = undefined;
         }
+      };
+
+      // Observe the graph independently of the first document request. A
+      // server can finish compiling while the shell is still on its loading
+      // screen; measuring stability only from the first request adds the full
+      // settle window to an otherwise-ready server.
+      const observeStartup = () => {
+        if (startupComplete) return;
 
         const timestamp = now();
         if (timestamp - startedAt >= timeoutMs) {
-          startupComplete = true;
-          next();
+          completeStartup();
           return;
         }
 
@@ -2994,13 +3039,48 @@ function nitroStartupGate(
             graphStableAt !== undefined &&
             timestamp - graphStableAt >= settleMs
           ) {
-            startupComplete = true;
-            next();
-            return;
+            completeStartup();
           }
         } else {
           graphSignature = null;
           graphStableAt = undefined;
+        }
+      };
+
+      // Start watching before any HTML request arrives so readiness time is
+      // measured from server startup, not from the user's first navigation.
+      observeStartup();
+      if (!startupComplete) {
+        readinessTimer = setInterval(
+          observeStartup,
+          NITRO_STARTUP_POLL_INTERVAL_MS,
+        );
+        readinessTimer.unref?.();
+        server.httpServer?.once("close", () => {
+          if (readinessTimer) {
+            clearInterval(readinessTimer);
+            readinessTimer = undefined;
+          }
+        });
+      }
+
+      server.middlewares.use((req, res, next) => {
+        if (startupComplete || !isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        const timestamp = now();
+        if (timestamp - startedAt >= timeoutMs) {
+          completeStartup();
+          next();
+          return;
+        }
+
+        observeStartup();
+        if (startupComplete) {
+          next();
+          return;
         }
 
         sendNitroStartingResponse(req, res);
@@ -3445,7 +3525,7 @@ function createAgentNativePlugins(
     // don't bloat the edge worker. Opt-in per template — the framework
     // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
     // the server, so we can't blanket-stub it here).
-    ssrStubPlugin(options.ssrStubs ?? []),
+    ssrStubPlugin([...ALWAYS_SSR_STUBBED, ...(options.ssrStubs ?? [])]),
     ...userPlugins,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
@@ -3673,6 +3753,15 @@ function createAgentNativeConfig(
   const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
   const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
   const userWatch = userConfig.server?.watch ?? {};
+  // Vite 8 defines `rollupOptions` on `build`/`optimizeDeps` as a getter alias
+  // of `rolldownOptions`. Spreading the section copies the alias as a plain own
+  // property, so returning our own `rolldownOptions` alongside it makes the two
+  // diverge and Vite warns that this plugin set both — then ignores the
+  // `rollupOptions` half regardless. Drop the alias from what we spread back.
+  const { rollupOptions: _buildRollupOptionsAlias, ...userBuild } =
+    userConfig.build ?? {};
+  const { rollupOptions: _depsRollupOptionsAlias, ...userOptimizeDeps } =
+    userConfig.optimizeDeps ?? {};
 
   return {
     logLevel:
@@ -3695,6 +3784,16 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          "",
       ),
       // The release migration owner is configured at build time. Netlify's
       // netlify.toml environment is available to the build but not injected
@@ -3788,7 +3887,7 @@ function createAgentNativeConfig(
       },
     },
     build: {
-      ...(userConfig.build ?? {}),
+      ...userBuild,
       outDir: options.outDir ?? userConfig.build?.outDir ?? "dist/spa",
       // Vite 8 defaults CSS minification to Lightning CSS, which collapses a
       // `backdrop-filter` + `-webkit-backdrop-filter` pair down to only the
@@ -3875,7 +3974,7 @@ function createAgentNativeConfig(
           ],
         },
     optimizeDeps: {
-      ...(userConfig.optimizeDeps ?? {}),
+      ...userOptimizeDeps,
       include: [
         ...getDefaultOptimizeDeps(cwd),
         ...(hasDep("@agent-native/pinpoint", cwd)

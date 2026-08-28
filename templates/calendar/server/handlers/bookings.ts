@@ -93,7 +93,13 @@ async function getBookingLinkOwnerEmail(
 }
 
 function stripCrlf(value: unknown): string {
-  return String(value ?? "")
+  return (
+    typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : JSON.stringify(value)
+  )
     .replace(/[\r\n]+/g, " ")
     .trim();
 }
@@ -567,11 +573,19 @@ export async function getConflictItems({
   );
   const freeBusyResolvedHosts = new Set<string>();
 
-  const ownerConnected = ownerEmail
-    ? await googleCalendar.isConnected(ownerEmail)
-    : false;
+  let ownerConnected = false;
+  try {
+    ownerConnected = ownerEmail
+      ? await googleCalendar.isConnected(ownerEmail)
+      : false;
+  } catch {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
 
-  if (ownerEmail && !ownerConnected) {
+  if (requiredHosts.length > 0 && !ownerConnected) {
     return {
       items: [],
       unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
@@ -604,9 +618,14 @@ export async function getConflictItems({
         }
         for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
           const normalizedEmail = email.toLowerCase();
-          if (!calendar.errors || calendar.errors.length === 0) {
-            freeBusyResolvedHosts.add(normalizedEmail);
+          if (calendar.errors && calendar.errors.length > 0) {
+            return {
+              items: [],
+              unavailableReason:
+                formatAvailabilityUnavailableReason(normalizedEmail),
+            };
           }
+          freeBusyResolvedHosts.add(normalizedEmail);
           conflictItems.push(
             ...calendar.busy.map((busy) => ({
               start: busy.start,
@@ -640,17 +659,14 @@ export async function getConflictItems({
     }
   }
 
-  if (requiredHosts.length > 1) {
-    const owner = ownerEmail?.toLowerCase();
-    const unresolvedCoHosts = requiredHosts.filter(
-      (email) => email !== owner && !freeBusyResolvedHosts.has(email),
-    );
-    if (unresolvedCoHosts.length > 0) {
-      return {
-        items: conflictItems,
-        unavailableReason: `Availability unavailable for ${unresolvedCoHosts.join(", ")}`,
-      };
-    }
+  const unresolvedHosts = requiredHosts.filter(
+    (email) => !freeBusyResolvedHosts.has(email),
+  );
+  if (unresolvedHosts.length > 0) {
+    return {
+      items: conflictItems,
+      unavailableReason: `Availability unavailable for ${unresolvedHosts.join(", ")}`,
+    };
   }
 
   const bookings = await db
@@ -805,7 +821,7 @@ async function requestedSlotIsCurrentlyAvailable({
   start: Date;
   end: Date;
   duration: number;
-}): Promise<boolean> {
+}): Promise<boolean | { unavailableReason: string }> {
   const context = await resolveAvailabilityContext({ slug, db });
   if (!context.effectiveConfig) return false;
 
@@ -820,7 +836,9 @@ async function requestedSlotIsCurrentlyAvailable({
     rangeEndIso: dateEndIso(date, timezone),
     timezone,
   });
-  if (conflictResult.unavailableReason) return false;
+  if (conflictResult.unavailableReason) {
+    return { unavailableReason: conflictResult.unavailableReason };
+  }
   const slots = generateAvailableSlotsForDate({
     date,
     duration,
@@ -1039,15 +1057,17 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           ? [requestedSlug]
           : [];
 
-      if (
-        !(await requestedSlotIsCurrentlyAvailable({
-          db: tx,
-          slug: requestedSlug,
-          start: requestedRange.start,
-          end: requestedRange.end,
-          duration: requestedRange.duration,
-        }))
-      ) {
+      const slotAvailability = await requestedSlotIsCurrentlyAvailable({
+        db: tx,
+        slug: requestedSlug,
+        start: requestedRange.start,
+        end: requestedRange.end,
+        duration: requestedRange.duration,
+      });
+      if (typeof slotAvailability !== "boolean") {
+        return slotAvailability;
+      }
+      if (!slotAvailability) {
         return { conflict: true } as const;
       }
 
@@ -1092,6 +1112,9 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       return { conflict: false } as const;
     });
 
+    if ("unavailableReason" in insertResult) {
+      return unavailableAvailabilityResponse(event);
+    }
     if (insertResult.conflict) {
       setResponseStatus(event, 409);
       return { error: "This time slot is no longer available" };

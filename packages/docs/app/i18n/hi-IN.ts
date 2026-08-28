@@ -425,6 +425,109 @@ const hiIN = {
     source: "स्रोत",
     readDocs: "दस्तावेज़ पढ़ें",
     signIn: "साइन इन करें",
+    tryTemplateFree: "{{name}} को मुफ़्त में आज़माएँ",
+    designForFree: "मुफ़्त में डिज़ाइन करें",
+    recordForFree: "मुफ़्त में रिकॉर्ड करें",
+    getStarted: "शुरू करें",
+    freeAndOpenSource: "100% मुफ़्त • ओपन सोर्स",
+    viewAllApps: "सभी ऐप्स देखें",
+  },
+  homepage: {
+    hero: {
+      title: "एजेंटिक एप्लिकेशन फ्रेमवर्क",
+      bodyLine1: "उपयोगकर्ताओं के लिए दूसरा प्रोडक्ट बनाए बिना AI एजेंट्स के लिए बनाएं।",
+      bodyLine2: "अपना LLM लाएं। कहीं भी डिप्लॉय करें।",
+      tryAnApp: "कोई ऐप आज़माएं",
+    },
+    install: {
+      copyCommand: "इंस्टॉल कमांड कॉपी करें",
+    },
+    actions: {
+      title: "एक Action हर सतह को चलाता है",
+      bodyLine1: "Actions एक Agent-Native ऐप की बुनियादी इकाइयाँ हैं।",
+      bodyLine2:
+        "कार्यक्षमता एक बार परिभाषित करें, फिर उसे अपने UI, एजेंट चैट, HTTP API, MCP, A2A या CLI से उपयोग करें।",
+      diagramAlt: "एक Action UI, MCP, एजेंट चैट, A2A, HTTP API और CLI को चलाता है",
+    },
+    builtIn: {
+      title: "हर Agent-Native ऐप में पहले से मौजूद",
+      body: "उपयोगकर्ताओं और AI एजेंट्स को साथ काम करने के लिए जो कुछ चाहिए, वह सब एक ही एप्लिकेशन में पहले से जुड़ा है।",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "उपयोगकर्ताओं को ब्राउज़ करने, संपादित करने और काम की समीक्षा करने के लिए जाने-पहचाने स्क्रीन दें।",
+        },
+        agentChat: {
+          title: "अंतर्निहित एजेंट चैट",
+          body: "उपयोगकर्ता ऐप छोड़े बिना काम सौंप सकते हैं, सवाल पूछ सकते हैं और परिणाम देख सकते हैं।",
+        },
+        sharedState: {
+          title: "साझा एप्लिकेशन स्थिति",
+          body: "एजेंट जानता है कि उपयोगकर्ता क्या देख रहे, चुन रहे और संपादित कर रहे हैं।",
+        },
+        sharedSql: {
+          title: "साझा SQL डेटा",
+          body: "उपयोगकर्ता और एजेंट एक ही विश्वसनीय स्रोत को पढ़ते और अपडेट करते हैं।",
+        },
+        skillsMemory: {
+          title: "स्किल्स और मेमोरी",
+          body: "एजेंट्स को दोबारा उपयोग होने वाली विशेषज्ञता और स्थायी संदर्भ दें।",
+        },
+        automations: {
+          title: "ऑटोमेशन",
+          body: "एजेंट का काम शेड्यूल या एप्लिकेशन इवेंट्स पर स्वचालित रूप से चलाएं।",
+        },
+        agentTeams: {
+          title: "एजेंट टीमें",
+          body: "ऐप के भीतर या कई ऐप्स में विशेषज्ञ एजेंट्स को काम सौंपें।",
+        },
+        auth: {
+          title: "प्रमाणीकरण और संगठन",
+          body: "साइन-इन, उपयोगकर्ता खाते और संगठन सदस्यता पहले से शामिल हैं।",
+        },
+        sharing: {
+          title: "साझाकरण और अनुमतियाँ",
+          body: "नियंत्रित करें कि हर संसाधन को कौन देख, टिप्पणी, संपादित या प्रबंधित कर सकता है।",
+        },
+      },
+    },
+    stack: {
+      title: "आपके स्टैक के साथ काम करता है",
+      body: "अपना LLM, डेटाबेस, टूल्स और इंफ्रास्ट्रक्चर लाएं, Agent-Native ओपन सोर्स TypeScript है, इसलिए आपका एप्लिकेशन आपका ही रहता है।",
+      exploreApps: "Agent-Native से बने ऐप्स देखें",
+    },
+    showcase: {
+      title: "Agent-Native से आप क्या बना सकते हैं?",
+      body: "ऐसे एजेंटिक ऐप्स जो आपके काम को समझते हैं, कार्रवाई करते हैं और आपके साथ सहयोग करते हैं। अपना ऐप बनाएं या इन ओपन-सोर्स ऐप्स में से किसी एक को आज़माएं।",
+      browseApps: "ऐप्स देखें",
+      scrollLeft: "ऐप्स बाईं ओर स्क्रॉल करें",
+      scrollRight: "ऐप्स दाईं ओर स्क्रॉल करें",
+    },
+    bottomCta: {
+      title: "अपना पहला Agent-Native ऐप बनाएं",
+      body: "उपयोगकर्ताओं और AI एजेंट्स के लिए एक ही एप्लिकेशन बनाएं। अपना LLM लाएं और कहीं भी डिप्लॉय करें।",
+    },
+    footer: {
+      tagline: "एजेंटिक एप्लिकेशन फ्रेमवर्क।",
+      framework: "फ्रेमवर्क",
+      ecosystem: "इकोसिस्टम",
+      community: "कम्युनिटी",
+      legal: "कानूनी",
+      docs: "दस्तावेज़",
+      download: "डाउनलोड",
+      apps: "ऐप्स",
+      privacyPolicy: "गोपनीयता नीति",
+      saasTerms: "SaaS शर्तें",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "लोकल रूप से नहीं बना रहे हैं?",
+      exploreApp: "पहले एक live ऐप देखें",
+      between: "या",
+      joinWaitlist: "waitlist में शामिल हों",
+      end: "और इसके बजाय browser में बनाएं।",
+    },
   },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
@@ -451,7 +554,7 @@ const hiIN = {
       "फ़्रेमवर्क गाइड से शुरू करें या Builder.io के क्लाउड कोडिंग एजेंट के साथ ऑनलाइन बनाएँ.",
     readDocs: "डॉक्स पढ़ें",
     buildOnline: "ऑनलाइन बनाएँ",
-    popoverTitle: "Builder.io के साथ ऑनलाइन बनाएँ",
+    popoverTitle: "Browser में बनाएँ",
     popoverBody:
       "Builder.io क्लाउड में agent-native ऐप शुरू और कस्टमाइज़ कर सकता है — actions, auth, SQL state और agent chat सहित. शुरुआती पहुँच के लिए waitlist में शामिल हों.",
     emailLabel: "ईमेल",
@@ -479,7 +582,7 @@ const hiIN = {
     clips: {
       replaces: "Loom, Granola और Wisprflow को बदलता या बढ़ाता है",
       description:
-        "ब्राउज़र डिबग कैप्चर, कैलेंडर-सिंक किए गए मीटिंग नोट्स और Fn-होल्ड वॉयस डिक्टेशन के साथ स्क्रीन रिकॉर्डिंग - सभी ट्रांसक्राइब्ड, सारांशित और खोजने योग्य, एक एजेंट के साथ जो इसमें से किसी को भी संपादित कर सकता है।",
+        "स्क्रीन, मीटिंग और वॉइस नोट्स रिकॉर्ड करता है, ताकि एजेंट समझ सकें कि क्या हुआ और कार्रवाई करें।",
     },
     plan: {
       replaces: "Codex, Claude Code और coding agents के लिए visual plan mode",
@@ -489,28 +592,28 @@ const hiIN = {
     design: {
       replaces: "Design prototyping tools को बदलता या बढ़ाता है",
       description:
-        "Agent-native HTML प्रोटोटाइपिंग स्टूडियो। Interactive Alpine/Tailwind designs बनाएं, variants compare करें, live controls refine करें और result export करें।",
+        "प्रॉम्प्ट को आपके डिज़ाइन सिस्टम के अनुरूप इंटरैक्टिव डिज़ाइन में बदलता है, जबकि एजेंट फ़ीडबैक से हर स्क्रीन बेहतर बनाता है।",
     },
     content: {
       replaces:
         "MDX, Notion, Google Docs के लिए Obsidian को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "स्थानीय Markdown/MDX फ़ाइलों को Obsidian की तरह संपादित करें, समृद्ध इंटरैक्टिव कस्टम ब्लॉक बनाएं, और ड्राफ्ट, पुनः लिखने और प्रकाशित करने के लिए AI एजेंट का उपयोग करें।",
+        "आपके दस्तावेज़ों पर काम करता है, जबकि एजेंट आपकी शैली में लिखता, इंटरैक्टिव सामग्री बनाता और आपकी साइट पर प्रकाशित करता है।",
     },
     slides: {
       replaces: "Google Slides, Pitch को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "एक प्रॉम्प्ट से पूर्ण प्रस्तुतियाँ तैयार करें। दृश्यात्मक या संवादात्मक रूप से संपादित करें. AI छवि निर्माण, 8 लेआउट और प्रेजेंटेशन मोड अंतर्निहित।",
+        "प्रॉम्प्ट या मौजूदा स्लाइड से ब्रांड के अनुरूप, संपादन योग्य प्रेज़ेंटेशन बनाता है, जिन्हें एजेंट बना, संपादित और बेहतर कर सकता है।",
     },
     analytics: {
       replaces: "Amplitude और FullStory का ओपन-सोर्स विकल्प",
       description:
-        "किसी भी डेटा स्रोत को कनेक्ट करें, किसी भी चार्ट के लिए संकेत दें, पुन: प्रयोज्य डैशबोर्ड बनाएं। एजेंट SQL लिखता है, विज़ुअलाइज़ेशन उत्पन्न करता है, और ऐप विकसित करता है।",
+        "आपका डेटा जोड़ता है, ताकि एजेंट सरल भाषा में सवालों के जवाब दे और नतीजों को चार्ट व डैशबोर्ड में बदले।",
     },
     mail: {
       replaces: "Superhuman, Gmail को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "कीबोर्ड शॉर्टकट, AI ट्राइएज, मल्टी-अकाउंट सपोर्ट और ईमेल ऑटोमेशन के साथ Superhuman-स्टाइल ईमेल क्लाइंट। अपने इनबॉक्स वर्कफ़्लो का स्वामी बनें.",
+        "कीबोर्ड-केंद्रित इनबॉक्स, जहाँ एजेंट मेल को प्राथमिकता देता, जवाब लिखता, थ्रेड का सार बताता और फ़ॉलो-अप करता है।",
     },
     forms: {
       replaces: "Typeform, Google Forms को प्रतिस्थापित या संवर्धित करता है",
@@ -521,12 +624,12 @@ const hiIN = {
       replaces:
         "DAMs, ब्रांड एसेट लाइब्रेरीज़ और AI मीडिया जनरेटर को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "अपलोड, ब्रांड लाइब्रेरी, खोजने योग्य संदर्भ और ऑन-ब्रांड छवि/वीडियो जेनरेशन के लिए डिजिटल एसेट मैनेजर जिसे अन्य ऐप्स A2A के माध्यम से कॉल कर सकते हैं या पिकर के रूप में एम्बेड कर सकते हैं।",
+        "एजेंटों को ब्रांड दिशानिर्देशों, इमेज और वीडियो की साझा लाइब्रेरी देता है, ताकि वे ऐप्स में ब्रांड के अनुरूप मीडिया बना और चुन सकें।",
     },
     calendar: {
       replaces: "Google Calendar, Calendly को प्रतिस्थापित या संवर्धित करता है",
       description:
-        "Google सिंक, उपलब्धता प्रबंधन और एक सार्वजनिक बुकिंग पृष्ठ के साथ पूर्ण कैलेंडर। एजेंट खुले स्लॉट ढूंढता है, ईवेंट बनाता है और आपका शेड्यूल प्रबंधित करता है।",
+        "आपके Google Calendars को साथ लाता है, ताकि एजेंट समय ढूँढे, इवेंट शेड्यूल या रीशेड्यूल करे और बुकिंग संभाले।",
     },
     dispatch: {
       replaces: "आपके एजेंट-मूल ऐप्स के लिए मिशन नियंत्रण",
@@ -1221,7 +1324,7 @@ const hiIN = {
           "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
         question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
         answer5:
-          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
+          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent-Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
         question6: "क्या Plans मुफ़्त है?",
         answer6:
           "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
@@ -1289,7 +1392,7 @@ const hiIN = {
       s060: "सभी टेम्पलेट देखें",
       s061: "VS Code हैंडऑफ",
       s062: "इससे VS Code साइड पैनल में प्लान लिंक खोलें:",
-      s063: "Agent Native Plans एक्सटेंशन",
+      s063: "Agent-Native Plans एक्सटेंशन",
       s064: "वायरफ्रेम — कंपोनेंट स्लॉट वाला स्केची UI मॉकअप",
       s065: "एनोटेटेड कोड — प्रति-लाइन नोट्स वाली स्रोत फ़ाइल",
       s066: "डायग्राम — फ़्लोचार्ट, सीक्वेंस या आर्किटेक्चर",
@@ -1506,9 +1609,9 @@ const hiIN = {
     },
   },
   downloadPage: {
-    title: "Agent Native डाउनलोड करें",
+    title: "Agent-Native डाउनलोड करें",
     body: "आपके सभी agent-native ऐप एक ही desktop shell में। Production apps built-in हैं, और local development के लिए dev mode toggle है।",
-    openDesktop: "Agent Native खोलें",
+    openDesktop: "Agent-Native खोलें",
     downloadInstaller: "Installer डाउनलोड करें",
     downloadStarted: "डाउनलोड शुरू हो गया",
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
@@ -1663,6 +1766,55 @@ const hiIN = {
       links: {
         builderPrivacy: "गोपनीयता नीति",
         builderPrivacyFull: "Builder.io गोपनीयता नीति",
+      },
+    },
+    about: {
+      eyebrow: "Agent-Native के बारे में",
+      title: "एजेंट और लोगों के लिए ओपन-सोर्स ऐप्स",
+      intro:
+        "Agent-Native एक ओपन-सोर्स फ्रेमवर्क है जो ऐसे ऐप बनाने के लिए है जिनमें AI एजेंट और यूज़र इंटरफ़ेस एक ही actions, डेटा और application state साझा करते हैं।",
+      sections: {
+        project: {
+          title: "साझा संचालन मॉडल",
+          body: "Agent-Native एजेंट और इंटरफ़ेस को बराबर साझेदार मानता है। एक action UI कंट्रोल, एजेंट टूल, HTTP endpoint, MCP या A2A क्षमता, CLI कमांड और audit योग्य workflow को चला सकता है। साझा SQL state मानव और एजेंट की views को एक जैसा रखता है, किसी छिपी हुई दूसरी प्रणाली की ज़रूरत नहीं होती।",
+        },
+        openSource: {
+          title: "डिफ़ॉल्ट रूप से ओपन सोर्स",
+          body: "सोर्स कोड MIT लाइसेंस के तहत BuilderIO/agent-native repository में उपलब्ध है। डेवलपर implementation देख सकते हैं, स्थानीय रूप से चला सकते हैं, database और model providers चुन सकते हैं और इसे अपने product के अनुसार बदल सकते हैं। Hosted services forks और self-hosted deployments से अलग संचालित होती हैं।",
+        },
+        hosted: {
+          title: "होस्टेड और सेल्फ-होस्टेड",
+          body: "Builder.io agent-native.com पर Agent-Native की hosted applications और documentation संचालित करता है। यह framework उन teams के लिए भी बनाया गया है जो अपने applications deploy और support करना चाहती हैं। Actions, access boundaries, agent instructions और public protocols code और docs में देखे जा सकते हैं।",
+        },
+        community: {
+          title: "सार्वजनिक रूप से बनाया गया",
+          body: "Project GitHub issues, pull requests, documentation और Agent-Native community के माध्यम से खुले तौर पर विकसित होता है। Architecture सीखने के लिए docs पढ़ें, implementation verify करने के लिए source देखें, या use case पर चर्चा और contribution के लिए community में आएँ।",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "संपर्क",
+      title: "Agent-Native के बारे में Builder.io से संपर्क करें",
+      intro:
+        "Agent-Native के बारे में सवाल, समस्या रिपोर्ट, सुधार सुझाव या security concern के लिए support, source और community channels का उपयोग करें।",
+      emailLabel: "support@builder.io को ईमेल भेजें",
+      sections: {
+        support: {
+          title: "Product और hosted-service support",
+          body: "Hosted application, account access, documentation problem या ऐसे behavior के बारे में जिसे आप हल नहीं कर पा रहे हैं, support@builder.io पर लिखें। Public URL, छोटी reproducible description और relevant request या run identifier दें। Passwords, API keys, bearer tokens या private customer data न भेजें।",
+        },
+        source: {
+          title: "ओपन-सोर्स प्रोजेक्ट और community",
+          body: "Source-level bugs, feature proposals, pull requests और implementation discussion के लिए GitHub repository का उपयोग करें। दूसरे developers के साथ बातचीत से लाभ होने वाले सवालों के लिए Discord उपयोगी है। पहले existing issues और docs खोजें ताकि maintainers को ज़रूरी context मिल सके।",
+        },
+        security: {
+          title: "सुरक्षा रिपोर्ट",
+          body: "Unpatched vulnerability को public issue या chat में साझा न करें। उपलब्ध security channel से Builder.io को contact करें और reproduce तथा assess करने के लिए ज़रूरी details ही दें। Credentials, private data और exploit material को सामान्य support requests से बाहर रखें।",
+        },
+        legal: {
+          title: "कानूनी और privacy जानकारी",
+          body: "Privacy questions के लिए support से पहले Agent-Native privacy policy और Builder.io legal resources देखें। Builder.io, Inc. का पता 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States है। Hosted-service terms और self-hosting responsibilities Terms of Service में हैं।",
+        },
       },
     },
     terms: {
@@ -1890,6 +2042,7 @@ const hiIN = {
     externalAgents: "External Agents (host connect करें)",
     externalAgentsCatalog: "बाहरी एजेंट कैटलॉग",
     mcpApps: "MCP Apps (Inline UIs)",
+    webMcp: "WebMCP (ब्राउज़र टूल्स)",
     crossAppSso: "Cross-app SSO",
     notifications: "सूचनाएँ",
     automationConnectors: "वर्कफ़्लो कनेक्टर",
@@ -1914,8 +2067,8 @@ const hiIN = {
     calendar: "कैलेंडर",
     calendarOverview: "अवलोकन",
     calendarAgent: "एजेंट से बात करें",
-    calendarScheduling: "शेड्यूलिंग और उपलब्धता",
-    calendarBookingLinks: "बुकिंग लिंक",
+    calendarFeatures: "सुविधाएं",
+    calendarIntegrations: "क्रॉस-ऐप उपयोग",
     calendarDevelopers: "डेवलपर गाइड",
     content: "कॉन्टेंट",
     contentOverview: "अवलोकन",
@@ -1974,8 +2127,9 @@ const hiIN = {
     dispatchDevelopers: "डेवलपर गाइड",
     forms: "फॉर्म",
     formsOverview: "अवलोकन",
-    formsBuildingPublishing: "निर्माण और प्रकाशन",
-    formsResponses: "प्रतिक्रियाएं और इनसाइट्स",
+    formsFeatures: "सुविधाएं",
+    formsAgent: "एजेंट से बात करें",
+    formsIntegrations: "क्रॉस-ऐप उपयोग",
     docsComponents: "Docs Components",
     formsDevelopers: "डेवलपर गाइड",
   },

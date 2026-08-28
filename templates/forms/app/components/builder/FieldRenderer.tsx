@@ -68,173 +68,184 @@ export function FieldRenderer({
         <p className="text-xs text-muted-foreground">{field.description}</p>
       )}
 
-      {field.type === "text" && (
-        <Input
-          placeholder={field.placeholder || ""}
-          value={(value as string) || ""}
-          onChange={(e) => handleChange(e.target.value)}
-          disabled={disabled}
-        />
-      )}
-
-      {field.type === "email" && (
-        <Input
-          type="email"
-          placeholder={field.placeholder || "you@example.com"}
-          value={(value as string) || ""}
-          onChange={(e) => handleChange(e.target.value)}
-          disabled={disabled}
-        />
-      )}
-
-      {field.type === "number" && (
-        <Input
-          type="number"
-          placeholder={field.placeholder || ""}
-          value={(value as string) || ""}
-          onChange={(e) => handleChange(e.target.value)}
-          min={field.validation?.min}
-          max={field.validation?.max}
-          disabled={disabled}
-        />
-      )}
-
-      {field.type === "textarea" && (
-        <Textarea
-          placeholder={field.placeholder || ""}
-          value={(value as string) || ""}
-          onChange={(e) => handleChange(e.target.value)}
-          rows={4}
-          disabled={disabled}
-        />
-      )}
-
-      {field.type === "select" && (
-        <Select
-          value={(value as string) || ""}
-          onValueChange={handleChange}
-          disabled={disabled}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={field.placeholder || "Select..."} />
-          </SelectTrigger>
-          <SelectContent>
-            {dedupeRenderableOptions(field.options).map((opt, i) => (
-              <SelectItem key={`${opt}-${i}`} value={opt}>
-                {opt}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      {field.type === "multiselect" && (
-        <div className="space-y-1">
-          {dedupeRenderableOptions(field.options).map((opt, i) => {
-            const selected = Array.isArray(value) ? value : [];
-            return (
-              <label
-                key={`${opt}-${i}`}
-                className="flex items-center gap-2.5 text-sm min-h-[44px] py-1"
-              >
-                <Checkbox
-                  checked={selected.includes(opt)}
-                  onCheckedChange={(checked) => {
-                    const next = checked
-                      ? [...selected, opt]
-                      : selected.filter((s: string) => s !== opt);
-                    handleChange(next);
-                  }}
-                  disabled={disabled}
-                />
-                {opt}
-              </label>
-            );
-          })}
-        </div>
-      )}
-
-      {field.type === "checkbox" && (
-        <label className="flex items-center gap-2.5 text-sm min-h-[44px]">
-          <Checkbox
-            checked={!!value}
-            onCheckedChange={handleChange}
+      <div
+        inert={preview ? true : undefined}
+        className={preview ? "pointer-events-none" : undefined}
+      >
+        {field.type === "text" && (
+          <Input
+            placeholder={field.placeholder || ""}
+            value={(value as string) || ""}
+            onChange={(e) => handleChange(e.target.value)}
             disabled={disabled}
           />
-          {field.placeholder || field.label}
-        </label>
-      )}
+        )}
 
-      {field.type === "radio" && (
-        <RadioGroup
-          value={(value as string) || ""}
-          onValueChange={handleChange}
-          disabled={disabled}
-        >
-          {dedupeRenderableOptions(field.options).map((opt, i) => (
-            <div
-              key={`${opt}-${i}`}
-              className="flex items-center gap-2.5 min-h-[44px]"
-            >
-              <RadioGroupItem value={opt} id={`${field.id}-${opt}-${i}`} />
-              <Label
-                htmlFor={`${field.id}-${opt}-${i}`}
-                className="font-normal"
-              >
-                {opt}
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
-      )}
-
-      {field.type === "date" && (
-        <Input
-          type="date"
-          value={(value as string) || ""}
-          onChange={(e) => handleChange(e.target.value)}
-          disabled={disabled}
-        />
-      )}
-
-      {field.type === "rating" && (
-        <div className="flex gap-0.5 sm:gap-1">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={star}
-              type="button"
-              onClick={() => !disabled && handleChange(star)}
-              className="flex size-11 cursor-pointer items-center justify-center rounded-md p-2 transition-[color,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:active:scale-100 disabled:cursor-not-allowed sm:size-10 sm:p-1.5"
-              disabled={disabled}
-              aria-label={`${star} star${star !== 1 ? "s" : ""}`}
-            >
-              {(value as number) >= star ? (
-                <IconStarFilled className="h-7 w-7 text-amber-400 sm:h-6 sm:w-6" />
-              ) : (
-                <IconStar className="h-7 w-7 text-muted-foreground/30 sm:h-6 sm:w-6" />
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {field.type === "scale" && (
-        <div className="pt-2">
-          <Slider
-            value={[(value as number) || field.validation?.min || 1]}
-            onValueChange={([v]) => handleChange(v)}
-            min={field.validation?.min || 1}
-            max={field.validation?.max || 10}
-            step={1}
+        {field.type === "email" && (
+          <Input
+            type="email"
+            placeholder={field.placeholder || "you@example.com"}
+            value={(value as string) || ""}
+            onChange={(e) => handleChange(e.target.value)}
             disabled={disabled}
           />
-          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-            <span>{field.validation?.min || 1}</span>
-            <span>{String(value ?? "-")}</span>
-            <span>{field.validation?.max || 10}</span>
+        )}
+
+        {field.type === "number" && (
+          <Input
+            type="number"
+            placeholder={field.placeholder || ""}
+            value={(value as string) || ""}
+            onChange={(e) => handleChange(e.target.value)}
+            min={field.validation?.min}
+            max={field.validation?.max}
+            disabled={disabled}
+          />
+        )}
+
+        {field.type === "textarea" && (
+          <Textarea
+            placeholder={field.placeholder || ""}
+            value={(value as string) || ""}
+            onChange={(e) => handleChange(e.target.value)}
+            rows={4}
+            disabled={disabled}
+          />
+        )}
+
+        {field.type === "select" && (
+          <Select
+            value={(value as string) || ""}
+            onValueChange={handleChange}
+            disabled={disabled}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={field.placeholder || "Select..."} />
+            </SelectTrigger>
+            <SelectContent>
+              {dedupeRenderableOptions(field.options).map((opt, i) => (
+                <SelectItem key={`${opt}-${i}`} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {field.type === "multiselect" && (
+          <div className="space-y-1">
+            {dedupeRenderableOptions(field.options).map((opt, i) => {
+              const selected = Array.isArray(value) ? value : [];
+              return (
+                <label
+                  key={`${opt}-${i}`}
+                  className="flex items-center gap-2.5 text-sm min-h-[44px] py-1"
+                >
+                  <Checkbox
+                    checked={selected.includes(opt)}
+                    onCheckedChange={(checked) => {
+                      const next = checked
+                        ? [...selected, opt]
+                        : selected.filter((s: string) => s !== opt);
+                      handleChange(next);
+                    }}
+                    disabled={disabled}
+                  />
+                  {opt}
+                </label>
+              );
+            })}
           </div>
-        </div>
-      )}
+        )}
+
+        {field.type === "checkbox" && (
+          <label className="flex items-center gap-2.5 text-sm min-h-[44px]">
+            <Checkbox
+              checked={!!value}
+              onCheckedChange={handleChange}
+              disabled={disabled}
+            />
+            {field.placeholder || field.label}
+          </label>
+        )}
+
+        {field.type === "radio" && (
+          <RadioGroup
+            value={(value as string) || ""}
+            onValueChange={handleChange}
+            disabled={disabled}
+          >
+            {dedupeRenderableOptions(field.options).map((opt, i) => (
+              <div
+                key={`${opt}-${i}`}
+                className="flex items-center gap-2.5 min-h-[44px]"
+              >
+                <RadioGroupItem value={opt} id={`${field.id}-${opt}-${i}`} />
+                <Label
+                  htmlFor={`${field.id}-${opt}-${i}`}
+                  className="font-normal"
+                >
+                  {opt}
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        )}
+
+        {field.type === "date" && (
+          <Input
+            type="date"
+            value={(value as string) || ""}
+            onChange={(e) => handleChange(e.target.value)}
+            disabled={disabled}
+          />
+        )}
+
+        {field.type === "rating" && (
+          <div className="flex gap-0.5 sm:gap-1">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <button
+                key={star}
+                type="button"
+                onClick={() => !disabled && handleChange(star)}
+                className="flex size-11 cursor-pointer items-center justify-center rounded-md p-2 transition-[color,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:active:scale-100 disabled:cursor-not-allowed sm:size-10 sm:p-1.5"
+                disabled={disabled}
+                aria-label={`${star} star${star !== 1 ? "s" : ""}`}
+              >
+                {(value as number) >= star ? (
+                  <IconStarFilled className="h-7 w-7 text-amber-400 sm:h-6 sm:w-6" />
+                ) : (
+                  <IconStar className="h-7 w-7 text-muted-foreground/30 sm:h-6 sm:w-6" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {field.type === "scale" && (
+          <div className="pt-2">
+            <Slider
+              value={[(value as number) || field.validation?.min || 1]}
+              onValueChange={([v]) => handleChange(v)}
+              min={field.validation?.min || 1}
+              max={field.validation?.max || 10}
+              step={1}
+              disabled={disabled}
+            />
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>{field.validation?.min || 1}</span>
+              <span>
+                {typeof value === "object"
+                  ? JSON.stringify(value)
+                  : String(
+                      (value as string | number | boolean | bigint) ?? "-",
+                    )}
+              </span>
+              <span>{field.validation?.max || 10}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -4,20 +4,22 @@ import {
   desktopRequestedUserDataPath,
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
+  resolveStableUserDataPath,
   runDesktopStartupStep,
+  type DesktopStartupDependencies,
 } from "./desktop-startup.js";
 
 describe("desktopRequestedUserDataPath", () => {
   it("uses Electron's switch when Chromium strips it from argv", () => {
     expect(
-      desktopRequestedUserDataPath("/tmp/electron-profile", ["Agent Native"]),
+      desktopRequestedUserDataPath("/tmp/electron-profile", ["Agent-Native"]),
     ).toBe("/tmp/electron-profile");
   });
 
   it("keeps the argv fallback for ordinary launches", () => {
     expect(
       desktopRequestedUserDataPath("", [
-        "Agent Native",
+        "Agent-Native",
         "--user-data-dir=/tmp/argv-profile",
       ]),
     ).toBe("/tmp/argv-profile");
@@ -26,14 +28,17 @@ describe("desktopRequestedUserDataPath", () => {
 
 function createDependencies(
   overrides: Partial<Parameters<typeof initializeDesktopStartup>[0]> = {},
-) {
+): { events: string[]; dependencies: DesktopStartupDependencies } {
   const events: string[] = [];
   return {
     events,
     dependencies: {
       isPackaged: true,
       version: "0.1.150-desktop-sso-canary.20",
+      releaseChannel: "production",
       appDataPath: "/application-support",
+      defaultUserDataPath: "/application-support/Agent-Native",
+      pathExists: vi.fn(() => false),
       createDirectory: vi.fn(() => events.push("create-directory")),
       setUserDataPath: vi.fn(() => events.push("set-user-data")),
       initializeSentry: vi.fn(() => events.push("sentry")),
@@ -50,6 +55,17 @@ describe("initializeDesktopStartup", () => {
     expect(resolveDesktopSsoBrokerStatePath("/isolated-canary-profile")).toBe(
       "/isolated-canary-profile/desktop-sso.json",
     );
+  });
+
+  it("keeps existing stable Desktop data in the legacy product directory", () => {
+    const legacyPath = "/application-support/Agent Native"; // agent-native-brand-ok: preserve the legacy Electron profile directory.
+    expect(
+      resolveStableUserDataPath(
+        "/application-support",
+        "/application-support/Agent-Native",
+        (directoryPath) => directoryPath === legacyPath,
+      ),
+    ).toBe(legacyPath);
   });
 
   it("stops startup and cleans up when shutdown wins an async startup race", async () => {
@@ -91,10 +107,10 @@ describe("initializeDesktopStartup", () => {
     initializeDesktopStartup(dependencies);
 
     expect(dependencies.createDirectory).toHaveBeenCalledWith(
-      "/application-support/Agent Native SSO Canary",
+      "/application-support/Agent Native SSO Canary", // agent-native-brand-ok: preserve the legacy Electron profile directory.
     );
     expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
-      "/application-support/Agent Native SSO Canary",
+      "/application-support/Agent Native SSO Canary", // agent-native-brand-ok: preserve the legacy Electron profile directory.
     );
     expect(events).toEqual([
       "create-directory",
@@ -122,13 +138,54 @@ describe("initializeDesktopStartup", () => {
     expect(dependencies.initializeLogger).not.toHaveBeenCalled();
   });
 
-  it("preserves stable Desktop's existing profile", () => {
+  it("uses the new stable profile directory for new installs", () => {
     const { dependencies, events } = createDependencies({
       version: "0.1.150",
     });
 
     initializeDesktopStartup(dependencies);
 
+    expect(dependencies.createDirectory).toHaveBeenCalledWith(
+      "/application-support/Agent-Native",
+    );
+    expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
+      "/application-support/Agent-Native",
+    );
+    expect(events).toEqual([
+      "create-directory",
+      "set-user-data",
+      "sentry",
+      "logger",
+    ]);
+  });
+
+  it("uses the legacy stable profile directory when it already exists", () => {
+    const { dependencies } = createDependencies({
+      version: "0.1.150",
+      pathExists: vi.fn(
+        (directoryPath) =>
+          directoryPath === "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+      ),
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
+      "/application-support/Agent Native", // agent-native-brand-ok: preserve the legacy Electron profile directory.
+    );
+  });
+
+  it("does not reuse the stable profile for packaged Nightly", () => {
+    const { dependencies, events } = createDependencies({
+      releaseChannel: "nightly",
+      version: "0.1.150-nightly.296",
+      defaultUserDataPath: "/application-support/Agent-Native Nightly",
+      pathExists: vi.fn(() => true),
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.pathExists).not.toHaveBeenCalled();
     expect(dependencies.createDirectory).not.toHaveBeenCalled();
     expect(dependencies.setUserDataPath).not.toHaveBeenCalled();
     expect(events).toEqual(["sentry", "logger"]);

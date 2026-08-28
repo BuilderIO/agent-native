@@ -7,9 +7,12 @@
  *   pnpm action reply-to-comment --commentId=<id> --content="..."
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -57,6 +60,8 @@ export default defineAction({
     if (!authorEmail) {
       throw new Error("Sign in required to reply to comments.");
     }
+    const authorName =
+      getRequestUserName()?.trim() || args.authorName?.trim() || null;
 
     const id = nanoid();
     const now = new Date().toISOString();
@@ -68,7 +73,7 @@ export default defineAction({
       threadId: parent.threadId,
       parentId: parent.id,
       authorEmail,
-      authorName: args.authorName ?? null,
+      authorName,
       content: args.content,
       videoTimestampMs: parent.videoTimestampMs,
       createdAt: now,
@@ -79,7 +84,7 @@ export default defineAction({
       recordingId: parent.recordingId,
       threadId: parent.threadId,
       authorEmail,
-      authorName: args.authorName,
+      authorName: authorName ?? undefined,
       content: args.content,
       videoTimestampMs: parent.videoTimestampMs,
       isReply: true,

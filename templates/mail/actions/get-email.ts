@@ -1,21 +1,32 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { gmailGetMessage } from "../server/lib/google-api.js";
-import { isConnected, gmailToEmailMessage } from "../server/lib/google-auth.js";
-import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+import {
+  getClientsWithErrors,
+  isConnected,
+  gmailToEmailMessage,
+} from "../server/lib/google-auth.js";
+import { fetchLabelMap } from "./helpers.js";
+
+const accountCoordinate = z.union([z.string().email(), z.literal("local")]);
 
 export default defineAction({
   description:
-    "Get a single email by ID, including its full body and metadata.",
+    "Read one exact email, including its full body and metadata, without changing UNREAD or any other mailbox label.",
   schema: z.object({
-    id: z.string().optional().describe("Email message ID"),
+    accountEmail: accountCoordinate.describe(
+      'Connected account email, or "local" for the synthetic mailbox',
+    ),
+    id: z.string().min(1).describe("Provider-scoped email message ID"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
-    if (!args.id) throw new Error("--id is required");
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async (args, ctx) => {
+    const requestedAccount = args.accountEmail.toLowerCase();
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -23,25 +34,61 @@ export default defineAction({
       const data = await getUserSetting(ownerEmail, "local-emails");
       const emails =
         data && Array.isArray((data as any).emails) ? (data as any).emails : [];
-      const found = emails.find((e: any) => e.id === args.id);
-      if (!found) throw new Error("Email not found.");
-      return JSON.stringify(found, null, 2);
-    }
-
-    const accounts = await getAccessTokens();
-    if (accounts.length === 0) throw new Error("No Google account connected.");
-
-    for (const { email, accessToken } of accounts) {
-      try {
-        const labelMap = await fetchLabelMap(accessToken);
-        const msg = await gmailGetMessage(accessToken, args.id, "full");
-        const parsed = gmailToEmailMessage(msg, email, labelMap);
-        return JSON.stringify(parsed, null, 2);
-      } catch (err: any) {
-        if (err?.message?.includes("404")) continue;
-        throw new Error(err?.message ?? "Gmail API error");
+      const localAccounts = new Set(
+        emails.map(
+          (email: any) => email.accountEmail?.toLowerCase() ?? "local",
+        ),
+      );
+      if (!localAccounts.has(requestedAccount)) {
+        throw new Error("Requested local account is not connected.");
       }
+      const found = emails.find(
+        (e: any) =>
+          e.id === args.id &&
+          (e.accountEmail?.toLowerCase() ?? "local") === requestedAccount,
+      );
+      if (!found) throw new Error("Email not found.");
+      const email = { ...found, accountEmail: args.accountEmail };
+      return ctx?.caller === "mcp"
+        ? {
+            accountEmail: args.accountEmail,
+            email,
+            readOnlyGuarantee: {
+              mailboxLabels: "preserved",
+              gmailModifyOperations: 0,
+            },
+          }
+        : email;
     }
-    throw new Error("Email not found in any connected account.");
+
+    const { clients, errors } = await getClientsWithErrors(ownerEmail, [
+      requestedAccount,
+    ]);
+    const account = clients.find(
+      ({ email }) => email.toLowerCase() === requestedAccount,
+    );
+    if (!account) {
+      if (errors[0]) throw new Error(errors[0].error);
+      throw new Error("Requested Google account is not connected.");
+    }
+
+    try {
+      const labelMap = await fetchLabelMap(account.accessToken);
+      const msg = await gmailGetMessage(account.accessToken, args.id, "full");
+      const email = gmailToEmailMessage(msg, account.email, labelMap);
+      return ctx?.caller === "mcp"
+        ? {
+            accountEmail: account.email,
+            email,
+            readOnlyGuarantee: {
+              mailboxLabels: "preserved",
+              gmailModifyOperations: 0,
+            },
+          }
+        : email;
+    } catch (err: any) {
+      if (err?.message?.includes("404")) throw new Error("Email not found.");
+      throw new Error(err?.message ?? "Gmail API error");
+    }
   },
 });

@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Internal Better Auth instance — lazily created, not exported to templates.
  *
@@ -26,6 +36,7 @@ import {
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
 
+import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
@@ -43,6 +54,9 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  prepareLocalSqliteUrl,
+  sqliteFilenameFromUrl,
+  retrySqliteBusy,
 } from "../db/client.js";
 import {
   CORE_RESET_PASSWORD_EMAIL_ID,
@@ -55,6 +69,7 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -64,8 +79,11 @@ import {
   getRuntimeConfigReport,
 } from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
+import { isEmailDerivedName } from "../user-profile/shared.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
+  type SignupOrigin,
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
@@ -76,7 +94,11 @@ import {
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { getEmailReadiness, sendEmail } from "./email.js";
+import {
+  getDeploymentEmailReadiness,
+  sendEmail,
+  type EmailReadiness,
+} from "./email.js";
 import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
@@ -114,6 +136,124 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
   return !!existing?.user?.email;
 }
 
+/**
+ * The canonical Better Auth user id for an email, or `undefined` when there
+ * is no row (or the adapter is unavailable).
+ *
+ * Signup events must carry this id, not the identity provider's subject id:
+ * the virality panels self-join `auth_user_id` against `referrer_user`, and
+ * `referrer_user` is always a Better Auth id, so a Google profile id in that
+ * column silently joins to nothing.
+ */
+export async function getBetterAuthUserIdForEmail(
+  email: string,
+): Promise<string | undefined> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) return undefined;
+  try {
+    const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+      includeAccounts: false,
+    });
+    return existing?.user?.id || undefined;
+  } catch (error) {
+    // coercion-ok: this is analytics enrichment on the sign-in path. Failing
+    // the sign-in over it would be worse, and the only consequence is one
+    // event missing `auth_user_id` — never a wrong id. Logged, not swallowed.
+    console.error(
+      "[auth] failed to resolve the canonical user id for a signup event",
+      error,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * The endpoint context Better Auth (1.6.x) hands to `user.create.after`. It is
+ * `null` for any row created through `internalAdapter` outside an endpoint —
+ * see `emitSignupEventForCreatedUser`.
+ */
+export interface BetterAuthUserCreateContext {
+  headers?: Headers | null;
+  request?: { headers?: Headers | null; url?: string } | null;
+}
+
+function signupMethodFromRequestUrl(
+  url: string | undefined,
+): "magic_link" | "password" {
+  const normalized = url?.toLowerCase() ?? "";
+  return normalized.includes("newusercallbackurl") ||
+    normalized.includes("/magic-link")
+    ? "magic_link"
+    : "password";
+}
+
+/**
+ * Emit the `signup` event for a freshly created Better Auth `user` row — but
+ * only when that row is an actual person signing up.
+ *
+ * Better Auth runs its create hook on every `user` insert. Only inserts made
+ * through one of its HTTP endpoints carry the originating request; everything
+ * that reaches the row through `internalAdapter` directly gets a null context,
+ * because `getCurrentAuthContext()` throws outside an endpoint. Two production
+ * paths do exactly that, and neither is an acquisition:
+ *
+ *   - `ensureCanonicalUserForLegacySession` backfills a canonical row for
+ *     someone who signed up long ago, on an ordinary authenticated request.
+ *   - `ensureGoogleAuthIdentity` provisions the canonical row during the Google
+ *     callback, whose own attributed event `createOAuthSession` emits.
+ *
+ * Emitting for those is what broke campaign reporting: they arrived with no
+ * browser context and were recorded as `referral_source: "direct"`, so ~94% of
+ * `better-auth` signups were unattributable rows that were never signups, and
+ * one person provisioned across sibling apps counted as a dozen. A row insert
+ * is not an acquisition, so a context-free insert emits nothing at all.
+ */
+export async function emitSignupEventForCreatedUser(
+  user: { id?: string; email?: string; name?: string | null },
+  context?: BetterAuthUserCreateContext | null,
+): Promise<void> {
+  const email = user?.email;
+  if (!email) return;
+
+  const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
+  if (!requestHeaders) return;
+
+  const scoped = hasContinuationLocalRequestContext()
+    ? getRequestContext()
+    : undefined;
+  let attribution: Record<string, string> | undefined;
+  let anonymousId: string | undefined;
+  try {
+    const browser =
+      // The signed magic-link token is the only source that survives the link
+      // being opened in a different browser than the one that requested it.
+      (context?.request?.url?.includes("newUserCallbackURL")
+        ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
+        : undefined) ??
+      scoped?.signupAttribution ??
+      signupAttributionContextFromHeaders(requestHeaders) ??
+      signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
+    attribution = browser?.attribution;
+    anonymousId = browser?.anonymousId;
+  } catch (err) {
+    // Analytics must never block signup, but a parse failure is not "this
+    // visitor came direct" — leave both unset so the event shows the gap
+    // instead of inventing a source for it.
+    console.error("[auth] failed to derive signup attribution", err);
+  }
+
+  await trackSignupEvent({
+    authProvider: "better-auth",
+    origin: scoped?.signupOrigin ?? "browser_signup",
+    signupMethod: signupMethodFromRequestUrl(context?.request?.url),
+    authUserId: user.id,
+    email,
+    name: user.name,
+    attribution,
+    anonymousId,
+  });
+}
+
 /** Return whether the canonical user has a verified Google account link. */
 export async function hasGoogleAuthIdentity(
   email: string,
@@ -131,6 +271,8 @@ export async function hasGoogleAuthIdentity(
 
 export async function trackSignupEvent({
   authProvider,
+  origin,
+  signupMethod,
   authUserId,
   email,
   name,
@@ -138,6 +280,8 @@ export async function trackSignupEvent({
   anonymousId,
 }: {
   authProvider: string;
+  origin: SignupOrigin;
+  signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
   name?: string | null;
@@ -146,7 +290,9 @@ export async function trackSignupEvent({
    * cookie (see `server/attribution.ts`). Snake_case keys such as
    * `referral_source`, `referrer_user`, and the UTM passthrough are merged
    * into the `signup` event so we can measure where new users came from.
-   * `undefined` values are dropped; a missing object is a clean no-op.
+   * `undefined` values are dropped; a missing object is a clean no-op — and
+   * it must stay a no-op rather than defaulting to `direct`, so a signup we
+   * could not attribute stays visibly different from an unattributed visit.
    */
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
@@ -169,6 +315,8 @@ export async function trackSignupEvent({
     {
       ...resolveSignupTrackingProperties(),
       auth_provider: authProvider,
+      signup_origin: origin,
+      ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
@@ -388,18 +536,34 @@ export function isDeployPreview(): boolean {
   return deployContext === "deploy-preview";
 }
 
-export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
+export function resolveEmailPasswordAuthPolicy(
+  emailReadiness: EmailReadiness,
+): {
   requireEmailVerification: boolean;
   disableSignUp: boolean;
 } {
+  const emailConfigured = emailReadiness.status === "ready";
+  const emailProviderMissing = emailReadiness.status === "not-configured";
+  const declared = getAppConfig().auth.requireEmailVerification;
+  if (declared !== undefined) {
+    // A declared policy is the verification policy — it outranks both the
+    // hosted derivation below and AUTH_SKIP_EMAIL_VERIFICATION. The signup
+    // lock still fails closed for a configured transport that cannot be read.
+    return {
+      requireEmailVerification: declared && emailConfigured,
+      // Verification that no provider can deliver would strand every new
+      // account on an unverifiable signup, so refuse the signup instead. An
+      // explicitly absent provider is the documented password-only mode.
+      disableSignUp: emailProviderMissing ? declared : !emailConfigured,
+    };
+  }
   const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
   return {
     requireEmailVerification:
       emailConfigured && (hosted || !shouldSkipEmailVerification()),
-    // A hosted deployment without an email provider cannot prove ownership of
-    // an email address. Keeping password signup enabled there turns an email
-    // into an account-claim credential.
-    disableSignUp: hosted && !emailConfigured,
+    // Only an explicitly absent provider enables unverified password signup.
+    // Misconfigured or unavailable transports fail closed instead.
+    disableSignUp: !emailConfigured && !emailProviderMissing,
   };
 }
 
@@ -417,7 +581,12 @@ export interface BetterAuthInstance {
   handler: (request: Request) => Promise<Response>;
   api: {
     getSession: (opts: { headers: Headers }) => Promise<{
-      user: { id: string; email: string; name: string };
+      user: {
+        id: string;
+        email: string;
+        name: string;
+        emailVerified: boolean;
+      };
       session: {
         id: string;
         token: string;
@@ -508,6 +677,7 @@ const pgAuthSchema = {
     name: pgText("name").notNull(),
     email: pgText("email").notNull().unique(),
     emailVerified: pgBoolean("email_verified").notNull().default(false),
+    onboardingRole: pgText("onboarding_role"),
     image: pgText("image"),
     createdAt: pgTimestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: pgTimestamp("updated_at", { withTimezone: true }).notNull(),
@@ -595,6 +765,7 @@ const sqliteAuthSchema = {
     emailVerified: sqliteInteger("email_verified", { mode: "boolean" })
       .notNull()
       .default(false),
+    onboardingRole: sqliteText("onboarding_role"),
     image: sqliteText("image"),
     createdAt: sqliteInteger("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: sqliteInteger("updated_at", { mode: "timestamp_ms" }).notNull(),
@@ -764,7 +935,12 @@ export async function getBetterAuth(
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  _initPromise = createBetterAuthInstance(config);
+  // A failed boot must not be cached: every later request would replay the same
+  // stale error with no way back short of restarting the process.
+  _initPromise = createBetterAuthInstance(config).catch((error) => {
+    _initPromise = undefined;
+    throw error;
+  });
   _auth = await _initPromise;
   return _auth;
 }
@@ -845,10 +1021,42 @@ export interface BetterAuthInternalAdapter {
       id: string;
       email: string;
       name?: string;
+      image?: string | null;
       emailVerified?: boolean;
+      onboardingRole?: string | null;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
+  listUsers?: (
+    limit?: number,
+    offset?: number,
+    sortBy?: { field: string; direction: "asc" | "desc" },
+    where?: Array<{
+      field: string;
+      value: string | number | boolean | string[] | number[] | Date | null;
+      operator?:
+        | "eq"
+        | "ne"
+        | "lt"
+        | "lte"
+        | "gt"
+        | "gte"
+        | "in"
+        | "not_in"
+        | "contains"
+        | "starts_with"
+        | "ends_with";
+      connector?: "AND" | "OR";
+      mode?: "sensitive" | "insensitive";
+    }>,
+  ) => Promise<
+    Array<{
+      id: string;
+      email: string;
+      name?: string;
+      image?: string | null;
+    }>
+  >;
   linkAccount: (account: {
     userId: string;
     providerId: string;
@@ -857,14 +1065,23 @@ export interface BetterAuthInternalAdapter {
   createUser: (user: {
     email: string;
     name: string;
+    image?: string | null;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
+    override?: { expiresAt?: Date },
+    overrideAll?: boolean,
   ) => Promise<{ token: string }>;
+  deleteSession: (token: string) => Promise<void>;
   createOAuthUser?: (
-    user: { email: string; name: string; emailVerified?: boolean },
+    user: {
+      email: string;
+      name: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
     account: { providerId: string; accountId: string },
   ) => Promise<{ user: { id: string }; account: unknown }>;
   findAccountByProviderId: (
@@ -882,6 +1099,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       image?: string | null;
       emailVerified?: boolean;
+      onboardingRole?: string | null;
     },
   ) => Promise<unknown>;
 }
@@ -1017,6 +1235,7 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
       typeof ia.createSession === "function" &&
+      typeof ia.deleteSession === "function" &&
       typeof ia.findAccountByProviderId === "function"
     ) {
       return {
@@ -1030,10 +1249,129 @@ export async function getBetterAuthInternalAdapter(
   return undefined;
 }
 
+/**
+ * Run a password action with a Better Auth session for the framework's legacy
+ * session boundary, deleting a session created only for this operation.
+ */
+type BetterAuthActionSessionOverrides = {
+  auth?: BetterAuthInstance;
+  createSession?: typeof createBetterAuthSessionForEmail;
+  adapter?: BetterAuthInternalAdapter;
+};
+
+const BRIDGED_SESSION_TTL_MS = 60_000;
+const BRIDGED_SESSION_CLEANUP_TIMEOUT_MS = 5_000;
+// ponytail: the short TTL bounds cleanup leaks; add a durable retry queue if failures need stronger guarantees.
+
+export async function withBetterAuthActionSession<T>(
+  email: string,
+  requestHeaders: Headers,
+  action: (headers: Headers) => Promise<T>,
+  overrides?: BetterAuthActionSessionOverrides,
+): Promise<T> {
+  const auth = overrides?.auth ?? (await getBetterAuth());
+  const existingSession = await auth.api.getSession({
+    headers: requestHeaders,
+  });
+  if (existingSession) {
+    if (
+      existingSession.user.email.trim().toLowerCase() !==
+      email.trim().toLowerCase()
+    ) {
+      throw new Error("Authenticated user mismatch.");
+    }
+    return action(new Headers(requestHeaders));
+  }
+
+  const createSession =
+    overrides?.createSession ?? createBetterAuthSessionForEmail;
+  const session = await createSession(email, undefined, {
+    expiresAt: new Date(Date.now() + BRIDGED_SESSION_TTL_MS),
+  });
+  if (!session) throw new Error("Better Auth session is unavailable.");
+
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    const headers = new Headers(requestHeaders);
+    const authContext = await (
+      auth as unknown as {
+        $context: Promise<{
+          authCookies: {
+            sessionToken: { name: string };
+            sessionData?: { name: string };
+            dontRememberToken: { name: string };
+          };
+          secret: string;
+        }>;
+      }
+    ).$context;
+    const signCookieValue = (value: string) =>
+      crypto
+        .createHmac("sha256", authContext.secret)
+        .update(value)
+        .digest("base64");
+    const sessionCookieName = authContext.authCookies.sessionToken.name;
+    const sessionDataCookieName = authContext.authCookies.sessionData?.name;
+    const dontRememberTokenCookieName =
+      authContext.authCookies.dontRememberToken.name;
+    const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signCookieValue(session.token)}`)}`;
+    const dontRememberTokenCookie = `${dontRememberTokenCookieName}=${encodeURIComponent(`true.${signCookieValue("true")}`)}`;
+    const existingCookies = (headers.get("cookie") ?? "")
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName !== sessionCookieName &&
+          cookieName !== dontRememberTokenCookieName &&
+          (!sessionDataCookieName ||
+            (cookieName !== sessionDataCookieName &&
+              !cookieName.startsWith(`${sessionDataCookieName}.`)))
+        );
+      })
+      .filter(Boolean);
+    headers.set(
+      "cookie",
+      [...existingCookies, sessionCookie, dontRememberTokenCookie].join("; "),
+    );
+    outcome = { ok: true, value: await action(headers) };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+
+  try {
+    const adapter =
+      overrides?.adapter ?? (await getBetterAuthInternalAdapter());
+    if (!adapter)
+      throw new Error("Better Auth session cleanup is unavailable.");
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        adapter.deleteSession(session.token),
+        new Promise<never>((_, reject) => {
+          cleanupTimer = setTimeout(() => {
+            reject(new Error("Better Auth session cleanup timed out."));
+          }, BRIDGED_SESSION_CLEANUP_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+    }
+  } catch (error) {
+    console.error(
+      "[auth] failed to delete temporary Better Auth session",
+      error,
+    );
+  }
+
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
+}
+
 /** Create a real Better Auth session for an existing user without credentials. */
 export async function createBetterAuthSessionForEmail(
   email: string,
   config?: BetterAuthConfig,
+  options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
@@ -1041,7 +1379,9 @@ export async function createBetterAuthSessionForEmail(
     includeAccounts: false,
   });
   if (!existing) return null;
-  const session = await adapter.createSession(existing.user.id);
+  const session = options
+    ? await adapter.createSession(existing.user.id, true, options, true)
+    : await adapter.createSession(existing.user.id);
   return {
     email: existing.user.email,
     token: session.token,
@@ -1053,6 +1393,42 @@ export interface GoogleAuthIdentity {
   email: string;
   accountId: string;
   name?: string;
+  image?: string;
+}
+
+function googleProfileImage(identity: GoogleAuthIdentity): string | undefined {
+  return isGoogleProfileImageUrl(identity.image)
+    ? identity.image.trim()
+    : undefined;
+}
+
+async function syncGoogleProfile(
+  adapter: BetterAuthInternalAdapter,
+  existing: NonNullable<
+    Awaited<ReturnType<BetterAuthInternalAdapter["findUserByEmail"]>>
+  >,
+  email: string,
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  if (!adapter.updateUser) return;
+
+  const name = identity.name?.trim();
+  const image = googleProfileImage(identity);
+  const updates: {
+    name?: string;
+    image?: string;
+  } = {};
+  if (
+    name &&
+    isEmailDerivedName(existing.user.name, email) &&
+    existing.user.name?.trim() !== name
+  ) {
+    updates.name = name;
+  }
+  if (image && existing.user.image !== image) updates.image = image;
+  if (Object.keys(updates).length > 0) {
+    await adapter.updateUser(existing.user.id, updates);
+  }
 }
 
 /**
@@ -1081,7 +1457,27 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     throw new Error("Google identity is missing an email or account id");
   }
 
+  const reconcilePendingInvitations = async (): Promise<void> => {
+    try {
+      // Google verification can bypass Better Auth's user-create hook, so
+      // reconcile invitations only after the verified identity is committed.
+      await acceptPendingInvitationsForEmail(email);
+    } catch (error) {
+      console.error(
+        "[auth] failed to reconcile pending invitations after Google verification",
+        error,
+      );
+    }
+  };
+
   const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const image = googleProfileImage(identity);
+  const user = {
+    email,
+    name,
+    emailVerified: true,
+    ...(image ? { image } : {}),
+  };
   const findExisting = () =>
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
@@ -1094,16 +1490,17 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
+    await syncGoogleProfile(adapter, existing, email, identity);
     return false;
   }
 
   if (!existing) {
     if (adapter.createOAuthUser) {
       try {
-        await adapter.createOAuthUser(
-          { email, name, emailVerified: true },
-          { providerId: "google", accountId },
-        );
+        await adapter.createOAuthUser(user, {
+          providerId: "google",
+          accountId,
+        });
         return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
@@ -1123,20 +1520,18 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
+          await syncGoogleProfile(adapter, existing, email, identity);
           return false;
         }
       }
     } else {
-      const created = await adapter.createUser({
-        email,
-        name,
-        emailVerified: true,
-      });
+      const created = await adapter.createUser(user);
       await adapter.linkAccount({
         userId: created.id,
         providerId: "google",
         accountId,
       });
+      await reconcilePendingInvitations();
       return true;
     }
   }
@@ -1148,7 +1543,10 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return false;
+  if (alreadyLinked) {
+    await syncGoogleProfile(adapter, existing, email, identity);
+    return false;
+  }
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1172,6 +1570,8 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
+    await syncGoogleProfile(adapter, existing, email, identity);
+    await reconcilePendingInvitations();
     return false;
   }
   await adapter.linkAccount({
@@ -1179,6 +1579,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     providerId: "google",
     accountId,
   });
+  await syncGoogleProfile(adapter, existing, email, identity);
   return false;
 }
 
@@ -1295,12 +1696,66 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
-  const emailReadiness = await getEmailReadiness();
+  const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
-    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
+    resolveEmailPasswordAuthPolicy(emailReadiness);
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
+
+  const magicLinkPlugin = magicLink({
+    expiresIn: 60 * 5,
+    storeToken: "hashed",
+    rateLimit: { window: 60, max: 5 },
+    disableSignUp,
+    sendMagicLink: async ({ email, url, token }) => {
+      let urlPath: string | undefined;
+      let urlQueryKeys: string[] | undefined;
+      try {
+        const parsedURL = new URL(url);
+        urlPath = parsedURL.pathname;
+        urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
+      } catch {
+        // coercion-ok: diagnostics must never make email delivery fail.
+        // Better Auth owns URL construction; keep diagnostics non-fatal.
+      }
+      if (typeof token === "string") {
+        console.info("[agent-native][magic-link]", {
+          phase: "issued",
+          tokenDigest: crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("hex")
+            .slice(0, 16),
+          expectedStoredIdentifierPrefix: crypto
+            .createHash("sha256")
+            .update(token)
+            .digest("base64url")
+            .slice(0, 16),
+          urlPath,
+          urlQueryKeys,
+        });
+      }
+      const appBasePath = getConfiguredAppBasePath();
+      const magicLinkUrl = appBasePath
+        ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+        : url;
+      const deliveredMagicLinkUrl =
+        desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
+      const { subject, html, text, appSender } = renderMagicLinkEmail({
+        email,
+        magicLinkUrl: deliveredMagicLinkUrl,
+      });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        appSender,
+        disableClickTracking: true,
+      });
+    },
+  });
 
   const auth = betterAuth({
     basePath,
@@ -1316,9 +1771,8 @@ async function createBetterAuthInstance(
       disableSignUp,
       minPasswordLength: PASSWORD_MIN_LENGTH,
       maxPasswordLength: PASSWORD_MAX_LENGTH,
-      // Hosted deployments always require a working email provider before
-      // password signup can create a session. Local dev/test retain the fast
-      // path; hosted deployments without a provider disable password signup.
+      // Email verification is enabled only when a provider is ready. Without
+      // one, hosted deployments keep password signup available.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
@@ -1339,6 +1793,7 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
         });
       },
@@ -1372,6 +1827,7 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
         });
       },
@@ -1398,7 +1854,7 @@ async function createBetterAuthInstance(
               return;
             }
 
-            const path = String(context?.path ?? "").toLowerCase();
+            const path = stringifyValue(context?.path ?? "").toLowerCase();
             const requestUrl = context?.request?.url ?? "";
             const providerValues = [
               path,
@@ -1437,6 +1893,7 @@ async function createBetterAuthInstance(
               id?: string;
               email?: string;
               name?: string | null;
+              emailVerified?: boolean;
             },
             // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
             // It carries the originating request's headers (and on OAuth
@@ -1447,61 +1904,14 @@ async function createBetterAuthInstance(
               request?: { headers?: Headers | null; url?: string } | null;
             } | null,
           ) => {
-            // When a newly-created user's email has pending org invitations
-            // (common when someone is invited *before* they've signed up),
-            // auto-accept them so the user lands in the org on their very
-            // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
-            // Derive first-touch referral attribution from the request's
-            // cookie header. Never let attribution parsing throw or block
-            // signup — on any error fall back to `direct`.
-            let attribution: Record<string, string> | undefined;
-            let anonymousId: string | undefined;
-            try {
-              const cookieHeader =
-                context?.headers?.get("cookie") ??
-                context?.request?.headers?.get("cookie") ??
-                null;
-              const scopedSignupAttribution =
-                hasContinuationLocalRequestContext()
-                  ? getRequestContext()?.signupAttribution
-                  : undefined;
-              const requestSignupAttribution =
-                signupAttributionContextFromCookieHeader(cookieHeader);
-              const headerSignupAttribution =
-                signupAttributionContextFromHeaders(context?.headers) ??
-                signupAttributionContextFromHeaders(context?.request?.headers);
-              const magicLinkAttribution = context?.request?.url?.includes(
-                "newUserCallbackURL",
-              )
-                ? readMagicLinkSignupAttribution(
-                    context.request.url,
-                    getAuthSecret(),
-                  )
-                : undefined;
-              attribution =
-                magicLinkAttribution?.attribution ??
-                scopedSignupAttribution?.attribution ??
-                headerSignupAttribution?.attribution ??
-                requestSignupAttribution.attribution;
-              anonymousId =
-                magicLinkAttribution?.anonymousId ??
-                scopedSignupAttribution?.anonymousId ??
-                headerSignupAttribution?.anonymousId ??
-                requestSignupAttribution.anonymousId;
-            } catch (err) {
-              console.error("[auth] failed to derive signup attribution", err);
-              attribution = undefined;
-            }
-            await trackSignupEvent({
-              authProvider: "better-auth",
-              authUserId: user.id,
-              email,
-              name: user.name,
-              attribution,
-              anonymousId,
-            });
+
+            await emitSignupEventForCreatedUser(user, context);
+
+            // Email-based org access requires proof of control of the address.
+            if (user.emailVerified !== true) return;
+
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
@@ -1600,56 +2010,7 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
-      magicLink({
-        expiresIn: 60 * 5,
-        storeToken: "hashed",
-        rateLimit: { window: 60, max: 5 },
-        disableSignUp,
-        sendMagicLink: async ({ email, url, token }) => {
-          let urlPath: string | undefined;
-          let urlQueryKeys: string[] | undefined;
-          try {
-            const parsedURL = new URL(url);
-            urlPath = parsedURL.pathname;
-            urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
-          } catch {
-            // coercion-ok: diagnostics must never make email delivery fail.
-            // Better Auth owns URL construction; keep diagnostics non-fatal.
-          }
-          if (typeof token === "string") {
-            console.info("[agent-native][magic-link]", {
-              phase: "issued",
-              tokenDigest: crypto
-                .createHash("sha256")
-                .update(token)
-                .digest("hex")
-                .slice(0, 16),
-              expectedStoredIdentifierPrefix: crypto
-                .createHash("sha256")
-                .update(token)
-                .digest("base64url")
-                .slice(0, 16),
-              urlPath,
-              urlQueryKeys,
-            });
-          }
-          const appBasePath = (
-            process.env.VITE_APP_BASE_PATH ||
-            process.env.APP_BASE_PATH ||
-            ""
-          ).replace(/\/$/, "");
-          const magicLinkUrl = appBasePath
-            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
-            : url;
-          const deliveredMagicLinkUrl =
-            desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
-          const { subject, html, text, appSender } = renderMagicLinkEmail({
-            email,
-            magicLinkUrl: deliveredMagicLinkUrl,
-          });
-          await sendEmail({ to: email, subject, html, text, appSender });
-        },
-      }),
+      magicLinkPlugin,
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {
@@ -1671,11 +2032,22 @@ async function createBetterAuthInstance(
  * as the shared app connection. Better Auth uses its own SQLite handle, so the
  * app connection's busy timeout does not protect first-run account creation.
  */
-export function configureLocalSqlite(sqlite: {
+export async function configureLocalSqlite(sqlite: {
   pragma(statement: string): unknown;
-}): void {
+  close?(): void;
+}): Promise<void> {
   sqlite.pragma("busy_timeout = 10000");
-  sqlite.pragma("journal_mode = WAL");
+  try {
+    // Vite can start a replacement Nitro runtime while the previous instance is
+    // still releasing app.db, and the busy timeout can expire during that
+    // handoff, so retry the idempotent WAL negotiation.
+    await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+      rethrow: true,
+    });
+  } catch (error) {
+    sqlite.close?.();
+    throw error;
+  }
 }
 
 export async function buildDatabaseConfig(
@@ -1772,9 +2144,11 @@ export async function buildDatabaseConfig(
   if (url.startsWith("file:") || !url.includes("://")) {
     // Local SQLite via better-sqlite3
     const { default: Database } = await import("better-sqlite3");
-    const filePath = url.replace(/^file:/, "");
-    const sqlite = new Database(filePath);
-    configureLocalSqlite(sqlite);
+    const sqliteUrl = await prepareLocalSqliteUrl(
+      url.startsWith("file:") ? url : `file:${url}`,
+    );
+    const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+    await configureLocalSqlite(sqlite);
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const db = drizzle(sqlite, { schema: sqliteAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

@@ -27,8 +27,8 @@ const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
 
 const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
   assets:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa4ec9bd5a9ba4d98bf00bde9b7425f17",
-  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70073f5fc11b406aaaddb148abb08bd6",
+    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8670a102c1f44808aa158c4a7a66f6e6",
+  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc6afb337a30240e19f1e0523aaef6865",
 };
 
 function findTemplate(slug: string | undefined) {
@@ -72,7 +72,6 @@ function TemplateFallbackArt({ template }: { template: Template }) {
     return (
       <BuilderImage
         src={screenshot}
-        sizes="(max-width: 900px) 100vw, 800px"
         crossOrigin="anonymous"
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"
@@ -104,21 +103,23 @@ export default function GenericTemplatePage() {
 
   if (!template) {
     return (
-      <main className="mx-auto max-w-[900px] px-6 py-20">
-        <Link
-          data-an-prefetch="viewport"
-          to={sitePathForLocale("/apps", locale)}
-          className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          <IconArrowLeft size={16} />
-          {t("templateDetail.allTemplates")}
-        </Link>
-        <h1 className="mt-8 text-4xl font-bold tracking-tight">
-          {t("templateDetail.notFoundTitle")}
-        </h1>
-        <p className="mt-3 text-[var(--fg-secondary)]">
-          {t("templateDetail.notFoundBody")}
-        </p>
+      <main className="mx-auto w-full max-w-site px-6 py-20">
+        <div className="mx-auto w-full max-w-[900px]">
+          <Link
+            data-an-prefetch="viewport"
+            to={sitePathForLocale("/apps", locale)}
+            className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
+          >
+            <IconArrowLeft size={16} />
+            {t("templateDetail.allTemplates")}
+          </Link>
+          <h1 className="mt-8 text-4xl font-bold tracking-tight">
+            {t("templateDetail.notFoundTitle")}
+          </h1>
+          <p className="mt-3 text-[var(--fg-secondary)]">
+            {t("templateDetail.notFoundBody")}
+          </p>
+        </div>
       </main>
     );
   }
@@ -144,7 +145,7 @@ export default function GenericTemplatePage() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            {t("templateDetail.badge", { name: template.name })}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateDetail.title", { name: template.name })}
@@ -164,7 +165,7 @@ export default function GenericTemplatePage() {
                 });
               }}
             >
-              {t("common.tryIt")}
+              {t("common.getStarted")}
             </a>
           ) : undefined
         }
@@ -173,20 +174,10 @@ export default function GenericTemplatePage() {
 
       <SectionDivider showOnSmallScreens={false} />
 
-      {!["assets", "chat"].includes(template.slug) ? (
-        <TemplateFinalCta
-          title={t("templateDetail.allTemplates")}
-          actions={
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className="secondary-button"
-            >
-              {t("templateDetail.allTemplates")}
-            </Link>
-          }
-        />
-      ) : null}
+      <TemplateFinalCta
+        title={t("templateDetail.allTemplates")}
+        template={template}
+      />
 
       {faqItems.length > 0 ? (
         <>

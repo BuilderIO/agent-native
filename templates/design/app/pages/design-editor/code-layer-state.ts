@@ -496,6 +496,16 @@ export function elementInfoFromCodeLayerNode(node: CodeLayerNode): ElementInfo {
     isFlexChild: node.layout.parentDisplay?.includes("flex") ? true : false,
     isFlexContainer: node.layout.isFlexContainer,
     parentDisplay: node.layout.parentDisplay,
+    // Omitting this leaves every main/cross-axis decision downstream to a
+    // default direction, which inverts sizing on a column parent.
+    parentLayout:
+      node.layout.parentDisplay || node.layout.parentFlexDirection
+        ? {
+            display: node.layout.parentDisplay,
+            flexDirection: node.layout.parentFlexDirection,
+            gap: node.layout.parentGap,
+          }
+        : undefined,
     confidence: node.confidence,
   };
 }
@@ -895,9 +905,9 @@ export function codeLayerPatchMessage(
 }
 
 // T16: known Google Font families offered by the inspector's font-family
-// picker (FONT_FAMILY_OPTIONS in EditPanel.tsx — kept in sync manually since
-// that file isn't editable from here). Maps the exact display family name to
-// the Google Fonts CSS2 API family query param (weight range 400-700 covers
+// picker (FONT_FAMILY_OPTIONS in @agent-native/toolkit/design-tweaks). Maps
+// the exact display family name to the Google Fonts CSS2 API family query param
+// (weight range 400-700 covers
 // the FONT_WEIGHT_OPTIONS range without over-fetching every weight).
 export const KNOWN_GOOGLE_FONTS: Record<string, string> = {
   Inter: "Inter:wght@400;500;600;700",
@@ -1134,6 +1144,16 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
+  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
+  // match. Checking them on the raw string first keeps a document with no
+  // generated groups — the common case — from paying for a full projection of
+  // post-edit content on every structural edit.
+  if (
+    !content.includes("data-agent-native-layer-name") ||
+    !content.includes("Group")
+  ) {
+    return content;
+  }
   let next = content;
   // Loop: removing one empty wrapper can itself empty out ITS parent (e.g.
   // ungrouping down a chain of nested generated groups), so keep sweeping

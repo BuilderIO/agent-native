@@ -1,5 +1,6 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import {
   and,
   asc,
@@ -27,6 +28,7 @@ import {
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { profileNameFor } from "../server/lib/user-identities.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -188,9 +190,19 @@ export default defineAction({
       // Meeting recordings are transcript-only (no playable media) and live on
       // the /meetings surface, so keep them out of clip library views. The link
       // is meetings.recordingId (no meetingId column on recordings), so exclude
-      // any recording referenced by a meeting. The subquery filters out NULLs
-      // so NOT IN doesn't collapse to an empty result under SQL NULL semantics.
-      const meetingRecordingIds = db
+      // any recording referenced by a meeting. Keep the exclusion database-side
+      // as a NOT IN (SELECT ...) subquery instead of pulling every meeting's
+      // recording id into memory — this table only grows. `await db` with no
+      // chain resolves the lazy proxy from create-get-db.ts to the real db
+      // instance without issuing a query; only *then* build the subquery off
+      // that resolved instance. Building it off `db` directly and handing the
+      // still-unresolved chain straight to notInArray() is the cold-start bug
+      // this used to have — drizzle reads `.getSQL()` on it synchronously, and
+      // the proxy throws rather than silently building wrong SQL. The subquery
+      // filters out NULLs so NOT IN doesn't collapse to an empty result under
+      // SQL NULL semantics.
+      const resolvedDb = db;
+      const meetingRecordingIds = resolvedDb
         .select({ id: schema.meetings.recordingId })
         .from(schema.meetings)
         .where(isNotNull(schema.meetings.recordingId));
@@ -200,6 +212,9 @@ export default defineAction({
     // Lifecycle view filters
     if (args.view === "trash") {
       whereClauses.push(isNotNull(schema.recordings.trashedAt));
+      if (orgId) {
+        whereClauses.push(eq(schema.recordings.organizationId, orgId));
+      }
     } else {
       whereClauses.push(isNull(schema.recordings.trashedAt));
       if (args.view === "archive") {
@@ -352,6 +367,9 @@ export default defineAction({
       .offset(args.offset);
 
     const ids = rows.map((r) => r.recording.id);
+    const ownerProfiles = await getUserProfiles(
+      rows.map((row) => row.recording.ownerEmail),
+    );
 
     // Gather tags for the result set in one query
     let tagsByRec: Record<string, string[]> = {};
@@ -437,6 +455,7 @@ export default defineAction({
         failureReason: r.failureReason,
         visibility: r.visibility,
         ownerEmail: r.ownerEmail,
+        ownerName: profileNameFor(r.ownerEmail, null, ownerProfiles),
         folderId: r.folderId,
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],

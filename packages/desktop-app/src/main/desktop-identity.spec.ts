@@ -387,6 +387,44 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).toHaveBeenCalledOnce();
   });
 
+  it("times out while reading a stalled magic-link response body", async () => {
+    vi.useFakeTimers();
+    try {
+      const authority = authorityFixture();
+      const response = {
+        ok: true,
+        json: vi.fn(() => new Promise<never>(() => {})),
+      } as unknown as Response;
+      const identityFetch = vi.fn(async () => response);
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore(),
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+
+      const request = broker.requestMagicLink({ email: "steve@example.com" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(identityFetch).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(request).resolves.toEqual({
+        ok: false,
+        error:
+          "The identity service did not respond in time. Please try again.",
+      });
+      expect(broker.getStatus()).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("adopts a normal Dispatch login into the isolated identity session", async () => {
     const authority = authorityFixture();
     const authorityCookies = cookieStore(
@@ -902,6 +940,38 @@ describe("DesktopIdentityBroker", () => {
     expect(resolveLoginRedirect).not.toHaveBeenCalled();
     expect(reloadApp).not.toHaveBeenCalled();
     expect(broker.getStatus()).toBe("sign-in-required");
+  });
+
+  it("announces a status only when it actually changes", async () => {
+    // The renderer refreshes its workspace app list and environment lane on
+    // every status event, and the lane read calls back into refreshStatus().
+    // Re-announcing an unchanged status closed that into a feedback loop that
+    // hammered the dispatch origin at round-trip speed.
+    const authority = authorityFixture();
+    const onStatus = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: vi.fn(async () => sessionResponse()),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      statusRevalidationIntervalMs: 0,
+      onStatus,
+    });
+
+    await broker.refreshStatus(authority);
+    await broker.refreshStatus(authority);
+    await broker.refreshStatus(authority);
+
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(onStatus).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenCalledWith("signed-in");
   });
 
   it("preserves a verified session across a transient status refresh failure", async () => {
@@ -2146,7 +2216,7 @@ describe("DesktopIdentityBroker", () => {
         "/_agent-native/actions/create-workspace-app-embed-session",
     ).length;
 
-    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(false);
 
     expect(
       identityFetch.mock.calls.filter(
@@ -2156,6 +2226,18 @@ describe("DesktopIdentityBroker", () => {
       ),
     ).toHaveLength(embedSessionRequestCount);
     expect(reloadApp).toHaveBeenCalledTimes(1);
+
+    mailCookies.get.mockRejectedValueOnce(
+      new Error("cookie store unavailable"),
+    );
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(false);
+    expect(
+      identityFetch.mock.calls.filter(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toHaveLength(embedSessionRequestCount);
   });
 
   it("dedupes a completed workspace embed session", async () => {
@@ -2298,6 +2380,57 @@ describe("DesktopIdentityBroker", () => {
       ),
     ).toHaveLength(0);
     expect(reloadApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("verifies the authority once when a child session already matches", async () => {
+    // The already-signed-in path used to verify the authority, then verify it
+    // again inside the matching check, before the WebView was allowed to load.
+    const authority = authorityFixture();
+    const mail = appFixture();
+    mail.cookieNames = [...mail.cookieNames, "an_embed_session"];
+    mail.cookieNamesToClear = [...mail.cookieNamesToClear, "an_embed_session"];
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
+    ]);
+    const mailCookies = cookieStore([
+      sessionCookie("an_embed_session", mail.origin, "workspace-embed-session"),
+    ]);
+    const identityFetch = vi.fn(async (input: string) =>
+      new URL(input).pathname === "/_agent-native/auth/session"
+        ? sessionResponse("owner@example.com")
+        : new Response(null, { status: 404 }),
+    );
+    mail.session = {
+      cookies: mailCookies,
+      fetch: vi.fn(async (input: string) =>
+        new URL(input).pathname === "/_agent-native/auth/session"
+          ? sessionResponse("owner@example.com")
+          : new Response(null, { status: 404 }),
+      ),
+    } as unknown as Electron.Session;
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      openExternal: vi.fn(async () => {}),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      createWindow: vi.fn() as never,
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+
+    const authorityVerifies = identityFetch.mock.calls.filter(
+      ([input]) =>
+        new URL(String(input)).pathname === "/_agent-native/auth/session",
+    );
+    expect(authorityVerifies).toHaveLength(1);
   });
 
   it("remints a completed modern child if its session cookie disappears", async () => {
@@ -2978,6 +3111,45 @@ describe("DesktopIdentityBroker", () => {
       `${mail.origin}/_agent-native/auth/session`,
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  it("does not replace an existing child session during activation reconciliation", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const mailCookies = cookieStore([
+      sessionCookie("an_session_mail", mail.origin, "mail-session"),
+    ]);
+    mail.session = {
+      cookies: mailCookies,
+      fetch: vi.fn(async () => new Response(null, { status: 401 })),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore([
+      sessionCookie(
+        "an_session_dispatch",
+        authority.origin,
+        "dispatch-session",
+      ),
+    ]);
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: vi.fn(async () => sessionResponse("steve@example.com")),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      openExternal: vi.fn(),
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(
+      broker.ensureAppSession(mail.id, { preserveExistingSession: true }),
+    ).resolves.toBe(false);
+    expect(mailCookies.remove).not.toHaveBeenCalled();
   });
 
   it("keeps a failed lazy app synchronization scoped to the child", async () => {

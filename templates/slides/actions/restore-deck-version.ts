@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -8,6 +8,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 export default defineAction({
   description:
@@ -38,18 +43,8 @@ export default defineAction({
       throw new Error(`Deck version not found: ${versionId}`);
     }
 
-    await createDeckVersionSnapshot(
-      {
-        id: current.id,
-        title: current.title,
-        data: current.data,
-        ownerEmail,
-      },
-      { force: true, label: "Before restore" },
-    );
-
     const data = JSON.parse(version.data);
-    const now = new Date().toISOString();
+    const now = nextDeckRevision(current.updatedAt);
     const title = version.title || data?.title || current.title || "Untitled";
     data.title = title;
     data.updatedAt = now;
@@ -59,15 +54,27 @@ export default defineAction({
         ? data.designSystemId
         : null;
 
-    await db
-      .update(schema.decks)
-      .set({
-        title,
-        data: JSON.stringify(data),
-        designSystemId,
-        updatedAt: now,
-      })
-      .where(eq(schema.decks.id, deckId));
+    await db.transaction(async (tx: any) => {
+      await createDeckVersionSnapshot(
+        {
+          id: current.id,
+          title: current.title,
+          data: current.data,
+          ownerEmail,
+        },
+        { force: true, label: "Before restore", db: tx },
+      );
+      const updateResult = await tx
+        .update(schema.decks)
+        .set({
+          title,
+          data: JSON.stringify(data),
+          designSystemId,
+          updatedAt: now,
+        })
+        .where(deckRevisionWhere(schema.decks, deckId, current.updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "deck restore");
+    });
 
     notifyClients(deckId);
     await writeAppState("refresh-signal", {

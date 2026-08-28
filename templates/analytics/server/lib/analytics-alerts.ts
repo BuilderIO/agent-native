@@ -607,7 +607,7 @@ function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
       idPrefix: DEFAULT_HTTP_5XX_ALERT_ID_PREFIX,
       name: "Hosted app HTTP 5xx spike",
       description:
-        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
+        "Default Agent-Native alert for a spike in server responses with 5xx status codes.",
       eventName: "http.response",
       filters: [{ field: "properties.status_class", value: "5xx" }],
       threshold: envInt(
@@ -637,7 +637,7 @@ function defaultAnalyticsAlertDefinitions(): DefaultAnalyticsAlertDefinition[] {
       idPrefix: DEFAULT_AGENT_CHAT_STUCK_ALERT_ID_PREFIX,
       name: "Hosted agent chat stuck spike",
       description:
-        "Default Agent Native alert for a spike in agent chats detected as stuck.",
+        "Default Agent-Native alert for a spike in agent chats detected as stuck.",
       eventName: "agent_chat_stuck_detected",
       filters: [],
       threshold: envInt(
@@ -1110,7 +1110,9 @@ function distinctCount(rows: AnalyticsAlertEventRow[], field: string): number {
   for (const row of rows) {
     const value = fieldValue(row, field);
     if (value === undefined || value === null || value === "") continue;
-    values.add(String(value));
+    values.add(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
   }
   return values.size;
 }
@@ -1173,7 +1175,10 @@ function valueEquals(actual: unknown, expected: unknown): boolean {
   if (actual === expected) return true;
   if (actual === undefined || actual === null) return false;
   if (expected === undefined || expected === null) return false;
-  return String(actual) === String(expected);
+  return (
+    (typeof actual === "string" ? actual : (JSON.stringify(actual) ?? "")) ===
+    (typeof expected === "string" ? expected : (JSON.stringify(expected) ?? ""))
+  );
 }
 
 function valueContains(actual: unknown, expected: unknown): boolean {
@@ -1181,7 +1186,11 @@ function valueContains(actual: unknown, expected: unknown): boolean {
   if (Array.isArray(actual)) {
     return actual.some((item) => valueEquals(item, expected));
   }
-  return String(actual).includes(String(expected ?? ""));
+  return (
+    typeof actual === "string" ? actual : (JSON.stringify(actual) ?? "")
+  ).includes(
+    typeof expected === "string" ? expected : (JSON.stringify(expected) ?? ""),
+  );
 }
 
 function valueIn(actual: unknown, expected: unknown): boolean {

@@ -7,9 +7,11 @@ import {
   getSession,
   isElectron,
   getAppUrl,
+  hasWorkspaceProviderOAuthCredentials,
   resolveOAuthRedirectUri,
   encodeOAuthState,
   decodeOAuthState,
+  ensureGoogleAuthIdentity,
   resolveOAuthOwner,
   createOAuthSession,
   oauthCallbackResponse,
@@ -21,6 +23,7 @@ import {
   safeReturnPath,
   setDesktopExchange,
   setDesktopExchangeError,
+  runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
@@ -45,6 +48,35 @@ import {
 } from "../lib/google-auth.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "mail";
+
+async function syncGoogleSignInIdentity(email: string): Promise<void> {
+  let client;
+  try {
+    client = await getClient(email);
+  } catch (error) {
+    console.warn("[auth] Google profile client lookup failed:", error);
+    return;
+  }
+  if (!client) return;
+  let profile: any;
+  try {
+    profile = await googleFetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      client.accessToken,
+    );
+  } catch (error) {
+    console.warn("[auth] Google profile lookup failed:", error);
+    return;
+  }
+  const accountId = typeof profile?.id === "string" ? profile.id.trim() : "";
+  if (!accountId) return;
+  await ensureGoogleAuthIdentity({
+    email,
+    accountId,
+    name: typeof profile.name === "string" ? profile.name : undefined,
+    image: typeof profile.picture === "string" ? profile.picture : undefined,
+  });
+}
 
 function oauthRedirectResponse(url: string) {
   // h3 v2 sendRedirect returns an object the framework shim can stringify as
@@ -249,6 +281,9 @@ export const handleGoogleCallback = defineEventHandler(
 
       // 2. Exchange code with Google (template-specific)
       const email = await exchangeCode(code, undefined, redirectUri, owner);
+      const isAddAccount =
+        addAccount || (owner !== undefined && email !== owner);
+      if (!isAddAccount) await syncGoogleSignInIdentity(email);
 
       // 2b. Auto-populate display name in settings if not set
       try {
@@ -295,8 +330,6 @@ export const handleGoogleCallback = defineEventHandler(
       // Fallback: if the authenticated email differs from the session owner,
       // treat it as an add-account regardless of the state flag (guards against
       // state decode failures where addAccount is missing).
-      const isAddAccount =
-        addAccount || (owner !== undefined && email !== owner);
       const { sessionToken } = isAddAccount
         ? { sessionToken: undefined }
         : await createOAuthSession(event, email, {
@@ -490,7 +523,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    return await getAuthStatus(session?.email);
+    const status = await getAuthStatus(session?.email);
+    const configured = await runWithRequestContext(
+      { userEmail: session?.email, orgId: session?.orgId },
+      () => hasWorkspaceProviderOAuthCredentials("gmail"),
+    );
+    return { ...status, configured };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -511,7 +549,9 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       return { error: "email is required" };
     }
     const owned = await getAuthStatus(session.email);
-    const isOwned = owned.accounts.some((a) => a.email === targetEmail);
+    const isOwned = owned.accounts.some(
+      (a) => a.email === targetEmail && !a.shared,
+    );
     if (!isOwned) {
       setResponseStatus(event, 403);
       return { error: "Cannot disconnect an account you don't own" };

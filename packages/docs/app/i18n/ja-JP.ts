@@ -426,6 +426,111 @@ const jaJP = {
     source: "ソース",
     readDocs: "ドキュメントを読む",
     signIn: "サインイン",
+    tryTemplateFree: "{{name}}を無料で試す",
+    designForFree: "無料でデザイン",
+    recordForFree: "無料で録画",
+    getStarted: "始める",
+    freeAndOpenSource: "100%無料 • オープンソース",
+    viewAllApps: "すべてのアプリを見る",
+  },
+  homepage: {
+    hero: {
+      title: "agentic アプリケーションのための framework",
+      bodyLine1:
+        "ユーザー向けに別のプロダクトを作らずに、AI エージェント向けに構築できます。",
+      bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",
+      tryAnApp: "アプリを試す",
+    },
+    install: {
+      copyCommand: "インストールコマンドをコピー",
+    },
+    actions: {
+      title: "1 つの Action があらゆる面を動かす",
+      bodyLine1: "Action は Agent-Native アプリを構成する基本単位です。",
+      bodyLine2:
+        "機能を一度定義すれば、UI、agent チャット、HTTP API、MCP、A2A、CLI から利用できます。",
+      diagramAlt:
+        "1 つの Action が UI、MCP、Agent チャット、A2A、HTTP API、CLI を動かす",
+    },
+    builtIn: {
+      title: "すべての Agent-Native アプリに組み込み済み",
+      body: "ユーザーと AI エージェントが共に働くために必要なものが、すでに 1 つのアプリケーションに組み込まれています。",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "ユーザーに、閲覧・編集・レビューのための使い慣れた画面を提供します。",
+        },
+        agentChat: {
+          title: "組み込みの agent チャット",
+          body: "アプリを離れずに、作業を任せたり質問したり結果を確認したりできます。",
+        },
+        sharedState: {
+          title: "共有アプリケーション状態",
+          body: "agent はユーザーが表示、選択、編集している内容を把握します。",
+        },
+        sharedSql: {
+          title: "共有 SQL データ",
+          body: "ユーザーと agent は同じ信頼できるデータソースを読み書きします。",
+        },
+        skillsMemory: {
+          title: "Skills と memory",
+          body: "agent に再利用可能な専門知識と永続的なコンテキストを与えます。",
+        },
+        automations: {
+          title: "自動化",
+          body: "スケジュールやアプリケーションイベントに応じて agent の作業を自動実行します。",
+        },
+        agentTeams: {
+          title: "Agent チーム",
+          body: "アプリ内、またはアプリをまたいで専門の agent に作業を任せられます。",
+        },
+        auth: {
+          title: "認証と組織",
+          body: "サインイン、ユーザーアカウント、組織メンバーシップが組み込まれています。",
+        },
+        sharing: {
+          title: "共有と権限",
+          body: "誰が各リソースを閲覧、コメント、編集、管理できるかを制御します。",
+        },
+      },
+    },
+    stack: {
+      title: "お使いのスタックで動作",
+      body: "LLM、データベース、ツール、インフラを持ち込めます。Agent-Native はオープンソースの TypeScript なので、アプリケーションはあなたのものであり続けます。",
+      exploreApps: "Agent-Native で作られたアプリを見る",
+    },
+    showcase: {
+      title: "Agent-Native で何を作れるか",
+      body: "あなたの仕事を理解し、行動し、共に取り組むエージェント型アプリ。独自に構築することも、これらのオープンソースアプリを試すこともできます。",
+      browseApps: "アプリを見る",
+      scrollLeft: "アプリを左へスクロール",
+      scrollRight: "アプリを右へスクロール",
+    },
+    bottomCta: {
+      title: "最初の Agent-Native アプリを作る",
+      body: "ユーザーと AI エージェントのために 1 つのアプリケーションを作成します。好きな LLM を持ち込んで、どこにでもデプロイできます。",
+    },
+    footer: {
+      tagline: "agentic アプリケーションのための framework。",
+      framework: "フレームワーク",
+      ecosystem: "エコシステム",
+      community: "コミュニティ",
+      legal: "法的情報",
+      docs: "ドキュメント",
+      download: "ダウンロード",
+      apps: "アプリ",
+      privacyPolicy: "プライバシーポリシー",
+      saasTerms: "SaaS 利用規約",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "ローカルで構築しない場合は、",
+      exploreApp: "まず公開中のアプリを試す",
+      between: "か",
+      joinWaitlist: "ウェイトリストに登録して",
+      end: "ブラウザで構築してください。",
+    },
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
@@ -453,7 +558,7 @@ const jaJP = {
       "フレームワークガイドから始めるか、Builder.io のクラウドコーディングエージェントでオンライン構築できます。",
     readDocs: "ドキュメントを読む",
     buildOnline: "オンラインで構築",
-    popoverTitle: "Builder.io でオンライン構築",
+    popoverTitle: "ブラウザで構築",
     popoverBody:
       "Builder.io はクラウドで agent-native アプリを起動してカスタマイズできます。actions、認証、SQL 状態、エージェントチャット込みです。早期アクセスの待機リストに参加してください。",
     emailLabel: "メール",
@@ -482,7 +587,7 @@ const jaJP = {
     clips: {
       replaces: "Loom、Granola、Wisprflow を置き換えまたは拡張",
       description:
-        "ブラウザーのデバッグ キャプチャを使用した画面録画、カレンダーと同期した会議メモ、Fn 保留音声ディクテーション。これらはすべて文字起こし、要約、検索可能で、エージェントが編集できます。",
+        "画面、会議、音声メモを記録し、エージェントが内容を理解して次のアクションを実行できるようにします。",
     },
     plan: {
       replaces:
@@ -493,27 +598,27 @@ const jaJP = {
     design: {
       replaces: "デザインプロトタイピングツールを置き換えまたは拡張",
       description:
-        "Agent-native HTML プロトタイピングスタジオ。インタラクティブな Alpine/Tailwind デザインを生成し、バリアントを比較し、ライブ調整して結果をエクスポートします。",
+        "プロンプトをデザインシステムに沿ったインタラクティブなデザインに変え、エージェントがフィードバックで各画面を磨き上げます。",
     },
     content: {
       replaces: "MDX、Notion、Google Docs の Obsidian を置換または拡張します。",
       description:
-        "Obsidian などのローカル Markdown/MDX ファイルを編集し、豊富な対話型カスタム ブロックを生成し、AI エージェントを使用してドラフト、書き換え、公開します。",
+        "ドキュメントを扱いながら、エージェントがあなたの文体で下書きし、インタラクティブなコンテンツを作成してサイトに公開します。",
     },
     slides: {
       replaces: "Google Slides、Pitch を置換または拡張します",
       description:
-        "プロンプトから完全なプレゼンテーションを生成します。視覚的または会話的に編集します。 AI 画像生成、8 つのレイアウト、およびプレゼンテーション モードが組み込まれています。",
+        "プロンプトや既存のスライドからブランドに沿った編集可能なプレゼンテーションを作成し、エージェントが作成、編集、改善します。",
     },
     analytics: {
       replaces: "Amplitude と FullStory のオープンソース代替品",
       description:
-        "あらゆるデータ ソースに接続し、あらゆるグラフのプロンプトを表示し、再利用可能なダッシュボードを構築します。エージェントは SQL を書き込み、ビジュアライゼーションを生成し、アプリを進化させます。",
+        "データを接続し、エージェントが自然な言葉で質問に答え、結果をグラフやダッシュボードにまとめます。",
     },
     mail: {
       replaces: "Superhuman、Gmail を置換または拡張します",
       description:
-        "キーボード ショートカット、AI トリアージ、マルチアカウント サポート、および電子メール自動化を備えた Superhuman スタイルの電子メール クライアント。受信トレイのワークフローを自分のものにしましょう。",
+        "キーボード中心の受信トレイで、エージェントがメールの優先順位付け、返信の下書き、スレッドの要約、フォローアップを行います。",
     },
     forms: {
       replaces: "Typeform、Google Forms を置換または拡張します",
@@ -524,12 +629,12 @@ const jaJP = {
       replaces:
         "DAMs、ブランド資産ライブラリ、および AI メディア ジェネレーターを置き換えまたは拡張します",
       description:
-        "他のアプリが A2A 経由で呼び出したり、ピッカーとして埋め込んだりできる、アップロード、ブランド ライブラリ、検索可能な参照、およびブランド上の画像/ビデオ生成用のデジタル アセット マネージャー。",
+        "ブランドガイドライン、画像、動画の共有ライブラリをエージェントに提供し、アプリでブランドに沿ったメディアを作成、選択できるようにします。",
     },
     calendar: {
       replaces: "Google Calendar、Calendly を置換または拡張します",
       description:
-        "Google 同期、空き状況管理、公開予約ページを備えた完全なカレンダー。エージェントは空きスロットを見つけてイベントを作成し、スケジュールを管理します。",
+        "複数の Google カレンダーをまとめ、エージェントが空き時間を探し、予定を作成または変更し、予約を管理します。",
     },
     dispatch: {
       replaces: "エージェントネイティブアプリのミッションコントロール",
@@ -1229,7 +1334,7 @@ const jaJP = {
       s026: "共有可能なリンク",
       s027: "すべてのプランにはパブリック URL が付与されます。非同期レビュー、コメント、承認のためにチームメイトと共有します。",
       s028: "デスクトップファイル同期",
-      s029: "アプリを複製したり CLI を実行したりせずに、ホストされたプランを Agent Native Desktop からローカルの MDX ファイルにミラーリングします。",
+      s029: "アプリを複製したり CLI を実行したりせずに、ホストされたプランを Agent-Native Desktop からローカルの MDX ファイルにミラーリングします。",
       s030: "なので、レビューはコードの横にあります。",
       s031: "仕組み",
       s032: "計画は共有アプリ内に存在します。あなたとエージェントの両方が、機能のライフサイクル全体を通じて計画を読み取り、更新できます。",
@@ -1263,7 +1368,7 @@ const jaJP = {
       s060: "すべてのテンプレートを表示",
       s061: "VS Code ハンドオフ",
       s062: "次を使って VS Code のサイドパネルでプランリンクを開きます:",
-      s063: "Agent Native Plans 拡張機能",
+      s063: "Agent-Native Plans 拡張機能",
       s064: "ワイヤーフレーム — コンポーネント枠付きのラフな UI モックアップ",
       s065: "注釈付きコード — 行ごとのメモ付きソースファイル",
       s066: "図 — フロー、シーケンス、またはアーキテクチャ",
@@ -1291,7 +1396,7 @@ const jaJP = {
           "plan mode はターミナル内のテキストで、1 人にしか見えず、承認すると消えます。Plans はワイヤーフレーム、図、注釈付き差分を備えた視覚的な計画です。共有と永続保存が可能で、エージェントが機能のライフサイクル全体を通して作成、読み取り、更新できます。",
         question5: "コードの横で計画を確認できますか？",
         answer5:
-          "はい。VS Code 拡張機能では計画をサイドパネルに表示でき、Agent Native Desktop はホストされた計画をローカルの MDX ファイルへミラーリングします。",
+          "はい。VS Code 拡張機能では計画をサイドパネルに表示でき、Agent-Native Desktop はホストされた計画をローカルの MDX ファイルへミラーリングします。",
         question6: "Plans は無料ですか？",
         answer6:
           "はい。無料のオープンソースで、MIT ライセンスです。Plans にはホストされた共有リンクがあり、すべてをローカルファイルへミラーリングすることもできます。",
@@ -1517,9 +1622,9 @@ const jaJP = {
     },
   },
   downloadPage: {
-    title: "Agent Native をダウンロード",
+    title: "Agent-Native をダウンロード",
     body: "すべての agent-native アプリを 1 つのデスクトップシェルに集約。プロダクションアプリを内蔵し、ローカル開発向けの dev モード切り替えも備えています。",
-    openDesktop: "Agent Native を開く",
+    openDesktop: "Agent-Native を開く",
     downloadInstaller: "インストーラーをダウンロード",
     downloadStarted: "ダウンロードを開始しました",
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
@@ -1677,6 +1782,55 @@ const jaJP = {
       links: {
         builderPrivacy: "プライバシーポリシー",
         builderPrivacyFull: "Builder.io プライバシー ポリシー",
+      },
+    },
+    about: {
+      eyebrow: "Agent-Native について",
+      title: "エージェントと人のためのオープンソースアプリ",
+      intro:
+        "Agent-Native は、AI エージェントとユーザーインターフェースが同じアクション、データ、アプリケーション状態を共有するアプリを構築するためのオープンソースフレームワークです。",
+      sections: {
+        project: {
+          title: "共有された実行モデル",
+          body: "Agent-Native ではエージェントとインターフェースを対等なパートナーとして扱います。1つのアクションが UI コントロール、エージェントツール、HTTP エンドポイント、MCP または A2A の機能、CLI コマンド、監査可能なワークフローを支えます。共有 SQL 状態によって人とエージェントの表示が一致します。",
+        },
+        openSource: {
+          title: "標準でオープンソース",
+          body: "ソースコードは MIT ライセンスで BuilderIO/agent-native リポジトリから利用できます。実装の確認、ローカル実行、データベースやモデルプロバイダーの選択、製品への適応が可能です。ホスト型サービスは fork や自己ホストのデプロイとは別に運用されます。",
+        },
+        hosted: {
+          title: "ホスト型と自己ホスト型",
+          body: "Builder.io は agent-native.com で Agent-Native のホスト型アプリとドキュメントを運用しています。自分でアプリをデプロイし保守したいチームにも対応します。アクション契約、アクセス境界、エージェント指示、公開プロトコルはコードとドキュメントで確認できます。",
+        },
+        community: {
+          title: "公開開発",
+          body: "このプロジェクトは GitHub の issue、pull request、ドキュメント、Agent-Native コミュニティを通じて公開で開発されています。ドキュメントで設計を学び、コードで実装を確認し、ユースケースを相談したり変更に貢献したりできます。",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "お問い合わせ",
+      title: "Agent-Native について Builder.io に連絡する",
+      intro:
+        "Agent-Native に関する質問、問題の報告、改善提案、安全性に関する懸念には、以下のサポート、ソース、コミュニティの窓口をご利用ください。",
+      emailLabel: "support@builder.io にメールする",
+      sections: {
+        support: {
+          title: "製品とホスト型サービスのサポート",
+          body: "ホスト型アプリ、アカウントアクセス、ドキュメントの問題、解決できない動作については support@builder.io にご連絡ください。公開 URL、再現できる最小の説明、関連するリクエストや実行 ID を含めてください。パスワード、API キー、Bearer トークン、非公開の顧客データは送らないでください。",
+        },
+        source: {
+          title: "オープンソースプロジェクトとコミュニティ",
+          body: "ソースコードのバグ、機能提案、pull request、実装の議論には GitHub リポジトリをご利用ください。ほかの開発者との対話が役立つ質問には Discord が適しています。まず issue とドキュメントを検索し、メンテナーが必要な背景を把握できるようにしてください。",
+        },
+        security: {
+          title: "セキュリティ報告",
+          body: "未修正の脆弱性を公開 issue やチャットで開示しないでください。利用可能なセキュリティ窓口から Builder.io に連絡し、再現と評価に必要な情報だけを提供してください。認証情報、非公開データ、悪用手順は通常のサポート依頼に含めないでください。",
+        },
+        legal: {
+          title: "法律とプライバシー",
+          body: "プライバシーに関する質問は、サポートへ連絡する前に Agent-Native のプライバシーポリシーと Builder.io の法務リソースをご確認ください。Builder.io, Inc. の住所は 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States です。ホスト型サービスの規約と自己ホストの責任は利用規約に記載されています。",
+        },
       },
     },
     terms: {
@@ -1905,6 +2059,7 @@ const jaJP = {
     externalAgents: "外部 Agents (ホスト接続)",
     externalAgentsCatalog: "外部 Agents カタログ",
     mcpApps: "MCP Apps (インライン UI)",
+    webMcp: "WebMCP (ブラウザ ツール)",
     crossAppSso: "クロスアプリ SSO",
     notifications: "通知",
     automationConnectors: "ワークフローコネクタ",
@@ -1929,8 +2084,8 @@ const jaJP = {
     calendar: "カレンダー",
     calendarOverview: "概要",
     calendarAgent: "Agent との対話",
-    calendarScheduling: "予定と空き時間",
-    calendarBookingLinks: "予約リンク",
+    calendarFeatures: "機能",
+    calendarIntegrations: "クロスアプリ利用",
     calendarDevelopers: "開発者ガイド",
     content: "コンテンツ",
     contentOverview: "概要",
@@ -1989,8 +2144,9 @@ const jaJP = {
     dispatchDevelopers: "開発者ガイド",
     forms: "フォーム",
     formsOverview: "概要",
-    formsBuildingPublishing: "作成と公開",
-    formsResponses: "回答とインサイト",
+    formsFeatures: "機能",
+    formsAgent: "Agent との対話",
+    formsIntegrations: "クロスアプリ利用",
     docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },

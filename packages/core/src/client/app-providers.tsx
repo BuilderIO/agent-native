@@ -39,7 +39,8 @@
  *   toaster                  — custom Toaster element rendered after children.
  *                              Pass `null` to suppress the built-in Toaster when
  *                              children already include a styled one.
- *                              Defaults to `<Toaster richColors position="bottom-left" />`.
+ *                              Defaults to a rich-color bottom-left toaster raised above
+ *                              the environment badge.
  *   disableThemeTransitions  — passed to next-themes ThemeProvider
  *                              `disableTransitionOnChange`. Defaults to `true`
  *                              (suppresses CSS transitions during theme switches,
@@ -76,6 +77,7 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -105,7 +107,7 @@ export interface AppProvidersProps {
    * Custom Toaster element rendered after children inside TooltipProvider.
    * Pass `null` to suppress the built-in Toaster when children already
    * include a styled one.
-   * Defaults to `<Toaster richColors position="bottom-left" />`.
+   * Defaults to a rich-color bottom-left toaster raised above the environment badge.
    */
   toaster?: React.ReactNode | null;
 
@@ -150,7 +152,14 @@ export interface AppProvidersProps {
   children: React.ReactNode;
 }
 
-const DEFAULT_TOASTER = <Toaster richColors position="bottom-left" />;
+const DEFAULT_TOASTER = (
+  <Toaster
+    richColors
+    position="bottom-left"
+    offset={{ bottom: 44, left: 32 }}
+    mobileOffset={{ bottom: 44, left: 16 }}
+  />
+);
 
 function RoutedAppEnhancements() {
   const isInRouter = useInRouterContext();
@@ -162,6 +171,18 @@ function RoutedAppEnhancements() {
       <RouteTransitionIndicator />
     </>
   );
+}
+
+function AutomaticWebMcpActionRegistration() {
+  useEffect(() => {
+    const registration = createAgentNativeServerActionWebMcpRegistration();
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Session expiry or a transient
+      // manifest failure must not prevent the authenticated app from loading.
+    });
+    return () => registration.stop();
+  }, []);
+  return null;
 }
 
 function readDocumentTitleFallback(): string {
@@ -176,7 +197,7 @@ function readDocumentTitleFallback(): string {
         document.querySelector<HTMLMetaElement>(selector)?.content ?? "",
     )
     .find((title) => isHumanReadableDocumentTitle(title));
-  return normalizeDocumentTitle(metadataTitle, "Agent Native");
+  return normalizeDocumentTitle(metadataTitle, "Agent-Native");
 }
 
 function EmbeddedThemeSync() {
@@ -225,7 +246,7 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   useEffect(() => {
     let lastKnownTitle = normalizeDocumentTitle(
       initialTitleRef.current ?? fallbackTitle ?? readDocumentTitleFallback(),
-      fallbackTitle ?? "Agent Native",
+      fallbackTitle ?? "Agent-Native",
     );
 
     const repairTitle = () => {
@@ -234,7 +255,7 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
         lastKnownTitle = currentTitle;
         return;
       }
-      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent Native");
+      const nextTitle = normalizeDocumentTitle(lastKnownTitle, "Agent-Native");
       if (currentTitle !== nextTitle) document.title = nextTitle;
     };
 
@@ -357,6 +378,7 @@ export function AppProviders({
             children
           ) : (
             <FirstRunOnboardingStartupGate>
+              <AutomaticWebMcpActionRegistration />
               {children}
             </FirstRunOnboardingStartupGate>
           )}

@@ -71,23 +71,65 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const SHIPPING_CHURN_RE =
+  /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
+
+const SHIPPING_CHURN_REGEX_CASES = [
+  [true, "don't merge main 100 times unless there is a clear conflict."],
+  [true, "Stop merging main unless there is a real conflict."],
+  [true, "only push up commits if there are clear CI errors or PR feedback."],
+  [true, "Do not create or push a routine chore: publish branch work commit."],
+  [true, "I don't want those chore commits unless absolutely necessary."],
+  [true, "Do not run ship:push on a clean or merely behind branch."],
+  [true, "Stop updating or syncing the branch from main unless conflicting."],
+  [true, "Stop creating generic ship commits unless CI requires them."],
+  [true, "Do not merge `main` into every PR unless there is a conflict."],
+  [false, "Don't forget to merge main when everything is green."],
+  [false, "The build completed successfully."],
+  [false, "The branch contains a useful chore commit."],
+  [false, "Only commit relevant changes."],
+  [false, "Do not merge main when every required check passes."],
+  [false, "Should we merge main after the checks pass?"],
+  [
+    false,
+    "Do not commit or push changes unless they belong to this requested fix.",
+  ],
+  [false, "Do not merge main after CI passes."],
+  [false, "Do not merge main. The branch contains a routine chore commit."],
+  [true, "Do not push routine commits."],
+  [true, "Do not push commits routinely."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+  );
+  failures.push(
+    ...SHIPPING_CHURN_REGEX_CASES.filter(
+      ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
+    ),
   );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Feedback regex self-test passed (${FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
+  {
+    // Added 2026-08-27 after the PR queue exposed routine main merges and
+    // generic ship commits as a measurable source of CI churn.
+    key: "shipping-churn",
+    label: "Had to stop routine ship commits or main merges",
+    fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
+    re: SHIPPING_CHURN_RE,
+  },
   {
     key: "branch-moves",
     label: "Unrequested branch creation / movement",
@@ -106,6 +148,15 @@ const PATTERNS = [
     fixedBy:
       "guard:ssr-cache-artifact + performance skill cache artifact contract (2026-08-20)",
     re: /\b(?:cache|caching|cache-control|stale-while-revalidate|SWR|CDN)\b[^.!?]{0,140}\b(?:wrong|broken|slow|again|regression|revert|reverted|no-cache|no-store|max-age=0|must-revalidate|fire|every few weeks)\b/i,
+  },
+  {
+    key: "slow-list-query",
+    label: "Reported a list/read that is slow in production",
+    fixedBy:
+      "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
+    // Anchored to a LIST/READ subject so an unrelated "the build is so slow"
+    // does not inflate the count the guard is measured against.
+    re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
   },
   {
     key: "stopped-early",
@@ -144,6 +195,12 @@ const PATTERNS = [
     label: "Agents clobbering each other in the shared checkout",
     fixedBy: ".agents/skills/concurrent-agents",
     re: /\b(collision|overwrit\w+|clobber\w*|reverted (my|our|their) work|lost (my|our) (work|edits)|another agent (is|was) (shipping|editing))\b/i,
+  },
+  {
+    key: "repo-temp-files",
+    label: "Had to clarify where repo-local temporary files belong",
+    fixedBy: "AGENTS.md root .tmp/ rule (2026-08-25)",
+    re: /\b(?:where|only|put|place|stop|don['’]t|do not)\b[^.!?]{0,80}\b(?:temp(?:orary)?|scratch)\b[^.!?]{0,80}\b(?:files?|artifacts?|output|folder|directory|repo|repository|gitignored)\b/i,
   },
   {
     key: "unpushed-work",

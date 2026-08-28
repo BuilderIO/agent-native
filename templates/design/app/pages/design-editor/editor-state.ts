@@ -1,5 +1,7 @@
 import { isStandaloneHttpUrl } from "@shared/html-content";
 
+import { trace } from "@/components/design/design-trace";
+
 import { normalizeDesignLeftPanel } from "./tool-state";
 import {
   type DesignFile,
@@ -24,10 +26,18 @@ export type PreviewContentReplaceResult =
   | "skipped-caller-owns-preview"
   | "unavailable";
 
+/**
+ * True when the in-place bridge patch could not run and the caller must fall
+ * back to rebuilding srcdoc — a real iframe reload that re-executes the editor
+ * bridge, Tailwind and Alpine. Traced because it is the one escalation a user
+ * perceives as "the frame refreshed", and it is otherwise invisible.
+ */
 export function previewContentReplaceNeedsRenderFallback(
   result: PreviewContentReplaceResult,
 ): boolean {
-  return result === "unavailable";
+  if (result !== "unavailable") return false;
+  trace("persist", "preview-bridge-unavailable-reload");
+  return true;
 }
 
 /**

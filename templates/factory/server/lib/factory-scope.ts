@@ -1,4 +1,4 @@
-import { and, eq, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, eq, exists, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import type { getDb } from "../db/index.js";
@@ -22,6 +22,14 @@ export const factoryIdSchema = z
   .min(1)
   .max(120)
   .regex(/^[a-z0-9][a-z0-9-]*$/);
+
+export const builderSlackUserIdSchema = z
+  .string()
+  .trim()
+  .max(32)
+  .refine((value) => value === "" || /^[UW][A-Z0-9]+$/i.test(value), {
+    message: "Builder Slack member id must look like U01234567.",
+  });
 
 export function factoryConfigRowId(orgId: string, factoryId: string): string {
   return `${orgId}:${factoryId}`;
@@ -126,6 +134,50 @@ export function triageConfigUpdateRowId(
 
 type Db = ReturnType<typeof getDb>;
 
+export function factoryStillPresent(
+  db: Db,
+  orgId: string,
+  factoryId: string,
+): SQL | undefined {
+  if (factoryId === DEFAULT_FACTORY_ID) return undefined;
+  return exists(
+    db
+      .select({ id: factoryDefinitions.id })
+      .from(factoryDefinitions)
+      .where(
+        and(
+          eq(factoryDefinitions.id, factoryId),
+          eq(factoryDefinitions.orgId, orgId),
+        ),
+      ),
+  );
+}
+
+export async function requireExistingFactory(
+  db: Db,
+  orgId: string,
+  factoryId: string,
+): Promise<void> {
+  // product-feedback is virtual until first save and cannot be deleted, so a
+  // missing definition row is not a deletion fence.
+  if (factoryId === DEFAULT_FACTORY_ID) return;
+  const row = (
+    await db
+      .select({ id: factoryDefinitions.id })
+      .from(factoryDefinitions)
+      .where(
+        and(
+          eq(factoryDefinitions.id, factoryId),
+          eq(factoryDefinitions.orgId, orgId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!row) {
+    throw new Error("Factory not found.");
+  }
+}
+
 export async function readTriageConfigRow(
   db: Db,
   orgId: string,
@@ -219,10 +271,16 @@ function readFrontmatterFactoryId(content: string): string | undefined {
   const match = content.slice(4, end).match(/^factoryId:\s*(.*)$/m);
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
-export function readAutomationFactoryId(meta: object, content: string): string {
+export function readAutomationFactoryId(
+  meta: object,
+  content: string,
+  path: string,
+): string {
+  const fromPath = readFactoryIdFromAutomationPath(path);
+  if (fromPath) return fromPath;
   const fromContent = readFrontmatterFactoryId(content);
   return resolveAutomationFactoryId(
     fromContent ? { ...meta, factoryId: fromContent } : meta,
@@ -245,6 +303,15 @@ export function legacyFactoryAutomationJobPath(automationName: string): string {
 
 export function isLegacyFactoryAutomationPath(path: string): boolean {
   return /^jobs\/factory-[^/]+\.md$/.test(path);
+}
+
+/** Scheduler trigger names keep the nested path; role allowlists use the leaf. */
+export function factoryAutomationLeafName(nameOrPath: string): string {
+  const withoutJobsPrefix = nameOrPath
+    .replace(/^jobs\//, "")
+    .replace(/\.md$/, "");
+  const slash = withoutJobsPrefix.lastIndexOf("/");
+  return slash === -1 ? withoutJobsPrefix : withoutJobsPrefix.slice(slash + 1);
 }
 
 export function readFactoryIdFromAutomationPath(path: string): string | null {
@@ -294,7 +361,7 @@ export async function assertUniqueSlackChannelForFactory(
           eq(triageConfig.slackChannelId, normalized),
         ),
       )
-  ).find((row) => row.factoryId && row.factoryId !== factoryId);
+  ).find((row) => row.factoryId !== factoryId);
   if (conflict) {
     throw new Error(
       "That Slack channel is already used by another Factory in this workspace.",
@@ -314,7 +381,7 @@ function readFrontmatterField(
     .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationDisplayName(content: string): string | null {
@@ -327,6 +394,14 @@ export function resolveAutomationDisplayName(
   content: string,
 ): string {
   return readAutomationDisplayName(content) ?? automationName;
+}
+
+export function assignCreatedByIfMissing(
+  content: string,
+  createdBy: string,
+): string {
+  if (readFrontmatterField(content, "createdBy")) return content;
+  return setAutomationFrontmatterField(content, "createdBy", createdBy);
 }
 
 export function setAutomationFrontmatterField(

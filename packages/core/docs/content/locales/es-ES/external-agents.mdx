@@ -93,7 +93,15 @@ La regla de identidad es la bisagra de seguridad: el enlace es solo `view` + ide
 
 ## Fácil configuración {#easy-setup}
 
-Agregue un conector MCP remoto al host donde desea utilizar Agent-Native.
+Cada aplicación Agent-Native expone una URL MCP canónica:
+
+```text
+https://<your-app>.agent-native.com/mcp
+```
+
+En la aplicación, abra **Settings**, busque **MCP** y copie la **MCP server URL**.
+Pegue esa URL en el host de IA que quiera usar. La URL es la URL base de la aplicación
+desplegada más `/mcp`; no necesita buscar una opción de desarrollador.
 
 Para trabajos en espacios de trabajo o entre aplicaciones, utilice Dispatch:
 
@@ -117,15 +125,15 @@ Cada aplicación alojada también tiene una página de ayuda en
 `https://&lt;app&gt;/mcp/connect` con el URL copiable y
 pestañas específicas del host para Claude, ChatGPT, Cursor, Código Claude, Codex y Otros.
 
-### Pestaña Access dentro de la aplicación {#access-tab}
+<a id="access-tab"></a>
 
-Las aplicaciones que montan `AgentTabsPage` ofrecen el mismo flujo de conexión
-en la pestaña **Access**. Muestra la URL de MCP, una tarjeta del agente A2A si
-está disponible y las guías compartidas para Claude, ChatGPT, Cursor, Claude
-Code, Codex y otros clientes. Úsala como punto de partida dentro de la app y
-abre `/mcp/connect` para el flujo completo y el token alternativo. Es una
-interfaz de configuración de conexión, no una consola general de acceso: la
-pestaña todavía no gestiona grants, edición de ámbitos ni revocación.
+### La opción MCP dentro de la aplicación {#mcp-settings}
+
+La configuración estándar de la aplicación incluye una pestaña **MCP** junto a
+**Integrations**. Muestra la URL MCP canónica de la aplicación, una tarjeta de
+agente A2A si está disponible y las mismas guías de configuración que la página
+de conexión completa. Use **Settings → MCP** como punto de partida o abra
+`/mcp/connect` directamente para el flujo completo y el token alternativo.
 
 ### Claude y ChatGPT OAuth {#oauth}
 
@@ -134,10 +142,15 @@ Escritorio Claude / Claude: agregue un conector personalizado, pegue el MCP URL,
 y habilitar el conector en un chat. El código Claude usa el mismo URL: agréguelo como
 servidor remoto HTTP MCP, ejecute `/mcp` y luego elija **Autenticar**.
 
-ChatGPT: utilice un espacio de trabajo donde se encuentren conectores MCP personalizados o aplicaciones en modo desarrollador
-habilitado, cree un conector/aplicación personalizado, pegue el mismo MCP URL, elija OAuth,
-escanear/descubrir herramientas, iniciar sesión con Agent-Native, aprobar los ámbitos y habilitar
-el conector en un chat.
+ChatGPT: las aplicaciones MCP personalizadas requieren un espacio de trabajo web
+de ChatGPT compatible. Si tiene acceso, abra **Settings → Apps → Advanced
+settings**, active el modo de desarrollador cuando sea necesario, elija **Create
+app**, pegue la misma URL MCP, elija OAuth, escanee las herramientas, inicie
+sesión con Agent-Native, apruebe los ámbitos solicitados y active la aplicación
+en un chat. Los espacios Business, Enterprise y Edu admiten MCP completo,
+incluidas las acciones de escritura; Pro admite lectura y obtención en modo de
+desarrollador. Si no aparecen **Apps** o **Create app**, su plan o la política
+del espacio de trabajo no permiten esta configuración.
 
 Las concesiones OAuth son por host y por usuario. El host almacena los tokens y
 media llamadas de herramientas/recursos, por lo que las vistas previas en línea de la aplicación MCP nunca se reciben sin formato
@@ -206,7 +219,7 @@ cliente si el nuevo servidor aún no está visible.
 
 Utilice `--client codex` (o `--client claude-code`, `--client claude-code-cli`, `--client cursor`, `--client opencode`, `--client github-copilot`, `--client cowork`, `--client all`) para omitir el selector de scripts o instalaciones únicas.
 
-La aplicación propia skills instala las instrucciones y el conector MCP alojado junto con el Agent Native CLI:
+La aplicación propia skills instala las instrucciones y el conector MCP alojado junto con el Agent-Native CLI:
 
 ```bash
 npx @agent-native/core@latest skills add assets              # alias: image-generation
@@ -420,7 +433,7 @@ Se trata de una exclusión estricta basada en el nombre, no solo de una omisión
 
 Una aplicación que proporciona `resolveExecutionContext` sustituye explícitamente esta secuencia de identidad predeterminada. Su resolver debe rechazar de forma independiente a los autores no verificados, invitados, miembros externos y espacios de trabajo no vinculados antes de devolver un principal.
 
-Antes de ejecutar el agente, un mensaje directo verificado de Slack se asocia a un miembro existente de la organización de Agent Native y se guarda el vínculo de identidad entre el espacio de trabajo y el usuario. El contexto resultante del usuario y la organización carga los recursos, las instrucciones y las habilidades de ese usuario. De forma predeterminada, se rechaza a los miembros del espacio de trabajo cuyo perfil se obtuvo correctamente pero que no tienen correo electrónico o aún no pertenecen a la organización. Las aplicaciones pueden configurar explícitamente `allowAnonymousOrgScopedSlackDm: true` para ejecutar a esos miembros como un principal de servicio anónimo limitado a la organización: el mismo nivel de visibilidad para toda la organización que usan los canales compartidos, pero nunca acceso privado del usuario. El agente recibe una nota visible y Slack muestra una sola vez cómo obtener acceso personal. Esta opción nunca admite fallos de obtención del perfil, autores no verificados, invitados, miembros externos (Slack Connect) ni espacios de trabajo no vinculados a una organización; esos casos reciben una respuesta cortés de rechazo. Los canales compartidos de Slack usan un principal de servicio y no heredan los permisos privados de ningún participante. OAuth administrado y el manifiesto generado de la aplicación de Slack solicitan el ámbito de bot `users:read.email`. Las instalaciones existentes deben volver a conectarse o instalarse para conceder un ámbito recién añadido; las instalaciones antiguas con token de bot deben añadirlo manualmente en Slack. Sin él, los mensajes directos se rechazan salvo que la aplicación habilite explícitamente `allowAnonymousOrgScopedSlackDm`.
+Antes de ejecutar el agente, un mensaje directo verificado de Slack se asocia a un miembro existente de la organización de Agent-Native y se guarda el vínculo de identidad entre el espacio de trabajo y el usuario. El contexto resultante del usuario y la organización carga los recursos, las instrucciones y las habilidades de ese usuario. De forma predeterminada, se rechaza a los miembros del espacio de trabajo cuyo perfil se obtuvo correctamente pero que no tienen correo electrónico o aún no pertenecen a la organización. Las aplicaciones pueden configurar explícitamente `allowAnonymousOrgScopedSlackDm: true` para ejecutar a esos miembros como un principal de servicio anónimo limitado a la organización: el mismo nivel de visibilidad para toda la organización que usan los canales compartidos, pero nunca acceso privado del usuario. El agente recibe una nota visible y Slack muestra una sola vez cómo obtener acceso personal. Esta opción nunca admite fallos de obtención del perfil, autores no verificados, invitados, miembros externos (Slack Connect) ni espacios de trabajo no vinculados a una organización; esos casos reciben una respuesta cortés de rechazo. Los canales compartidos de Slack usan un principal de servicio y no heredan los permisos privados de ningún participante. OAuth administrado y el manifiesto generado de la aplicación de Slack solicitan el ámbito de bot `users:read.email`. Las instalaciones existentes deben volver a conectarse o instalarse para conceder un ámbito recién añadido; las instalaciones antiguas con token de bot deben añadirlo manualmente en Slack. Sin él, los mensajes directos se rechazan salvo que la aplicación habilite explícitamente `allowAnonymousOrgScopedSlackDm`.
 
 ### Nivel completo (solo suscripción explícita) {#full-tier}
 

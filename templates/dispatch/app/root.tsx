@@ -141,7 +141,7 @@ function useThreadDeepLink() {
     handled.current = true;
 
     params.delete("thread");
-    navigate(
+    void navigate(
       {
         pathname: "/chat",
         search: params.toString() ? `?${params.toString()}` : "",
@@ -218,7 +218,15 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        toaster={<Toaster richColors position="bottom-left" closeButton />}
+        toaster={
+          <Toaster
+            richColors
+            position="bottom-left"
+            closeButton
+            offset={{ bottom: 44, left: 32 }}
+            mobileOffset={{ bottom: 44, left: 16 }}
+          />
+        }
         i18n={{ catalog: i18nCatalog }}
       >
         <AppContent />

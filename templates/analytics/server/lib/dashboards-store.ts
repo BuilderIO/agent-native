@@ -53,6 +53,7 @@ export interface DashboardRecord {
   orgId: string | null;
   visibility: "private" | "org" | "public";
   createdAt: string;
+  createdBy: string | null;
   updatedAt: string;
   updatedBy: string | null;
   /** ISO timestamp set when the dashboard is archived. Null = active. */
@@ -295,17 +296,26 @@ function dashboardReferenceMatch(
 
   return {
     record: {
-      id: String(row.id ?? ""),
+      id: typeof row.id === "string" ? row.id : (JSON.stringify(row.id) ?? ""),
       kind: row.kind === "explorer" ? "explorer" : "sql",
-      name: String(row.name ?? "Untitled dashboard"),
+      name:
+        typeof row.name === "string"
+          ? row.name
+          : (JSON.stringify(row.name) ?? "Untitled dashboard"),
       description: typeof row.description === "string" ? row.description : null,
-      ownerEmail: String(row.ownerEmail ?? ""),
+      ownerEmail:
+        typeof row.ownerEmail === "string"
+          ? row.ownerEmail
+          : (JSON.stringify(row.ownerEmail) ?? ""),
       orgId: typeof row.orgId === "string" ? row.orgId : null,
       visibility:
         row.visibility === "public" || row.visibility === "org"
           ? row.visibility
           : "private",
-      updatedAt: String(row.updatedAt ?? ""),
+      updatedAt:
+        typeof row.updatedAt === "string"
+          ? row.updatedAt
+          : (JSON.stringify(row.updatedAt) ?? ""),
       matchedFields,
     },
     score,
@@ -467,6 +477,7 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     orgId: row.orgId ?? null,
     visibility: row.visibility,
     createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy ?? null,
     archivedAt: row.archivedAt ?? null,
@@ -546,6 +557,7 @@ async function migrateDashboardFromSettings(
     (typeof (settingsValue as any).updatedAt === "string" &&
       (settingsValue as any).updatedAt) ||
     createdAt;
+  const createdBy = visibility === "private" ? ownerEmail : null;
   await db
     .insert(schema.dashboards)
     .values({
@@ -557,6 +569,7 @@ async function migrateDashboardFromSettings(
       orgId,
       visibility,
       createdAt,
+      createdBy,
       updatedAt,
       updatedBy: ownerEmail,
     })
@@ -1389,6 +1402,7 @@ export async function upsertDashboard(
         ownerEmail: ctx.email,
         orgId: ctx.orgId,
         visibility: "private",
+        createdBy: ctx.email,
         updatedBy: ctx.email,
       });
     }

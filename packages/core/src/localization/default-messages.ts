@@ -25,6 +25,22 @@ const messages = {
     themeTitle: "Theme",
     themeDescription: "Toggle dark / light",
   },
+  onboarding: {
+    back: "Back",
+    chooseRole: "Choose your role",
+    customizeRole: "Let’s customize this for you.",
+    roleQuestion: "What best describes your role?",
+    roleProduct: "Product",
+    roleDesign: "Design",
+    roleDeveloper: "Developer",
+    roleMarketing: "Marketing",
+    roleSales: "Sales",
+    roleOps: "Ops",
+    roleIndividual: "Individual",
+    roleOther: "Other",
+    skipForNow: "Skip for now",
+    saveRoleError: "Could not save your role.",
+  },
   settings: {
     title: "Settings",
     pageTitle: "Settings",
@@ -46,6 +62,26 @@ const messages = {
     mcpConnectionsDescription:
       "Connect tools and services so the agent can use them.",
     openMcpConnections: "Open integrations",
+    mcpTitle: "MCP",
+    mcpDescription:
+      "Connect this app to Claude, ChatGPT, Cursor, Codex, or another MCP host.",
+    mcpUrlLabel: "MCP server URL",
+    mcpUrlHint:
+      "Copy this URL into the AI host you want to use. The canonical path is /mcp.",
+    mcpOpenDocs: "Open MCP connection docs",
+    a2aAgentCard: "A2A agent card",
+    a2aOpenDocs: "Open A2A documentation",
+    mcpClientSetup: "Connect an AI host",
+    mcpClientSetupDescription:
+      "Choose a host for step-by-step setup, or paste the URL into any MCP-compatible client.",
+    mcpChooseAssistant: "Choose your AI assistant",
+    mcpCommand: "Command",
+    mcpConfig: "MCP config",
+    mcpCopy: "Copy",
+    mcpCopied: "Copied",
+    mcpStaticTokenDescription:
+      "Open the full connect page to create a token for clients that cannot complete OAuth.",
+    mcpOpenConnectPage: "Open full connect page",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -475,10 +511,12 @@ const messages = {
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
     codeUnavailableDescription:
-      "Source-code changes and CLI access are available in the Agent Native Desktop app.",
+      "Source-code changes and CLI access are available in the Agent-Native Desktop app.",
     downloadDesktop: "Download Desktop",
     chatMode: "Chat mode",
     chat: "Chat",
+    mode: "Mode",
+    uiMode: "UI",
     cliTerminalMode: "CLI terminal mode",
     cli: "CLI",
     workspaceMode: "Files, agents, skills, and tasks",
@@ -861,7 +899,7 @@ const messages = {
       '"{{feature}}" creates or modifies source code, which needs Desktop or Builder from this surface.',
     subtitle:
       "This action creates or modifies source code, which needs Desktop or Builder from this surface.",
-    desktopTitle: "Use Agent Native Desktop",
+    desktopTitle: "Use Agent-Native Desktop",
     desktopDescription:
       "Open the project in the desktop app to enable source edits and CLI access.",
     builderAgentTitle: "Use Builder.io Agent",
@@ -1132,12 +1170,13 @@ const messages = {
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     providerSetupRequired: "Provider setup required",
     providerSetupDescription:
-      "Complete the required setup in {{name}} first. Then return here to authorize your account.",
+      "Complete the required setup in {{name}} first. Then return here to connect your account.",
     providerSetupFormDescription:
-      "Review the provider requirements and open the official setup guide before connecting your account.",
-    continueToConnect: "I've completed setup",
-    setupTitle: "Set up {{name}}",
+      "Complete provider setup before connecting your account.",
+    continueToConnect: "Connect my account",
+    setupTitle: "Connect {{name}}",
     personal: "Personal",
+    personalConnection: "Personal connection",
     organization: "Organization",
     scopeQuestion: "Who should be able to use this connection?",
     scopeChoiceTitle: "Who should use this?",
@@ -1165,7 +1204,7 @@ const messages = {
     descriptionPlaceholder: "Description (optional)",
     headersPlaceholder: "Authorization: Bearer <token>",
     openSetupDocs: "Open setup docs",
-    viewSetup: "View setup",
+    viewSetup: "Open setup guide",
     test: "Test",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
@@ -1259,7 +1298,7 @@ const messages = {
         useCase:
           "Project management, issue tracking, documentation, team collaboration",
         setupNote:
-          "Atlassian admins manage the allowed AI domains and Rovo integration permissions. Use the current Streamable HTTP endpoint, /v1/mcp, and reconnect after policy changes.",
+          "Ask your Atlassian admin to allow the Clips app domain and enable Rovo/MCP with Read, Write, and Search permissions for your Jira site.",
       },
       cloudflare: {
         description:
@@ -1276,14 +1315,6 @@ const messages = {
         setupNote:
           "Grafana Cloud MCP is in public preview and requires Grafana Cloud Assistant MCP access. It is hosted Grafana Cloud only; self-hosted Grafana needs the local MCP server.",
       },
-      googleWorkspace: {
-        description:
-          "Search Google Workspace data through its remote MCP server.",
-        useCase:
-          "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
-        setupNote:
-          "Google Workspace MCP is in Developer Preview. Enable the relevant Google Workspace and MCP APIs, configure an OAuth consent screen and client, then authorize the products you want to use.",
-      },
       gitlab: {
         description:
           "Read and manage GitLab projects, issues, and merge requests.",
@@ -1296,7 +1327,7 @@ const messages = {
           "Bring Figma design context and canvas actions into an agent.",
         useCase: "Design files, components, variables, design systems, canvas",
         setupNote:
-          "The Figma integration only allows clients listed in Figma's integration catalog, so this remote endpoint cannot connect from Agent Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; canvas actions remain unavailable until Figma approves Agent Native.",
+          "The Figma integration only allows clients listed in Figma's integration catalog, so this remote endpoint cannot connect from Agent-Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; canvas actions remain unavailable until Figma approves Agent-Native.",
       },
       canva: {
         description: "Search, create, and update Canva designs and assets.",
@@ -1310,7 +1341,7 @@ const messages = {
           "Search Vercel docs and inspect projects, deployments, and logs.",
         useCase: "Deployments, projects, logs, domains, hosting, documentation",
         setupNote:
-          "The Vercel integration only accepts reviewed and approved AI clients. Agent Native must be added to Vercel's supported-client list before a generic framework connection will work.",
+          "The Vercel integration only accepts reviewed and approved AI clients. Agent-Native must be added to Vercel's supported-client list before a generic framework connection will work.",
       },
       github: {
         description:
@@ -1325,7 +1356,7 @@ const messages = {
           "Search Slack conversations and take workspace actions through its integration.",
         useCase: "Messages, channels, people, company memory, workflows",
         setupNote:
-          "The Slack integration requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent Native workflows.",
+          "The Slack integration requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent-Native workflows.",
       },
       asana: {
         description:
@@ -1370,7 +1401,7 @@ const messages = {
         description: "Work with PayPal payments, invoices, and commerce data.",
         useCase: "Payments, invoices, transactions, merchant operations",
         setupNote:
-          "PayPal exposes OAuth discovery and login for its remote agent integration. Agent Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
+          "PayPal exposes OAuth discovery and login for its remote agent integration. Agent-Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
       },
       box: {
         description: "Search and manage files and folders in Box.",

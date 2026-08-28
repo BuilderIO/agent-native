@@ -32,6 +32,7 @@ vi.mock("@tabler/icons-react", () => ({
   IconPalette: () => <span />,
   IconPencil: () => <span />,
   IconPlus: () => <span />,
+  IconShare2: () => <span />,
   IconStar: () => <span />,
   IconStarFilled: () => <span />,
   IconTrash: () => <span />,
@@ -52,6 +53,10 @@ vi.mock("@/lib/deck-preview-frame", () => ({
 
 vi.mock("./SlideRenderer", () => ({
   default: () => <div />,
+}));
+
+vi.mock("../editor/ShareDialog", () => ({
+  default: () => null,
 }));
 
 import {

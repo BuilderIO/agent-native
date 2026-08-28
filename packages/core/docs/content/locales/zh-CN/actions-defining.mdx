@@ -112,6 +112,21 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
             "设为 false 可以从每一个代理工具列表中隐藏。参见访问与授权。",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "agentTool",
+          description:
+            "继承 `agentTool`。设为 false 可对经由 MCP 和 A2A 的外部代理隐藏,设为 true 则声明它属于精选目录。见“访问与授权”。",
+        },
+        {
+          name: "deferLoading",
+          type: "boolean",
+          optional: true,
+          description:
+            "设为 false 可让该 action 留在代理的第一份工具列表里,设为 true 则通过 tool-search 按需加载。见下方“让 action 界面保持精简”。",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -249,6 +264,97 @@ POST 是默认方法,`http: { method: "GET" }` 会让它变成 GET。React 钩�
 - **`readOnly: true`**:显式跳过轮询刷新,即便是那些实际上不做任何变更的 POST action 也一样。这不是访问控制。它不限制谁可以调用该 action,也不影响 `useActionQuery()`、`useActionMutation()` 或任何客户端钩子。它唯一的效果是抑制调用后的刷新事件,并让该 action 不参与写入审计。要在模型面前隐藏一个 action,使用 `agentTool: false`。要限制谁可以调用它,使用 [访问与授权](/docs/actions-access-control) 中的鉴权和访问选项。
 - **`parallelSafe: true`**:允许一个变更类 action 与同一轮次里的其他工具调用同时运行。只有在该 action 确实可以安全并发、且不依赖调用顺序时才设置它。变更类 action 默认是串行执行的。
 
+## 让 action 失败 {#failing}
+
+action 通过抛出异常来报告失败。改为返回 `{ error: "..." }` 在框架的每个环节看来都是成功，因此代理的重试熔断器永远不会计入它，而这次调用会被记录为一次已完成的副作用。
+
+你抛出什么，决定了消息能保留多少。`fail()` 抛出 `ActionContractError`，正是这个类型让文本能够到达调用方。裸的 `throw new Error("No such email")` 与 Postgres 或上游故障无法区分，因此 action 路由会把它替换为通用的 500 `"Internal server error"`，把真实消息只留在服务端日志里，并上报给错误跟踪。把裸抛留给真正的内部故障。500 就是为此存在的。
+
+`fail()` 接受一条消息和一个选项对象：
+
+- **message**: 调用方读到的文本。为人而写，而不是为日志而写。
+- **options.errorCode**: 稳定的、机器可读的代码。默认为 `"action_failed"`。
+- **options.statusCode**: action 路由的 HTTP 状态码。默认为 `400`。
+- **options.details**: 给调用方的安全结构化上下文。切勿在此放入密钥或驱动的原始输出。
+
+最简单的调用只需要一条消息：
+
+```ts
+import { defineAction, fail } from "@agent-native/core/action";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Reply to an email thread in the user's voice.",
+  schema: z.object({
+    emailId: z.string().describe("The id of the email to reply to."),
+    body: z.string().describe("The reply body, in markdown."),
+  }),
+  run: async ({ emailId, body }) => {
+    const db = getDb();
+    const [email] = await db
+      .select()
+      .from(schema.emails)
+      .where(eq(schema.emails.id, emailId));
+    if (!email) fail("That email is no longer in the mailbox.");
+    await db.insert(schema.replies).values({ emailId, body });
+    return { ok: true, emailId };
+  },
+});
+```
+
+给原因命名，UI 才能对失败作出分支处理，而不只是把它打印出来。代码和状态码都能通过传输层保留下来：
+
+```ts
+if (!email) {
+  fail("That email is no longer in the mailbox.", {
+    errorCode: "email_not_found",
+    statusCode: 404,
+  });
+}
+```
+
+浏览器收到 `{ error, errorCode, details }`。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 都会把它暴露为带有 `status`、`errorCode`、`details` 和 `actionMessage` 的 `Error`。
+
+`error.message` 会保留 `Action <name> failed:` 前缀，它适合出现在控制台，放进 toast 里则读起来别扭。`actionErrorMessage()` 只返回 action 写下的文本，若无人撰写则返回 `undefined`：
+
+```tsx
+import {
+  actionErrorMessage,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+const reply = useActionMutation("reply-to-email", {
+  onError: (error) =>
+    toast.error(actionErrorMessage(error) ?? t("email.replyFailed")),
+});
+```
+
+网络中断、代理返回的 HTML 错误页以及单纯的状态行都没有撰写消息，因此它们返回 `undefined`，而不是一段 UI 会误显示的字符串。请始终搭配你自己的文案使用。
+
+### 每种抛出产生什么 {#failure-shapes}
+
+| 从 `run()` 抛出                                 | HTTP 状态码           | 响应体                                       | 是否上报错误跟踪 |
+| ----------------------------------------------- | --------------------- | -------------------------------------------- | ---------------- |
+| `fail(msg)`                                     | 400                   | `{ error: msg, errorCode: "action_failed" }` | 否               |
+| `fail(msg, { errorCode, statusCode, details })` | 你指定的 `statusCode` | `{ error, errorCode, details }`              | 否               |
+| `new ActionContractError(msg, { errorCode })`   | 409                   | `{ error, errorCode, details }`              | 否               |
+| `new AgentActionStopError(msg)`                 | 500                   | `{ error: msg }`                             | 否               |
+| `new Error(msg)`                                | 500                   | `{ error: "Internal server error" }`         | 是               |
+| 未通过 `schema` 校验的输入                      | 400                   | `{ error: "Invalid action parameters..." }`  | 否               |
+
+当代理应当结束本轮，而不是读取失败再试一次时，就抛出 `AgentActionStopError`。`ActionContractError` 是 `fail()` 替你抛出的，因此只有在你确实想要 409 时才直接使用它。
+
+### 选择一个重试策略能据以行动的状态码 {#failure-status}
+
+`useActionQuery()` 会重试 `429`、`502`、`503` 和 `504`，最多三次，退避依次为 500 毫秒、1 秒、2 秒。其他状态码一律视为确定性的，在第一次响应时就浮现出来。重发一个因为本身有误而被拒绝的请求，只会再买到同一个拒绝。`useActionMutation()` 完全不重试。
+
+所以状态码不是装饰。以 `404` 发出的拒绝只需一次往返。同样的拒绝若以 `500` 发出，或者裸抛，则要付出四次往返和四份重复的错误报告。
+
+代理调用方看不到状态码。代理在进程内执行 `run()`，因此无论类型如何都直接以 `Error running <action>: <message>` 的形式收到消息。非默认值 `action_failed` 的 `errorCode` 会以 `(errorCode: not_found)` 的形式附加，使模型无需解析文字即可据此分支。通过 MCP 接入的外部代理会收到同样的文本。消息中的密钥会先被脱敏，而代理自己的重复错误熔断器会限制它重试的次数。
+
 ## 让 action 界面保持精简 {#small-surface}
 
 代理能看到的每一个 action,都会占用模型工具列表中的一个位置,而一份又长又重叠的列表会让模型更难选对工具。把 action 界面当作一套你在维护的 API 来设计,而不是 UI 里每个按钮配一个 action:
@@ -256,6 +362,7 @@ POST 是默认方法,`http: { method: "GET" }` 会让它变成 GET。React 钩�
 - 优先选择**一个 CRUD 风格的 `update` action**,它接受一份包含可选字段的补丁,而不是 `update-name`、`update-order`、`update-color` 这样按字段拆分的许多 action。调用者只需要发送发生变化的字段。
 - 在为每一种查询或过滤条件新增一个读取类 action 之前,先考虑更通用的方案:面向 provider 数据的 [provider API 三件套](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`、`provider-api-docs` 和 `provider-api-request`),或者面向应用数据的开发用 `db-query` 工具。
 - 把仅供 UI 使用或程序化调用的 action 标记为 [`agentTool: false`](/docs/actions-access-control#agent-tool)。它们仍然可以从前端或通过 HTTP 调用,但不会占用模型工具列表中的位置。
+- 把代理时时都要用的少数几个 action 标记为 `deferLoading: false`。第一次模型请求发送的正是这些 schema;其余的会在代理需要时通过 `tool-search` 按需加载。只要有一个 action 这样退出,所有未标记的 action 就都会被推迟,所以要一次性标完整套起步 action,而不是一次标一个。这关乎第一轮的开销,而不是访问权限:被推迟的 action 在 `tool-search` 返回它的那一刻就可以调用。它是插件 `initialToolNames` 数组的按 action 写法,应用两者用其一即可。
 - 删除或隐藏 UI 已经不再使用的 action,而不是继续把它们暴露给模型。
 
 仓库内置了一个仅供参考的辅助工具 `node scripts/audit-template-actions.mjs [template ...]`(别名 `pnpm actions:audit`)。它会扫描某个模板的 `actions/` 文件夹,标记出 UI 可能已经不再使用的 action,以及那些可以合并为一个的、按字段拆分的 action 组。它总是以退出码 0 结束,从不会让 CI 失败,而且它的启发式规则是保守的,所以请把它的输出当作建议,而不是错误。

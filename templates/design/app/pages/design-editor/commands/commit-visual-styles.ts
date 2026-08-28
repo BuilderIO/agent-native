@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { patchAuthoredInlineStyles } from "@/components/design/edit-panel/interaction-state-helpers";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -25,6 +26,7 @@ import {
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type {
   LiveScreenSnapshot,
   PatchProofState,
@@ -176,6 +178,9 @@ export function runCommitVisualStyles(
     elementInfo?: ElementInfo;
     /** Pre-gesture values, for the pending-edit revert stack. */
     originalStyles?: Record<string, string>;
+    /** The write is a side effect of a gesture on another element, so it must
+     *  not move the selection onto the element it touched. */
+    preserveSelection?: boolean;
   } = {},
 ) {
   trace("persist", "commit-styles", {
@@ -655,19 +660,18 @@ export function runCommitVisualStyles(
     // tracked in the global file-content stack so all screens share one order.
     if (ydoc && isSynced) {
       const ytext = ydoc.getText("content");
-      if (ytext.toString() !== resolvedNextContent) {
+      if (ytext.toJSON() !== resolvedNextContent) {
         if (!yjsHistoryAvailable) {
-          // Untracked full rewrite (overview mode with a still-live
+          // Untracked write (overview mode with a still-live
           // single-mode UndoManager, or history-suppressed replay) —
           // see U1 note: clear the undo stack so a stale tracked delta
           // can't be replayed against content it no longer matches.
           undoManagerRef.current?.clear(true, false);
         }
-        ydoc.transact(
-          () => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, resolvedNextContent);
-          },
+        writeCollabText(
+          ydoc,
+          ytext,
+          resolvedNextContent,
           yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
         );
       }
@@ -687,7 +691,15 @@ export function runCommitVisualStyles(
       setContentRenderRevision((revision) => revision + 1);
     }
   }
-  if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
+  if (options.preserveSelection) return;
+  // A commit must never shrink the selection: a group transform commits one
+  // style change per member, so selecting the committed node keeps only the
+  // member that happened to commit last.
+  if (resolvedNode) {
+    setSelectedLayerIdsState((current) =>
+      current.includes(resolvedNode.id) ? current : [resolvedNode.id],
+    );
+  }
   setSelectedElement((prev) => {
     if (options.elementInfo) return options.elementInfo;
     if (!prev) return prev;
@@ -698,13 +710,12 @@ export function runCommitVisualStyles(
           classes: resolvedNode.classes,
         }
       : {};
+    const committed = Object.fromEntries(entries);
     return {
       ...prev,
       ...stablePatch,
-      computedStyles: {
-        ...prev.computedStyles,
-        ...Object.fromEntries(entries),
-      },
+      computedStyles: { ...prev.computedStyles, ...committed },
+      inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
     };
   });
 }

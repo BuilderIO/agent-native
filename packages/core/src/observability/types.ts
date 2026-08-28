@@ -63,6 +63,7 @@ export interface FeedbackEntry {
   messageSeq: number | null;
   feedbackType: FeedbackType;
   value: string;
+  idempotencyKey?: string | null;
   userId: string | null;
   createdAt: number;
 }
@@ -199,24 +200,4 @@ export interface ObservabilityConfig {
   inferredSentimentSampleRate: number;
   /** Model used by the managed Builder classifier. */
   inferredSentimentModel: string;
-  exporters: ObservabilityExporterConfig[];
 }
-
-export interface ObservabilityExporterConfig {
-  type: "otlp" | "console" | "custom";
-  endpoint?: string;
-  headers?: Record<string, string>;
-}
-
-export const DEFAULT_OBSERVABILITY_CONFIG: ObservabilityConfig = {
-  enabled: true,
-  capturePrompts: false,
-  captureToolArgs: false,
-  captureToolResults: false,
-  captureLlmSpans: true,
-  evalSampleRate: 0,
-  inferredSentimentEnabled: false,
-  inferredSentimentSampleRate: 0,
-  inferredSentimentModel: "gpt-5-6-luna",
-  exporters: [],
-};

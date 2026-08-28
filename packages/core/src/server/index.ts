@@ -102,7 +102,10 @@ export {
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
-export { hasGoogleAuthIdentity } from "./better-auth-instance.js";
+export {
+  ensureGoogleAuthIdentity,
+  hasGoogleAuthIdentity,
+} from "./better-auth-instance.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,
@@ -134,6 +137,7 @@ export {
   type AgentChatAttachment,
   type AgentChatReference,
   type MentionProvider,
+  type MentionItemMedia,
   type MentionProviderItem,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -275,6 +279,7 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 export {
   buildRuntimeConfigPrompt,
   formatRuntimeConfigReport,
@@ -529,6 +534,8 @@ export {
   exchangeWorkspaceProviderOAuthCode,
   handleWorkspaceProviderOAuthCallback,
   handleWorkspaceProviderOAuthStart,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
@@ -538,6 +545,7 @@ export {
 } from "./workspace-provider-oauth.js";
 
 export {
+  CredentialStoreUnavailableError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -557,6 +565,7 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
@@ -565,6 +574,12 @@ export {
   resolveSecret,
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
+export {
+  canAuthorizeBuilderApiRequest,
+  hasBuilderApiCredentialCustody,
+  resolveBuilderApiAuthorization,
+} from "./builder-api-auth.js";
+export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,
@@ -591,6 +606,7 @@ export {
   type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemStatus,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,
   type BuilderDesignSystemGitHubSource,
@@ -640,6 +656,8 @@ export {
 } from "./email.js";
 export {
   defineTransactionalEmail,
+  defineTransactionalEmails,
+  replaceTransactionalEmails,
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,

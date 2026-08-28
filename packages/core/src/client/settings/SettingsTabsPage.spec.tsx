@@ -371,6 +371,50 @@ describe("SettingsTabsPage", () => {
     ).toBeNull();
   });
 
+  it("merges tabs sharing a group id into one section even when another group intervenes", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "gmail-filters",
+              label: "Gmail Filters",
+              group: "integrations",
+              content: <div>Gmail filters content</div>,
+            },
+            {
+              id: "aliases",
+              label: "Aliases",
+              content: <div>Aliases content</div>,
+            },
+            {
+              id: "slack",
+              label: "Slack",
+              group: "integrations",
+              content: <div>Slack content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    // "aliases" has no group (defaults to "app", same as General) but sits
+    // between two "integrations" tabs, breaking simple adjacency.
+    expect(
+      container.querySelectorAll('[data-settings-tab-group="app"]'),
+    ).toHaveLength(1);
+    expect(
+      container.querySelectorAll('[data-settings-tab-group="integrations"]'),
+    ).toHaveLength(1);
+
+    const tabLabels = Array.from(
+      container.querySelectorAll('[role="tab"]'),
+      (tab) => tab.textContent,
+    );
+    expect(tabLabels).toEqual(["General", "Aliases", "Gmail Filters", "Slack"]);
+  });
+
   it("keeps linked settings navigation last with an external-link marker", () => {
     act(() => {
       root.render(

@@ -51,7 +51,7 @@ Public form submissions can be protected with Cloudflare Turnstile (opt-in). Thi
 
 ## Branding
 
-Public forms display a "Built with Agent Native" badge by default. This can be configured in the form settings.
+Public forms display a "Built with Agent-Native" badge by default. This can be configured in the form settings.
 
 ## Form Settings
 
@@ -62,6 +62,8 @@ Each form has a `settings` JSON object:
   "submitText": "Submit",
   "successMessage": "Thank you! Your response has been recorded.",
   "redirectUrl": null,
+  "completionMode": "message",
+  "completionRefreshSeconds": 5,
   "showProgressBar": false,
   "emailOnNewResponses": false,
   "anonymous": false,
@@ -74,6 +76,8 @@ Each form has a `settings` JSON object:
 | `submitText`       | string  | Custom submit button text                  |
 | `successMessage`   | string  | Message shown after successful submission  |
 | `redirectUrl`      | string  | URL to redirect to after submission        |
+| `completionMode`   | string  | `message`, `redirect`, `message_then_refresh`, or `refresh` |
+| `completionRefreshSeconds` | number | Delay before refreshing for `message_then_refresh` (1–3600) |
 | `showProgressBar`  | boolean | Show progress bar for multi-section forms  |
 | `emailOnNewResponses` | boolean | Email the form owner's account when someone submits a response |
 | `anonymous`        | boolean | Suppress IP, submitter identity, chat/run ids, page URL, and client-surface metadata for every response |
@@ -83,6 +87,10 @@ For a genuinely anonymous form, set `anonymous: true` when creating the form.
 Do not describe an ordinary published form as anonymous: published forms accept
 public responses, but only anonymous mode suppresses identifying and source
 metadata.
+
+Unset `completionMode` keeps legacy behavior: forms with a `redirectUrl` redirect
+and all other forms show the success message. A redirect with an invalid URL
+falls back to the success message.
 
 ## Integration Types
 

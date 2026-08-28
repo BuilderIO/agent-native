@@ -84,6 +84,9 @@ declare global {
       posthogKey?: string;
       posthogHost?: string;
       posthogErrorTracking?: boolean;
+      /** Public first-party Analytics write config for static/SSR shells. */
+      agentNativeAnalyticsPublicKey?: string;
+      agentNativeAnalyticsEndpoint?: string;
       /**
        * Hosted Realtime Gateway config. Impersonal (same for every visitor),
        * so it is safe inside the CDN-cached SSR shell — unlike the per-user
@@ -132,7 +135,7 @@ export type ConfigureTrackingOptions = {
   /** Platform attribution attached to every event emitted by this client. */
   clientPlatform?: AnalyticsClientPlatform;
   /**
-   * Agent Native first-party analytics public key. This mirrors hosted
+   * Agent-Native first-party analytics public key. This mirrors hosted
    * analytics SDKs where consumers pass the key at setup time instead of
    * relying on build-time environment variables.
    */
@@ -482,6 +485,10 @@ function applyTrackingIdentity(
  */
 function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
+}
+
+export function getAnalyticsIdentityKey(): string | undefined {
+  return getTrackingUserId() || getOrCreateAnonymousId();
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -1497,10 +1504,11 @@ function emitExceptionToReplay(event: CapturedExceptionEvent): void {
 function errorCaptureAutoEnabled(): boolean {
   const publicKey =
     _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   // A PostHog public key is an equally explicit opt-in — an app running
-  // PostHog and no Agent Native Analytics should still report browser crashes.
+  // PostHog and no Agent-Native Analytics should still report browser crashes.
   return !!publicKey || !!posthogErrorConfig();
 }
 
@@ -1890,9 +1898,10 @@ function schedulePageview(reason: string): void {
     const timeout = new Promise<void>((resolve) =>
       window.setTimeout(resolve, 250),
     );
-    Promise.race([Promise.allSettled(pendingStartupContext), timeout]).finally(
-      run,
-    );
+    void Promise.race([
+      Promise.allSettled(pendingStartupContext),
+      timeout,
+    ]).finally(run);
     return;
   }
   if (typeof queueMicrotask === "function") {
@@ -1909,8 +1918,8 @@ function installPageviewTracking(): void {
 
   schedulePageview("load");
 
-  const originalPushState = window.history.pushState;
-  const originalReplaceState = window.history.replaceState;
+  const originalPushState = window.history.pushState.bind(window.history);
+  const originalReplaceState = window.history.replaceState.bind(window.history);
 
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
@@ -1940,12 +1949,14 @@ function sendAgentNativeAnalytics(
 
   const publicKey =
     _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
   const endpoint =
     _agentNativeAnalyticsEndpoint ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;

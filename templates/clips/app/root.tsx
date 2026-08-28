@@ -388,7 +388,6 @@ function AppContent() {
       )}
       {standalonePublic ? null : <DevOverlay />}
       <Outlet />
-      <Toaster richColors position="bottom-left" />
     </>
   );
 }
@@ -408,6 +407,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isStandalonePublicPath(location.pathname)}
+        toaster={<Toaster richColors position="bottom-left" />}
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,

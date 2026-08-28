@@ -1,7 +1,9 @@
-name: Manage Agent Native production sites
+name: Manage Agent-Native production sites
 
 # Production is intentionally manual. Use deploy-main to publish the latest
-# main commit, or rollback to restore each selected site's previous live build.
+# main commit, or rollback to restore each selected site's previous or chosen
+# live build. For rollback, rollback_depth=1 means the previous deploy; an
+# optional rollback_deploy_id selects an exact Netlify deploy for one site.
 # The sites input accepts `all` or a comma-separated list such as `clips,design`.
 on:
   workflow_dispatch:
@@ -19,6 +21,16 @@ on:
         required: true
         type: string
         default: all
+      rollback_depth:
+        description: Number of prior production deploys to skip (1 means previous)
+        required: true
+        type: string
+        default: "1"
+      rollback_deploy_id:
+        description: Exact Netlify Deploy ID; overrides depth and requires one site
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -48,6 +60,9 @@ jobs:
       - name: Build one coordination slot per site
         id: matrix
         env:
+          OPERATION: ${{ inputs.operation }}
+          ROLLBACK_DEPTH: ${{ inputs.rollback_depth }}
+          ROLLBACK_DEPLOY_ID: ${{ inputs.rollback_deploy_id }}
           SITES: ${{ inputs.sites }}
         run: |
           set -euo pipefail
@@ -68,6 +83,19 @@ jobs:
           const unknown = names.filter((name) => !sites[name]);
           if (unknown.length) throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
           if (!names.length) throw new Error('No production sites selected.');
+          const rollbackDepth = (process.env.ROLLBACK_DEPTH || '').trim();
+          const rollbackDeployId = (process.env.ROLLBACK_DEPLOY_ID || '').trim();
+          if (process.env.OPERATION === 'rollback') {
+            if (!rollbackDeployId && (!/^[1-9]\d*$/.test(rollbackDepth) || !Number.isSafeInteger(Number(rollbackDepth)))) {
+              throw new Error('rollback_depth must be a positive safe integer.');
+            }
+            if (rollbackDeployId && !/^[0-9a-f-]{8,}$/i.test(rollbackDeployId)) {
+              throw new Error('rollback_deploy_id must be a Netlify deploy ID.');
+            }
+            if (rollbackDeployId && names.length !== 1) {
+              throw new Error('rollback_deploy_id requires exactly one selected site.');
+            }
+          }
           const matrix = {
             include: names.map((site) => ({
               site,
@@ -115,10 +143,12 @@ jobs:
           repositories: |
             builder-agent-native-workspace
 
-      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           OPERATION: ${{ inputs.operation }}
+          ROLLBACK_DEPTH: ${{ inputs.rollback_depth }}
+          ROLLBACK_DEPLOY_ID: ${{ inputs.rollback_deploy_id }}
           SITE_NAME: ${{ matrix.site }}
           SITE_ID: ${{ matrix.site_id }}
           SOURCE_SHA: ${{ needs.resolve-sites.outputs.source_sha }}
@@ -183,6 +213,49 @@ jobs:
                   ? Date.parse(deploy.published_at)
                   : Number.NaN;
               return Number.isFinite(value) ? value : null;
+            }
+
+            function isRestorableProductionDeploy(deploy) {
+              return (
+                deploy?.context === 'production' &&
+                ['old', 'ready'].includes(deploy?.state)
+              );
+            }
+
+            function parseRollbackTarget(depthRaw, deployIdRaw) {
+              const deployId = deployIdRaw.trim();
+              if (deployId) {
+                if (!/^[0-9a-f-]{8,}$/i.test(deployId)) {
+                  throw new Error('rollback_deploy_id must be a Netlify deploy ID.');
+                }
+                return { depth: null, deployId };
+              }
+
+              const depthValue = depthRaw.trim();
+              if (!/^[1-9]\d*$/.test(depthValue)) {
+                throw new Error('rollback_depth must be a positive safe integer.');
+              }
+              const depth = Number(depthValue);
+              if (!Number.isSafeInteger(depth)) {
+                throw new Error('rollback_depth must be a positive safe integer.');
+              }
+              return { depth, deployId: null };
+            }
+
+            function selectRollbackDeploy(deploys, currentId, currentPublishedAt, depth) {
+              return deploys
+                .map((deploy) => ({
+                  deploy,
+                  publishedAt: publishedAtTimestamp(deploy),
+                }))
+                .filter(
+                  ({ deploy, publishedAt }) =>
+                    isRestorableProductionDeploy(deploy) &&
+                    deploy.id !== currentId &&
+                    publishedAt !== null &&
+                    publishedAt < currentPublishedAt,
+                )
+                .sort((left, right) => right.publishedAt - left.publishedAt)[depth - 1]?.deploy || null;
             }
 
             function nextPageUrl(linkHeader) {
@@ -495,6 +568,10 @@ jobs:
             }
 
             async function rollback(name, site) {
+              const target = parseRollbackTarget(
+                process.env.ROLLBACK_DEPTH || '',
+                process.env.ROLLBACK_DEPLOY_ID || '',
+              );
               const currentSite = await readJson(
                 await request(`${API}/sites/${site.siteId}`, { headers }),
                 `[${name}] current production lookup`,
@@ -513,32 +590,44 @@ jobs:
                 );
               }
 
-              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
-              const previous = deploys
-                .map((deploy) => ({
-                  deploy,
-                  publishedAt: publishedAtTimestamp(deploy),
-                }))
-                .filter(
-                  ({ deploy, publishedAt }) =>
-                    deploy.context === 'production' &&
-                    deploy.state === 'ready' &&
-                    deploy.id !== currentId &&
-                    publishedAt !== null &&
-                    publishedAt < currentPublishedAt,
-                )
-                .sort((left, right) => right.publishedAt - left.publishedAt)[0]?.deploy;
-              if (!previous) throw new Error(`[${name}] has no prior ready production deploy to restore.`);
+              const targetDeploy = target.deployId
+                ? await readJson(
+                    await request(
+                      `${API}/sites/${site.siteId}/deploys/${encodeURIComponent(target.deployId)}`,
+                      { headers },
+                    ),
+                    `[${name}] rollback target lookup`,
+                  )
+                : selectRollbackDeploy(
+                    await listDeploys(name, site.siteId, 'production deploy history'),
+                    currentId,
+                    currentPublishedAt,
+                    target.depth,
+                  );
+              if (!targetDeploy) {
+                throw new Error(
+                  `[${name}] has no restorable production deploy matching ${target.deployId || `${target.depth} prior deploy(s)`}.`,
+                );
+              }
+              if (!isRestorableProductionDeploy(targetDeploy)) {
+                throw new Error(
+                  `[${name}] deploy ${targetDeploy.id || target.deployId} is not an old or ready production deploy.`,
+                );
+              }
+              if (targetDeploy.id === currentId) {
+                core.info(`[${name}] production already serves ${currentId}.`);
+                return;
+              }
 
               await readJson(
-                await request(`${API}/sites/${site.siteId}/deploys/${previous.id}/restore`, {
+                await request(`${API}/sites/${site.siteId}/deploys/${encodeURIComponent(targetDeploy.id)}/restore`, {
                   method: 'POST',
                   headers,
                 }),
-                `[${name}] rollback to ${previous.id}`,
+                `[${name}] rollback to ${targetDeploy.id}`,
               );
-              await waitForPublished(name, site.siteId, previous.id);
-              core.info(`[${name}] rolled back ${currentId} -> ${previous.id} (${previous.commit_ref || 'no commit ref'}).`);
+              await waitForPublished(name, site.siteId, targetDeploy.id);
+              core.info(`[${name}] rolled back ${currentId} -> ${targetDeploy.id} (${targetDeploy.commit_ref || 'no commit ref'}).`);
             }
 
             async function runWithLimit(entries, worker, limit = 3) {

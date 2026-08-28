@@ -1,8 +1,11 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import { useEffect, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+
+import { timelineMarkerAlignment, timelineMarkerMs } from "./scrubber-position";
 
 export const PLAYBACK_COMMENT_VISIBLE_MS = 3_000;
 
@@ -21,6 +24,11 @@ export interface PlaybackComment {
   parentId?: string | null;
   resolved?: boolean;
 }
+
+export type CommentPreviewData = Pick<
+  PlaybackComment,
+  "id" | "content" | "authorEmail" | "authorName"
+>;
 
 export function getActivePlaybackComments(
   comments: PlaybackComment[] | undefined,
@@ -56,11 +64,19 @@ export function PlaybackCommentOverlay({
   comments,
   currentMs,
   playbackRate = 1,
+  durationMs,
+  getTimelinePositionMs,
+  getTimelineLane,
   onClick,
 }: {
   comments: PlaybackComment[] | undefined;
   currentMs: number;
   playbackRate?: number;
+  durationMs?: number;
+  getTimelinePositionMs?: (
+    comment: PlaybackComment,
+  ) => number | null | undefined;
+  getTimelineLane?: (comment: PlaybackComment) => number | null | undefined;
   onClick?: () => void;
 }) {
   const activeComments = getActivePlaybackComments(
@@ -68,58 +84,171 @@ export function PlaybackCommentOverlay({
     currentMs,
     playbackRate,
   );
-  const avatarUrl = useAvatarUrl(activeComments[0]?.authorEmail);
-  if (activeComments.length === 0) return null;
+  const visibleComments = getTimelinePositionMs
+    ? activeComments.filter(
+        (activeComment) => getTimelinePositionMs(activeComment) != null,
+      )
+    : activeComments;
+  const activeCommentId = visibleComments[0]?.id ?? null;
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [overlayWidth, setOverlayWidth] = useState(0);
+  const [previewWidth, setPreviewWidth] = useState(0);
 
-  const [comment, ...rest] = activeComments;
-  const author = displayAuthor(comment);
-  const Card = (onClick ? "button" : "div") as "button" | "div";
+  useEffect(() => {
+    if (!activeCommentId) {
+      setOverlayWidth(0);
+      setPreviewWidth(0);
+      return;
+    }
+
+    const overlay = overlayRef.current;
+    const preview = previewRef.current;
+    if (!overlay || !preview || typeof ResizeObserver === "undefined") return;
+
+    const updateWidths = () => {
+      setOverlayWidth(overlay.getBoundingClientRect().width);
+      setPreviewWidth(preview.getBoundingClientRect().width);
+    };
+    const observer = new ResizeObserver(updateWidths);
+    observer.observe(overlay);
+    observer.observe(preview);
+    updateWidths();
+    return () => observer.disconnect();
+  }, [activeCommentId]);
+
+  if (visibleComments.length === 0) return null;
+
+  const [comment, ...rest] = visibleComments;
+  const timelinePositionMs = getTimelinePositionMs?.(comment);
+  const positionMs = getTimelinePositionMs
+    ? (timelinePositionMs ?? Number.NaN)
+    : comment.videoTimestampMs;
+  const safeDurationMs = durationMs ?? 0;
+  const markerMs = Number.isFinite(positionMs)
+    ? timelineMarkerMs(positionMs)
+    : positionMs;
+  const timelineLane = getTimelineLane?.(comment);
+  const markerLane =
+    typeof timelineLane === "number" &&
+    Number.isFinite(timelineLane) &&
+    timelineLane >= 0
+      ? Math.floor(timelineLane)
+      : 0;
+  const positionPercent =
+    Number.isFinite(safeDurationMs) &&
+    safeDurationMs > 0 &&
+    Number.isFinite(markerMs)
+      ? Math.min(100, Math.max(0, (markerMs / safeDurationMs) * 100))
+      : 50;
+  const positionAlignment =
+    overlayWidth > 0 && previewWidth > 0
+      ? timelineMarkerAlignment(
+          markerMs,
+          safeDurationMs,
+          previewWidth,
+          overlayWidth,
+        )
+      : positionPercent <= 0
+        ? "start"
+        : positionPercent >= 100
+          ? "end"
+          : "center";
 
   return (
     <div
+      ref={overlayRef}
       data-player-ui
-      className="pointer-events-none absolute inset-x-3 bottom-[5.25rem] z-20 flex justify-center sm:inset-x-6"
+      data-player-playback-comment
+      className="pointer-events-none absolute inset-x-3 bottom-[6.5rem] z-40 h-0"
       aria-live="polite"
     >
-      <Card
-        key={comment.id}
-        type={onClick ? "button" : undefined}
-        onClick={onClick}
+      <div
+        ref={previewRef}
         className={cn(
-          "animate-in fade-in slide-in-from-bottom-2 flex w-full max-w-xl flex-col gap-1.5 rounded-xl bg-black/85 px-3 py-2.5 text-left text-white shadow-2xl ring-1 ring-white/15 backdrop-blur-md duration-200",
-          onClick && "pointer-events-auto cursor-pointer hover:bg-black/95",
+          "absolute bottom-0",
+          positionAlignment === "start"
+            ? "left-0"
+            : positionAlignment === "end"
+              ? "right-0"
+              : "-translate-x-1/2",
         )}
+        style={{
+          ...(positionAlignment === "start"
+            ? { left: "0%" }
+            : positionAlignment === "end"
+              ? { right: "0%" }
+              : { left: positionPercent + "%" }),
+          bottom: markerLane ? `${markerLane * 1.75}rem` : "0",
+        }}
       >
-        <div className="flex max-w-full items-start gap-2.5">
-          <Avatar aria-hidden="true" className="size-7 shrink-0">
-            {avatarUrl ? <AvatarImage src={avatarUrl} alt={author} /> : null}
-            <AvatarFallback className="bg-white/15 text-[10px] font-semibold text-white">
-              {initials(author)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-white/80">
-              {author}
-            </p>
-            <InlineMarkdown
-              content={comment.content}
-              className="line-clamp-3 text-sm leading-5 text-primary-foreground"
-              linkClassName="text-primary-foreground underline decoration-primary-foreground/60 hover:decoration-primary-foreground"
-              codeClassName="bg-primary-foreground/15 text-primary-foreground"
-            />
-          </div>
-        </div>
-        {rest.length > 0 && (
-          <p className="pl-[2.375rem] text-xs text-white/60">
-            +{rest.length} other comment{rest.length > 1 ? "s" : ""}
-          </p>
-        )}
-      </Card>
+        <CommentPreview
+          comment={comment}
+          restCount={rest.length}
+          onClick={onClick}
+          className="animate-in fade-in slide-in-from-bottom-2 duration-200"
+        />
+      </div>
     </div>
   );
 }
 
-function displayAuthor(comment: PlaybackComment): string {
+export function CommentPreview({
+  comment,
+  restCount = 0,
+  onClick,
+  className,
+}: {
+  comment: CommentPreviewData;
+  restCount?: number;
+  onClick?: () => void;
+  className?: string;
+}) {
+  const avatarUrl = useAvatarUrl(comment.authorEmail);
+  const author = displayAuthor(comment);
+  const Card = (onClick ? "button" : "div") as "button" | "div";
+
+  return (
+    <Card
+      data-player-comment-preview
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "flex w-fit max-w-[min(36rem,100%)] flex-col gap-1.5 rounded-xl bg-foreground/95 px-3 py-2.5 text-left text-background shadow-2xl ring-1 ring-background/15 backdrop-blur-md dark:bg-background/95 dark:text-foreground dark:ring-foreground/15",
+        onClick &&
+          "pointer-events-auto cursor-pointer hover:bg-foreground dark:hover:bg-background",
+        className,
+      )}
+    >
+      <div className="flex max-w-full items-start gap-2.5">
+        <Avatar aria-hidden="true" className="size-7 shrink-0">
+          {avatarUrl ? <AvatarImage src={avatarUrl} alt={author} /> : null}
+          <AvatarFallback className="bg-background/15 text-[10px] font-semibold text-background dark:bg-foreground/15 dark:text-foreground">
+            {initials(author)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="truncate text-xs font-semibold text-background/80 dark:text-foreground/80">
+            {author}
+          </p>
+          <InlineMarkdown
+            content={comment.content}
+            className="line-clamp-3 text-sm leading-5 text-background dark:text-foreground"
+            linkClassName="text-background underline decoration-background/60 hover:decoration-background dark:text-foreground dark:decoration-foreground/60 dark:hover:decoration-foreground"
+            codeClassName="bg-background/15 text-background dark:bg-foreground/15 dark:text-foreground"
+          />
+        </div>
+      </div>
+      {restCount > 0 && (
+        <p className="pl-[2.375rem] text-xs text-background/60 dark:text-foreground/60">
+          +{restCount} other comment{restCount > 1 ? "s" : ""}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function displayAuthor(comment: CommentPreviewData): string {
   const name = comment.authorName?.trim();
   if (name) return name;
   const emailName = comment.authorEmail?.split("@")[0]?.trim();

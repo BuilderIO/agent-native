@@ -24,7 +24,16 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import {
+  ensureUniqueSlideIds,
+  rebindCreativeContextSlideLabels,
+} from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -93,7 +102,7 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
+    "Create the real editable Agent-Native Slides deck, optionally already populated with slides, or atomically replace all slides in an existing deck. This is the primary Slides MCP write action: use it instead of creating or publishing a standalone HTML artifact with the host's file tools. Put slide markup in `slides[].content`; this action persists it and returns an Open in Slides link. " +
     "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
@@ -159,6 +168,16 @@ export default defineAction({
   }) => {
     const db = getDb();
     const now = new Date().toISOString();
+    const normalizedSlides = ensureUniqueSlideIds(
+      rawSlides.map((s) => ({
+        ...s,
+        content: normalizeSlidePadding(s.content),
+      })),
+    );
+    const slides = rebindCreativeContextSlideLabels(
+      normalizedSlides.slides,
+      normalizedSlides.originalIds,
+    );
     const validatedCreativeContext = await validateGenerationCreativeContext({
       contextPackId,
       contextModeOverride,
@@ -166,7 +185,7 @@ export default defineAction({
         new Map(
           [
             ...reuseLabels,
-            ...rawSlides.flatMap(
+            ...slides.flatMap(
               (slide) => slide.creativeContextReuseLabels ?? [],
             ),
           ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
@@ -186,7 +205,7 @@ export default defineAction({
         ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
         label: label.label,
       })),
-      ...rawSlides.flatMap((slide) => {
+      ...slides.flatMap((slide) => {
         const labels = slide.creativeContextReuseLabels ?? [];
         return labels.length
           ? labels.map((label) => ({
@@ -206,7 +225,7 @@ export default defineAction({
               },
             ];
       }),
-      ...(reuseLabels.length === 0 && rawSlides.length === 0
+      ...(reuseLabels.length === 0 && slides.length === 0
         ? [
             {
               elementId: "deck",
@@ -217,10 +236,6 @@ export default defineAction({
         : []),
     ];
 
-    const slides = rawSlides.map((s) => ({
-      ...s,
-      content: normalizeSlidePadding(s.content),
-    }));
     const firstSlideContent = slides[0]?.content;
     const resolvedTitle =
       repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
@@ -243,37 +258,47 @@ export default defineAction({
         repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
         resolvedTitle;
       assertHumanReadableDeckTitle(existingDeckTitle);
-      await createDeckVersionSnapshot(
-        {
-          id: existing[0].id,
-          title: existing[0].title,
-          data: existing[0].data,
-          ownerEmail: existing[0].ownerEmail,
-        },
-        { force: true, label: "Before bulk replace" },
-      );
-      const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
+      const writeNow = nextDeckRevision(existing[0].updatedAt);
+      const prevData = JSON.parse(existing[0].data);
       const data = {
         title: existingDeckTitle,
         slides,
-        updatedAt: now,
+        updatedAt: writeNow,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
         designSystemId: designSystemId ?? prevData.designSystemId,
         creativeContext: creativeContextProvenance,
       };
-      await db
-        .update(schema.decks)
-        .set({
-          title: existingDeckTitle,
-          data: JSON.stringify(data),
-          designSystemId: designSystemId ?? existing[0]?.designSystemId ?? null,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
+      await db.transaction(async (tx: any) => {
+        await createDeckVersionSnapshot(
+          {
+            id: existing[0].id,
+            title: existing[0].title,
+            data: existing[0].data,
+            ownerEmail: existing[0].ownerEmail,
+          },
+          { force: true, label: "Before bulk replace", db: tx },
+        );
+        const updateResult = await tx
+          .update(schema.decks)
+          .set({
+            title: existingDeckTitle,
+            data: JSON.stringify(data),
+            designSystemId:
+              designSystemId ?? existing[0].designSystemId ?? null,
+            updatedAt: writeNow,
+          })
+          .where(
+            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+          );
+        assertDeckWriteApplied(updateResult, deckId, "deck replacement");
+      });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
-      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+      await writeAppState("refresh-signal", {
+        ts: writeNow,
+        source: "create-deck",
+      });
       await recordGenerationCreativeContext({
         appId: "slides",
         artifactType: "deck",

@@ -53,6 +53,7 @@ const windowStub = {
   clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   location: {
     origin: "http://localhost:3000",
+    hostname: "localhost",
     pathname: "/",
     search: "",
   },
@@ -190,6 +191,64 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
+  it("preserves the new-deck inline image and hosted reference payload", () => {
+    const inlineImage = "data:image/png;base64,abc";
+    const hostedImage = "https://cdn.example.test/source.png";
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "use this image as reference",
+          images: [inlineImage],
+          referenceImagePaths: [hostedImage],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.images).toEqual([inlineImage, hostedImage]);
+  });
+
+  it("preserves lightweight attachment descriptors across the chat bridge", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "make a deck from this reference",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              displayOnly: true,
+            },
+            {
+              type: "file",
+              name: "pasted-text-1.txt",
+              contentType: "text/plain",
+              displayOnly: true,
+              text: "outline",
+            },
+          ],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 
@@ -372,6 +431,33 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).not.toHaveBeenCalled();
   });
 
+  it("uses the wrapper relay when MCP App attachments need to reach chat", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const attachments = [
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ];
+
+    const tabId = sendToAgentChat({
+      message: "create from this reference",
+      submit: true,
+      attachments,
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("*");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.attachments).toEqual(attachments);
+  });
+
   it("does not duplicate MCP App prompts through both the direct bridge and wrapper relay", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
@@ -398,7 +484,7 @@ describe("sendToAgentChat", () => {
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
 
-    sendToAgentChat({
+    const tabId = sendToAgentChat({
       message: "continue with this selection",
       context: "Selected item ids: a, b",
       submit: true,
@@ -417,7 +503,7 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false },
+        detail: { isRunning: false, tabId },
       }),
     );
   });
@@ -479,7 +565,7 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false },
+        detail: { isRunning: false, tabId },
       }),
     );
   });
@@ -656,6 +742,11 @@ describe("sendToAgentChat", () => {
       normalizeAgentComposerReference({
         label: " Product shots ",
         icon: "folder",
+        media: {
+          type: "text",
+          text: " 📷 ",
+          backgroundColor: " #0f766e ",
+        },
         source: "assets",
         refType: " brand-kit ",
         refId: " lib_123 ",
@@ -676,6 +767,11 @@ describe("sendToAgentChat", () => {
     ).toEqual({
       label: "Product shots",
       icon: "folder",
+      media: {
+        type: "text",
+        text: "📷",
+        backgroundColor: "#0f766e",
+      },
       source: "assets",
       refType: "brand-kit",
       refId: "lib_123",
@@ -697,6 +793,33 @@ describe("sendToAgentChat", () => {
     expect(
       normalizeAgentComposerReference({ label: "", refType: "preset" }),
     ).toBeNull();
+    expect(
+      normalizeAgentComposerReference({
+        label: "No icon",
+        refType: "agent",
+        media: { type: "none" },
+      }),
+    ).toMatchObject({ media: { type: "none" } });
+    expect(
+      normalizeAgentComposerReference({
+        label: "Invalid media",
+        refType: "agent",
+        media: { type: "text", text: "" },
+      }),
+    ).not.toHaveProperty("media");
+    expect(
+      normalizeAgentComposerReference({
+        label: "Logo",
+        refType: "agent",
+        media: {
+          type: "image",
+          src: " /agents/logo.png ",
+          fit: "cover",
+        },
+      }),
+    ).toMatchObject({
+      media: { type: "image", src: "/agents/logo.png", fit: "cover" },
+    });
   });
 
   it("posts composer references without submitting", () => {

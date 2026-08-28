@@ -426,6 +426,111 @@ const koKR = {
     source: "소스",
     readDocs: "문서 읽기",
     signIn: "로그인",
+    tryTemplateFree: "{{name}} 무료로 사용해 보기",
+    designForFree: "무료로 디자인하기",
+    recordForFree: "무료로 녹화하기",
+    getStarted: "시작하기",
+    freeAndOpenSource: "100% 무료 • 오픈 소스",
+    viewAllApps: "모든 앱 보기",
+  },
+  homepage: {
+    hero: {
+      title: "에이전틱 애플리케이션 프레임워크",
+      bodyLine1:
+        "사용자를 위한 두 번째 제품을 따로 만들지 않고도 AI 에이전트를 위해 개발하세요.",
+      bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",
+      tryAnApp: "앱 사용해 보기",
+    },
+    install: {
+      copyCommand: "설치 명령 복사",
+    },
+    actions: {
+      title: "하나의 Action이 모든 표면을 구동합니다",
+      bodyLine1: "Action은 Agent-Native 앱의 기본 구성 요소입니다.",
+      bodyLine2:
+        "기능을 한 번만 정의하고 UI, 에이전트 채팅, HTTP API, MCP, A2A, CLI에서 그대로 사용하세요.",
+      diagramAlt:
+        "하나의 Action이 UI, MCP, 에이전트 채팅, A2A, HTTP API, CLI를 구동합니다",
+    },
+    builtIn: {
+      title: "모든 Agent-Native 앱에 기본으로 내장",
+      body: "사용자와 AI 에이전트가 함께 일하는 데 필요한 모든 것이 하나의 애플리케이션에 이미 연결되어 있습니다.",
+      pillars: {
+        reactUi: {
+          title: "React UI",
+          body: "사용자에게 탐색, 편집, 검토에 익숙한 화면을 제공합니다.",
+        },
+        agentChat: {
+          title: "내장된 에이전트 채팅",
+          body: "앱을 벗어나지 않고 작업을 위임하고, 질문하고, 결과를 검토할 수 있습니다.",
+        },
+        sharedState: {
+          title: "공유 애플리케이션 상태",
+          body: "에이전트가 사용자가 무엇을 보고, 선택하고, 편집하는지 알고 있습니다.",
+        },
+        sharedSql: {
+          title: "공유 SQL 데이터",
+          body: "사용자와 에이전트가 동일한 신뢰 출처를 읽고 업데이트합니다.",
+        },
+        skillsMemory: {
+          title: "스킬과 메모리",
+          body: "에이전트에게 재사용 가능한 전문성과 지속적인 컨텍스트를 제공합니다.",
+        },
+        automations: {
+          title: "자동화",
+          body: "일정이나 애플리케이션 이벤트에 따라 에이전트 작업을 자동으로 실행합니다.",
+        },
+        agentTeams: {
+          title: "에이전트 팀",
+          body: "앱 내부 또는 여러 앱에 걸쳐 전문 에이전트에게 작업을 위임합니다.",
+        },
+        auth: {
+          title: "인증과 조직",
+          body: "로그인, 사용자 계정, 조직 멤버십이 기본으로 포함되어 있습니다.",
+        },
+        sharing: {
+          title: "공유와 권한",
+          body: "모든 리소스를 누가 보고, 댓글을 달고, 편집하고, 관리할 수 있는지 제어합니다.",
+        },
+      },
+    },
+    stack: {
+      title: "기존 스택과 함께 작동",
+      body: "LLM, 데이터베이스, 도구, 인프라를 그대로 사용하세요. Agent-Native는 오픈 소스 TypeScript이므로 애플리케이션은 계속 여러분의 것입니다.",
+      exploreApps: "Agent-Native로 만든 앱 살펴보기",
+    },
+    showcase: {
+      title: "Agent-Native로 무엇을 만들 수 있나요?",
+      body: "업무를 이해하고, 행동하며, 함께 협업하는 에이전틱 앱입니다. 직접 만들거나 이 오픈 소스 앱 중 하나를 사용해 보세요.",
+      browseApps: "앱 살펴보기",
+      scrollLeft: "앱 왼쪽으로 스크롤",
+      scrollRight: "앱 오른쪽으로 스크롤",
+    },
+    bottomCta: {
+      title: "첫 Agent-Native 앱을 만들어 보세요",
+      body: "사용자와 AI 에이전트를 위한 하나의 애플리케이션을 만드세요. 원하는 LLM을 사용하고 어디에나 배포하세요.",
+    },
+    footer: {
+      tagline: "에이전틱 애플리케이션 프레임워크.",
+      framework: "프레임워크",
+      ecosystem: "에코시스템",
+      community: "커뮤니티",
+      legal: "법적 고지",
+      docs: "문서",
+      download: "다운로드",
+      apps: "앱",
+      privacyPolicy: "개인정보 처리방침",
+      saasTerms: "SaaS 약관",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "로컬에서 빌드하지 않으시나요?",
+      exploreApp: "먼저 라이브 앱을 살펴보세요",
+      between: "또는",
+      joinWaitlist: "대기자 명단에 등록하고",
+      end: "브라우저에서 빌드하세요.",
+    },
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
@@ -453,7 +558,7 @@ const koKR = {
       "프레임워크 가이드로 시작하거나 Builder.io의 클라우드 코딩 에이전트로 온라인에서 빌드하세요.",
     readDocs: "문서 읽기",
     buildOnline: "온라인에서 빌드",
-    popoverTitle: "Builder.io로 온라인에서 빌드",
+    popoverTitle: "브라우저에서 빌드",
     popoverBody:
       "Builder.io는 클라우드에서 agent-native 앱을 만들고 맞춤화할 수 있습니다 — actions, auth, SQL state, agent chat 포함. 얼리 액세스 대기자 명단에 참여하세요.",
     emailLabel: "이메일",
@@ -482,7 +587,7 @@ const koKR = {
     clips: {
       replaces: "Loom, Granola, Wisprflow를 대체하거나 보강",
       description:
-        "브라우저 디버그 캡처, 캘린더에 동기화된 회의 메모, Fn 보류 음성 받아쓰기가 포함된 화면 녹화 — 모두 기록, 요약 및 검색 가능하며 에이전트는 이를 편집할 수 있습니다.",
+        "화면, 회의, 음성 메모를 기록해 에이전트가 상황을 이해하고 필요한 조치를 취하게 합니다.",
     },
     plan: {
       replaces: "Codex, Claude Code 및 코딩 에이전트를 위한 시각적 계획 모드",
@@ -492,28 +597,28 @@ const koKR = {
     design: {
       replaces: "디자인 프로토타이핑 도구를 대체하거나 보강",
       description:
-        "Agent-native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
+        "프롬프트를 디자인 시스템에 맞는 대화형 디자인으로 바꾸고, 에이전트가 피드백으로 각 화면을 다듬습니다.",
     },
     content: {
       replaces:
         "MDX, Notion, Google Docs에 대해 Obsidian을 대체하거나 확장합니다.",
       description:
-        "Obsidian와 같은 로컬 Markdown/MDX 파일을 편집하고, 풍부한 대화형 사용자 정의 블록을 생성하고, AI 에이전트를 사용하여 초안을 작성하고 다시 작성하고 게시합니다.",
+        "문서를 다루면서 에이전트가 당신의 문체로 초안을 작성하고, 대화형 콘텐츠를 만들고, 사이트에 게시합니다.",
     },
     slides: {
       replaces: "Google Slides, Pitch을 대체하거나 확장합니다.",
       description:
-        "프롬프트에서 전체 프레젠테이션을 생성합니다. 시각적으로 또는 대화식으로 편집하세요. AI 이미지 생성, 8가지 레이아웃 및 프레젠테이션 모드가 내장되어 있습니다.",
+        "프롬프트나 기존 슬라이드에서 브랜드에 맞는 편집 가능한 프레젠테이션을 만들고, 에이전트가 제작, 편집, 개선합니다.",
     },
     analytics: {
       replaces: "Amplitude 및 FullStory에 대한 오픈 소스 대안",
       description:
-        "모든 데이터 소스를 연결하고, 차트에 대한 메시지를 표시하고, 재사용 가능한 대시보드를 구축하세요. 에이전트는 SQL을 작성하고 시각화를 생성하며 앱을 발전시킵니다.",
+        "데이터를 연결해 에이전트가 쉬운 말로 질문에 답하고 결과를 차트와 대시보드로 만듭니다.",
     },
     mail: {
       replaces: "Superhuman, Gmail을 대체하거나 확장합니다.",
       description:
-        "키보드 단축키, AI 분류, 다중 계정 지원 및 이메일 자동화를 갖춘 Superhuman 스타일 이메일 클라이언트입니다. 받은 편지함 워크플로를 소유하세요.",
+        "키보드 중심의 받은편지함에서 에이전트가 메일 우선순위를 정하고, 답장을 작성하고, 대화를 요약하며, 후속 조치를 합니다.",
     },
     forms: {
       replaces: "Typeform, Google Forms을 대체하거나 확장합니다.",
@@ -524,12 +629,12 @@ const koKR = {
       replaces:
         "DAMs, 브랜드 자산 라이브러리 및 AI 미디어 생성기를 대체하거나 강화합니다.",
       description:
-        "다른 앱이 A2A을 통해 호출하거나 선택기로 삽입할 수 있는 업로드, 브랜드 라이브러리, 검색 가능한 참조 및 브랜드 이미지/동영상 생성을 위한 디지털 자산 관리자입니다.",
+        "브랜드 가이드라인, 이미지, 동영상의 공유 라이브러리를 에이전트에게 제공해 앱에서 브랜드에 맞는 미디어를 만들고 선택하게 합니다.",
     },
     calendar: {
       replaces: "Google Calendar, Calendly을 대체하거나 확장합니다.",
       description:
-        "Google 동기화, 가용성 관리 및 공개 예약 페이지가 포함된 전체 달력입니다. 상담원은 빈 슬롯을 찾아 이벤트를 생성하고 일정을 관리합니다.",
+        "여러 Google Calendar를 모아 에이전트가 빈 시간을 찾고, 일정을 잡거나 변경하며, 예약을 관리합니다.",
     },
     dispatch: {
       replaces: "에이전트 기반 앱의 임무 제어",
@@ -1225,7 +1330,7 @@ const koKR = {
       s026: "공유 가능한 링크",
       s027: "모든 계획에는 공개 URL이 있습니다. 비동기식 검토, 댓글 및 승인을 위해 팀원과 공유하세요.",
       s028: "데스크탑 파일 동기화",
-      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
+      s029: "앱을 복제하거나 CLI을 실행하지 않고 Agent-Native Desktop에서 로컬 MDX 파일로 호스팅된 계획을 미러링합니다.",
       s030: "이므로 리뷰는 코드 옆에 유지됩니다.",
       s031: "작동 원리",
       s032: "계획은 공유 앱에 있습니다. 귀하와 상담원 모두 기능 수명 주기 동안 계획을 읽고 업데이트할 수 있습니다.",
@@ -1259,7 +1364,7 @@ const koKR = {
       s060: "모든 템플릿 보기",
       s061: "VS Code 핸드오프",
       s062: "다음을 사용해 VS Code 사이드 패널에서 계획 링크를 여세요:",
-      s063: "Agent Native Plans 확장",
+      s063: "Agent-Native Plans 확장",
       s064: "와이어프레임 — 컴포넌트 슬롯이 있는 스케치 UI 모형",
       s065: "주석 코드 — 줄별 메모가 있는 소스 파일",
       s066: "다이어그램 — 흐름, 시퀀스 또는 아키텍처",
@@ -1287,7 +1392,7 @@ const koKR = {
           "plan mode는 터미널의 텍스트로, 한 사람만 볼 수 있고 승인하면 사라집니다. Plans는 와이어프레임, 다이어그램, 주석이 달린 차이를 포함한 시각적 계획입니다. 공유하고 계속 보관할 수 있으며, 에이전트가 기능의 전체 수명 주기 동안 만들고 읽고 업데이트할 수 있습니다.",
         question5: "코드 옆에서 계획을 볼 수 있나요?",
         answer5:
-          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
+          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent-Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
         question6: "Plans는 무료인가요?",
         answer6:
           "네. 무료 오픈 소스이며 MIT 라이선스입니다. Plans는 호스팅된 공유 링크를 제공하고, 모든 내용을 로컬 파일로 미러링할 수도 있습니다.",
@@ -1510,9 +1615,9 @@ const koKR = {
     },
   },
   downloadPage: {
-    title: "Agent Native 다운로드",
+    title: "Agent-Native 다운로드",
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
-    openDesktop: "Agent Native 열기",
+    openDesktop: "Agent-Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
     downloadStarted: "다운로드가 시작되었습니다",
     downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",
@@ -1668,6 +1773,55 @@ const koKR = {
       links: {
         builderPrivacy: "개인 정보 보호 정책",
         builderPrivacyFull: "Builder.io 개인정보 보호정책",
+      },
+    },
+    about: {
+      eyebrow: "Agent-Native 소개",
+      title: "에이전트와 사람을 위한 오픈 소스 앱",
+      intro:
+        "Agent-Native는 AI 에이전트와 사용자 인터페이스가 같은 액션, 데이터, 애플리케이션 상태를 공유하는 앱을 만들기 위한 오픈 소스 프레임워크입니다.",
+      sections: {
+        project: {
+          title: "공유 운영 모델",
+          body: "Agent-Native는 에이전트와 인터페이스를 동등한 파트너로 다룹니다. 하나의 액션이 UI 컨트롤, 에이전트 도구, HTTP 엔드포인트, MCP 또는 A2A 기능, CLI 명령과 감사 가능한 워크플로를 지원합니다. 공유 SQL 상태가 사람의 화면과 에이전트의 화면을 일치시킵니다.",
+        },
+        openSource: {
+          title: "기본값은 오픈 소스",
+          body: "소스 코드는 MIT 라이선스로 BuilderIO/agent-native 저장소에서 제공됩니다. 개발자는 구현을 검토하고 로컬에서 실행하며 데이터베이스와 모델 공급자를 선택하고 제품에 맞게 조정할 수 있습니다. 호스팅 서비스는 fork 및 자체 배포와 별도로 운영됩니다.",
+        },
+        hosted: {
+          title: "호스팅과 자체 호스팅",
+          body: "Builder.io는 agent-native.com에서 Agent-Native 호스팅 앱과 문서를 운영합니다. 직접 앱을 배포하고 운영하려는 팀도 이 프레임워크를 사용할 수 있습니다. 액션 계약, 접근 경계, 에이전트 지침과 공개 프로토콜은 코드와 문서에서 확인할 수 있습니다.",
+        },
+        community: {
+          title: "공개적으로 만드는 프로젝트",
+          body: "프로젝트는 GitHub issue, pull request, 문서와 Agent-Native 커뮤니티를 통해 공개적으로 개발됩니다. 문서에서 아키텍처를 배우고, 코드에서 구현을 검증하고, 사용 사례를 논의하거나 변경 사항에 기여할 수 있습니다.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "문의",
+      title: "Agent-Native에 대해 Builder.io에 문의",
+      intro:
+        "Agent-Native에 대한 질문, 문제 신고, 개선 제안 또는 보안 우려는 아래 지원, 소스, 커뮤니티 채널을 이용해 주세요.",
+      emailLabel: "support@builder.io로 이메일 보내기",
+      sections: {
+        support: {
+          title: "제품 및 호스팅 서비스 지원",
+          body: "호스팅 앱, 계정 접근, 문서 문제 또는 해결할 수 없는 동작에 대한 질문은 support@builder.io로 보내 주세요. 공개 URL, 재현 가능한 최소 설명과 관련 요청 또는 실행 ID를 포함하세요. 비밀번호, API 키, Bearer 토큰 또는 비공개 고객 데이터를 보내지 마세요.",
+        },
+        source: {
+          title: "오픈 소스 프로젝트와 커뮤니티",
+          body: "소스 코드 버그, 기능 제안, pull request와 구현 논의에는 GitHub 저장소를 사용하세요. 다른 개발자와 대화가 도움이 되는 질문에는 Discord를 이용할 수 있습니다. 먼저 issue와 문서를 검색해 유지관리자가 필요한 맥락을 확인할 수 있게 하세요.",
+        },
+        security: {
+          title: "보안 신고",
+          body: "패치되지 않은 취약점을 공개 issue나 채팅에 올리지 마세요. 이용 가능한 보안 채널로 Builder.io에 연락하고 재현과 평가에 필요한 정보만 제공하세요. 일반 지원 요청에 자격 증명, 비공개 데이터 또는 악용 자료를 포함하지 마세요.",
+        },
+        legal: {
+          title: "법률 및 개인정보 보호",
+          body: "개인정보 보호 질문은 지원팀에 연락하기 전에 Agent-Native 개인정보 처리방침과 Builder.io 법률 자료를 확인하세요. Builder.io, Inc. 주소는 95 3rd Street, 2nd Floor, San Francisco, CA 94103, United States입니다. 호스팅 서비스 약관과 자체 호스팅 책임은 서비스 약관에 설명되어 있습니다.",
+        },
       },
     },
     terms: {
@@ -1894,6 +2048,7 @@ const koKR = {
     externalAgents: "외부 Agents (호스트 연결)",
     externalAgentsCatalog: "외부 Agents 카탈로그",
     mcpApps: "MCP Apps (인라인 UI)",
+    webMcp: "WebMCP (브라우저 도구)",
     crossAppSso: "크로스 앱 SSO",
     notifications: "알림",
     automationConnectors: "워크플로 커넥터",
@@ -1918,8 +2073,8 @@ const koKR = {
     calendar: "캘린더",
     calendarOverview: "개요",
     calendarAgent: "Agent와 대화",
-    calendarScheduling: "일정 및 가용성",
-    calendarBookingLinks: "예약 링크",
+    calendarFeatures: "기능",
+    calendarIntegrations: "앱 간 사용",
     calendarDevelopers: "개발자 가이드",
     content: "콘텐츠",
     contentOverview: "개요",
@@ -1978,8 +2133,9 @@ const koKR = {
     dispatchDevelopers: "개발자 가이드",
     forms: "양식",
     formsOverview: "개요",
-    formsBuildingPublishing: "빌드 및 게시",
-    formsResponses: "응답 및 인사이트",
+    formsFeatures: "기능",
+    formsAgent: "Agent와 대화",
+    formsIntegrations: "앱 간 사용",
     docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },

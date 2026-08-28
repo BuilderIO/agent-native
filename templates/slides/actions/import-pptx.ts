@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestUserEmail,
@@ -28,7 +28,16 @@ import {
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  resolveImportedDeckTitle,
+} from "../shared/deck-title.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -117,7 +126,7 @@ export async function importPptxBufferToDeck(args: {
   } = args;
   const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
   applyImageFallbacks(presentation, imageFallbacks);
-  const deckTitle = title || presentation.title || "Imported Presentation";
+  const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
   const themeFont = presentation.theme?.fonts?.[0];
@@ -176,6 +185,11 @@ export async function importPptxBufferToDeck(args: {
     ),
   );
   const slides = results.map((r) => r.slide);
+  const deckTitle = resolveImportedDeckTitle(
+    requestedTitle,
+    results[0]?.sourceText || slides[0]?.content,
+  );
+  assertHumanReadableDeckTitle(deckTitle);
   const imagesSkipped = results.reduce(
     (total, r) => total + r.imageSkippedCount,
     0,
@@ -222,6 +236,7 @@ export async function importPptxBufferToDeck(args: {
       }
 
       const previousData = safeParseDeckData(latestDeck.data);
+      const writeNow = nextDeckRevision(latestDeck.updatedAt);
       const data = {
         ...previousData,
         title: deckTitle,
@@ -229,9 +244,9 @@ export async function importPptxBufferToDeck(args: {
         ...(aspectRatio ? { aspectRatio } : {}),
         ...(presentation.theme ? { theme: presentation.theme } : {}),
         sourceImport,
-        updatedAt: now,
+        updatedAt: writeNow,
       };
-      await db
+      const updateResult = await db
         .update(schema.decks)
         .set({
           title: deckTitle,
@@ -239,9 +254,10 @@ export async function importPptxBufferToDeck(args: {
           ...(designSystemId !== undefined
             ? { designSystemId }
             : { designSystemId: latestDeck.designSystemId }),
-          updatedAt: now,
+          updatedAt: writeNow,
         })
-        .where(eq(schema.decks.id, deckId));
+        .where(deckRevisionWhere(schema.decks, deckId, latestDeck.updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "PPTX import");
 
       notifyClients(deckId);
       await writeAppState("refresh-signal", {

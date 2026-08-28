@@ -9,8 +9,8 @@ import {
   IconSettingsAutomation,
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { AutomationDetailsPanel } from "../../components/automation-details-panel";
@@ -189,10 +189,9 @@ function CreateAutomationButton() {
 }
 
 export default function AutomationsRoute() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<"dispatch" | "all">("dispatch");
   const [query, setQuery] = useState("");
-  const [detailsTarget, setDetailsTarget] =
-    useState<DispatchAutomationItem | null>(null);
   const automationsQuery = useAutomations();
   const toggleAutomation = useToggleAutomation();
   const automations = automationsQuery.data ?? [];
@@ -238,17 +237,24 @@ export default function AutomationsRoute() {
       : null
     : null;
 
-  useEffect(() => {
-    if (!detailsTarget) return;
-    const current = filtered.find(
-      (item) => automationIdentity(item) === automationIdentity(detailsTarget),
-    );
-    if (current) {
-      if (current !== detailsTarget) setDetailsTarget(current);
-    } else {
-      setDetailsTarget(null);
-    }
-  }, [detailsTarget, filtered]);
+  // URL-backed selection (mirrors dreams.tsx's `?dreamId=`): the currently
+  // open automation lives in `automationId` so it survives reload, Back, and
+  // sharing a link, instead of vanishing local state.
+  const selectedAutomationId = searchParams.get("automationId");
+  const detailsTarget = selectedAutomationId
+    ? (filtered.find(
+        (item) => automationIdentity(item) === selectedAutomationId,
+      ) ?? null)
+    : null;
+
+  function selectAutomation(item: DispatchAutomationItem) {
+    // Push, don't replace: each row click is an explicit selection the user
+    // should be able to Back out of one step at a time, not a URL
+    // canonicalization that should collapse into the current entry.
+    const next = new URLSearchParams(searchParams);
+    next.set("automationId", automationIdentity(item));
+    setSearchParams(next);
+  }
 
   return (
     <DispatchShell
@@ -334,7 +340,7 @@ export default function AutomationsRoute() {
                         type="button"
                         className="w-full min-w-0 cursor-pointer text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
                         aria-pressed={isSelected}
-                        onClick={() => setDetailsTarget(item)}
+                        onClick={() => selectAutomation(item)}
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot tone={status.tone} />

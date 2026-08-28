@@ -69,9 +69,11 @@ type AdapterHistoryMessage = {
 };
 
 type AssistantUiAttachment = {
+  type?: string;
   name: string;
   contentType?: string;
   content: readonly Record<string, unknown>[];
+  metadata?: Record<string, unknown>;
 };
 
 type AgentChatAdapterAttachment = {
@@ -83,6 +85,7 @@ type AgentChatAdapterAttachment = {
   uploadProvider?: string;
   referenceOnly?: boolean;
   securityNote?: string;
+  displayOnly?: boolean;
   text?: string;
 };
 
@@ -173,6 +176,111 @@ const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
+const MAX_JSON_RESPONSE_PROBE_BYTES = 8_192;
+const JSON_RESPONSE_PROBE_TIMEOUT_MS = 1_000;
+
+type JsonResponseProbeOutcome =
+  | { type: "json"; body: string }
+  | { type: "not-json" };
+
+function isSseResponsePrefix(prefix: string): boolean {
+  const trimmed = prefix.trimStart();
+  return (
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("event:") ||
+    trimmed.startsWith("id:") ||
+    trimmed.startsWith("retry:") ||
+    trimmed.startsWith(":")
+  );
+}
+
+function classifyJsonResponsePrefix(prefix: string): JsonResponseProbeOutcome {
+  if (isSseResponsePrefix(prefix)) return { type: "not-json" };
+  const firstChar = prefix.trimStart()[0] ?? "";
+  return firstChar === '"' || "{[-0123456789tfn".includes(firstChar)
+    ? { type: "json", body: prefix }
+    : { type: "not-json" };
+}
+
+function jsonResponseError(body?: string): Error {
+  if (body !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "error" in parsed &&
+        parsed.error
+      ) {
+        return new Error(stringifyValue(parsed.error));
+      }
+      // coercion-ok: an incomplete timeout probe uses the generic JSON error.
+    } catch {
+      // A timed-out probe may only have received a JSON prefix.
+    }
+  }
+  return new Error(
+    "Agent chat endpoint returned JSON instead of an event stream.",
+  );
+}
+
+async function continueJsonResponseProbe(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  decoder: TextDecoder,
+  prefix: string,
+  abortSignal: AbortSignal,
+  initialBytes: number,
+  pendingRead?: Promise<ReadableStreamReadResult<Uint8Array>>,
+): Promise<JsonResponseProbeOutcome> {
+  let onAbort: (() => void) | undefined;
+  const abort = new Promise<"abort">((resolve) => {
+    const handleAbort = () => resolve("abort");
+    onAbort = handleAbort;
+    if (abortSignal.aborted) handleAbort();
+    else abortSignal.addEventListener("abort", handleAbort, { once: true });
+  });
+
+  try {
+    let nextRead = pendingRead;
+    let bytes = initialBytes;
+    while (true) {
+      const read = nextRead ?? reader.read();
+      nextRead = undefined;
+      void read.catch(() => {});
+      const chunk = await Promise.race([read, abort]);
+      if (chunk === "abort") {
+        throw abortSignal.reason instanceof Error &&
+          abortSignal.reason.name === "AbortError"
+          ? abortSignal.reason
+          : new DOMException("The operation was aborted.", "AbortError");
+      }
+      if (chunk.done) {
+        const completePrefix = prefix + decoder.decode();
+        return completePrefix.trimStart() === ""
+          ? { type: "json", body: completePrefix }
+          : classifyJsonResponsePrefix(completePrefix);
+      }
+
+      const value = chunk.value.subarray(
+        0,
+        MAX_JSON_RESPONSE_PROBE_BYTES - bytes,
+      );
+      bytes += value.byteLength;
+      prefix += decoder.decode(value, { stream: true });
+      const trimmedPrefix = prefix.trimStart();
+      if (trimmedPrefix !== "") {
+        return classifyJsonResponsePrefix(prefix);
+      }
+      if (bytes >= MAX_JSON_RESPONSE_PROBE_BYTES) {
+        return { type: "json", body: prefix + decoder.decode() };
+      }
+    }
+  } finally {
+    if (onAbort) abortSignal.removeEventListener("abort", onAbort);
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
 // Tools whose entire input IS the artifact being built (extension HTML, etc.).
 // Lossy-truncating these to a `{ __agentNativeTruncated }` placeholder strands
 // the resumed agent — it can no longer refine the artifact because it sees a
@@ -258,29 +366,16 @@ export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 // 22 minutes, all error:stale_run, user watching a spinner). These bound the
 // whole turn instead, and an identical repeated failure counts as no progress.
 //
-// CLIENT-ABOVE-SERVER INVARIANT (asserted in agent-chat-adapter.spec.ts).
-// These are a backstop for a server that has gone silent in a way the idle
-// timeout misses — NOT the primary limit. They must stay ABOVE the server's
-// own ceilings so the server, which can actually tell progress from looping,
-// always terminates a turn first and writes a truthful terminal reason:
-//   BACKGROUND_SOFT_TIMEOUT_CEILING_MS  (13 min, run-manager.ts)  — one chunk
-//   MAX_TURN_WALL_CLOCK_MS              (90 min, production-agent.ts) — one turn
-//   MAX_BACKGROUND_RUN_CONTINUATIONS    (20,     production-agent.ts)
-//
-// They were originally set to 10 min / 6 runs, which put the whole-turn client
-// budget BELOW the 13-minute ceiling of a single legal chunk. Any turn needing
-// a second full-length chunk was killed by the client while the server was
-// healthy and had 80 minutes left — measured in prod as turns dying at 11-25
-// minutes with `last_progress_at` tracking the abort, i.e. still streaming
-// tokens and completing tools when the client gave up. That is the top
-// non-auth cause of "the chat just stopped" reports.
-//
-// Killing a turn that is NOT progressing is already covered twice over, by
-// mechanisms that read progress rather than a clock: the 210s idle timeout
-// above, and MAX_REPEATED_BACKGROUND_TERMINAL_REASONS below. Do not re-tighten
-// these two to catch a stuck turn — fix the progress signal instead.
-export const MAX_FOLLOWED_BACKGROUND_RUNS = 24;
-export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 95 * 60_000;
+// Defined in `app-config/run-lifecycle-invariants.ts`, not here, because the
+// CLIENT-ABOVE-SERVER relationship they belong to is checked there against the
+// RESOLVED server configuration — the server bounds are runtime-configurable
+// now, so a spec pinning them against module constants stopped enforcing
+// anything. Re-exported under the same names so importers are unchanged; that
+// module has no runtime imports, so the bundle pays nothing for it.
+import {
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  MAX_FOLLOWED_BACKGROUND_RUNS,
+} from "../app-config/run-lifecycle-invariants.js";
 const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
 // A re-observed terminal run whose outcome would be an ERROR (never a
@@ -543,12 +638,29 @@ function extractAttachmentsFromMessage(message: {
 }): AgentChatAdapterAttachment[] {
   const attachments: AgentChatAdapterAttachment[] = [];
   for (const att of message.attachments ?? []) {
+    const persistedMetadata =
+      att && typeof att.metadata === "object" ? att.metadata : undefined;
+    if (persistedMetadata?.displayOnly === true) {
+      const textPart = att.content.find(
+        (part) => part.type === "text" && typeof part.text === "string",
+      );
+      attachments.push({
+        type: att.type ?? "file",
+        name: att.name,
+        contentType: att.contentType,
+        displayOnly: true,
+        ...(textPart && typeof textPart.text === "string"
+          ? {
+              text: truncateOutboundAttachment(
+                unwrapAttachmentEnvelope(textPart.text),
+              ),
+            }
+          : {}),
+      });
+      continue;
+    }
     for (const part of att.content) {
       if (part.type === "image" && typeof part.image === "string") {
-        const persistedMetadata =
-          att && typeof (att as any).metadata === "object"
-            ? ((att as any).metadata as Record<string, unknown>)
-            : undefined;
         const imageIsDataUrl = part.image.startsWith("data:");
         attachments.push({
           type: "image",
@@ -576,10 +688,6 @@ function extractAttachmentsFromMessage(message: {
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
         const data = typeof part.data === "string" ? part.data : undefined;
         const url = typeof part.url === "string" ? part.url : undefined;
-        const persistedMetadata =
-          att && typeof (att as any).metadata === "object"
-            ? ((att as any).metadata as Record<string, unknown>)
-            : undefined;
         const preserveDataUrl =
           typeof data === "string" &&
           data.startsWith("data:") &&
@@ -803,7 +911,7 @@ function toolResultContent(result: unknown, toolName?: string): string {
   try {
     return JSON.stringify(result);
   } catch {
-    return String(result ?? "");
+    return stringifyValue(result ?? "");
   }
 }
 
@@ -1015,7 +1123,7 @@ function estimateHistoryMessageCost(message: {
     cost += Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
-        // Price the string the request actually carries. `String(result)` is
+        // Price the string the request actually carries. `stringifyValue(result)` is
         // 15 chars ("[object Object]") for every object result, which is most
         // of them.
         toolResultContent(tool.result, tool.toolName).length,
@@ -1377,7 +1485,7 @@ function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value ?? "");
+    return stringifyValue(value ?? "");
   }
 }
 
@@ -2668,7 +2776,7 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
                 if (options?.requireCurrentTurn && activeTurnId !== turnId) {
@@ -2744,7 +2852,7 @@ export function createAgentChatAdapter(
                 }
                 const active = await activeRes.json();
                 if (!active?.active || !active.runId) return false;
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const dispatchMode =
                   typeof active.dispatchMode === "string"
                     ? active.dispatchMode
@@ -3204,7 +3312,7 @@ export function createAgentChatAdapter(
               }
               const recheckRunId =
                 recheck?.active === true && recheck.runId
-                  ? String(recheck.runId)
+                  ? stringifyValue(recheck.runId)
                   : null;
               if (recheckRunId && recheckRunId !== staleRunId) {
                 return "successor";
@@ -3315,14 +3423,31 @@ export function createAgentChatAdapter(
               continue;
             }
 
-            const activeRunId =
-              active?.active === true && active.runId
-                ? String(active.runId)
-                : null;
             const activeTurnId =
               typeof active?.turnId === "string" ? active.turnId : "";
             const activeStatus =
               typeof active?.status === "string" ? active.status : "";
+            const reportedRunId = active?.runId
+              ? stringifyValue(active.runId)
+              : null;
+            // Some deployed readers report a terminal snapshot with
+            // `active: false` while the row is being released. It is still
+            // authoritative when it names this turn or a run we already
+            // claimed; dropping it creates a false idle gap and eventually
+            // reports a completed run as lost.
+            const isTerminalSnapshot =
+              reportedRunId !== null &&
+              (activeStatus === "completed" ||
+                activeStatus === "errored" ||
+                activeStatus === "aborted" ||
+                activeStatus === "truncated") &&
+              (activeTurnId === turnId ||
+                attemptedRunIds.includes(reportedRunId));
+            const activeRunId =
+              reportedRunId !== null &&
+              (active?.active === true || isTerminalSnapshot)
+                ? reportedRunId
+                : null;
             // Only follow runs belonging to THIS turn (server-chained
             // successors reuse the turnId) or runs we already attached to.
             const isOurRun =
@@ -3864,6 +3989,17 @@ export function createAgentChatAdapter(
         };
 
         while (true) {
+          let delayedJsonProbe: Promise<JsonResponseProbeOutcome> | undefined;
+          let delayedJsonProbeOutcome: JsonResponseProbeOutcome | undefined;
+          let delayedJsonProbeReader:
+            | ReadableStreamDefaultReader<Uint8Array>
+            | undefined;
+          const cancelDelayedJsonProbe = () => {
+            if (!delayedJsonProbeReader) return;
+            void delayedJsonProbeReader.cancel().catch(() => {});
+            delayedJsonProbeReader = undefined;
+          };
+
           try {
             runId = null;
             lastSeq = -1;
@@ -3909,19 +4045,126 @@ export function createAgentChatAdapter(
               contentType.includes("application/json") &&
               !contentType.includes("text/event-stream")
             ) {
-              try {
+              let looksLikeSSE = false;
+              let probeCompleted = false;
+              let probeTimedOut = false;
+              let probePrefix = "";
+              let probeBytes = 0;
+              {
+                // Read a bounded prefix so a mislabeled live SSE stream is not
+                // buffered until it closes before the original reader starts.
+                const probeReader = res.clone().body?.getReader();
+                if (probeReader) {
+                  const decoder = new TextDecoder();
+                  let probeAborted = false;
+                  let probeReaderTransferred = false;
+                  let timedOutRead:
+                    | Promise<ReadableStreamReadResult<Uint8Array>>
+                    | undefined;
+                  let onAbort: (() => void) | undefined;
+                  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+                  const abort = new Promise<"abort">((resolve) => {
+                    const handleAbort = () => resolve("abort");
+                    onAbort = handleAbort;
+                    if (abortSignal.aborted) handleAbort();
+                    else
+                      abortSignal.addEventListener("abort", handleAbort, {
+                        once: true,
+                      });
+                  });
+                  const timeout = new Promise<"timeout">((resolve) => {
+                    timeoutId = setTimeout(
+                      () => resolve("timeout"),
+                      JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                    );
+                  });
+
+                  try {
+                    while (probeBytes < MAX_JSON_RESPONSE_PROBE_BYTES) {
+                      const read = probeReader.read();
+                      void read.catch(() => {});
+                      const chunk = await Promise.race([read, timeout, abort]);
+                      if (chunk === "abort") {
+                        probeAborted = true;
+                        throw abortSignal.reason instanceof Error &&
+                          abortSignal.reason.name === "AbortError"
+                          ? abortSignal.reason
+                          : new DOMException(
+                              "The operation was aborted.",
+                              "AbortError",
+                            );
+                      }
+                      if (chunk === "timeout") {
+                        probeTimedOut = true;
+                        probeReaderTransferred = true;
+                        timedOutRead = read;
+                        // The timeout only releases the diagnostic clone; the
+                        // original body remains available for SSE parsing.
+                        break;
+                      }
+
+                      probeCompleted = chunk.done;
+                      if (chunk.done) {
+                        probePrefix += decoder.decode();
+                        break;
+                      }
+
+                      const value = chunk.value.subarray(
+                        0,
+                        MAX_JSON_RESPONSE_PROBE_BYTES - probeBytes,
+                      );
+                      probeBytes += value.byteLength;
+                      probePrefix += decoder.decode(value, { stream: true });
+                      if (probePrefix.trimStart() !== "") break;
+                    }
+                    probePrefix += decoder.decode();
+                  } finally {
+                    if (timeoutId !== undefined) clearTimeout(timeoutId);
+                    if (probeAborted && res.body) {
+                      void res.body.cancel().catch(() => {});
+                    }
+                    if (onAbort) {
+                      abortSignal.removeEventListener("abort", onAbort);
+                    }
+                    if (!probeReaderTransferred) {
+                      void probeReader.cancel().catch(() => {});
+                      probeReader.releaseLock();
+                    }
+                  }
+
+                  if (probeReaderTransferred) {
+                    delayedJsonProbeReader = probeReader;
+                    delayedJsonProbe = continueJsonResponseProbe(
+                      probeReader,
+                      decoder,
+                      probePrefix,
+                      abortSignal,
+                      probeBytes,
+                      timedOutRead,
+                    );
+                    void delayedJsonProbe.then(
+                      (outcome) => {
+                        delayedJsonProbeOutcome = outcome;
+                      },
+                      () => {},
+                    );
+                  }
+
+                  looksLikeSSE = isSseResponsePrefix(probePrefix);
+                }
+              }
+
+              const firstChar = probePrefix.trimStart()[0] ?? "";
+              const looksLikeJson =
+                !probeTimedOut &&
+                (probeCompleted ||
+                  probeBytes >= MAX_JSON_RESPONSE_PROBE_BYTES ||
+                  (firstChar !== "" &&
+                    (firstChar === '"' ||
+                      "{[-0123456789tfn".includes(firstChar))));
+              if (!looksLikeSSE && looksLikeJson) {
                 const body = await res.text();
-                const parsed = JSON.parse(body) as { error?: unknown };
-                if (parsed.error) {
-                  throw new Error(String(parsed.error));
-                }
-              } catch (e) {
-                if (
-                  e instanceof Error &&
-                  e.message !== "Unexpected end of JSON input"
-                ) {
-                  throw e;
-                }
+                throw jsonResponseError(body);
               }
             }
 
@@ -3931,7 +4174,7 @@ export function createAgentChatAdapter(
                 try {
                   const body = await res.json();
                   if (body?.activeRunId) {
-                    activeRunId = String(body.activeRunId);
+                    activeRunId = stringifyValue(body.activeRunId);
                   }
                 } catch {
                   // Fall through to the generic response handling below.
@@ -4180,22 +4423,64 @@ export function createAgentChatAdapter(
                 content.pop();
               }
               if (continueAfterMissingFinalResponse()) {
+                cancelDelayedJsonProbe();
                 continue;
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
+              cancelDelayedJsonProbe();
               clearOwnedActiveRun();
               return;
             }
 
             // Run completed normally — clear active run state
+            cancelDelayedJsonProbe();
             clearOwnedActiveRun();
             return;
-          } catch (err: unknown) {
+          } catch (caughtError: unknown) {
+            let err = caughtError;
             if (err instanceof Error && err.name === "AbortError") {
+              cancelDelayedJsonProbe();
               // User-initiated abort (Stop button) — clear active run
               clearOwnedActiveRun();
               return;
+            }
+
+            let delayedJsonOutcome = delayedJsonProbeOutcome;
+            if (
+              !delayedJsonOutcome &&
+              delayedJsonProbe &&
+              err instanceof AgentAutoContinueSignal &&
+              err.reason === "stream_ended"
+            ) {
+              let delayedJsonProbeTimeoutId:
+                | ReturnType<typeof setTimeout>
+                | undefined;
+              const delayedJsonProbeTimeout = new Promise<undefined>(
+                (resolve) => {
+                  delayedJsonProbeTimeoutId = setTimeout(
+                    () => resolve(undefined),
+                    JSON_RESPONSE_PROBE_TIMEOUT_MS,
+                  );
+                },
+              );
+              try {
+                delayedJsonOutcome = await Promise.race([
+                  delayedJsonProbe,
+                  delayedJsonProbeTimeout,
+                ]);
+              } catch {
+                delayedJsonOutcome = undefined;
+              } finally {
+                if (delayedJsonProbeTimeoutId !== undefined) {
+                  clearTimeout(delayedJsonProbeTimeoutId);
+                }
+              }
+            }
+            if (delayedJsonOutcome?.type === "json") {
+              err = jsonResponseError(delayedJsonOutcome.body);
+            } else {
+              cancelDelayedJsonProbe();
             }
 
             if (err instanceof AgentAutoContinueSignal) {
@@ -4655,4 +4940,14 @@ export function createAgentChatAdapter(
       }
     },
   };
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

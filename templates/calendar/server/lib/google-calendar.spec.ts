@@ -21,6 +21,7 @@ const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
+  getCredentialContext: vi.fn(() => null),
   getRequestOrgId: getRequestOrgIdMock,
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: async ({
@@ -87,6 +88,9 @@ vi.mock("./google-api.js", () => ({
   calendarPatchEvent: calendarPatchEventMock,
   calendarUpdateEvent: calendarUpdateEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
+  isGoogleEventAbsentError: (error: unknown) =>
+    error instanceof Error &&
+    /^Google API error \((?:404|410)\):/.test(error.message),
 }));
 
 import {
@@ -1057,6 +1061,7 @@ describe("calendar event creation", () => {
 describe("calendar recurring event updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    calendarListEventsMock.mockReset();
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -1112,6 +1117,184 @@ describe("calendar recurring event updates", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("removes selected and later materialized exceptions when deleting this and following", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-01T15:00:00Z" },
+        originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarListEventsMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "instance-1",
+            recurringEventId: "series-1",
+            originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
+            start: { dateTime: "2026-05-01T15:00:00Z" },
+          },
+          {
+            id: "instance-before",
+            recurringEventId: "series-1",
+            originalStartTime: { dateTime: "2026-05-13T15:00:00Z" },
+          },
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "instance-2",
+            recurringEventId: "series-1",
+            originalStartTime: { dateTime: "2026-05-27T15:00:00Z" },
+            start: { dateTime: "2026-05-02T15:00:00Z" },
+          },
+        ],
+      });
+
+    await deleteEvent(
+      "instance-1",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      { scope: "thisAndFollowing" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519T235959Z"] },
+      { sendUpdates: undefined },
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-1",
+      undefined,
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-2",
+      undefined,
+    );
+    expect(calendarDeleteEventMock).not.toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-before",
+      undefined,
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      "primary",
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: undefined,
+      },
+    );
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "primary",
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: "page-2",
+      },
+    );
+  });
+
+  it("uses no date-only timeMin when cleaning up all-day recurrences", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { date: "2026-05-20" },
+        originalStartTime: { date: "2026-05-20" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { date: "2026-05-06" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarListEventsMock.mockResolvedValue({
+      items: [
+        {
+          id: "instance-1",
+          recurringEventId: "series-1",
+          originalStartTime: { date: "2026-05-20" },
+        },
+      ],
+    });
+
+    await deleteEvent(
+      "instance-1",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      { scope: "thisAndFollowing" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519"] },
+      { sendUpdates: undefined },
+    );
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: undefined,
+      },
+    );
+  });
+
+  it("treats a gone occurrence as already absent after truncating the series", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarDeleteEventMock.mockRejectedValue(
+      new Error("Google API error (410): Gone"),
+    );
+
+    await expect(
+      deleteEvent(
+        "instance-1",
+        {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        { scope: "thisAndFollowing" },
+      ),
+    ).resolves.toBeUndefined();
   });
 });
 
@@ -1538,6 +1721,38 @@ describe("calendar free/busy", () => {
         items: [{ id: "secondary@example.com" }],
       }),
     );
+  });
+
+  it("marks a calendar omitted by Google as unavailable", async () => {
+    calendarFreeBusyMock.mockResolvedValue({ calendars: {} });
+
+    await expect(
+      getFreeBusy(
+        "2026-05-28T16:00:00Z",
+        "2026-05-28T18:00:00Z",
+        ["secondary@example.com"],
+        "owner@example.com",
+        "America/Los_Angeles",
+        "secondary@example.com",
+      ),
+    ).resolves.toEqual({
+      calendars: {
+        "secondary@example.com": {
+          busy: [],
+          errors: [
+            {
+              reason: "Calendar was omitted from the Google free/busy response",
+            },
+          ],
+        },
+      },
+      errors: [
+        {
+          email: "secondary@example.com",
+          error: "Calendar was omitted from the Google free/busy response",
+        },
+      ],
+    });
   });
 });
 

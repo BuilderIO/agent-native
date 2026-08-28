@@ -80,7 +80,7 @@ describe("findMcpConnectionSuggestionIntegration", () => {
       findMcpConnectionSuggestionIntegration({
         text: "Import https://docs.google.com/presentation/d/example",
       })?.id,
-    ).toBe("google-workspace");
+    ).toBeUndefined();
   });
 
   it("respects integrations excluded by the host app", () => {

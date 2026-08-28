@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const mockGetAppBasePath = vi.hoisted(() => vi.fn(() => ""));
@@ -33,6 +34,7 @@ import {
   invalidatePublicFormCache,
   renderPublicFormHtml,
   renderPublicForm,
+  safeRedirectUrl,
 } from "./public-form-ssr";
 
 function createDbWithRows(rows: unknown[]) {
@@ -97,6 +99,7 @@ describe("public form SSR", () => {
     expect(html).toContain(
       '<meta property="og:title" content="Customer intake">',
     );
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
     expect(html).toContain(
       '<meta property="og:description" content="Tell us what you need.">',
     );
@@ -181,6 +184,10 @@ describe("public form SSR", () => {
     expect(first.html).toContain(
       'fetch(PUBLIC_FORM_API, { cache: "no-store" })',
     );
+    expect(first.html).toContain("if (response.status === 404)");
+    expect(first.html).toContain(
+      'currentUrl.searchParams.set("v", String(Date.now()));',
+    );
 
     rows[0] = {
       ...rows[0],
@@ -258,5 +265,78 @@ describe("public form SSR", () => {
     expect(html).toContain('"session"');
     expect(html).toContain("Array.from(params.keys()).forEach(function(key)");
     expect(html).toContain('params.set(key, "<redacted>")');
+  });
+
+  it.each([
+    {
+      name: "legacy success message",
+      settings: {},
+      mode: "message",
+    },
+    {
+      name: "legacy redirect",
+      settings: { redirectUrl: "https://example.test/thanks" },
+      mode: "redirect",
+    },
+    {
+      name: "message then refresh",
+      settings: {
+        completionMode: "message_then_refresh",
+        completionRefreshSeconds: 7,
+      },
+      mode: "message_then_refresh",
+    },
+    {
+      name: "immediate refresh",
+      settings: { completionMode: "refresh" },
+      mode: "refresh",
+    },
+  ])("renders the $name completion flow", async ({ settings, mode }) => {
+    const slug = `completion-${mode}`;
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: `form-${mode}`,
+          slug,
+          title: "Completion test",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: "[]",
+          settings: JSON.stringify(settings),
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      `https://forms.example.test/f/${slug}`,
+    );
+
+    expect(html).toContain(`var COMPLETION_MODE = "${mode}";`);
+    if (mode === "redirect") {
+      expect(html).toContain('var REDIRECT = "https://example.test/thanks";');
+    }
+    if (mode === "message_then_refresh") {
+      expect(html).toContain("var COMPLETION_REFRESH_MS = 7000;");
+      expect(html).toContain(
+        "window.setTimeout(function() { window.location.reload(); }, COMPLETION_REFRESH_MS);",
+      );
+      expect(html).toContain(
+        'if ((COMPLETION_MODE === "message" || COMPLETION_MODE === "message_then_refresh") && html.classList.contains("embedded")',
+      );
+    }
+    if (mode === "refresh") {
+      expect(html).toContain(
+        'if (COMPLETION_MODE === "refresh") { window.location.reload(); return; }',
+      );
+    }
+  });
+
+  it("allows root-relative redirects without allowing protocol-relative URLs", () => {
+    expect(safeRedirectUrl("/thanks")).toBe("/thanks");
+    expect(safeRedirectUrl("/\\\\evil.example.test/thanks")).toBe("");
+    expect(safeRedirectUrl("//external.example.test/thanks")).toBe("");
   });
 });

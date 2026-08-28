@@ -121,10 +121,14 @@ import {
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
+  type DesktopEnvironmentLaneState,
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
+import {
+  DESKTOP_DEEP_LINK_PROTOCOL,
+  DESKTOP_RELEASE_CHANNEL,
+} from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -142,6 +146,7 @@ import {
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type Session,
   type WebContents,
 } from "electron";
 
@@ -176,7 +181,13 @@ import {
   loadMcpConfig,
   type McpServerConfig,
 } from "../../../core/src/mcp-client/config.js";
+import {
+  isBetaLaneEmail,
+  resolveDesktopEnvironmentLane,
+  withDesktopEnvironmentLane,
+} from "../../shared/environment-lane";
 import * as AppStore from "./app-store";
+import { isDesktopEnvironmentLanePreference } from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
   AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV,
@@ -185,6 +196,7 @@ import {
 } from "./browser-control/native-host";
 import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
 import {
+  CLI_STATUS_TTL_MS,
   cachedCliStatus,
   createCliStatusCache,
   type CliStatusCache,
@@ -192,7 +204,9 @@ import {
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import {
   isCodeAgentRunnerInFlight,
+  resolveExecutable,
   resolveCodeAgentRunnerInvocation,
+  withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
 import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
@@ -249,6 +263,10 @@ import {
   revealLogFolder,
   getLogFilePath,
 } from "./desktop-logger";
+import {
+  forwardDesktopNavigationShortcutInput,
+  type DesktopNavigationShortcutInput,
+} from "./desktop-navigation-shortcuts.js";
 import {
   desktopRequestedUserDataPath,
   initializeDesktopStartup,
@@ -314,7 +332,9 @@ import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
+  releaseChannel: DESKTOP_RELEASE_CHANNEL,
   appDataPath: app.getPath("appData"),
+  defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
     app.commandLine.getSwitchValue("user-data-dir"),
     process.argv,
@@ -363,11 +383,11 @@ function isDesktopSsoEnabled(): boolean {
 
 // ---------- User-Agent marker ----------
 // Tag every request from this Electron app so the server can distinguish
-// Agent Native desktop from other Electron-based webviews (Builder.io's
+// Agent-Native desktop from other Electron-based webviews (Builder.io's
 // Fusion, Slack desktop, Discord, etc.). Without this, any Electron UA
 // would trigger the desktop-only OAuth deep-link page (`agentnative://...`),
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
-// Open Agent Native" screen whose deep link can't fire.
+// Open Agent-Native" screen whose deep link can't fire.
 const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
@@ -396,44 +416,15 @@ const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 
-type DesktopNavigationShortcutInput = {
-  type: string;
-  key: string;
-  code?: string;
-  meta?: boolean;
-  control?: boolean;
-  shift?: boolean;
-  alt?: boolean;
-};
-
 function forwardDesktopNavigationShortcut(
   event: { preventDefault(): void },
   input: DesktopNavigationShortcutInput,
 ): boolean {
-  if (!(input.meta || input.control) || input.type !== "keyDown") return false;
-
-  const key = input.key.toLowerCase();
-  const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
-  const isBracketLeft =
-    input.code === "BracketLeft" || key === "[" || key === "{";
-  const isBracketRight =
-    input.code === "BracketRight" || key === "]" || key === "}";
-  const isBracketShortcut =
-    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
-  if (!isNumericShortcut && !isBracketShortcut) return false;
-
-  event.preventDefault();
-  const win = mainWindow;
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
-  win.webContents.send("shortcut:keydown", {
-    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
-    code: input.code,
-    shiftKey: Boolean(input.shift),
-    altKey: Boolean(input.alt),
-    ctrlKey: Boolean(input.control),
-    metaKey: Boolean(input.meta),
+  return forwardDesktopNavigationShortcutInput(event, input, (payload) => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send("shortcut:keydown", payload);
   });
-  return true;
 }
 
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -545,6 +536,19 @@ function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   }
 }
 
+// Windows/Linux: a cold start (the app was not already running) delivers the
+// deep link as a plain argv entry instead of firing 'open-url' (macOS-only)
+// or 'second-instance' (only reached by an already-running primary
+// instance), so nothing else observes it before the window loads. Queue it
+// into pendingDeepLink the same way the macOS open-url cold-start path below
+// does, for app.whenReady() to drain into handleDeepLink().
+function capturePendingDeepLinkFromArgv(argv: string[]): void {
+  const deepLink = argv.find(isDeepLinkArg);
+  if (deepLink) {
+    pendingDeepLink = deepLink;
+  }
+}
+
 if (IS_DEV) {
   // electron-vite kills the main process and relaunches it on every rebuild
   // (e.g. when the concurrent `@agent-native/core` tsc --watch under
@@ -553,6 +557,7 @@ if (IS_DEV) {
   // and app.quit() — leaving the killed instance's dead Dock tile behind.
   // Skip the lock in dev; keep the deep-link handler for parity.
   app.on("second-instance", handleSecondInstance);
+  capturePendingDeepLinkFromArgv(process.argv);
   // Quit immediately when electron-vite SIGTERMs us so the old process and its
   // Dock tile vanish at once, before the relaunched instance paints its window.
   const exitNow = () => app.exit(0);
@@ -564,6 +569,7 @@ if (IS_DEV) {
     app.quit();
   } else {
     app.on("second-instance", handleSecondInstance);
+    capturePendingDeepLinkFromArgv(process.argv);
   }
 }
 
@@ -1091,7 +1097,7 @@ async function handleShortcutUpsertDeepLink(parsed: URL) {
     buttons: ["Add Shortcut", "Cancel"],
     defaultId: 0,
     cancelId: 1,
-    message: "Add Agent Native app shortcut?",
+    message: "Add Agent-Native app shortcut?",
     detail: [
       `Shortcut: ${formatDesktopShortcutAccelerator(normalized.accelerator, process.platform)}`,
       `Target: ${appLabel}${view ? ` / ${view}` : ""}`,
@@ -1223,7 +1229,7 @@ function reloadAllWebviews() {
 app.on("open-url", (event, url) => {
   event.preventDefault();
   if (app.isReady()) {
-    handleDeepLink(url);
+    void handleDeepLink(url);
   } else {
     pendingDeepLink = url;
   }
@@ -1383,18 +1389,195 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
   return true;
 });
 
-ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
+// ---------- Hosted origin warmup ----------
+// The hosted apps run on serverless functions, and their first request after
+// an idle period pays a container cold start. Measured against production:
+// /_agent-native/auth/session takes 4-7s cold and 0.17s warm, it is sent
+// `no-store`, and the app's whole first render blocks on it — which is most
+// of the ~12s a cold tab click used to cost. Paying it in the background,
+// before the user clicks, is what makes the click feel instant.
+const WARM_ORIGIN_TTL_MS = 4 * 60 * 1000;
+const WARM_ORIGIN_TIMEOUT_MS = 12_000;
+const WARM_ORIGIN_FANOUT_WAIT_MS = 60_000;
+const WARM_ORIGIN_FANOUT_POLL_MS = 500;
+const WARM_ORIGIN_RETRY_MS = 30_000;
+const warmedOriginAt = new Map<string, number>();
+let originWarmupInFlight: Promise<void> | null = null;
+let originWarmupRerunRequested = false;
+let originWarmupRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleWarmupRetry(): void {
+  if (originWarmupRetryTimer || appIsQuitting) return;
+  originWarmupRetryTimer = setTimeout(() => {
+    originWarmupRetryTimer = null;
+    warmDesktopAppOrigins();
+  }, WARM_ORIGIN_RETRY_MS);
+}
+
+async function warmDesktopAppOrigin(
+  origin: string,
+  appSession: Session,
+): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WARM_ORIGIN_TIMEOUT_MS);
+  try {
+    await appSession.fetch(
+      new URL("/_agent-native/auth/session", origin).href,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    warmedOriginAt.set(origin, Date.now());
+  } catch (error) {
+    // coercion-ok: a failed warmup leaves the origin unmarked, so the next
+    // pass retries it. The tab still loads; it just pays the cold start.
+    console.debug("[desktop-warmup] origin warmup failed", {
+      origin,
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function warmDesktopAppOrigins(): void {
+  if (appIsQuitting) return;
+  // A pass already targeting the old lane cannot serve a lane that changed
+  // underneath it, so coalesce the request and recompute once it settles
+  // rather than dropping it.
+  if (originWarmupInFlight) {
+    originWarmupRerunRequested = true;
+    return;
+  }
+  if (!isDesktopSsoEnabled()) return;
+  if (desktopIdentityBroker?.getStatus() !== "signed-in") return;
+
+  const lane = resolveDesktopEnvironmentLaneState().lane;
+  const now = Date.now();
+  const targets: { origin: string; session: Session }[] = [];
+  for (const app of listDesktopIdentityApps()) {
+    const origin = withDesktopEnvironmentLane(app.origin, lane);
+    const warmedAt = warmedOriginAt.get(origin) ?? 0;
+    if (now - warmedAt < WARM_ORIGIN_TTL_MS) continue;
+    targets.push({ origin, session: app.session });
+  }
+  if (targets.length === 0) return;
+
+  originWarmupInFlight = (async () => {
+    // The signed-in transition fires while runModernIdentityFanout is still
+    // running its unawaited serial child-session loop. Warming every origin
+    // underneath that reintroduces exactly the concurrent hosted-origin
+    // session work it serializes to avoid, so wait it out first.
+    for (
+      let waited = 0;
+      waited < WARM_ORIGIN_FANOUT_WAIT_MS &&
+      desktopIdentityBroker?.hasPendingAppSessionWork();
+      waited += WARM_ORIGIN_FANOUT_POLL_MS
+    ) {
+      if (appIsQuitting) return;
+      await new Promise((resolve) =>
+        setTimeout(resolve, WARM_ORIGIN_FANOUT_POLL_MS),
+      );
+    }
+    if (desktopIdentityBroker?.hasPendingAppSessionWork()) {
+      // Still minting after the cap. Overlapping it is the exact hazard this
+      // wait exists for, so abandon this pass. A single bounded retry is
+      // scheduled rather than re-arming immediately, which would spin the
+      // wait in a loop for as long as the work stays stuck.
+      scheduleWarmupRetry();
+      return;
+    }
+    for (const target of targets) {
+      if (appIsQuitting) break;
+      // Serial on purpose. runModernIdentityFanout already documents that
+      // parallel child session work against the hosted origins turns a valid
+      // parent session into a batch of opaque 500s; a warmup must not be the
+      // thing that reintroduces it.
+      await warmDesktopAppOrigin(target.origin, target.session);
+    }
+  })()
+    .catch(() => {})
+    .finally(() => {
+      originWarmupInFlight = null;
+      if (originWarmupRerunRequested && !appIsQuitting) {
+        originWarmupRerunRequested = false;
+        warmDesktopAppOrigins();
+      }
+    });
+}
+
+function resolveDesktopEnvironmentLaneState(): DesktopEnvironmentLaneState {
+  const preference =
+    AppStore.loadDesktopAppPreferences().desktopEnvironmentLane;
+  const email =
+    isDesktopSsoEnabled() && desktopIdentityBroker?.getStatus() === "signed-in"
+      ? (desktopIdentityBroker.getVerifiedEmail() ?? null)
+      : null;
+  return {
+    preference,
+    lane: resolveDesktopEnvironmentLane({ preference, email }),
+    eligible: isBetaLaneEmail(email),
+  };
+}
+
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return {
+      preference: "production",
+      lane: "production",
+      eligible: false,
+    } satisfies DesktopEnvironmentLaneState;
+  }
+  // The broker is otherwise created lazily by the first webview status
+  // request, which lands after the shell has already resolved a lane — a
+  // persisted Builder session would load production once before switching.
+  if (isDesktopSsoEnabled()) {
+    const broker = ensureDesktopIdentityBroker();
+    await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  }
+  return resolveDesktopEnvironmentLaneState();
+});
+
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_SET, (event, preference) => {
   if (
     !isShellIdentityIpc(event) ||
-    !isDesktopSsoEnabled() ||
-    typeof appId !== "string" ||
-    !appId.trim()
+    !isDesktopEnvironmentLanePreference(preference)
   ) {
-    return false;
+    return resolveDesktopEnvironmentLaneState();
   }
-  const broker = ensureDesktopIdentityBroker();
-  return broker?.ensureAppSession(appId.trim()) ?? false;
+  AppStore.saveDesktopAppPreferences({ desktopEnvironmentLane: preference });
+  // The focus handler will not fire: the window is already focused and the
+  // renderer just reloads in place, so the newly selected lane would stay
+  // cold until something else happened to trigger a warmup.
+  warmDesktopAppOrigins();
+  return resolveDesktopEnvironmentLaneState();
 });
+
+ipcMain.handle(
+  IPC.IDENTITY_APP_SESSION_ENSURE,
+  async (event, appId, options) => {
+    if (
+      !isShellIdentityIpc(event) ||
+      !isDesktopSsoEnabled() ||
+      typeof appId !== "string" ||
+      !appId.trim()
+    ) {
+      return false;
+    }
+    const broker = ensureDesktopIdentityBroker();
+    const preserveExistingSession =
+      typeof options === "object" &&
+      options !== null &&
+      (options as { preserveExistingSession?: unknown })
+        .preserveExistingSession === true;
+    return (
+      broker?.ensureAppSession(appId.trim(), { preserveExistingSession }) ??
+      false
+    );
+  },
+);
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
@@ -1513,6 +1696,7 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
       if (status === "idle" || status === "sign-in-required") {
         clearDesktopWorkspaceApps();
       }
+      if (status === "signed-in") warmDesktopAppOrigins();
       if (mainWindow && !mainWindow.isDestroyed()) {
         try {
           mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
@@ -1584,13 +1768,19 @@ function createWindow(): BrowserWindow {
 
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    void win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
     // DevTools will be opened for the active webview via Cmd+Shift+I
   } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
+    void win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
   mainWindow = win;
+  // Coming back to the window is the strongest available signal that a tab
+  // click is imminent, and it costs nothing while the app is in the
+  // background. The TTL keeps repeated focus events from re-warming.
+  win.on("focus", () => {
+    warmDesktopAppOrigins();
+  });
   win.on("closed", () => {
     disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
@@ -1845,6 +2035,26 @@ function getActiveWebviewContents() {
       })) ||
     webviewContents[0]
   );
+}
+
+function reloadWebviewContents(contents?: Electron.WebContents): boolean {
+  if (!contents) return false;
+  try {
+    if (contents.isDestroyed() || contents.getType() !== "webview") {
+      return false;
+    }
+    contents.reloadIgnoringCache();
+    return true;
+  } catch (error) {
+    console.debug("[desktop] webview reload skipped", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return false;
+  }
+}
+
+function reloadActiveWebview(): boolean {
+  return reloadWebviewContents(getActiveWebviewContents());
 }
 
 function getDesktopShortcutSettings(): DesktopShortcutSettings {
@@ -5469,6 +5679,21 @@ function persistCodeAgentChildEvent(
   guardCodeAgentPersistence({ runId, source }, persist);
 }
 
+const LOCAL_CODE_AGENT_EXECUTABLES = [
+  "codex",
+  "claude",
+  "pi",
+  "opencode",
+] as const;
+
+function getCodeAgentChildEnvironment(
+  ...sources: Array<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const source of sources) Object.assign(environment, source);
+  return withResolvedExecutablePaths(environment, LOCAL_CODE_AGENT_EXECUTABLES);
+}
+
 async function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
@@ -5584,14 +5809,16 @@ async function spawnCodeAgentRunner(
       cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
-        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
-        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
-        ...invocation.env,
-        ...mcpEnvironment.env,
-        ...computerEnv,
-      },
+      env: getCodeAgentChildEnvironment(
+        AppStore.getCodeAgentProviderProcessEnv(process.env),
+        {
+          AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+          AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        },
+        invocation.env,
+        mcpEnvironment.env,
+        computerEnv,
+      ),
     });
     const runnerStartedAt = new Date().toISOString();
     const runnerCommand = `${command} ${args.join(" ")}`;
@@ -5787,13 +6014,15 @@ function spawnCodeAgentApprovalRunner(
       cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
-        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
-        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
-        ...invocation.env,
-        ...computerEnv,
-      },
+      env: getCodeAgentChildEnvironment(
+        AppStore.getCodeAgentProviderProcessEnv(process.env),
+        {
+          AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+          AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        },
+        invocation.env,
+        computerEnv,
+      ),
     });
     const runnerStartedAt = new Date().toISOString();
     const runnerCommand = `${command} ${args.join(" ")}`;
@@ -6109,7 +6338,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
     getCodeAgentGoal(getRecordString(currentRunRecord, "goalId")) ??
     CODE_AGENT_GOALS[0];
   if (goal.surfaceKind === "native") {
-    spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
+    void spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
   }
   return {
     ok: true,
@@ -6285,7 +6514,7 @@ async function controlDesktopCodeBackgroundAgentRun(
       source: "desktop",
       command: "resume",
     });
-    spawnCodeAgentRunner(input.runId, cwd);
+    void spawnCodeAgentRunner(input.runId, cwd);
     return {
       ok: true,
       runId: input.runId,
@@ -6733,7 +6962,7 @@ async function createCodeAgentRun(
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.surfaceKind === "native" && !worktreeRunQueued) {
-      spawnCodeAgentRunner(runId, cwd, permissionMode);
+      void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
     return {
@@ -10930,6 +11159,12 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
   const codex = getLocalCodexCliStatus();
   const claude = getLocalClaudeCliStatus();
+  const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+  const opencode = getLocalCliAvailability(
+    "opencode",
+    "OpenCode",
+    localOpenCodeCliAvailabilityCache,
+  );
   const configuredCredentialKeys = new Set(
     settings.providers.flatMap((provider) => provider.configuredKeys),
   );
@@ -10937,6 +11172,8 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
     ...(claude.authenticated ? [claude.label] : []),
+    ...(pi.available ? [pi.label] : []),
+    ...(opencode.available ? [opencode.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -11024,7 +11261,7 @@ function ensureCodeAgentLlmProvider(): {
     return {
       ok: false,
       error:
-        "Agent Native could not read the saved code provider keys. Reconnect the provider in Settings.",
+        "Agent-Native could not read the saved code provider keys. Reconnect the provider in Settings.",
     };
   }
   return {
@@ -11044,10 +11281,14 @@ interface CliRun {
 }
 
 function runCliSync(command: string, args: string[]): CliRun {
-  const result = spawnSync(command, args, {
-    encoding: "utf-8",
-    timeout: CLI_PROBE_TIMEOUT_MS,
-  });
+  const result = spawnSync(
+    resolveExecutable(command, process.env) ?? command,
+    args,
+    {
+      encoding: "utf-8",
+      timeout: CLI_PROBE_TIMEOUT_MS,
+    },
+  );
   return {
     status: result.status,
     stdout: result.stdout ?? "",
@@ -11059,7 +11300,7 @@ function runCliSync(command: string, args: string[]): CliRun {
 function runCliAsync(command: string, args: string[]): Promise<CliRun> {
   return new Promise((resolve) => {
     execFile(
-      command,
+      resolveExecutable(command, process.env) ?? command,
       args,
       { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
       (error, stdout, stderr) => {
@@ -11092,9 +11333,13 @@ interface LocalCodexCliStatus {
   error?: string;
 }
 
+type CliStatusReadOptions = { refresh?: boolean };
+
 const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
 
-function getLocalCodexCliStatus(): LocalCodexCliStatus {
+function getLocalCodexCliStatus(
+  options?: CliStatusReadOptions,
+): LocalCodexCliStatus {
   return cachedCliStatus(
     localCodexCliStatusCache,
     () => {
@@ -11113,6 +11358,9 @@ function getLocalCodexCliStatus(): LocalCodexCliStatus {
         await runCliAsync("codex", ["login", "status"]),
       );
     },
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11185,7 +11433,9 @@ interface LocalClaudeCliStatus {
 
 const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
 
-function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+function getLocalClaudeCliStatus(
+  options?: CliStatusReadOptions,
+): LocalClaudeCliStatus {
   return cachedCliStatus(
     localClaudeCliStatusCache,
     () => {
@@ -11204,6 +11454,9 @@ function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
         await runCliAsync("claude", ["auth", "status", "--json"]),
       );
     },
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11267,6 +11520,7 @@ function getLocalCliAvailability(
   command: string,
   label: string,
   cache: CliStatusCache<LocalCliAvailability>,
+  options?: CliStatusReadOptions,
 ): LocalCliAvailability {
   return cachedCliStatus(
     cache,
@@ -11282,6 +11536,9 @@ function getLocalCliAvailability(
         label,
         await runCliAsync(command, ["--version"]),
       ),
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11404,20 +11661,30 @@ function pushCodeAgentModelOptions(
   }
 }
 
-function getCodeAgentModelList(): CodeAgentModelListResult {
+function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
   try {
-    const settings = AppStore.getCodeAgentProviderSettingsStatus();
+    const refreshLocalCliStatus = isObject(input) && input.refresh === true;
+    const cliStatusOptions = refreshLocalCliStatus
+      ? { refresh: true }
+      : undefined;
+    const codex = getLocalCodexCliStatus(cliStatusOptions);
+    const settings = getCodeAgentProviderSettings();
     const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
-    const codex = getLocalCodexCliStatus();
-    const claude = getLocalClaudeCliStatus();
-    const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+    const claude = getLocalClaudeCliStatus(cliStatusOptions);
+    const pi = getLocalCliAvailability(
+      "pi",
+      "Pi",
+      localPiCliAvailabilityCache,
+      cliStatusOptions,
+    );
     const opencode = getLocalCliAvailability(
       "opencode",
       "OpenCode",
       localOpenCodeCliAvailabilityCache,
+      cliStatusOptions,
     );
     const anthropicConfigured = Boolean(
       providerStatusById(settings, "anthropic")?.configured,
@@ -11738,7 +12005,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   });
   const cwd =
     getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-  spawnCodeAgentRunner(runId, cwd, permissionMode);
+  void spawnCodeAgentRunner(runId, cwd, permissionMode);
   return {
     ok: true,
     run: readDesktopCodeAgentRun(runId) ?? undefined,
@@ -12406,7 +12673,7 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
   const authUrl = new URL("/cli-auth", getBuilderCliAuthHost());
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("host", "agent-native-desktop");
-  authUrl.searchParams.set("client_id", "Agent Native Desktop");
+  authUrl.searchParams.set("client_id", "Agent-Native Desktop");
   authUrl.searchParams.set("redirect_url", callback.toString());
   authUrl.searchParams.set("preview_url", callback.origin);
   authUrl.searchParams.set("framework", "agent-native");
@@ -12517,7 +12784,7 @@ function connectDesktopBuilderProvider(): Promise<CodeAgentProviderSettingsUpdat
       res.end(
         desktopBuilderCallbackPage(
           "success",
-          "You can close this tab and return to Agent Native Desktop.",
+          "You can close this tab and return to Agent-Native Desktop.",
         ),
       );
       finish({
@@ -12752,7 +13019,7 @@ function openOAuthWindow(
     },
   });
 
-  oauthWin.loadURL(url);
+  void oauthWin.loadURL(url);
 
   // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
   // Firebase, and Firebase signs the user into Google via `window.open()`.
@@ -12818,7 +13085,7 @@ function openOAuthWindow(
       }
       // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -12836,7 +13103,7 @@ function openOAuthWindow(
     (event: Electron.Event, navUrl: string) => {
       if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
         event.preventDefault();
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     },
@@ -13256,6 +13523,14 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
+    // Cmd+R reloads the guest that received the key instead of asking the
+    // shell renderer to rediscover the active tab.
+    if (key === "r" && !input.alt) {
+      event.preventDefault();
+      reloadWebviewContents(contents);
+      return;
+    }
+
     // Cmd+Option+Up/Down — previous/next app
     if (input.alt && (key === "arrowup" || key === "arrowdown")) {
       event.preventDefault();
@@ -13290,13 +13565,9 @@ app.on("web-contents-created", (_event, contents) => {
 
     const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
+    // Forward other Cmd+ shortcuts: F, L, T, Shift+T, \
     const isShortcut =
-      key === "f" ||
-      key === "l" ||
-      key === "r" ||
-      key === "t" ||
-      isAgentSidebarToggleShortcut;
+      key === "f" || key === "l" || key === "t" || isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
@@ -13390,7 +13661,7 @@ function installApplicationMenu() {
       ...(desktopIdentityBroker && desktopIdentityBroker.getStatus() !== "idle"
         ? [
             {
-              label: "Sign Out of Agent Native",
+              label: "Sign Out of Agent-Native",
               click: () =>
                 void desktopIdentityBroker?.signOut(
                   listDesktopIdentityCleanupApps(),
@@ -13585,7 +13856,7 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   if (isDesktopSsoEnabled()) {
     // Create the optional broker without blocking startup. The first eligible
     // app asks it to refresh status, which keeps a slow identity authority
@@ -13602,7 +13873,7 @@ app.whenReady().then(async () => {
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink);
+    void handleDeepLink(pendingDeepLink);
     pendingDeepLink = null;
   }
 
@@ -13990,13 +14261,9 @@ app.whenReady().then(async () => {
     }
 
     // Cmd+R — refresh active webview, not the shell
-    if (key === "r") {
+    if (key === "r" && !input.alt) {
       _event.preventDefault();
-      win.webContents.send("shortcut:keydown", {
-        key: "r",
-        shiftKey: input.shift,
-        ctrlKey: input.control,
-      });
+      reloadActiveWebview();
       return;
     }
 
@@ -14039,15 +14306,6 @@ app.whenReady().then(async () => {
       win.webContents.send("shortcut:close-tab");
     }
   });
-
-  // Broadcast window maximized state changes to the renderer
-  const broadcastMaximized = (isMaximized: boolean) =>
-    win.webContents.send(IPC.WINDOW_MAXIMIZED_CHANGED, isMaximized);
-
-  win.on("maximize", () => broadcastMaximized(true));
-  win.on("unmaximize", () => broadcastMaximized(false));
-  win.on("enter-full-screen", () => broadcastMaximized(true));
-  win.on("leave-full-screen", () => broadcastMaximized(false));
 
   // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {

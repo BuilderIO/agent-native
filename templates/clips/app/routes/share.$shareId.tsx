@@ -1,5 +1,5 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { track } from "@agent-native/core/client/analytics";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
@@ -85,6 +85,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
 
 import { getDb, schema } from "../../server/db";
 import { resolvePlayerThumbnailUrl } from "../../server/lib/player-thumbnail-url";
@@ -386,6 +387,8 @@ export default function ShareRoute() {
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const startAt = searchParams.get("at");
+  const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -404,7 +407,7 @@ export default function ShareRoute() {
   const fireShareCtaClick = useCallback(
     (cta: "signup" | "download" | "try_clips" | "signin") => {
       try {
-        void track("share_cta_click", {
+        void trackEvent("share_cta_click", {
           surface: "clip",
           recording_id: recordingId,
           cta,
@@ -430,7 +433,7 @@ export default function ShareRoute() {
     if (shareViewFiredRef.current) return;
     shareViewFiredRef.current = true;
     try {
-      void track("share_view", {
+      void trackEvent("share_view", {
         surface: "clip",
         recording_id: recordingId,
         ref: attribution.ref,
@@ -443,16 +446,26 @@ export default function ShareRoute() {
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
-  const [password, setPassword] = useState<string | null>(() => {
-    if (typeof window === "undefined" || !shareId) return null;
+  // Reading sessionStorage in the initializer makes the first client render
+  // disagree with the server's, which has no storage and always renders the
+  // locked state. React answers a mismatch by throwing away the hydrated tree
+  // and re-rendering from scratch, so a returning viewer watches a blank share
+  // page while everything refetches. Start where the server started and adopt
+  // the stored password after mount.
+  const [password, setPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareId) return;
     try {
-      return sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
-    } catch {
-      return null;
-    }
-  });
+      const stored = sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
+      if (stored) setPassword(stored);
+      // Unreadable storage and no stored password are the same state to this
+      // screen: both leave `password` null, which renders the password prompt.
+      // coercion-ok: the fallback is visible to the viewer, not swallowed.
+    } catch {}
+  }, [shareId]);
   const [pwError, setPwError] = useState<string | null>(null);
-  const [currentMs, setCurrentMs] = useState(0);
+  const [currentMs, setCurrentMs] = useState(startMs);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
   const [commentDraft, setCommentDraft] = useState("");
@@ -504,9 +517,9 @@ export default function ShareRoute() {
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
     if (typeof window === "undefined") return path;
-    const query = buildShareContinuationQuery(attribution);
+    const query = buildShareContinuationQuery(attribution, startAt);
     return query ? `${path}?${query}` : path;
-  }, [attribution, recordingId]);
+  }, [attribution, recordingId, startAt]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
@@ -642,6 +655,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const playbackMs = resolveStartMs(currentMs, recording?.durationMs);
   const verificationPending = recording?.verificationPending === true;
   const comments = dataQ.data?.data?.comments ?? [];
   const reactions = dataQ.data?.data?.reactions ?? [];
@@ -736,7 +750,7 @@ export default function ShareRoute() {
       canOpenDashboard: viewerCanOpenDashboard,
       search: searchParams.toString(),
     });
-    if (target) navigate(target, { replace: true });
+    if (target) void navigate(target, { replace: true });
   }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
 
   // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
@@ -821,7 +835,7 @@ export default function ShareRoute() {
         sessionStorage.removeItem(STORAGE_KEY_PREFIX + shareId);
       } catch {}
     }
-  }, [needsPassword, password, shareId]);
+  }, [needsPassword, password, shareId, t]);
 
   function onSubmitPassword(pw: string) {
     setPwError(null);
@@ -1108,10 +1122,10 @@ export default function ShareRoute() {
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
-    <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
+    <div className="clips-recording-view flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden [&_.agent-composer-root]:!bg-background [&_.agent-composer-root]:!border-0">
       {agentDiscovery}
-      <div className="clips-share-content flex w-full min-w-0 flex-col lg:flex-1">
-        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3 lg:flex-nowrap">
+      <div className="flex w-full min-w-0 flex-col xl:flex-1">
+        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 px-3 py-2 sm:px-4 sm:py-3 xl:flex-nowrap">
           {session ? (
             <Button
               asChild
@@ -1124,7 +1138,7 @@ export default function ShareRoute() {
               </Link>
             </Button>
           ) : null}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="hidden min-w-0 flex-1 items-center gap-2 sm:flex">
             {recording.visibility === "private" ? (
               <span
                 className="inline-flex shrink-0 text-muted-foreground"
@@ -1147,17 +1161,19 @@ export default function ShareRoute() {
             )}
           </div>
 
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1 sm:w-auto sm:justify-end">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={viewCount}
               agentViewCount={agentViewCount}
               canViewDetails={viewerCanEdit}
               onOpenInsights={() => setPanel("insights")}
+              className="shrink-0 border-0 shadow-none"
             />
             {session ? null : (
               <SignedOutShareActions
                 recordingId={recording.id}
+                startAt={startAt}
                 onCtaClick={fireShareCtaClick}
               />
             )}
@@ -1174,7 +1190,10 @@ export default function ShareRoute() {
                 hasPassword={Boolean(recording.hasPassword)}
                 viewerReshareOnly={viewerReshareOnly}
               >
-                <ClipsShareTrigger label={t("sharePage.share")} />
+                <ClipsShareTrigger
+                  label={t("sharePage.share")}
+                  className="border-0 shadow-none"
+                />
               </ShareRecordingPopover>
             ) : null}
             {!viewerCanEdit && canDownloadRecording ? (
@@ -1225,8 +1244,8 @@ export default function ShareRoute() {
           </div>
         </header>
 
-        <div className="flex flex-col gap-4 overflow-hidden p-0 sm:p-4 lg:min-h-0 lg:flex-1">
-          <div className="relative aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
+        <div className="flex flex-col gap-0 overflow-hidden p-0 sm:gap-4 sm:p-4 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+          <div className="relative aspect-video w-full xl:min-h-0 xl:flex-1 xl:aspect-auto">
             <VideoPlayer
               ref={playerRef}
               onVideoElementChange={setTrackedVideoEl}
@@ -1238,6 +1257,7 @@ export default function ShareRoute() {
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
+              startMs={resolveStartMs(startMs, recording.durationMs)}
               persistPlaybackPosition={Boolean(session)}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
@@ -1275,7 +1295,7 @@ export default function ShareRoute() {
                         liveCt >= 0 &&
                         liveCt < 1e7
                           ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                          : playbackMs;
                       setCommentAtMs(liveMs);
                       setCommentOpen(true);
                     }
@@ -1301,7 +1321,7 @@ export default function ShareRoute() {
                         liveCt >= 0 &&
                         liveCt < 1e7
                           ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                          : playbackMs;
                       return fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
@@ -1358,28 +1378,33 @@ export default function ShareRoute() {
               : null}
           </div>
 
-          <div className="clips-share-metadata flex shrink-0 flex-col gap-3 px-4 pb-4 sm:px-0 sm:pb-0">
-            <div className="clips-share-metadata-description min-w-0 flex-1">
-              {recording.description ? (
-                <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                  {recording.description}
-                </p>
-              ) : null}
-            </div>
-            <div className="clips-share-metadata-actions flex max-w-full flex-col items-stretch gap-2 sm:items-end">
-              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <div className="flex shrink-0 flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:px-0 sm:py-0">
+            <div className="min-w-0 flex-1">
+              <div className="mb-3 sm:hidden">
+                {showTitleSkeleton ? (
+                  <Skeleton
+                    aria-label={t("sharePage.generatingTitle")}
+                    className="h-7 w-72 max-w-full"
+                  />
+                ) : (
+                  <h1 className="truncate text-2xl font-semibold leading-tight">
+                    {visibleTitle}
+                  </h1>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 {recording.enableComments ? (
                   <TimestampedCommentButton
                     enableComments={recording.enableComments}
                     canComment={!session || viewerCanComment}
-                    className="shrink-0"
+                    className="shrink-0 border-0 shadow-none"
                     onOpen={() => {
                       if (!session) {
                         requireSignIn("comment");
                         return;
                       }
                       const liveMs =
-                        playerRef.current?.getCurrentOriginalMs() ?? currentMs;
+                        playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
                       setCommentAtMs(liveMs);
                       setCommentOpen(true);
                     }}
@@ -1389,6 +1414,7 @@ export default function ShareRoute() {
                   <ReactionsTray
                     reactions={reactions}
                     disabled={Boolean(session) && !viewerCanComment}
+                    className="border-0 shadow-none"
                     onReact={(emoji) => {
                       if (!session) {
                         requireSignIn("react");
@@ -1396,7 +1422,7 @@ export default function ShareRoute() {
                       }
                       tracking.reportReaction(emoji);
                       const liveMs =
-                        playerRef.current?.getCurrentOriginalMs() ?? currentMs;
+                        playerRef.current?.getCurrentOriginalMs() ?? playbackMs;
                       return fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
@@ -1425,13 +1451,18 @@ export default function ShareRoute() {
                   />
                 ) : null}
               </div>
+              {recording.description ? (
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+                  {recording.description}
+                </p>
+              ) : null}
               {viewerCanEdit && canDownloadRecording ? (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={downloadRecording}
                   disabled={downloading}
-                  className="gap-1.5"
+                  className="mt-3 gap-1.5 border-0 shadow-none"
                 >
                   <IconDownload className="h-4 w-4" />
                   {downloading
@@ -1444,7 +1475,7 @@ export default function ShareRoute() {
         </div>
       </div>
 
-      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
+      <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col bg-muted xl:min-h-0 xl:w-[380px] xl:flex">
         <Tabs
           value={panel}
           onValueChange={setPanel}
@@ -1507,7 +1538,7 @@ export default function ShareRoute() {
               segments={transcriptSegments}
               fullText={transcriptFullText}
               durationMs={recording.durationMs}
-              currentMs={currentMs}
+              currentMs={playbackMs}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               status={transcriptStatus}
               failureReason={transcriptFailureReason}
@@ -1521,8 +1552,9 @@ export default function ShareRoute() {
             <CommentsPanel
               recordingId={recording.id}
               comments={comments}
-              currentMs={currentMs}
+              currentMs={playbackMs}
               currentUserEmail={session?.email}
+              currentUserName={session?.name}
               enableComments={recording.enableComments}
               canComment={viewerCanComment}
               onSeek={(ms) => playerRef.current?.seek(ms)}

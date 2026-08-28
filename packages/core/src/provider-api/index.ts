@@ -756,7 +756,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "Clay is a GTM provider API capability, not a messaging channel.",
-      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent Native access does not require that plugin session.",
+      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent-Native access does not require that plugin session.",
       "Search results use a stateful forward-only iterator: repeat POST /search/filters-mode/{search_id}/run while has_more is true.",
       "The Tables API is query-only, requires an Enterprise plan, and needs a known table id; the Public API does not list, create, or update tables.",
       "Routine runs are asynchronous. Start a run, then poll the documented results endpoint or use a verified completion webhook.",
@@ -988,6 +988,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       type: "oauth-bearer",
       oauthProvider: "google",
       tokenLabel: "Google OAuth token",
+      workspaceProvider: "gmail",
     },
     credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
     docsUrls: ["https://developers.google.com/gmail/api/reference/rest"],
@@ -1142,6 +1143,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       type: "oauth-bearer",
       oauthProvider: "google",
       tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_calendar",
     },
     credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
     docsUrls: ["https://developers.google.com/calendar/api/v3/reference"],
@@ -5576,6 +5578,13 @@ async function handleSaveToFile(
     );
   }
 
+  const scratchPath = isScratchWorkspacePath(filePath);
+  if (!ok && !scratchPath) {
+    throw new Error(
+      `Refusing to save a failed provider response to durable workspace file "${filePath}" (status ${status}). Use a scratch/... path for diagnostics.`,
+    );
+  }
+
   const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
   const meta = await writeWorkspaceFile(
     scope,
@@ -5598,9 +5607,7 @@ async function handleSaveToFile(
     preview: preview.length < responseText.length ? `${preview}…` : preview,
     // A durable (non-scratch) file renders a download card the moment it's
     // created — no separate show-workspace-file call needed to get a link.
-    ...(isScratchWorkspacePath(filePath)
-      ? {}
-      : { file: toWorkspaceFileCard(meta) }),
+    ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
   };
 }
 

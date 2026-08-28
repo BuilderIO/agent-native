@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
   writeAppState,
@@ -74,6 +74,7 @@ import {
   serializeAsset,
 } from "./_helpers.js";
 import { readImageModelDefault } from "./_image-model-default.js";
+import { resolveTemplateAccess } from "./_template-access.js";
 import { withToolActivity } from "./_tool-activity.js";
 import { upsertVariantSlot, wasVariantSlotDismissed } from "./variant-slots.js";
 
@@ -84,6 +85,15 @@ const presetReferenceFillSchema = z.object({
   assetIds: z.array(z.string().min(1)).min(1).max(4),
 });
 
+export function assertTemplateMatchesLibrary(
+  template: { libraryId: string | null } | null,
+  libraryId: string,
+) {
+  if (template?.libraryId && template.libraryId !== libraryId) {
+    throw new Error("Template is associated to a different brand kit.");
+  }
+}
+
 const imageGenerationAgentInputSchema = z.object({
   libraryId: z
     .string()
@@ -91,6 +101,7 @@ const imageGenerationAgentInputSchema = z.object({
     .describe("Brand kit/library ID to use for this image."),
   collectionId: z.string().optional(),
   presetId: z.string().optional(),
+  templateId: z.string().optional(),
   sessionId: z.string().optional(),
   prompt: z.string().min(1),
   embeddedText: z.string().optional(),
@@ -121,12 +132,11 @@ export default defineAction({
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
     collectionId: z.string().optional(),
-    presetId: z
+    templateId: z
       .string()
       .optional()
-      .describe(
-        "Generation preset ID (from a @preset mention or list-generation-presets). A preset already defines aspectRatio, imageSize, model, tier, and category. When you set presetId, OMIT those args so the preset's values are used; only pass one of them when the user explicitly asks for a value that differs from the preset.",
-      ),
+      .describe("Template ID from a @template mention or list-templates."),
+    presetId: z.string().optional().describe("Deprecated — use templateId."),
     sessionId: z.string().optional(),
     prompt: z.string().min(1),
     embeddedText: z
@@ -419,8 +429,8 @@ export default defineAction({
           ];
     if (
       session?.presetId &&
-      args.presetId &&
-      args.presetId !== session.presetId
+      (args.templateId ?? args.presetId) &&
+      (args.templateId ?? args.presetId) !== session.presetId
     ) {
       throw new Error("Generation preset does not match this session.");
     }
@@ -431,20 +441,15 @@ export default defineAction({
     ) {
       throw new Error("Collection does not match this session.");
     }
-    const resolvedPresetId = session?.presetId ?? args.presetId ?? undefined;
-    const [preset] = resolvedPresetId
-      ? await db
-          .select()
-          .from(schema.assetGenerationPresets)
-          .where(eq(schema.assetGenerationPresets.id, resolvedPresetId))
-          .limit(1)
-      : [null];
+    const resolvedPresetId =
+      session?.presetId ?? args.templateId ?? args.presetId ?? undefined;
+    const preset = resolvedPresetId
+      ? (await resolveTemplateAccess(resolvedPresetId, "viewer")).resource
+      : null;
     if (resolvedPresetId && !preset) {
-      throw new Error("Generation preset not found.");
+      throw new Error("Template not found.");
     }
-    if (preset && preset.libraryId !== args.libraryId) {
-      throw new Error("Generation preset does not belong to this library.");
-    }
+    assertTemplateMatchesLibrary(preset, args.libraryId);
     if (
       session?.collectionId &&
       preset?.collectionId &&
@@ -1434,7 +1439,10 @@ function logSkeletonGeneration(
   if (process.env.NODE_ENV === "test") return;
   const detail = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(
+      ([key, value]) =>
+        `${key}=${typeof value === "string" ? value : (JSON.stringify(value) ?? "")}`,
+    )
     .join(" ");
   console.info(
     `[assets] preset-skeleton ${event}${detail ? ` ${detail}` : ""}`,

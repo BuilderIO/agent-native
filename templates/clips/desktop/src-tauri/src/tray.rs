@@ -11,6 +11,162 @@ use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, Me
 use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
+/// A rounded stop square rendered at the same pixel size as the normal tray
+/// icon, used as the menu-bar icon while a recording is live (CleanShot's
+/// pattern: the status item becomes stop + elapsed time, and clicking it
+/// stops the recording). Template-style: black with alpha, so macOS tints it
+/// for menu-bar appearance.
+fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let side = ((w.min(h) as f32) * 0.62).round() as i32;
+    let x0 = (w as i32 - side) / 2;
+    let y0 = (h as i32 - side) / 2;
+    let radius = (side as f32 * 0.28).max(1.0);
+    let inside_rounded = |x: i32, y: i32| -> bool {
+        if x < x0 || y < y0 || x >= x0 + side || y >= y0 + side {
+            return false;
+        }
+        let rx = radius as i32;
+        let corners = [
+            (x0 + rx, y0 + rx),
+            (x0 + side - 1 - rx, y0 + rx),
+            (x0 + rx, y0 + side - 1 - rx),
+            (x0 + side - 1 - rx, y0 + side - 1 - rx),
+        ];
+        for (cx, cy) in corners {
+            let in_corner_box =
+                (x < x0 + rx || x > x0 + side - 1 - rx) && (y < y0 + rx || y > y0 + side - 1 - rx);
+            if in_corner_box {
+                let dx = (x - cx) as f32;
+                let dy = (y - cy) as f32;
+                let near = (x - cx).abs() <= rx && (y - cy).abs() <= rx;
+                if near {
+                    return dx * dx + dy * dy <= radius * radius;
+                }
+            }
+        }
+        true
+    };
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            if inside_rounded(x, y) {
+                let idx = ((y as u32 * w + x as u32) * 4) as usize;
+                rgba[idx + 3] = 255;
+            }
+        }
+    }
+    tauri::image::Image::new_owned(rgba, w, h)
+}
+
+/// Whether the status item is in recording mode (stop square + timer).
+/// Written ONLY by `tray_recording_status` — the pill is the single owner of
+/// this state — plus the window-destroyed backstop in lib.rs.
+static TRAY_RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Millis timestamp of the last recording-mode write. The pill refreshes the
+/// title every 500ms while live, so 2.5s of silence means the writer is gone
+/// and the dead-man loop below clears the status item — a stale menu-bar
+/// timer is structurally impossible, not just handled per code path.
+static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Icon image last applied to the status item: unset, app logo, or stop
+/// square. Tracked separately from `TRAY_RECORDING` because it records what
+/// the status item actually accepted, not what was requested.
+const TRAY_ICON_MODE_UNSET: i8 = -1;
+static TRAY_ICON_MODE: std::sync::atomic::AtomicI8 =
+    std::sync::atomic::AtomicI8::new(TRAY_ICON_MODE_UNSET);
+
+fn tray_icon_mode(stored: i8) -> Option<bool> {
+    if stored == TRAY_ICON_MODE_UNSET {
+        None
+    } else {
+        Some(stored != 0)
+    }
+}
+
+/// Whether the status item's icon image has to be re-uploaded.
+///
+/// `set_icon` replaces the NSStatusItem's image, and the pill refreshes the
+/// title four times a second to tick the timer. Re-uploading the same image at
+/// that cadence makes the menu-bar icon visibly flash, so the image is written
+/// only on the first write and on an actual mode flip. The title still goes
+/// out every call — it is the part that genuinely changes.
+fn tray_icon_needs_write(previous: Option<bool>, next: bool) -> bool {
+    previous != Some(next)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub fn tray_recording_active() -> bool {
+    TRAY_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) {
+    TRAY_RECORDING.store(active, std::sync::atomic::Ordering::SeqCst);
+    TRAY_LAST_WRITE_MS.store(now_ms(), std::sync::atomic::Ordering::SeqCst);
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+    let applied_icon_mode =
+        tray_icon_mode(TRAY_ICON_MODE.load(std::sync::atomic::Ordering::SeqCst));
+    if tray_icon_needs_write(applied_icon_mode, active) {
+        if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
+            let icon = if active {
+                stop_square_icon(base.width(), base.height())
+            } else {
+                base
+            };
+            // Recorded only once the status item accepts the image: a failed
+            // write must stay pending so the next call retries it, not look
+            // like the mode is already on screen.
+            match tray.set_icon(Some(icon)) {
+                Ok(()) => {
+                    let _ = tray.set_icon_as_template(true);
+                    TRAY_ICON_MODE.store(i8::from(active), std::sync::atomic::Ordering::SeqCst);
+                }
+                Err(err) => eprintln!("[clips-tray] status item icon update failed: {err}"),
+            }
+        }
+    }
+    // ALWAYS Some(...): tray-icon's macOS set_title is a silent no-op for
+    // None (its Some-only branch never clears the NSStatusItem text), so a
+    // reset must pass an empty string or the stale timer sticks forever.
+    #[cfg(target_os = "macos")]
+    let _ = tray.set_title(Some(if active {
+        title.unwrap_or_default()
+    } else {
+        String::new()
+    }));
+    #[cfg(not(target_os = "macos"))]
+    let _ = title;
+}
+
+/// Single writer for the status item's recording mode: the pill invokes this
+/// with `active` mirroring its own visibility (capture live, not the
+/// completion card) and a preformatted timer title. Everything the menu bar
+/// shows about recording flows through here — no inference from recorder
+/// events on the Rust side.
+#[tauri::command]
+pub async fn tray_recording_status(
+    app: tauri::AppHandle,
+    active: bool,
+    title: Option<String>,
+) -> Result<(), String> {
+    apply_tray_mode(&app, active, title);
+    Ok(())
+}
+
+/// Backstop for the one failure the pill cannot report: its window dying
+/// while the tray still shows recording mode.
+pub fn reset_tray_recording(app: &tauri::AppHandle) {
+    if tray_recording_active() {
+        apply_tray_mode(app, false, None);
+    }
+}
+
 fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
     let (x, y) = match rect.position {
         tauri::Position::Physical(position) => (position.x, position.y),
@@ -135,8 +291,17 @@ fn build_menu_with_meetings(
     )?;
     let devtools_item =
         MenuItem::with_id(app, "devtools", "Toggle DevTools", true, Some("Cmd+Alt+I"))?;
+    let version_item = MenuItem::with_id(
+        app,
+        "version",
+        format!("Clips v{}", env!("CARGO_PKG_VERSION")),
+        false,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit Clips", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
+    let separator3 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -147,6 +312,9 @@ fn build_menu_with_meetings(
             &paste_last_dictation_item,
             &region_guides_item,
             &devtools_item,
+            &separator2,
+            &version_item,
+            &separator3,
             &quit_item,
         ],
     )?;
@@ -294,10 +462,20 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     active,
                     meeting_active
                 );
-                if active && !meeting_active {
-                    // Opening Clips must never double as an implicit Stop.
-                    // Keep the recording alive and restore the parked popover;
-                    // its active-recording view exposes an explicit Stop button.
+                if tray_recording_active() && !meeting_active {
+                    // The status item IS the stop button while recording — it
+                    // shows a stop square and the elapsed time, so the click
+                    // is an explicit Stop, not an implicit one. Route through
+                    // the pill so its finishing hold and completion card run;
+                    // if the pill window is somehow gone, stop directly.
+                    if app.get_webview_window("toolbar").is_some() {
+                        let _ = app.emit("clips:tray-stop-request", ());
+                    } else {
+                        let _ = app.emit("clips:recorder-stop", ());
+                    }
+                } else if active && !meeting_active {
+                    // Recording session exists but capture isn't live (setup,
+                    // countdown, finishing) — restore the parked popover.
                     force_show_popover(app);
                 } else {
                     toggle_popover(app);
@@ -314,6 +492,21 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // resource table. `set_menu` is atomic — replacing the entire menu
     // is the documented Tauri 2 way to update a tray (there's no
     // partial-update API for items).
+    // Dead-man switch for recording mode: see TRAY_LAST_WRITE_MS.
+    let deadman_handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            if tray_recording_active()
+                && now_ms()
+                    .saturating_sub(TRAY_LAST_WRITE_MS.load(std::sync::atomic::Ordering::SeqCst))
+                    > 2_500
+            {
+                apply_tray_mode(&deadman_handle, false, None);
+            }
+        }
+    });
+
     let app_handle = app.handle().clone();
     app.handle().listen("meetings:updated", move |event| {
         #[derive(serde::Deserialize)]
@@ -339,4 +532,52 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tray_icon_mode, tray_icon_needs_write, TRAY_ICON_MODE_UNSET};
+
+    #[test]
+    fn writes_the_icon_on_the_first_call() {
+        assert!(tray_icon_needs_write(None, false));
+        assert!(tray_icon_needs_write(None, true));
+    }
+
+    #[test]
+    fn skips_the_icon_when_the_mode_is_unchanged() {
+        // The pill re-invokes the status update four times a second to tick
+        // the timer; re-uploading the same image at that rate is the flash.
+        assert!(!tray_icon_needs_write(Some(true), true));
+        assert!(!tray_icon_needs_write(Some(false), false));
+    }
+
+    #[test]
+    fn writes_the_icon_on_a_mode_flip_in_either_direction() {
+        assert!(tray_icon_needs_write(Some(false), true));
+        assert!(tray_icon_needs_write(Some(true), false));
+    }
+
+    #[test]
+    fn ten_seconds_of_ticking_writes_the_icon_once() {
+        // The reported flash: the pill invokes the status update every 250ms
+        // to tick the timer, and every one of those used to re-upload the
+        // image. Ten seconds of recording is one icon write, not forty-one.
+        let mut applied: Option<bool> = None;
+        let mut writes = 0;
+        for _ in 0..41 {
+            if tray_icon_needs_write(applied, true) {
+                writes += 1;
+                applied = Some(true);
+            }
+        }
+        assert_eq!(writes, 1);
+    }
+
+    #[test]
+    fn reads_an_unset_mode_as_never_written() {
+        assert_eq!(tray_icon_mode(TRAY_ICON_MODE_UNSET), None);
+        assert_eq!(tray_icon_mode(0), Some(false));
+        assert_eq!(tray_icon_mode(1), Some(true));
+    }
 }

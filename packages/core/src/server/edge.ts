@@ -1,4 +1,9 @@
+export { getAppConfig } from "../app-config/index.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
+export {
+  getDisabledDefaultPlugins,
+  isDefaultPluginDisabled,
+} from "./default-plugins.js";
 export {
   BETTER_AUTH_MIGRATIONS,
   runBetterAuthMigrations,
@@ -20,6 +25,7 @@ export {
   FRAMEWORK_ROUTE_PREFIX,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+export type { CoreRoutesMcpOptions } from "./core-routes/mcp-connect-options.js";
 export {
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,

@@ -1,0 +1,57 @@
+{
+  "effects-transforms": {
+    "maxDiffPercent": 1.56,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "image-scale-modes": {
+    "maxDiffPercent": 2.336,
+    "maxOmitted": 0,
+    "maxApproximated": 3
+  },
+  "layout-stress": {
+    "maxDiffPercent": 0.365,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "media-cards": {
+    "maxDiffPercent": 1.244,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "mobile-icons": {
+    "maxDiffPercent": 0.366,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "preset-display-ad": {
+    "maxDiffPercent": 0.102,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "preset-landing-page": {
+    "maxDiffPercent": 0.105,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "preset-one-pager": {
+    "maxDiffPercent": 0.105,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "preset-social-square": {
+    "maxDiffPercent": 0.109,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "typography": {
+    "maxDiffPercent": 3.05,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  },
+  "whole-screen-padded-body": {
+    "maxDiffPercent": 0.125,
+    "maxOmitted": 0,
+    "maxApproximated": 0
+  }
+}

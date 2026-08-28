@@ -47,6 +47,11 @@ import {
   replaceAlpineDataKeyValue,
   serializeAlpineDataObject,
 } from "./code-inspect-helpers";
+import {
+  InspectorActionRail,
+  InspectorGrid,
+  InspectorGridCell,
+} from "./inspector-grid";
 
 // ─── Make it real — inline upgrade card (§3, §6.6) ──────────────────────────
 
@@ -164,7 +169,7 @@ function MakeItRealCard({
     return (
       <div className="flex items-center gap-2 rounded-[5px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-1.5">
         <IconLoader2 className="size-3.5 shrink-0 animate-spin text-[var(--design-editor-accent-color)]" />
-        <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+        <p className="design-sidebar-field-label min-w-0 flex-1 truncate text-muted-foreground">
           {migrateResult.message ??
             `Generating ${migrateResult.branchName ?? "React app"}.`}
         </p>
@@ -201,7 +206,7 @@ function MakeItRealCard({
           aria-hidden="true"
         />
         <p
-          className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground"
+          className="design-sidebar-field-label min-w-0 flex-1 truncate text-muted-foreground"
           title={summary}
         >
           {summary}
@@ -757,10 +762,10 @@ export function ComponentSection({
   if (isLoading) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
-        <div className="flex min-h-9 items-center gap-2 px-3">
+        <div className="flex min-h-8 items-center gap-2 px-2">
           <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
         </div>
-        <div className="space-y-1.5 px-3 pb-3 pt-0.5">
+        <div className="space-y-2 px-2 pb-2 pt-0.5">
           <div className="h-5 w-full animate-pulse rounded bg-muted/40" />
           <div className="h-5 w-3/4 animate-pulse rounded bg-muted/40" />
         </div>
@@ -879,170 +884,186 @@ export function ComponentSection({
 
   return (
     <section
-      className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0"
+      className="design-sidebar-section shrink-0"
       data-testid="component-section"
     >
       {/* ── Section header ── */}
-      <div className="flex min-h-9 items-center gap-2 px-3">
-        {/* Accent diamond matching the workbench artboard component rows */}
-        <span
-          className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
-          aria-hidden="true"
-        />
-        <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
-          {name}
-        </h3>
-        {/* Instance operations: Go to main component / Swap instance /
+      <div className="px-2">
+        <InspectorGrid className="min-h-8 items-center" layout="header-actions">
+          <InspectorGridCell span={20}>
+            <div className="flex min-w-0 items-center gap-2">
+              {/* Accent diamond matching the workbench artboard component rows */}
+              <span
+                className="size-2 shrink-0 rotate-45 rounded-[2px] bg-[var(--design-editor-component-color)]"
+                aria-hidden="true"
+              />
+              <h3 className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground">
+                {name}
+              </h3>
+            </div>
+          </InspectorGridCell>
+          <InspectorGridCell span={8}>
+            <InspectorActionRail>
+              {/* Instance operations: Go to main component / Swap instance /
             Detach instance (Figma's instance-only affordances). Inline/Alpine
             designs only — the underlying actions fail closed for real-app
             sources, so hide them entirely there rather than show a
             perpetually-disabled button. */}
-        {isInline && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={goToMainMutation.isPending}
-                  aria-label={t("designEditor.componentInstances.goToMain")}
-                  onClick={handleGoToMainComponent}
-                >
-                  <IconComponents className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("designEditor.componentInstances.goToMain")}
-              </TooltipContent>
-            </Tooltip>
+              {isInline && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={goToMainMutation.isPending}
+                        aria-label={t(
+                          "designEditor.componentInstances.goToMain",
+                        )}
+                        onClick={handleGoToMainComponent}
+                      >
+                        <IconComponents className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("designEditor.componentInstances.goToMain")}
+                    </TooltipContent>
+                  </Tooltip>
 
-            <Popover
-              open={swapPickerOpen}
-              onOpenChange={(open) => {
-                setSwapPickerOpen(open);
-                if (!open) setSwapQuery("");
-              }}
-            >
+                  <Popover
+                    open={swapPickerOpen}
+                    onOpenChange={(open) => {
+                      setSwapPickerOpen(open);
+                      if (!open) setSwapQuery("");
+                    }}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={!editingEnabled || swapMutation.isPending}
+                            aria-label={t(
+                              "designEditor.componentInstances.swap",
+                            )}
+                          >
+                            <IconArrowsLeftRight className="size-3.5" />
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("designEditor.componentInstances.swap")}
+                      </TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      align="end"
+                      className="w-56 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1.5 text-[11px]"
+                    >
+                      <Input
+                        autoFocus
+                        value={swapQuery}
+                        onChange={(e) => setSwapQuery(e.target.value)}
+                        placeholder={t(
+                          "designEditor.componentInstances.searchComponents",
+                        )}
+                        className="mb-1.5 h-7 !text-[11px]"
+                      />
+                      <div className="max-h-52 overflow-y-auto">
+                        {swapCatalogLoading ? (
+                          <div className="px-2 py-1.5 text-muted-foreground">
+                            {t("designEditor.componentInstances.loading")}
+                          </div>
+                        ) : swapCandidates.length === 0 ? (
+                          <div className="px-2 py-1.5 text-muted-foreground">
+                            {t(
+                              "designEditor.componentInstances.noOtherComponents",
+                            )}
+                          </div>
+                        ) : (
+                          swapCandidates.map((candidate) => (
+                            <button
+                              key={candidate.name}
+                              type="button"
+                              disabled={swapMutation.isPending}
+                              onClick={() => handleSwapInstance(candidate.name)}
+                              className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-primary-foreground disabled:cursor-wait disabled:opacity-60"
+                            >
+                              <span className="min-w-0 flex-1 truncate">
+                                {candidate.name}
+                              </span>
+                              <span className="design-sidebar-field-label shrink-0 text-muted-foreground">
+                                {candidate.instanceCount}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={!editingEnabled || detachMutation.isPending}
+                        aria-label={t("designEditor.componentInstances.detach")}
+                        onClick={handleDetachInstance}
+                      >
+                        <IconUnlink className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("designEditor.componentInstances.detach")}
+                      <span className="ms-1.5 text-muted-foreground/70">
+                        {"⌥⌘B" /* i18n-ignore keyboard shortcut */}
+                      </span>
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+              {/* Jump-to-source action */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!editingEnabled || swapMutation.isPending}
-                      aria-label={t("designEditor.componentInstances.swap")}
-                    >
-                      <IconArrowsLeftRight className="size-3.5" />
-                    </Button>
-                  </PopoverTrigger>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={!canJumpToSource}
+                    aria-label={t("designEditor.componentSource.editSource")}
+                    onClick={() => {
+                      openSourceMutation.mutate({
+                        designId,
+                        nodeId,
+                        ...(fileId ? { fileId } : {}),
+                      });
+                    }}
+                  >
+                    <IconExternalLink className="size-3.5" />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {t("designEditor.componentInstances.swap")}
+                  {canJumpToSource
+                    ? t("designEditor.componentSource.editSource")
+                    : (capabilities.ctaMessage ??
+                      t("designEditor.componentSource.needsConnectedApp"))}
                 </TooltipContent>
               </Tooltip>
-              <PopoverContent
-                align="end"
-                className="w-56 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1.5 text-[11px]"
-              >
-                <Input
-                  autoFocus
-                  value={swapQuery}
-                  onChange={(e) => setSwapQuery(e.target.value)}
-                  placeholder={t(
-                    "designEditor.componentInstances.searchComponents",
-                  )}
-                  className="mb-1.5 h-7 !text-[11px]"
-                />
-                <div className="max-h-52 overflow-y-auto">
-                  {swapCatalogLoading ? (
-                    <div className="px-2 py-1.5 text-muted-foreground">
-                      {t("designEditor.componentInstances.loading")}
-                    </div>
-                  ) : swapCandidates.length === 0 ? (
-                    <div className="px-2 py-1.5 text-muted-foreground">
-                      {t("designEditor.componentInstances.noOtherComponents")}
-                    </div>
-                  ) : (
-                    swapCandidates.map((candidate) => (
-                      <button
-                        key={candidate.name}
-                        type="button"
-                        disabled={swapMutation.isPending}
-                        onClick={() => handleSwapInstance(candidate.name)}
-                        className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-white disabled:cursor-wait disabled:opacity-60"
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {candidate.name}
-                        </span>
-                        <span className="shrink-0 text-[10px] text-muted-foreground">
-                          {candidate.instanceCount}
-                        </span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={!editingEnabled || detachMutation.isPending}
-                  aria-label={t("designEditor.componentInstances.detach")}
-                  onClick={handleDetachInstance}
-                >
-                  <IconUnlink className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("designEditor.componentInstances.detach")}
-                <span className="ms-1.5 text-muted-foreground/70">
-                  {"⌥⌘B" /* i18n-ignore keyboard shortcut */}
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          </>
-        )}
-        {/* Jump-to-source action */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-              disabled={!canJumpToSource}
-              aria-label={t("designEditor.componentSource.editSource")}
-              onClick={() => {
-                openSourceMutation.mutate({
-                  designId,
-                  nodeId,
-                  ...(fileId ? { fileId } : {}),
-                });
-              }}
-            >
-              <IconExternalLink className="size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {canJumpToSource
-              ? t("designEditor.componentSource.editSource")
-              : (capabilities.ctaMessage ??
-                t("designEditor.componentSource.needsConnectedApp"))}
-          </TooltipContent>
-        </Tooltip>
+            </InspectorActionRail>
+          </InspectorGridCell>
+        </InspectorGrid>
       </div>
 
       {/* ── Body ── */}
-      <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
+      <div className="space-y-2 px-2 pb-2 pt-0.5 !text-[11px]">
         {/* Source path chip */}
         {sourceChip && (
           <div
@@ -1050,7 +1071,7 @@ export function ComponentSection({
             title={sourceChip}
           >
             <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+            <span className="design-sidebar-field-label min-w-0 flex-1 truncate font-mono text-muted-foreground">
               {sourceChip}
             </span>
           </div>
@@ -1069,64 +1090,68 @@ export function ComponentSection({
               const isBoolean = !hasOptions && isBooleanPropValue(row.value);
               const disabled = !editingEnabled || applyPropMutation.isPending;
               return (
-                <div key={row.name} className="flex items-center gap-1.5">
-                  <Label className="w-[64px] shrink-0 truncate !text-[11px] font-medium capitalize text-muted-foreground">
-                    {row.name}
-                  </Label>
-                  {hasOptions ? (
-                    // Dropdown for variant / enum groups.
-                    <Select
-                      value={row.value || row.options![0] || ""}
-                      onValueChange={(v) => commitProp(row, v)}
-                      disabled={disabled}
-                    >
-                      <SelectTrigger className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {row.options!.map((opt) => (
-                          <SelectItem
-                            key={opt}
-                            value={opt}
-                            className="!text-[11px]"
-                          >
-                            {opt}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : isBoolean ? (
-                    // Toggle for boolean props.
-                    <div className="flex min-w-0 flex-1 items-center">
-                      <Switch
-                        checked={row.value.trim().toLowerCase() === "true"}
-                        onCheckedChange={(checked) =>
-                          commitProp(row, checked ? "true" : "false")
-                        }
+                <InspectorGrid key={row.name} className="items-center">
+                  <InspectorGridCell span={8}>
+                    <Label className="design-sidebar-field-label min-w-0 truncate capitalize text-muted-foreground">
+                      {row.name}
+                    </Label>
+                  </InspectorGridCell>
+                  <InspectorGridCell span={20}>
+                    {hasOptions ? (
+                      // Dropdown for variant / enum groups.
+                      <Select
+                        value={row.value || row.options![0] || ""}
+                        onValueChange={(v) => commitProp(row, v)}
                         disabled={disabled}
-                        className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
-                        aria-label={
-                          row.name /* i18n-ignore dynamic prop name */
-                        }
+                      >
+                        <SelectTrigger className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {row.options!.map((opt) => (
+                            <SelectItem
+                              key={opt}
+                              value={opt}
+                              className="!text-[11px]"
+                            >
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : isBoolean ? (
+                      // Toggle for boolean props.
+                      <div className="flex min-w-0 items-center">
+                        <Switch
+                          checked={row.value.trim().toLowerCase() === "true"}
+                          onCheckedChange={(checked) =>
+                            commitProp(row, checked ? "true" : "false")
+                          }
+                          disabled={disabled}
+                          className="h-4 w-7 [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3"
+                          aria-label={
+                            row.name /* i18n-ignore dynamic prop name */
+                          }
+                        />
+                      </div>
+                    ) : (
+                      // Text input for string props (e.g. a label).
+                      <Input
+                        defaultValue={row.value}
+                        key={`${row.name}:${row.value}`}
+                        disabled={disabled}
+                        onBlur={(e) => commitProp(row, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="h-6 w-full min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
                       />
-                    </div>
-                  ) : (
-                    // Text input for string props (e.g. a label).
-                    <Input
-                      defaultValue={row.value}
-                      key={`${row.name}:${row.value}`}
-                      disabled={disabled}
-                      onBlur={(e) => commitProp(row, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] md:!text-[11px]"
-                    />
-                  )}
-                </div>
+                    )}
+                  </InspectorGridCell>
+                </InspectorGrid>
               );
             })}
           </div>

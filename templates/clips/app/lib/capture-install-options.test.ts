@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  attemptOpenDesktopApp,
   hasDismissedDesktopPromo,
   hasDownloadedDesktopApp,
   markDesktopAppDownloaded,
@@ -12,6 +13,7 @@ import {
 describe("capture install options", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("remembers when the desktop installer is downloaded", () => {
@@ -45,6 +47,38 @@ describe("capture install options", () => {
     // see "Open desktop app" without needing to click through again.
     expect(hasDownloadedDesktopApp()).toBe(true);
     expect(values.get("clips.desktop-app.downloaded")).toBeUndefined();
+  });
+
+  it("reverts a stale downloaded flag when the protocol handler never takes over", () => {
+    vi.useFakeTimers();
+    const values = new Map<string, string>([
+      ["clips.desktop-app.downloaded", "1"],
+      ["clips.desktop-promo.dismissed", "1"],
+    ]);
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      location: { href: "", pathname: "/" },
+      setTimeout: globalThis.setTimeout,
+    });
+    vi.stubGlobal("document", {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      hidden: false,
+    });
+
+    expect(hasDownloadedDesktopApp()).toBe(true);
+
+    attemptOpenDesktopApp();
+    // The tab never lost focus, so the desktop app never took over.
+    vi.runAllTimers();
+
+    expect(hasDownloadedDesktopApp()).toBe(false);
   });
 
   it("enables the published Chrome extension on supported first-party/local hosts", () => {

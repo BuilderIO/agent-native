@@ -8,7 +8,7 @@ import type {
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface StartSidebarResizeArgs {
-  activeLeftPanel: DesignLeftPanel;
+  activeLeftPanel: DesignLeftPanel | null;
   leftSidebarContentRef: RefObject<HTMLDivElement | null>;
   leftSidebarWidth: number;
   rightSidebarContentRef: RefObject<HTMLDivElement | null>;
@@ -51,6 +51,11 @@ export function runStartSidebarResize(
   const previousTransition = target?.style.transition ?? "";
   if (target) target.style.transition = "none";
   let latestWidth = startWidth;
+  let pendingFrame: number | null = null;
+  const syncWidthState = () => {
+    pendingFrame = null;
+    setWidth(latestWidth);
+  };
   const previousCursor = document.body.style.cursor;
   const previousUserSelect = document.body.style.userSelect;
   const dragShield = document.createElement("div");
@@ -66,14 +71,18 @@ export function runStartSidebarResize(
     const delta =
       side === "left" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
     const next = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
+    if (next === latestWidth) return;
     latestWidth = next;
     if (target) {
       target.style.width = `${next}px`;
-    } else {
-      // No ref available (shouldn't normally happen) — fall back to the
-      // old per-move state update so resizing still works.
-      setWidth(next);
     }
+    // Width-dependent Inspector grids need the live state during the gesture;
+    // the imperative write keeps the panel edge pinned to the pointer between
+    // React renders.
+    if (pendingFrame !== null) {
+      window.cancelAnimationFrame(pendingFrame);
+    }
+    pendingFrame = window.requestAnimationFrame(syncWidthState);
   };
   const cleanup = () => {
     dragShield.removeEventListener("pointermove", handleMove);
@@ -82,11 +91,15 @@ export function runStartSidebarResize(
     window.removeEventListener("pointermove", handleMove);
     window.removeEventListener("pointerup", cleanup);
     window.removeEventListener("pointercancel", cleanup);
+    if (pendingFrame !== null) {
+      window.cancelAnimationFrame(pendingFrame);
+      pendingFrame = null;
+    }
     dragShield.remove();
     document.body.style.cursor = previousCursor;
     document.body.style.userSelect = previousUserSelect;
     if (target) target.style.transition = previousTransition;
-    // Commit the final width to state once, on release.
+    // Ensure the final clamped width is represented after the gesture.
     setWidth(latestWidth);
   };
 

@@ -425,6 +425,111 @@ const ptBR = {
     source: "Fonte",
     readDocs: "Leia os documentos",
     signIn: "Entrar",
+    tryTemplateFree: "Experimente {{name}} grátis",
+    designForFree: "Crie de graça",
+    recordForFree: "Grave de graça",
+    getStarted: "Começar",
+    freeAndOpenSource: "100% grátis • código aberto",
+    viewAllApps: "Ver todos os apps",
+  },
+  homepage: {
+    hero: {
+      title: "O framework para aplicativos agentic",
+      bodyLine1:
+        "Construa para agentes de IA sem construir um segundo produto para os usuários.",
+      bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",
+      tryAnApp: "Experimentar um app",
+    },
+    install: {
+      copyCommand: "Copiar comando de instalação",
+    },
+    actions: {
+      title: "Uma Action alimenta cada superfície",
+      bodyLine1: "Actions são os blocos de construção de um app Agent-Native.",
+      bodyLine2:
+        "Defina a funcionalidade uma vez e use-a a partir da sua UI, chat do agente, HTTP API, MCP, A2A ou CLI.",
+      diagramAlt:
+        "Uma Action alimenta UI, MCP, chat do agente, A2A, HTTP API e CLI",
+    },
+    builtIn: {
+      title: "Integrado em cada app Agent-Native",
+      body: "Tudo o que usuários e agentes de IA precisam para trabalhar juntos, já conectado em uma aplicação.",
+      pillars: {
+        reactUi: {
+          title: "UI em React",
+          body: "Dê aos usuários telas familiares para navegar, editar e revisar trabalho.",
+        },
+        agentChat: {
+          title: "Chat de agente incorporado",
+          body: "Deixe os usuários delegarem trabalho, fazerem perguntas e revisarem resultados sem sair do app.",
+        },
+        sharedState: {
+          title: "Estado de aplicação compartilhado",
+          body: "O agente sabe o que os usuários estão vendo, selecionando e editando.",
+        },
+        sharedSql: {
+          title: "Dados SQL compartilhados",
+          body: "Usuários e agentes leem e atualizam a mesma fonte de verdade.",
+        },
+        skillsMemory: {
+          title: "Habilidades e memória",
+          body: "Dê aos agentes expertise reutilizável e contexto persistente.",
+        },
+        automations: {
+          title: "Automações",
+          body: "Execute trabalho do agente automaticamente por horários ou eventos da aplicação.",
+        },
+        agentTeams: {
+          title: "Equipes de agentes",
+          body: "Delegue trabalho a agentes especializados dentro do app ou entre apps.",
+        },
+        auth: {
+          title: "Autenticação e organizações",
+          body: "Login, contas de usuário e associação a organizações já vêm integrados.",
+        },
+        sharing: {
+          title: "Compartilhamento e permissões",
+          body: "Controle quem pode visualizar, comentar, editar ou gerenciar cada recurso.",
+        },
+      },
+    },
+    stack: {
+      title: "Funciona com sua stack",
+      body: "Traga seu LLM, banco de dados, ferramentas e infraestrutura; Agent-Native é TypeScript de código aberto, então sua aplicação continua sua.",
+      exploreApps: "Explore apps criados com Agent-Native",
+    },
+    showcase: {
+      title: "O que você pode construir com Agent-Native?",
+      body: "Apps agênticos que entendem seu trabalho, agem e colaboram com você. Crie o seu ou experimente um destes apps de código aberto.",
+      browseApps: "Explorar apps",
+      scrollLeft: "Rolar apps para a esquerda",
+      scrollRight: "Rolar apps para a direita",
+    },
+    bottomCta: {
+      title: "Construa seu primeiro app Agent-Native",
+      body: "Crie uma aplicação para usuários e agentes de IA. Traga seu próprio LLM e implante em qualquer lugar.",
+    },
+    footer: {
+      tagline: "O framework para aplicativos agentic.",
+      framework: "Framework",
+      ecosystem: "Ecossistema",
+      community: "Comunidade",
+      legal: "Legal",
+      docs: "Documentação",
+      download: "Baixar",
+      apps: "Apps",
+      privacyPolicy: "Política de Privacidade",
+      saasTerms: "Termos de SaaS",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Não vai criar localmente?",
+      exploreApp: "Explore primeiro um app ao vivo",
+      between: "ou",
+      joinWaitlist: "entre na lista de espera",
+      end: "para criar no navegador.",
+    },
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
@@ -452,7 +557,7 @@ const ptBR = {
       "Comece com o guia do framework ou crie online com o agente de programação em nuvem da Builder.io.",
     readDocs: "Ler a documentação",
     buildOnline: "Criar online",
-    popoverTitle: "Criar online com a Builder.io",
+    popoverTitle: "Criar no navegador",
     popoverBody:
       "A Builder.io pode iniciar e personalizar um app agent-native na nuvem — com actions, auth, estado SQL e chat do agente. Entre na lista de espera para acesso antecipado.",
     emailLabel: "Email",
@@ -482,7 +587,7 @@ const ptBR = {
     clips: {
       replaces: "Substitui ou amplia Loom, Granola e Wisprflow",
       description:
-        "Gravações de tela com captura de depuração do navegador, notas de reuniões sincronizadas com o calendário e ditado de voz em espera Fn — tudo transcrito, resumido e pesquisável, com um agente que pode editar qualquer um deles.",
+        "Grava sua tela, reuniões e notas de voz para que os agentes entendam o que aconteceu e tomem providências.",
     },
     plan: {
       replaces:
@@ -493,27 +598,27 @@ const ptBR = {
     design: {
       replaces: "Substitui ou amplia ferramentas de prototipagem de design",
       description:
-        "Estúdio de prototipagem HTML agent-native. Gere designs Alpine/Tailwind interativos, compare variantes, ajuste controles ao vivo e exporte o resultado.",
+        "Transforma prompts em designs interativos que seguem seu sistema de design enquanto o agente refina cada tela com seu feedback.",
     },
     content: {
       replaces: "Substitui ou aumenta Obsidian por MDX, Notion, Google Docs",
       description:
-        "Edite arquivos Markdown/MDX locais como Obsidian, gere blocos personalizados interativos avançados e use um agente AI para redigir, reescrever e publicar.",
+        "Trabalha com seus documentos enquanto um agente escreve com sua voz, cria conteúdo interativo e publica no seu site.",
     },
     slides: {
       replaces: "Substitui ou aumenta Google Slides, Pitch",
       description:
-        "Gere apresentações completas a partir de um prompt. Edite visualmente ou de forma conversacional. AI geração de imagem, 8 layouts e modo de apresentação integrado.",
+        "Cria apresentações editáveis e alinhadas à sua marca a partir de prompts ou slides existentes, que um agente pode criar, editar e refinar.",
     },
     analytics: {
       replaces: "Alternativa de código aberto ao Amplitude e ao FullStory",
       description:
-        "Conecte qualquer fonte de dados, solicite qualquer gráfico, crie painéis reutilizáveis. O agente escreve SQL, gera visualizações e evolui o aplicativo.",
+        "Conecta seus dados para que um agente responda perguntas em linguagem simples e transforme os resultados em gráficos e painéis.",
     },
     mail: {
       replaces: "Substitui ou aumenta Superhuman, Gmail",
       description:
-        "Cliente de e-mail estilo Superhuman com atalhos de teclado, triagem AI, suporte para várias contas e automações de e-mail. Seja dono do fluxo de trabalho da sua caixa de entrada.",
+        "Uma caixa de entrada pensada para o teclado, onde um agente prioriza e-mails, redige respostas, resume conversas e acompanha pendências.",
     },
     forms: {
       replaces: "Substitui ou aumenta Typeform, Google Forms",
@@ -524,12 +629,12 @@ const ptBR = {
       replaces:
         "Substitui ou aumenta DAMs, bibliotecas de ativos de marca e geradores de mídia AI",
       description:
-        "Gerenciador de ativos digitais para uploads, bibliotecas de marcas, referências pesquisáveis e geração de imagens/vídeos da marca que outros aplicativos podem chamar por meio de A2A ou incorporar como seletor.",
+        "Oferece aos agentes uma biblioteca compartilhada de diretrizes, imagens e vídeos da marca para criar e escolher mídias alinhadas em seus apps.",
     },
     calendar: {
       replaces: "Substitui ou aumenta Google Calendar, Calendly",
       description:
-        "Calendário completo com sincronização Google, gerenciamento de disponibilidade e página de reserva pública. O agente encontra vagas abertas, cria eventos e gerencia sua programação.",
+        "Reúne seus Google Calendars para que um agente encontre horários, agende ou reagende eventos e gerencie reservas.",
     },
     dispatch: {
       replaces: "Controle de missão para seus aplicativos nativos de agente",
@@ -1231,7 +1336,7 @@ const ptBR = {
           "O modo de planejamento é texto no seu terminal, visível para uma pessoa e perdido depois que você aprova. Plans é visual — com wireframes, diagramas e diffs anotados —, compartilhável e persistente: os agentes criam, leem e atualizam os planos durante todo o ciclo de vida do recurso.",
         question5: "Posso ver os planos ao lado do meu código?",
         answer5:
-          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent Native Desktop espelha os planos hospedados em arquivos MDX locais.",
+          "Sim. A extensão do VS Code abre os planos em um painel lateral, e o Agent-Native Desktop espelha os planos hospedados em arquivos MDX locais.",
         question6: "Plans é gratuito?",
         answer6:
           "Sim. É gratuito, de código aberto e licenciado sob MIT. Plans oferece links de compartilhamento hospedados, e você pode espelhar tudo em arquivos locais.",
@@ -1265,7 +1370,7 @@ const ptBR = {
       s026: "Links compartilháveis",
       s027: "Cada plano recebe um URL público. Compartilhe com colegas de equipe para revisão, comentários e aprovações assíncronas.",
       s028: "Sincronização de arquivos da área de trabalho",
-      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent Native Desktop sem clonar o aplicativo ou executar um CLI.",
+      s029: "Espelhe planos hospedados para arquivos MDX locais do Agent-Native Desktop sem clonar o aplicativo ou executar um CLI.",
       s030: ", então a revisão fica ao lado do código.",
       s031: "Como funciona",
       s032: "O planejamento fica em um aplicativo compartilhado – você e o agente podem lê-lo e atualizá-lo durante todo o ciclo de vida de um recurso.",
@@ -1299,7 +1404,7 @@ const ptBR = {
       s060: "Ver todos os modelos",
       s061: "Envios para VS Code",
       s062: "Abra links de planos em um painel lateral do VS Code com a",
-      s063: "extensão Agent Native Plans",
+      s063: "extensão Agent-Native Plans",
       s064: "Wireframe — maquete de UI esboçada com slots de componentes",
       s065: "Código anotado — arquivo-fonte com notas por linha",
       s066: "Diagrama — fluxo, sequência ou arquitetura",
@@ -1518,9 +1623,9 @@ const ptBR = {
     },
   },
   downloadPage: {
-    title: "Baixar Agent Native",
+    title: "Baixar Agent-Native",
     body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
-    openDesktop: "Abrir Agent Native",
+    openDesktop: "Abrir Agent-Native",
     downloadInstaller: "Baixar instalador",
     downloadStarted: "Download iniciado",
     downloadAgain: "Não funcionou? Tente baixar novamente",
@@ -1677,6 +1782,55 @@ const ptBR = {
       links: {
         builderPrivacy: "Política de Privacidade",
         builderPrivacyFull: "Builder.io Política de Privacidade",
+      },
+    },
+    about: {
+      eyebrow: "Sobre o Agent-Native",
+      title: "Apps de código aberto para agentes e pessoas",
+      intro:
+        "Agent-Native é um framework de código aberto para criar aplicações em que agentes de IA e interfaces compartilham as mesmas ações, dados e estado da aplicação.",
+      sections: {
+        project: {
+          title: "Um modelo operacional compartilhado",
+          body: "O Agent-Native trata o agente e a interface como parceiros iguais. Uma ação pode alimentar um controle de UI, uma ferramenta do agente, uma rota HTTP, uma capacidade MCP ou A2A, um comando de CLI e um fluxo auditável. O estado SQL compartilhado mantém a visão humana e a do agente alinhadas.",
+        },
+        openSource: {
+          title: "Código aberto por padrão",
+          body: "O código-fonte está disponível sob a licença MIT no repositório BuilderIO/agent-native. Desenvolvedores podem inspecioná-lo, executá-lo localmente, escolher seus provedores de banco e modelos e adaptá-lo ao produto. Os serviços hospedados são operados separadamente de forks e implantações próprias.",
+        },
+        hosted: {
+          title: "Hospedado e autohospedado",
+          body: "A Builder.io opera as aplicações hospedadas e a documentação do Agent-Native em agent-native.com. O framework também atende equipes que querem implantar e manter suas próprias aplicações. Os contratos de ações, limites de acesso, instruções de agentes e protocolos públicos podem ser revisados no código e na documentação.",
+        },
+        community: {
+          title: "Construído em público",
+          body: "O projeto é desenvolvido abertamente por meio de issues, pull requests, documentação e da comunidade Agent-Native. Leia a documentação para entender a arquitetura, consulte o código para verificar uma implementação ou participe da comunidade para discutir um caso de uso e contribuir.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "Contato",
+      title: "Entre em contato com a Builder.io sobre o Agent-Native",
+      intro:
+        "Use os canais de suporte, código e comunidade para fazer perguntas, relatar problemas, sugerir melhorias ou comunicar uma preocupação de segurança sobre o Agent-Native.",
+      emailLabel: "Enviar e-mail para support@builder.io",
+      sections: {
+        support: {
+          title: "Suporte do produto e do serviço hospedado",
+          body: "Para dúvidas sobre uma aplicação hospedada, acesso à conta, um problema na documentação ou um comportamento que você não consegue resolver, escreva para support@builder.io. Inclua a URL pública, uma descrição reproduzível e identificadores relevantes. Não envie senhas, chaves de API, tokens bearer ou dados privados de clientes.",
+        },
+        source: {
+          title: "Projeto de código aberto e comunidade",
+          body: "Use o repositório no GitHub para bugs no código, propostas, pull requests e discussões de implementação. O Discord é útil para perguntas que se beneficiam da conversa com outros desenvolvedores. Pesquise primeiro as issues e a documentação para fornecer o contexto necessário aos mantenedores.",
+        },
+        security: {
+          title: "Relatos de segurança",
+          body: "Não divulgue uma vulnerabilidade sem correção em uma issue ou chat público. Entre em contato com a Builder.io pelo canal de segurança disponível e forneça apenas os detalhes necessários para reproduzir e avaliar o relato. Mantenha credenciais, dados privados e material de exploração fora do suporte comum.",
+        },
+        legal: {
+          title: "Legal e privacidade",
+          body: "Para dúvidas de privacidade, consulte a política de privacidade do Agent-Native e os recursos legais da Builder.io antes de falar com o suporte. A Builder.io, Inc. fica em 95 3rd Street, 2nd Floor, San Francisco, CA 94103, Estados Unidos. Os termos do serviço hospedado e as responsabilidades de autohospedagem estão nos Termos de Serviço.",
+        },
       },
     },
     terms: {
@@ -1905,6 +2059,7 @@ const ptBR = {
     externalAgents: "Agents externos (conectar host)",
     externalAgentsCatalog: "Catálogo de agents externos",
     mcpApps: "MCP Apps (UIs inline)",
+    webMcp: "WebMCP (ferramentas do navegador)",
     crossAppSso: "SSO entre apps",
     notifications: "Notificações",
     automationConnectors: "Conectores de fluxo de trabalho",
@@ -1929,8 +2084,8 @@ const ptBR = {
     calendar: "Calendário",
     calendarOverview: "Visão geral",
     calendarAgent: "Conversar com o Agent",
-    calendarScheduling: "Agendamento e disponibilidade",
-    calendarBookingLinks: "Links de reserva",
+    calendarFeatures: "Funcionalidades",
+    calendarIntegrations: "Uso entre apps",
     calendarDevelopers: "Guia do desenvolvedor",
     content: "Conteúdo",
     contentOverview: "Visão geral",
@@ -1989,8 +2144,9 @@ const ptBR = {
     dispatchDevelopers: "Guia do desenvolvedor",
     forms: "Formularios",
     formsOverview: "Visão geral",
-    formsBuildingPublishing: "Construção e publicação",
-    formsResponses: "Respostas e insights",
+    formsFeatures: "Funcionalidades",
+    formsAgent: "Conversar com o Agent",
+    formsIntegrations: "Uso entre apps",
     docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },

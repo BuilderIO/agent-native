@@ -13,6 +13,7 @@ import React, {
 } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import type { AgentChatAttachment } from "../agent/types.js";
 import {
   DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
@@ -74,7 +75,10 @@ import { DEFAULT_LOCALE, useOptionalLocale, useT } from "./i18n.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
-import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
+import {
+  CHAT_MODEL_SELECTION_CHANGED_EVENT,
+  chatModelSelectionStorageKey,
+} from "./use-chat-models.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -95,6 +99,7 @@ interface ModelSelection {
 interface PendingSend {
   message: string;
   images?: string[];
+  attachments?: AgentChatAttachment[];
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
@@ -121,10 +126,16 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
+  if (
+    send.trackInRunsTray ||
+    send.requestMode ||
+    send.submitMessageId ||
+    send.attachments
+  ) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.attachments ? { attachments: send.attachments } : {}),
       ...(send.submitMessageId
         ? { submitMessageId: send.submitMessageId }
         : {}),
@@ -133,8 +144,6 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.sendMessage(send.message, send.images);
   }
 }
-
-const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
 function readStoredModelSelection(key: string): ModelSelection | undefined {
   if (typeof window === "undefined") return undefined;
@@ -177,7 +186,17 @@ function resolveModelSelection(
   selection: ModelSelection | undefined,
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
-  if (!selection?.model) return undefined;
+  if (!selection?.model) {
+    const group = groups.find((candidate) => candidate.configured);
+    const model = group?.models[0];
+    return group && model
+      ? {
+          model,
+          engine: group.engine,
+          effort: resolveReasoningEffortSelection(model, undefined),
+        }
+      : undefined;
+  }
   // Engine precedence turns on whether the catalog OFFERS the supplied engine,
   // not on whether that engine advertises this model:
   //   offered      → honor it. A gateway's advertised list is its built-in
@@ -599,7 +618,6 @@ const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
-const hasOwn = Object.prototype.hasOwnProperty;
 
 // A duplicated id in `openTabIds` makes two tab-bar entries share one
 // underlying thread: closing either one filters that id out of the array
@@ -627,8 +645,10 @@ function installHistoryThreadUrlPatch(): () => void {
   if (typeof window === "undefined") return () => {};
   historyPatchRefCount += 1;
   if (historyPatchRefCount === 1) {
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
+    const originalPushState = window.history.pushState.bind(window.history);
+    const originalReplaceState = window.history.replaceState.bind(
+      window.history,
+    );
     const dispatchUrlChange = () => {
       window.dispatchEvent(new Event(THREAD_URL_CHANGED_EVENT));
     };
@@ -692,7 +712,7 @@ function resolveThreadUrlSync(
   return {
     enabled: true,
     paramName: value.paramName?.trim() || DEFAULT_THREAD_URL_PARAM,
-    ...(hasOwn.call(value, "routeThreadId")
+    ...(Object.hasOwn(value, "routeThreadId")
       ? { routeThreadId: normalizeUrlThreadId(value.routeThreadId) }
       : {}),
     ...(value.getPath ? { getPath: value.getPath } : {}),
@@ -807,6 +827,9 @@ export function MultiTabAssistantChat({
   scope = null,
   isolateHistoryByScope = false,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
+  availableModels: hostAvailableModels,
+  modelListLoading: hostModelListLoading,
+  onModelChange: hostOnModelChange,
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
@@ -824,7 +847,7 @@ export function MultiTabAssistantChat({
     threadUrlSyncEnabled &&
     threadUrlSync !== true &&
     typeof threadUrlSync === "object" &&
-    hasOwn.call(threadUrlSync, "routeThreadId");
+    Object.hasOwn(threadUrlSync, "routeThreadId");
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
@@ -973,7 +996,7 @@ export function MultiTabAssistantChat({
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
-  const modelSelectionKey = `${MODEL_SELECTION_STORAGE_KEY}${keyPrefix}`;
+  const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());
@@ -1012,10 +1035,18 @@ export function MultiTabAssistantChat({
   );
 
   // ─── Model state ─────────────────────────────────────────────────────────
-  const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
+  // A host that supplies its own catalog owns the whole picker: the server
+  // catalog must not be discovered or merged, or a host with no engine of its
+  // own silently gets this app's models instead.
+  const hostManagedModels = hostAvailableModels !== undefined;
+  const [discoveredModels, setDiscoveredModels] = useState<EngineModelGroup[]>(
     [],
   );
-  const [modelListLoading, setModelListLoading] = useState(true);
+  const availableModels = hostAvailableModels ?? discoveredModels;
+  const [discoveredModelsLoading, setModelListLoading] = useState(true);
+  const modelListLoading = hostManagedModels
+    ? (hostModelListLoading ?? false)
+    : discoveredModelsLoading;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
@@ -1168,6 +1199,18 @@ export function MultiTabAssistantChat({
     ],
   );
 
+  // A host that owns the model list still needs the internal selection updated:
+  // `selectedModel`/`selectedEngine` render from it and submitted turns read it,
+  // so routing a pick only to the host snaps the picker back to the previous
+  // model and sends that one.
+  const handleModelChangeWithHost = useCallback(
+    (model: string, engine: string) => {
+      handleModelChange(model, engine);
+      hostOnModelChange?.(model, engine);
+    },
+    [handleModelChange, hostOnModelChange],
+  );
+
   const handleEffortChange = useCallback(
     (effort: ReasoningEffort) => {
       const threadId = activeThreadIdRef.current;
@@ -1194,15 +1237,20 @@ export function MultiTabAssistantChat({
   );
 
   useEffect(() => {
-    const preferredAgentModel = props.selectedAgent
-      ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
-      : undefined;
-    if (!preferredAgentModel) return;
-
     const threadId = activeThreadIdRef.current;
     const current = threadId
       ? resolveThreadModelSelection(threadId)
       : persistedModelSelection;
+    // Only correct a selection the agent cannot run. This effect re-runs on
+    // every selection change, so an unconditional rewrite pins the picker and
+    // each later user pick snaps straight back.
+    const preferredAgentModel =
+      isClaudeCodeAgentId(props.selectedAgent) &&
+      isLunaModel(current?.model ?? "")
+        ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+        : undefined;
+    if (!preferredAgentModel) return;
+
     if (
       current?.model === preferredAgentModel.model &&
       current.engine === preferredAgentModel.engine
@@ -1233,6 +1281,7 @@ export function MultiTabAssistantChat({
   ]);
 
   const refreshEngines = useCallback(() => {
+    if (hostManagedModels) return;
     setModelListLoading(true);
     Promise.all([
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
@@ -1273,12 +1322,12 @@ export function MultiTabAssistantChat({
           currentEngineName,
           currentModel,
         });
-        setAvailableModels(groups);
+        setDiscoveredModels(groups);
         setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
       .catch(() => {})
       .finally(() => setModelListLoading(false));
-  }, []);
+  }, [hostManagedModels]);
 
   useEffect(() => {
     refreshEngines();
@@ -1520,7 +1569,7 @@ export function MultiTabAssistantChat({
 
     // If active thread is stale, start fresh
     if (!parentMap[activeThreadId] && isStale(activeThreadId)) {
-      createThread().then((id) => {
+      void createThread().then((id) => {
         if (id) writeThreadUrl(null);
       });
     }
@@ -1597,7 +1646,7 @@ export function MultiTabAssistantChat({
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
       autoCreatingRef.current = true;
-      createThread().then((id) => {
+      void createThread().then((id) => {
         autoCreatingRef.current = false;
         if (id) {
           newThreadIds.current.add(id);
@@ -1817,6 +1866,7 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        attachments,
         submitMessageId,
       } = parsed;
       const requestedTabId = parsed.tabId;
@@ -1846,6 +1896,7 @@ export function MultiTabAssistantChat({
       const send: PendingSend = {
         message: fullMessage,
         images,
+        attachments,
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
@@ -2413,10 +2464,10 @@ export function MultiTabAssistantChat({
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
-      generateTitle(threadId, message).then((title) => {
+      void generateTitle(threadId, message).then((title) => {
         if (title) {
           // Persist the generated title to the server
-          saveThreadData(threadId, {
+          void saveThreadData(threadId, {
             threadData: "",
             title,
             preview: message.slice(0, 120),
@@ -2438,7 +2489,7 @@ export function MultiTabAssistantChat({
         messageCount: number;
       },
     ) => {
-      saveThreadData(threadId, data);
+      void saveThreadData(threadId, data);
       if (
         data.messageCount > 0 &&
         threadId === activeThreadIdRef.current &&
@@ -2458,7 +2509,7 @@ export function MultiTabAssistantChat({
       switch (command) {
         case "clear":
         case "new":
-          addTab();
+          void addTab();
           break;
         case "history":
           setShowHistory(true);
@@ -2814,6 +2865,8 @@ export function MultiTabAssistantChat({
           )
           .map((tabId) => {
             const modelSelection = resolveThreadModelSelection(tabId);
+            const modelSelectionPending =
+              !hostManagedModels && modelListLoading && !modelSelection;
             const tabDynamicSuggestions =
               tabId === activeThreadId && !contentHidden
                 ? props.dynamicSuggestions
@@ -2896,18 +2949,22 @@ export function MultiTabAssistantChat({
                   defaultModel={defaultModel}
                   availableModels={availableModels}
                   modelListLoading={modelListLoading}
-                  onModelChange={handleModelChange}
+                  onModelChange={handleModelChangeWithHost}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}
                   // Sub-agent tabs are read-only: sending a new message from the
                   // sub-agent tab would start a fresh run on that thread and kill
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
-                  composerDisabled={Boolean(parentMap[tabId])}
+                  composerDisabled={
+                    Boolean(parentMap[tabId]) || modelSelectionPending
+                  }
                   composerDisabledPlaceholder={
                     parentMap[tabId]
                       ? translate("agentChat.composer.subAgentReadOnly")
-                      : undefined
+                      : modelSelectionPending
+                        ? translate("agentChat.composer.loadingModels")
+                        : undefined
                   }
                 />
               </div>

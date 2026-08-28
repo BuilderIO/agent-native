@@ -40,10 +40,12 @@ const rootDir = path.resolve(
 const registry = "https://registry.npmjs.org";
 const npmDistTag = process.env.AGENT_NATIVE_NPM_DIST_TAG ?? "latest";
 const availabilityPollIntervalMs = 10_000;
+export const DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS = 15 * 60_000;
 const availabilityTimeoutMs = Number(
-  process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ?? 5 * 60_000,
+  process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ??
+    DEFAULT_NPM_AVAILABILITY_TIMEOUT_MS,
 );
-const npmPublishAllowlist = new Set([
+export const NPM_PUBLISH_PACKAGE_NAMES = [
   "@agent-native/core",
   "@agent-native/creative-context",
   "@agent-native/dispatch",
@@ -52,7 +54,8 @@ const npmPublishAllowlist = new Set([
   "@agent-native/scheduling",
   "@agent-native/skills",
   "@agent-native/toolkit",
-]);
+] as const;
+const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
 async function readJson<T>(filePath: string): Promise<T> {
   return JSON.parse(await readFile(filePath, "utf8")) as T;

@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ClipsAvatar } from "@/components/clips-avatar";
 
 export type NotificationKind = "comment" | "reaction" | "mention" | "share";
 
@@ -19,6 +19,7 @@ export interface NotificationItem {
   recordingId: string;
   recordingTitle: string;
   authorEmail: string | null;
+  authorName: string | null;
   preview: string;
   createdAt: string;
 }
@@ -28,10 +29,14 @@ interface NotificationsListProps {
   onReply?: (item: NotificationItem) => void;
 }
 
-function initials(email: string | null): string {
-  if (!email) return "??";
-  const [name] = email.split("@");
-  return (name || email).slice(0, 2).toUpperCase();
+function initials(nameOrEmail: string | null): string {
+  if (!nameOrEmail) return "??";
+  return nameOrEmail
+    .split(/\s+|@/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 function KindIcon({ kind }: { kind: NotificationKind }) {
@@ -48,7 +53,12 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
 
 export function NotificationsList({ items, onReply }: NotificationsListProps) {
   const t = useT();
-  const { formatDate, formatRelativeTime } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = (date: Date) => formatters.formatDate(date);
+  const formatRelativeTime = (
+    value: number,
+    unit: Parameters<typeof formatters.formatRelativeTime>[1],
+  ) => formatters.formatRelativeTime(value, unit);
   if (!items.length) {
     return (
       <div className="text-center py-16 text-sm text-muted-foreground">
@@ -60,64 +70,75 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
 
   return (
     <ul className="divide-y">
-      {items.map((item) => (
-        <li key={item.id} className="py-3 flex items-start gap-3">
-          <Avatar className="h-9 w-9 flex-shrink-0">
-            <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-              {initials(item.authorEmail)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-sm">
-              <KindIcon kind={item.kind} />
-              <span className="font-medium truncate">
-                {item.authorEmail ?? t("clipsFinalRaw.someone")}
-              </span>
-              <span className="text-muted-foreground">
-                {labelFor(item.kind, t)}
-              </span>
-              <span className="text-muted-foreground truncate">
-                {item.recordingTitle}
-              </span>
-              <span className="text-muted-foreground/70 ml-auto flex-shrink-0">
-                {formatNotificationTime(
-                  item.createdAt,
-                  formatDate,
-                  formatRelativeTime,
-                )}
-              </span>
-            </div>
-            {item.preview ? (
-              item.kind === "comment" || item.kind === "mention" ? (
-                <InlineMarkdown
-                  content={item.preview}
-                  className="mt-1 line-clamp-2 text-sm text-muted-foreground"
-                />
-              ) : (
-                <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                  {item.preview}
-                </div>
-              )
-            ) : null}
-            <div className="mt-1.5 flex items-center gap-3 text-xs">
-              <Link
-                to={`/r/${item.recordingId}`}
-                className="text-primary hover:underline"
-              >
-                {t("clipsFinalRaw.view")}
-              </Link>
-              {item.kind === "comment" && onReply ? (
-                <button
-                  className="text-primary hover:underline"
-                  onClick={() => onReply(item)}
-                >
-                  {t("clipsFinalRaw.reply")}
-                </button>
+      {items.map((item) => {
+        const displayName =
+          item.authorName?.trim() ||
+          item.authorEmail ||
+          t("clipsFinalRaw.someone");
+        return (
+          <li key={item.id} className="flex items-start gap-3 py-3">
+            <ClipsAvatar
+              email={item.authorEmail}
+              alt={displayName}
+              fallback={initials(displayName)}
+              className="h-9 w-9 flex-shrink-0"
+              fallbackClassName="text-xs bg-primary text-primary-foreground"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm">
+                <KindIcon kind={item.kind} />
+                <span className="truncate font-medium">{displayName}</span>
+                {displayName !== item.authorEmail && item.authorEmail ? (
+                  <span className="truncate text-muted-foreground">
+                    {item.authorEmail}
+                  </span>
+                ) : null}
+                <span className="text-muted-foreground">
+                  {labelFor(item.kind, t)}
+                </span>
+                <span className="truncate text-muted-foreground">
+                  {item.recordingTitle}
+                </span>
+                <span className="ml-auto flex-shrink-0 text-muted-foreground/70">
+                  {formatNotificationTime(
+                    item.createdAt,
+                    formatDate,
+                    formatRelativeTime,
+                  )}
+                </span>
+              </div>
+              {item.preview ? (
+                item.kind === "comment" || item.kind === "mention" ? (
+                  <InlineMarkdown
+                    content={item.preview}
+                    className="mt-1 line-clamp-2 text-sm text-muted-foreground"
+                  />
+                ) : (
+                  <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {item.preview}
+                  </div>
+                )
               ) : null}
+              <div className="mt-1.5 flex items-center gap-3 text-xs">
+                <Link
+                  to={`/r/${item.recordingId}`}
+                  className="text-primary hover:underline"
+                >
+                  {t("clipsFinalRaw.view")}
+                </Link>
+                {item.kind === "comment" && onReply ? (
+                  <button
+                    className="text-primary hover:underline"
+                    onClick={() => onReply(item)}
+                  >
+                    {t("clipsFinalRaw.reply")}
+                  </button>
+                ) : null}
+              </div>
             </div>
-          </div>
-        </li>
-      ))}
+          </li>
+        );
+      })}
     </ul>
   );
 }

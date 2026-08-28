@@ -4372,8 +4372,12 @@ it("lets only one overlapping worker claim and finish the same Builder body job"
     .from(schema.contentDatabaseBodyHydrationQueue)
     .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
 
-  expect(results.map((result) => result.processed).sort()).toEqual([0, 1]);
-  expect(results.map((result) => result.succeeded).sort()).toEqual([0, 1]);
+  expect(
+    results.map((result) => result.processed).sort((a, b) => a - b),
+  ).toEqual([0, 1]);
+  expect(
+    results.map((result) => result.succeeded).sort((a, b) => a - b),
+  ).toEqual([0, 1]);
   expect(results.every((result) => result.failed === 0)).toBe(true);
   expect(after.content).toBe(body);
   expect(after.status).toBe("hydrated");
@@ -4781,9 +4785,7 @@ it("preserves local content and the source baseline when Builder returns a confl
       data: { blocks: [publishedBlock] },
     },
   });
-  const localContent = `${String(
-    publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
-  )}\n\nLocal edit that must survive a conflicting response.`;
+  const localContent = `${typeof publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] === "string" ? publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY] : (JSON.stringify(publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]) ?? "")}\n\nLocal edit that must survive a conflicting response.`;
 
   await db.insert(schema.documents).values([
     {

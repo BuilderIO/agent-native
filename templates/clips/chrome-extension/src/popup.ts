@@ -1,5 +1,13 @@
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 
+import {
+  MEDIA_PERMISSION_DEVICES,
+  hasGrantedDeviceLabels,
+  mediaPermissionRequirements,
+  permissionPageUrl,
+  readCachedMediaPermission,
+  writeCachedMediaPermission,
+} from "./media-permission";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("popup");
@@ -65,11 +73,6 @@ type PopupStatusResponse = {
 };
 
 type AuthStatus = "checking" | "signed-in" | "signed-out";
-
-type CachedMediaPermission = {
-  camera?: boolean;
-  microphone?: boolean;
-};
 
 type StoredAuth = {
   token: string;
@@ -411,17 +414,6 @@ function createTab(url: string): Promise<void> {
   });
 }
 
-function permissionPageUrl(settings: ExtensionSettings): string {
-  const url = new URL(chrome.runtime.getURL("src/permission.html"));
-  url.searchParams.set("startAfterGrant", "1");
-  url.searchParams.set(
-    "needsCamera",
-    String(settings.captureSurface === "camera" || settings.includeCamera),
-  );
-  url.searchParams.set("needsMicrophone", String(settings.includeMicrophone));
-  return url.toString();
-}
-
 async function mediaPermissionState(
   name: "camera" | "microphone",
 ): Promise<PermissionState | "unknown"> {
@@ -435,35 +427,27 @@ async function mediaPermissionState(
   }
 }
 
-function readCachedMediaPermission(): Promise<CachedMediaPermission> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get("clipsMediaPermission", (value) => {
-      const cached = value.clipsMediaPermission as
-        | CachedMediaPermission
-        | undefined;
-      resolve(cached && typeof cached === "object" ? cached : {});
-    });
-  });
-}
-
 // True when every device the chosen mode needs is already granted to the
 // extension. If not, the caller routes the user to the permission page.
 async function ensureMediaPermission(
   settings: ExtensionSettings,
 ): Promise<boolean> {
-  const needsCamera =
-    settings.captureSurface === "camera" || settings.includeCamera;
-  const needsMic = settings.includeMicrophone;
+  const needs = mediaPermissionRequirements(settings);
   const cached = await readCachedMediaPermission();
-  if (needsCamera) {
-    const state = await mediaPermissionState("camera");
+  for (const device of MEDIA_PERMISSION_DEVICES) {
+    if (!needs[device]) continue;
+    const state = await mediaPermissionState(device);
+    if (state === "granted") continue;
     if (state === "denied") return false;
-    if (state !== "granted" && cached.camera !== true) return false;
-  }
-  if (needsMic) {
-    const state = await mediaPermissionState("microphone");
-    if (state === "denied") return false;
-    if (state !== "granted" && cached.microphone !== true) return false;
+    if (cached[device] !== true) return false;
+    // "prompt" plus a cached grant is the ambiguous case: Chrome reports
+    // "prompt" for some granted extension origins, but also after it revokes a
+    // grant it considers unused. Device labels tell those apart, and a cache
+    // Chrome no longer backs would otherwise send the recording into the
+    // offscreen document, where no prompt can ever be shown.
+    if (await hasGrantedDeviceLabels(device)) continue;
+    await writeCachedMediaPermission({ [device]: false });
+    return false;
   }
   return true;
 }
@@ -510,8 +494,10 @@ async function readVideoStorageConfigured(
     const body = response.ok
       ? ((await response.json().catch(() => null)) as {
           configured?: boolean;
+          builderReauthorizationRequired?: boolean;
         } | null)
       : null;
+    if (body?.builderReauthorizationRequired) return false;
     if (body?.configured) return true;
   } catch {
     // Fall through to the Builder status check.
@@ -1208,7 +1194,7 @@ async function init(): Promise<void> {
   });
 
   openSettings.addEventListener("click", () => {
-    chrome.runtime.openOptionsPage();
+    void chrome.runtime.openOptionsPage();
   });
 
   openRecent.addEventListener("click", async () => {
@@ -1269,7 +1255,11 @@ async function init(): Promise<void> {
         }
         start.disabled = false;
         setStatus("Allow camera & microphone, then start recording.", "error");
-        await createTab(permissionPageUrl(settings));
+        await createTab(
+          permissionPageUrl(mediaPermissionRequirements(settings), {
+            startAfterGrant: true,
+          }),
+        );
         window.close();
         return;
       }

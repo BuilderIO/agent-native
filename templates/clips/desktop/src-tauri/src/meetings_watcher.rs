@@ -1,6 +1,6 @@
 //! Background poller for upcoming meetings.
 //!
-//! Runs as a tokio task spawned from `lib.rs::run` setup. Every 30s it calls
+//! Runs as a tokio task spawned from `lib.rs::run` setup. Every 10s it calls
 //! the backend's `list-meetings` action for the next handful of live Google
 //! Calendar meetings. For any meeting in the Granola-style reminder window
 //! (1 minute before start through 5 minutes after) that we haven't already
@@ -134,20 +134,23 @@ impl MeetingsWatcherState {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct MeetingItem {
-    id: String,
-    title: Option<String>,
+pub(crate) struct MeetingItem {
+    pub(crate) id: String,
+    pub(crate) title: Option<String>,
     #[serde(default, alias = "scheduledStart")]
-    scheduled_start: Option<String>,
+    pub(crate) scheduled_start: Option<String>,
     #[serde(default, alias = "scheduledEnd")]
-    scheduled_end: Option<String>,
+    pub(crate) scheduled_end: Option<String>,
     #[serde(default, alias = "joinUrl")]
-    join_url: Option<String>,
+    pub(crate) join_url: Option<String>,
     #[serde(default)]
-    platform: Option<String>,
+    pub(crate) platform: Option<String>,
     #[serde(default)]
-    source: Option<String>,
+    pub(crate) source: Option<String>,
 }
+
+pub(crate) const CALENDAR_MATCH_WINDOW_MINUTES: i64 = 15;
+const CALENDAR_MATCH_AMBIGUITY_MARGIN_SECS: i64 = 60;
 
 #[derive(Debug, Deserialize)]
 struct ListMeetingsResponse {
@@ -245,7 +248,7 @@ pub fn spawn_watcher(app: AppHandle) {
 }
 
 async fn run_watcher(app: AppHandle) {
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
     // Skip the first tick — gives the frontend time to push us a server URL.
     interval.tick().await;
     let client = match reqwest::Client::builder()
@@ -316,7 +319,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED {
         // Tell the renderer to re-push a fresh cookie or surface a
-        // re-login prompt. We keep silently retrying every 30s — once
+        // re-login prompt. We keep silently retrying every 10s - once
         // the renderer pushes a new cookie via
         // `meetings_watcher_set_session` we'll succeed on the next tick.
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
@@ -411,29 +414,34 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
             if let Some(state) = app.try_state::<MeetingsWatcherState>() {
                 state.note_calendar_notify(m.platform.as_deref());
             }
-            let app_clone = app.clone();
-            let id_clone = m.id.clone();
-            let title_clone = title.clone();
-            let join_clone = join_url.clone();
-            let start_clone = m.scheduled_start.clone();
-            let end_clone = m.scheduled_end.clone();
-            let platform_clone = m.platform.clone();
             let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
-            tauri::async_runtime::spawn(async move {
-                let _ = crate::notifications::notify_meeting_starting(
-                    app_clone,
-                    id_clone,
-                    title_clone,
-                    secs_until,
-                    join_clone,
-                    start_clone,
-                    end_clone,
-                    platform_clone,
-                    Some(auto_start),
-                    None,
-                )
-                .await;
-            });
+            // Awaited, not spawned. The stored payload has to exist before
+            // auto-start is announced below: startup acknowledges itself with
+            // `meetings:hide-notification`, and an acknowledgement that arrives
+            // before the payload was stored clears nothing, leaving a spawned
+            // task free to install a "Take notes?" card over a meeting that is
+            // already recording. Ordering it here makes that impossible rather
+            // than unlikely, and matches the ad-hoc path.
+            if let Err(err) = crate::notifications::notify_meeting_starting(
+                app.clone(),
+                m.id.clone(),
+                title.clone(),
+                secs_until,
+                join_url.clone(),
+                m.scheduled_start.clone(),
+                m.scheduled_end.clone(),
+                m.platform.clone(),
+                Some(auto_start),
+                None,
+            )
+            .await
+            {
+                dlog!(
+                    "[clips-tray] calendar notification failed for {}: {}",
+                    m.id,
+                    err
+                );
+            }
         }
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Auto {
             let _ = app.emit(
@@ -454,27 +462,78 @@ fn is_calendar_reminder_candidate(meeting: &MeetingItem) -> bool {
     meeting.source.as_deref() != Some("adhoc")
 }
 
-fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
-    if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(body.clone()) {
+pub(crate) fn find_matching_calendar_meeting(
+    meetings: &[MeetingItem],
+    platform: &str,
+    started_at: chrono::DateTime<chrono::Utc>,
+) -> Option<MeetingItem> {
+    let mut candidates: Vec<_> = meetings
+        .iter()
+        .filter_map(|meeting| {
+            if !is_calendar_reminder_candidate(meeting)
+                || meeting
+                    .platform
+                    .as_deref()
+                    .is_none_or(|value| !value.eq_ignore_ascii_case(platform))
+                || meeting.join_url.as_deref().is_none_or(str::is_empty)
+            {
+                return None;
+            }
+            let scheduled_start = meeting
+                .scheduled_start
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())?
+                .with_timezone(&chrono::Utc);
+            let distance = (scheduled_start - started_at).num_seconds().abs();
+            (distance <= CALENDAR_MATCH_WINDOW_MINUTES * 60).then(|| (distance, meeting))
+        })
+        .collect();
+    candidates.sort_by_key(|(distance, _)| *distance);
+    let Some((distance, meeting)) = candidates.first() else {
+        return None;
+    };
+    if candidates.get(1).is_some_and(|(next_distance, _)| {
+        next_distance - distance <= CALENDAR_MATCH_AMBIGUITY_MARGIN_SECS
+    }) {
+        return None;
+    }
+    Some((*meeting).clone())
+}
+
+/// `parse_meetings`, but able to say "this was not a meetings list at all".
+///
+/// `None` means no recognized list key and not a bare array — a changed
+/// envelope, or a 200 carrying an error payload. A caller that is about to
+/// *write* based on the answer needs that apart from `Some(vec![])`: an empty
+/// list is a checked "no such meeting", while an unreadable body says nothing,
+/// and treating the second as the first is how a duplicate row gets inserted.
+pub(crate) fn try_parse_meetings(body: &serde_json::Value) -> Option<Vec<MeetingItem>> {
+    let payload = body.get("result").unwrap_or(body);
+    if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(payload.clone()) {
         if let Some(v) = parsed.upcoming {
-            return v;
+            return Some(v);
         }
         if let Some(v) = parsed.meetings {
-            return v;
+            return Some(v);
         }
         if let Some(v) = parsed.items {
-            return v;
+            return Some(v);
         }
     }
-    if let Ok(arr) = serde_json::from_value::<Vec<MeetingItem>>(body.clone()) {
-        return arr;
-    }
-    Vec::new()
+    serde_json::from_value::<Vec<MeetingItem>>(payload.clone()).ok()
+}
+
+/// Read-only callers, where "no meetings" and "cannot tell" lead to the same
+/// harmless outcome: nothing to remind about, nothing to enrich with.
+pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
+    try_parse_meetings(body).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_calendar_reminder_candidate, parse_meetings};
+    use chrono::{TimeZone, Utc};
+
+    use super::{find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings};
 
     #[test]
     fn excludes_adhoc_meetings_from_calendar_reminders() {
@@ -511,5 +570,76 @@ mod tests {
 
         assert_eq!(meetings.len(), 1);
         assert!(is_calendar_reminder_candidate(&meetings[0]));
+    }
+
+    #[test]
+    fn finds_the_nearest_joinable_calendar_meeting_for_adhoc_detection() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "result": {
+                "meetings": [
+                    {
+                        "id": "too-far",
+                        "title": "Later Zoom",
+                        "scheduledStart": "2026-07-22T19:40:00Z",
+                        "joinUrl": "https://zoom.us/j/2",
+                        "platform": "zoom",
+                        "source": "calendar"
+                    },
+                    {
+                        "id": "nearest",
+                        "title": "Product sync",
+                        "scheduledStart": "2026-07-22T19:11:00Z",
+                        "joinUrl": "https://zoom.us/j/1",
+                        "platform": "zoom",
+                        "source": "calendar"
+                    },
+                    {
+                        "id": "adhoc",
+                        "title": "Zoom meeting",
+                        "scheduledStart": "2026-07-22T19:10:00Z",
+                        "joinUrl": "https://zoom.us/j/3",
+                        "platform": "zoom",
+                        "source": "adhoc"
+                    }
+                ]
+            }
+        }));
+
+        let started_at = Utc.with_ymd_and_hms(2026, 7, 22, 19, 10, 0).unwrap();
+        let matched = find_matching_calendar_meeting(&meetings, "zoom", started_at);
+
+        assert_eq!(
+            matched.as_ref().map(|meeting| meeting.id.as_str()),
+            Some("nearest")
+        );
+        assert_eq!(
+            matched.and_then(|meeting| meeting.title),
+            Some("Product sync".to_string())
+        );
+    }
+
+    #[test]
+    fn avoids_ambiguous_same_platform_calendar_matches() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                {
+                    "id": "first",
+                    "scheduledStart": "2026-07-22T19:09:00Z",
+                    "joinUrl": "https://zoom.us/j/1",
+                    "platform": "zoom",
+                    "source": "calendar"
+                },
+                {
+                    "id": "second",
+                    "scheduledStart": "2026-07-22T19:11:00Z",
+                    "joinUrl": "https://zoom.us/j/2",
+                    "platform": "zoom",
+                    "source": "calendar"
+                }
+            ]
+        }));
+
+        let started_at = Utc.with_ymd_and_hms(2026, 7, 22, 19, 10, 0).unwrap();
+        assert!(find_matching_calendar_meeting(&meetings, "zoom", started_at).is_none());
     }
 }
