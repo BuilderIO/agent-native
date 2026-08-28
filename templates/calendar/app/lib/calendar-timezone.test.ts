@@ -9,6 +9,7 @@ import {
   getDateKeyInTimezone,
   getEventSegmentForCalendarDay,
   getViewDateRange,
+  isAllDayCalendarEvent,
   moveEventToCalendarDate,
   normalizeTimezone,
 } from "./calendar-timezone";
@@ -71,6 +72,22 @@ describe("calendar timezone helpers", () => {
       startsOnDay: true,
       endsOnDay: true,
     });
+  });
+
+  it("recognizes date-only bounds as all-day even when the flag is false", () => {
+    const event = {
+      start: "2026-08-13",
+      end: "2026-08-14",
+      allDay: false as const,
+    };
+
+    expect(isAllDayCalendarEvent(event)).toBe(true);
+    expect(
+      eventOverlapsCalendarDay(event, dateKeyToDate("2026-08-13"), "UTC"),
+    ).toBe(true);
+    expect(
+      getEventSegmentForCalendarDay(event, dateKeyToDate("2026-08-13"), "UTC"),
+    ).toMatchObject({ topMinutes: 0, durationMinutes: 24 * 60 });
   });
 
   it("formats event wall-clock fields in the event timezone", () => {
