@@ -41,15 +41,6 @@ const builderReadMock = vi.hoisted(() => ({
     | ((args: { model: string; entryId: string }) => Promise<void> | void)
     | null,
 }));
-const hydrationReasonsFlagMock = vi.hoisted(() => ({ enabled: false }));
-
-vi.mock("@agent-native/core/feature-flags", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@agent-native/core/feature-flags")
-  >()),
-  isFeatureFlagEnabled: vi.fn(async () => hydrationReasonsFlagMock.enabled),
-}));
-
 // Mock the Builder read client so resync runs "live" with deterministic entries
 // (no network). Real exports are preserved; only the two reads are overridden.
 vi.mock("./_builder-cms-read-client.js", async () => {
@@ -747,7 +738,6 @@ afterEach(() => {
   builderReadMock.modelFieldsErrorFor = null;
   builderReadMock.singleEntryErrorFor = null;
   builderReadMock.beforeSingleEntryRead = null;
-  hydrationReasonsFlagMock.enabled = false;
 });
 
 afterAll(() => {
@@ -4885,6 +4875,8 @@ it("preserves local content and the source baseline when Builder returns a confl
       sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
       status: schema.contentDatabaseItems.bodyHydrationStatus,
       error: schema.contentDatabaseItems.bodyHydrationError,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
       queued: schema.contentDatabaseBodyHydrationQueue.id,
       queueError: schema.contentDatabaseBodyHydrationQueue.lastError,
     })
@@ -4918,12 +4910,13 @@ it("preserves local content and the source baseline when Builder returns a confl
   expect(afterValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe(publishedHash);
   expect(after.status).toBe("error");
   expect(after.error).toContain("inconsistent body variants");
-  expect(after.queued).toBe("queue_same_version_conflict");
-  expect(after.queueError).toContain("inconsistent body variants");
+  expect(after.reason).toBe("conversion_failed");
+  expect(after.retryable).toBe(0);
+  expect(after.queued).toBeNull();
+  expect(after.queueError).toBeNull();
 });
 
 it("hydrates a provider-confirmed empty Builder body with terminal evidence", async () => {
-  hydrationReasonsFlagMock.enabled = true;
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
   builderReadMock.singleEntryCalls = [];

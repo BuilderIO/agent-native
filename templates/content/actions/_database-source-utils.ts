@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 
 import { getDialect, type Dialect } from "@agent-native/core/db";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -65,7 +64,6 @@ import {
   localFolderSourceIdentityFromMetadata,
 } from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
-import { BUILDER_BODY_HYDRATION_REASONS_FLAG } from "../shared/feature-flags.js";
 import {
   BuilderCmsContentEntryReadError,
   readBuilderCmsContentEntryResult,
@@ -1433,7 +1431,6 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   >;
   sourceTable: string;
   fallbackTitle: string;
-  reasonedOutcomesEnabled?: boolean;
 }): Promise<BuilderLiveBodyReadResult> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
@@ -1442,7 +1439,7 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   const liveRead = await readBuilderCmsContentEntryResult({
     model: args.sourceTable,
     entryId: args.row.sourceRowId,
-    strictEntryIdentity: args.reasonedOutcomesEnabled === true,
+    strictEntryIdentity: true,
   });
   if (liveRead.state === "not_found") return liveRead;
   const liveEntry = liveRead.entry;
@@ -1463,13 +1460,6 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
   );
   if (builderEntryHasBodyContent(refreshedEntry)) {
     return { state: "body", entry: refreshedEntry, providerStatus: "http_200" };
-  }
-  if (args.reasonedOutcomesEnabled !== true) {
-    return {
-      state: "empty_body",
-      entry: refreshedEntry,
-      providerStatus: "http_200",
-    };
   }
   const rawData = liveEntry.rawEntry?.data;
   const rawBlocks = rawData?.blocks;
@@ -1907,14 +1897,6 @@ async function processBuilderBodyHydrationJob(
   },
 ) {
   const db = getDb();
-  const reasonedOutcomesEnabled = await isFeatureFlagEnabled(
-    BUILDER_BODY_HYDRATION_REASONS_FLAG,
-    {
-      userEmail: row.ownerEmail,
-      userKey: row.ownerEmail,
-      orgId: row.orgId,
-    },
-  );
   const entry = parseHydrationEntry(row);
   if (!entry) throw new Error("Builder body hydration entry is missing.");
   const queuedBlocksHash = stringSourceValue(
@@ -1982,7 +1964,6 @@ async function processBuilderBodyHydrationJob(
       row: sourceRow,
       sourceTable: row.sourceTable,
       fallbackTitle: entry.title,
-      reasonedOutcomesEnabled,
     });
     if (liveRead.state === "not_found") {
       throw new BuilderBodyHydrationError(
@@ -1990,11 +1971,6 @@ async function processBuilderBodyHydrationJob(
         "not_found",
         liveRead.providerStatus,
         true,
-      );
-    }
-    if (liveRead.state === "empty_body" && !reasonedOutcomesEnabled) {
-      throw new Error(
-        "Builder body baseline migration could not read a fresh remote body; retry the refresh before reviewing or publishing.",
       );
     }
     entryWithBody = liveRead.entry;
@@ -2095,7 +2071,6 @@ async function processBuilderBodyHydrationJob(
         row: sourceRow,
         sourceTable: row.sourceTable,
         fallbackTitle: entry.title,
-        reasonedOutcomesEnabled,
       });
       if (liveRead.state === "body") {
         const liveEntry = liveRead.entry;
@@ -2161,7 +2136,7 @@ async function processBuilderBodyHydrationJob(
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
         };
-        if (reasonedOutcomesEnabled && emptyBodyRead?.state === "empty_body") {
+        if (emptyBodyRead?.state === "empty_body") {
           const [deleted] = await tx
             .delete(schema.contentDatabaseBodyHydrationQueue)
             .where(queueRowCas)
@@ -2217,15 +2192,14 @@ async function processBuilderBodyHydrationJob(
             await markPendingIfReplaced();
             return;
           }
-          const reason = reasonedOutcomesEnabled
-            ? emptyBodyRead?.state === "not_found"
+          const reason =
+            emptyBodyRead?.state === "not_found"
               ? "not_found"
-              : "conversion_failed"
-            : null;
+              : "conversion_failed";
           await tx
             .update(schema.contentDatabaseItems)
             .set({
-              bodyHydrationStatus: reason ? "error" : "unavailable",
+              bodyHydrationStatus: "error",
               bodyHydrationAttemptedAt: now,
               bodyHydrationError:
                 reason === "not_found"
@@ -2236,15 +2210,11 @@ async function processBuilderBodyHydrationJob(
               bodyHydrationVersion:
                 builderBodyUnavailableVersion(entryWithBody),
               bodyHydrationReason: reason,
-              bodyHydrationProviderStatus:
-                reason && emptyBodyRead
-                  ? emptyBodyRead.providerStatus
-                  : reason
-                    ? "local_source_record"
-                    : null,
+              bodyHydrationProviderStatus: emptyBodyRead
+                ? emptyBodyRead.providerStatus
+                : "local_source_record",
               bodyHydrationAttemptCount: attempts,
-              bodyHydrationRetryable:
-                reason === "not_found" ? 1 : reason ? 0 : null,
+              bodyHydrationRetryable: reason === "not_found" ? 1 : 0,
               updatedAt: now,
             })
             .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2255,9 +2225,7 @@ async function processBuilderBodyHydrationJob(
           .set({
             lastAttemptedAt: null,
             lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
-            nextAttemptAt: reasonedOutcomesEnabled
-              ? builderBodyHydrationNextAttemptAt(attempts, now)
-              : null,
+            nextAttemptAt: builderBodyHydrationNextAttemptAt(attempts, now),
             updatedAt: now,
           })
           .where(queueRowCas)
@@ -2271,19 +2239,14 @@ async function processBuilderBodyHydrationJob(
           .set({
             bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: now,
-            bodyHydrationError: reasonedOutcomesEnabled
-              ? BUILDER_BODY_NOT_AVAILABLE_ERROR
-              : null,
+            bodyHydrationError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
             bodyHydrationReason:
-              reasonedOutcomesEnabled && emptyBodyRead?.state === "not_found"
-                ? "not_found"
-                : null,
-            bodyHydrationProviderStatus:
-              reasonedOutcomesEnabled && emptyBodyRead
-                ? emptyBodyRead.providerStatus
-                : null,
+              emptyBodyRead?.state === "not_found" ? "not_found" : null,
+            bodyHydrationProviderStatus: emptyBodyRead
+              ? emptyBodyRead.providerStatus
+              : null,
             bodyHydrationAttemptCount: attempts,
-            bodyHydrationRetryable: reasonedOutcomesEnabled ? 1 : null,
+            bodyHydrationRetryable: 1,
             updatedAt: now,
           })
           .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -2467,11 +2430,9 @@ async function processBuilderBodyHydrationJob(
         bodyHydrationError: null,
         bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
         bodyHydrationReason: null,
-        bodyHydrationProviderStatus: reasonedOutcomesEnabled
-          ? "http_200"
-          : null,
+        bodyHydrationProviderStatus: "http_200",
         bodyHydrationAttemptCount: row.attempts,
-        bodyHydrationRetryable: reasonedOutcomesEnabled ? 0 : null,
+        bodyHydrationRetryable: 0,
         updatedAt: now,
       })
       .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
@@ -3130,14 +3091,6 @@ export async function processBuilderBodyHydrationQueue(args: {
       } catch (error) {
         failed += 1;
         const message = error instanceof Error ? error.message : String(error);
-        const reasonedOutcomesEnabled = await isFeatureFlagEnabled(
-          BUILDER_BODY_HYDRATION_REASONS_FLAG,
-          {
-            userEmail: job.ownerEmail,
-            userKey: job.ownerEmail,
-            orgId: job.orgId,
-          },
-        );
         const evidence = builderBodyHydrationFailureEvidence(error);
         const attempts = job.attempts;
         const queueRowCas = builderBodyHydrationQueueOwnershipFilter(job);
@@ -3159,7 +3112,7 @@ export async function processBuilderBodyHydrationQueue(args: {
         };
         if (
           builderBodyHydrationAttemptIsTerminal(attempts) ||
-          (reasonedOutcomesEnabled && !evidence.retryable)
+          !evidence.retryable
         ) {
           const [deleted] = await db
             .delete(schema.contentDatabaseBodyHydrationQueue)
@@ -3178,18 +3131,10 @@ export async function processBuilderBodyHydrationQueue(args: {
               bodyHydrationVersion: parseHydrationEntry(job)
                 ? builderBodyUnavailableVersion(parseHydrationEntry(job)!)
                 : null,
-              bodyHydrationReason: reasonedOutcomesEnabled
-                ? evidence.reason
-                : null,
-              bodyHydrationProviderStatus: reasonedOutcomesEnabled
-                ? evidence.providerStatus
-                : null,
+              bodyHydrationReason: evidence.reason,
+              bodyHydrationProviderStatus: evidence.providerStatus,
               bodyHydrationAttemptCount: attempts,
-              bodyHydrationRetryable: reasonedOutcomesEnabled
-                ? evidence.retryable
-                  ? 1
-                  : 0
-                : null,
+              bodyHydrationRetryable: evidence.retryable ? 1 : 0,
               updatedAt: attemptNow,
             })
             .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
@@ -3202,9 +3147,10 @@ export async function processBuilderBodyHydrationQueue(args: {
             lastAttemptedAt: null,
             lastError: message,
             priority: job.priority + 10,
-            nextAttemptAt: reasonedOutcomesEnabled
-              ? builderBodyHydrationNextAttemptAt(attempts, attemptNow)
-              : null,
+            nextAttemptAt: builderBodyHydrationNextAttemptAt(
+              attempts,
+              attemptNow,
+            ),
             updatedAt: attemptNow,
           })
           .where(queueRowCas)
@@ -3216,21 +3162,13 @@ export async function processBuilderBodyHydrationQueue(args: {
         await db
           .update(schema.contentDatabaseItems)
           .set({
-            bodyHydrationStatus: reasonedOutcomesEnabled ? "pending" : "error",
+            bodyHydrationStatus: "pending",
             bodyHydrationAttemptedAt: attemptNow,
             bodyHydrationError: message,
-            bodyHydrationReason: reasonedOutcomesEnabled
-              ? evidence.reason
-              : null,
-            bodyHydrationProviderStatus: reasonedOutcomesEnabled
-              ? evidence.providerStatus
-              : null,
+            bodyHydrationReason: evidence.reason,
+            bodyHydrationProviderStatus: evidence.providerStatus,
             bodyHydrationAttemptCount: attempts,
-            bodyHydrationRetryable: reasonedOutcomesEnabled
-              ? evidence.retryable
-                ? 1
-                : 0
-              : null,
+            bodyHydrationRetryable: evidence.retryable ? 1 : 0,
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
