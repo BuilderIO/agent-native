@@ -1,3 +1,4 @@
+import { convertSetCookieToCookie, getTestInstance } from "better-auth/test";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mockAcceptPendingInvitationsForEmail = vi.hoisted(() => vi.fn());
@@ -12,6 +13,7 @@ import {
   desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
+  withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
@@ -262,19 +264,23 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       user: { id: "google-user" },
       account: {},
     }));
+    const updateUser = vi.fn(async () => undefined);
     const adapter: BetterAuthInternalAdapter = {
       findUserByEmail: vi.fn(async () => user),
       linkAccount,
       createUser: vi.fn(async () => ({ id: "created-user" })),
       createOAuthUser,
+      deleteSession: vi.fn(async () => undefined),
       findAccountByProviderId: vi.fn(async () => null),
       replaceUnverifiedCredentialWithGoogle,
+      updateUser,
     };
     return {
       adapter,
       linkAccount,
       createOAuthUser,
       replaceUnverifiedCredentialWithGoogle,
+      updateUser,
     };
   }
 
@@ -340,6 +346,53 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
 
     expect(created).toBe(false);
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("stores the connected Google profile image on a new canonical user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      {
+        email: "owner@example.com",
+        name: "Owner",
+        emailVerified: true,
+        image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("refreshes an email-derived profile with the connected Google identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        name: "owner",
+        image: null,
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, updateUser } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
   });
 
   it("links an already verified canonical user", async () => {
@@ -455,5 +508,243 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     ).rejects.toThrow("unverified email/password identity");
     expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("withBetterAuthActionSession", () => {
+  const authContext = {
+    authCookies: {
+      sessionToken: { name: "better-auth.session_token" },
+      sessionData: { name: "better-auth.session_data" },
+      dontRememberToken: { name: "better-auth.dont_remember" },
+    },
+    secret: "better-auth-action-session-test-secret",
+  };
+
+  function authFor(getSession: ReturnType<typeof vi.fn>): {
+    api: { getSession: ReturnType<typeof vi.fn> };
+    $context: Promise<unknown>;
+  } {
+    return {
+      api: { getSession },
+      $context: Promise.resolve(authContext),
+    };
+  }
+
+  function adapterFor(deleteSession: ReturnType<typeof vi.fn>) {
+    return { deleteSession } as any;
+  }
+
+  it("reuses an existing Better Auth session and rejects identity mismatches", async () => {
+    const getSession = vi.fn().mockResolvedValue({
+      user: { email: "Alice@Example.com" },
+    });
+    const action = vi.fn(async (headers: Headers) => headers);
+    const createSession = vi.fn();
+    const deleteSession = vi.fn();
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers({ cookie: "an_session=legacy-session" }),
+        action,
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual(new Headers({ cookie: "an_session=legacy-session" }));
+    expect(createSession).not.toHaveBeenCalled();
+    expect(deleteSession).not.toHaveBeenCalled();
+
+    getSession.mockResolvedValue({ user: { email: "other@example.com" } });
+    await expect(
+      withBetterAuthActionSession("alice@example.com", new Headers(), action, {
+        auth: authFor(getSession) as any,
+      }),
+    ).rejects.toThrow("Authenticated user mismatch");
+    expect(action).toHaveBeenCalledOnce();
+  });
+
+  it("bridges a legacy session through the real Better Auth password endpoint", async () => {
+    const instance = await getTestInstance(
+      {
+        emailAndPassword: {
+          enabled: true,
+          requireEmailVerification: false,
+        },
+        session: { cookieCache: { enabled: true } },
+      },
+      {
+        testUser: {
+          email: "bridge@example.com",
+          name: "Bridge User",
+          password: "old-password",
+        },
+      },
+    );
+    const testAuthContext = await instance.auth.$context;
+    const internalAdapter = testAuthContext.internalAdapter;
+    let bridgeExpiresAt: number | undefined;
+    const deleteSession = vi.fn(async (token: string) => {
+      const storedSession = await internalAdapter.findSession(token);
+      expect(bridgeExpiresAt).toBeDefined();
+      expect(storedSession?.session.expiresAt.getTime()).toBe(bridgeExpiresAt);
+      return internalAdapter.deleteSession(token);
+    });
+    const adapter = { ...internalAdapter, deleteSession } as any;
+    const createSession = async (
+      email: string,
+      _config?: unknown,
+      options?: { expiresAt?: Date },
+    ) => {
+      const existing = await adapter.findUserByEmail(email, {
+        includeAccounts: false,
+      });
+      if (!existing) return null;
+      bridgeExpiresAt = options?.expiresAt?.getTime();
+      const session = options
+        ? await adapter.createSession(existing.user.id, true, options, true)
+        : await adapter.createSession(existing.user.id);
+      return {
+        email: existing.user.email,
+        token: session.token,
+        userId: existing.user.id,
+      };
+    };
+
+    let cachedCookieHeader = "";
+    await instance.client.signUp.email({
+      email: "cached@example.com",
+      name: "Cached User",
+      password: "cached-password",
+      fetchOptions: {
+        onSuccess(context) {
+          cachedCookieHeader =
+            convertSetCookieToCookie(new Headers(context.response.headers)).get(
+              "cookie",
+            ) ?? "";
+        },
+      },
+    });
+    const sessionDataCookieName = testAuthContext.authCookies.sessionData.name;
+    const cachedSessionDataCookies = cachedCookieHeader
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName === sessionDataCookieName ||
+          cookieName.startsWith(`${sessionDataCookieName}.`)
+        );
+      })
+      .join("; ");
+    expect(cachedSessionDataCookies).toContain(`${sessionDataCookieName}=`);
+
+    const result = await withBetterAuthActionSession(
+      "bridge@example.com",
+      new Headers({
+        cookie: `${cachedSessionDataCookies}; an_session=legacy-session`,
+      }),
+      (headers) => {
+        expect(headers.get("cookie")).not.toContain(sessionDataCookieName);
+        expect(headers.get("cookie")).toContain(
+          `${testAuthContext.authCookies.dontRememberToken.name}=`,
+        );
+        return instance.auth.api.changePassword({
+          body: {
+            currentPassword: "old-password",
+            newPassword: "new-password",
+          },
+          headers,
+        });
+      },
+      {
+        auth: instance.auth as any,
+        createSession,
+        adapter,
+      },
+    );
+
+    expect(result).toMatchObject({ user: { email: "bridge@example.com" } });
+    expect(deleteSession).toHaveBeenCalledOnce();
+  });
+
+  it("preserves action outcomes when temporary-session cleanup fails", async () => {
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const cleanupError = new Error("cleanup failed");
+    const deleteSession = vi.fn().mockRejectedValue(cleanupError);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).resolves.toEqual({ status: true });
+    expect(log).toHaveBeenCalled();
+
+    const actionError = new Error("invalid password");
+    deleteSession.mockRejectedValueOnce(cleanupError);
+    await expect(
+      withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => {
+          throw actionError;
+        },
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      ),
+    ).rejects.toBe(actionError);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("bounds cleanup when deleting a temporary session hangs", async () => {
+    vi.useFakeTimers();
+    const getSession = vi.fn().mockResolvedValue(null);
+    const createSession = vi.fn().mockResolvedValue({
+      email: "alice@example.com",
+      token: "temporary-session",
+      userId: "user-1",
+    });
+    const deleteSession = vi.fn(() => new Promise<void>(() => {}));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const result = withBetterAuthActionSession(
+        "alice@example.com",
+        new Headers(),
+        async () => ({ status: true }),
+        {
+          auth: authFor(getSession) as any,
+          createSession,
+          adapter: adapterFor(deleteSession),
+        },
+      );
+
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(result).resolves.toEqual({ status: true });
+      expect(log).toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
