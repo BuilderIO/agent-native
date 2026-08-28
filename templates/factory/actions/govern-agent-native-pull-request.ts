@@ -328,6 +328,20 @@ export default defineAction({
           itemId,
           snapshot.headSha,
         );
+        if (previouslyFinalized) {
+          await getDb()
+            .update(triageDecisions)
+            .set({ outcome: "auto_approve" })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approval_claimed"),
+              ),
+            );
+        }
         const authenticatedUser = await github.getAuthenticatedUser();
         const currentAuthorMembership = await github.checkOrganizationMember(
           "BuilderIO",
@@ -815,31 +829,62 @@ export default defineAction({
             const claimCanBeReleased =
               definitiveRejection || !error.requestAttempted;
             if (claimCanBeReleased) {
-              await getDb()
-                .update(triageDecisions)
-                .set({
-                  outcome: "needs_manual",
-                  reason: definitiveRejection
-                    ? `GitHub rejected the approval request definitively: ${error.message}`
-                    : `GitHub approval request was unavailable before the provider call: ${error.message}`,
-                })
-                .where(
-                  and(
-                    eq(
-                      triageDecisions.id,
-                      stableId(
-                        "pr-governance",
-                        orgId,
-                        itemId,
-                        snapshot.headSha,
+              const rejectionReason = definitiveRejection
+                ? `GitHub rejected the approval request definitively: ${error.message}`
+                : `GitHub approval request was unavailable before the provider call: ${error.message}`;
+              await getDb().transaction(async (tx) => {
+                const released = await tx
+                  .update(triageDecisions)
+                  .set({ outcome: "needs_manual", reason: rejectionReason })
+                  .where(
+                    and(
+                      eq(
+                        triageDecisions.id,
+                        stableId(
+                          "pr-governance",
+                          orgId,
+                          itemId,
+                          snapshot.headSha,
+                        ),
                       ),
+                      eq(triageDecisions.itemId, itemId),
+                      eq(triageDecisions.orgId, orgId),
+                      eq(triageDecisions.factoryId, factoryId),
+                      eq(triageDecisions.outcome, "auto_approval_claimed"),
                     ),
-                    eq(triageDecisions.itemId, itemId),
-                    eq(triageDecisions.orgId, orgId),
-                    eq(triageDecisions.factoryId, factoryId),
-                    eq(triageDecisions.outcome, "auto_approval_claimed"),
-                  ),
+                  )
+                  .returning({ id: triageDecisions.id });
+                if (released[0] && definitiveRejection) {
+                  await tx
+                    .update(triageItems)
+                    .set({
+                      status: "needs_manual",
+                      updatedAt: new Date().toISOString(),
+                    })
+                    .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+                }
+              });
+              if (definitiveRejection) {
+                await recordFactoryAudit(
+                  context,
+                  { userEmail, orgId },
+                  {
+                    action: "govern-agent-native-pull-request",
+                    kind: "external_action",
+                    status: "failure",
+                    itemId,
+                    source: "github",
+                    sourceUrl: pullRequest.htmlUrl,
+                    summary: rejectionReason,
+                    details: {
+                      repo,
+                      pullRequestNumber,
+                      status: error.status,
+                    },
+                  },
+                  factoryId,
                 );
+              }
             }
           }
           throw error;
