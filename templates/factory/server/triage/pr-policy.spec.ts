@@ -125,11 +125,24 @@ describe("pull-request governance", () => {
         productUxImplications: true,
       }).autoApprove,
     ).toBe(false);
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        authorId: 2721089,
+        clearBug: false,
+        productUxImplications: true,
+        factoryTriggered: false,
+      }).autoApprove,
+    ).toBe(false);
     expect(isUltraScaryChange(["nested/AGENTS.md"])).toBe(true);
     expect(isUltraScaryChange([".agents/skills/other/SKILL.md"])).toBe(true);
     expect(isUltraScaryChange([".github/actions/checkout/action.yml"])).toBe(
       true,
     );
+    expect(isUltraScaryChange(["package.json"])).toBe(true);
+    expect(isUltraScaryChange(["pnpm-lock.yaml"])).toBe(true);
+    expect(isUltraScaryChange(["turbo.json"])).toBe(true);
     expect(
       isUltraScaryChange(["templates/factory/server/triage/pr-policy.ts"]),
     ).toBe(true);
@@ -518,41 +531,74 @@ describe("pull-request governance", () => {
 
   it("preserves active changes requests across comments", () => {
     expect(
-      hasCurrentBlockingPullRequestReview([
-        {
-          author: "reviewer",
-          state: "changes_requested",
-          observedAt: "2026-08-19T10:00:00Z",
-        },
-        {
-          author: "reviewer",
-          state: "approved",
-          observedAt: "2026-08-19T11:00:00Z",
-        },
-      ]),
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "changes_requested",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T11:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
     ).toBe(false);
     expect(
-      hasCurrentBlockingPullRequestReview([
-        {
-          author: "reviewer",
-          state: "changes_requested",
-          observedAt: "2026-08-19T10:00:00Z",
-        },
-        {
-          author: "reviewer",
-          state: "commented",
-          observedAt: "2026-08-19T11:00:00Z",
-        },
-      ]),
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "changes_requested",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
+            state: "commented",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T11:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
     ).toBe(true);
     expect(
-      hasCurrentBlockingPullRequestReview([
-        {
-          author: "reviewer",
-          state: "pending",
-          observedAt: "2026-08-19T10:00:00Z",
-        },
-      ]),
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "pending",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
+    ).toBe(true);
+    expect(
+      hasCurrentBlockingPullRequestReview(
+        [
+          {
+            author: "reviewer",
+            state: "changes_requested",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "old-head",
+            observedAt: "2026-08-19T11:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
     ).toBe(true);
   });
 });

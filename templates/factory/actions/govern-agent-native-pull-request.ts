@@ -274,6 +274,7 @@ export default defineAction({
     }
     const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
       snapshot.reviews,
+      snapshot.headSha,
     );
     const safetyFindingsClean =
       !snapshot.commentsTruncated &&
@@ -399,10 +400,12 @@ export default defineAction({
             );
         }
         const authenticatedUser = await github.getAuthenticatedUser();
-        const currentAuthorMembership = await github.checkOrganizationMember(
-          "BuilderIO",
-          pullRequest.userLogin,
-        );
+        const currentAuthorMembership =
+          await github.checkOrganizationMemberById(
+            "BuilderIO",
+            pullRequest.userId,
+            pullRequest.userLogin,
+          );
         const attributedApproval = currentApprovals.find(
           (approval) =>
             approval.reviewerLogin ===
@@ -757,7 +760,10 @@ export default defineAction({
         throw error;
       }
       const postClaimBlockingReviewStatesClean =
-        !hasCurrentBlockingPullRequestReview(postClaimSnapshot.reviews);
+        !hasCurrentBlockingPullRequestReview(
+          postClaimSnapshot.reviews,
+          postClaimSnapshot.headSha,
+        );
       const postClaimSafetyFindingsClean =
         !postClaimSnapshot.commentsTruncated &&
         !hasActiveCredibleSafetyFinding(
@@ -793,8 +799,9 @@ export default defineAction({
       });
       const postClaimReviewFeedbackHandled =
         postClaimBlockingReviewStatesClean && postClaimReviewFeedback.isClean;
-      const postClaimInternalMember = await github.checkOrganizationMember(
+      const postClaimInternalMember = await github.checkOrganizationMemberById(
         "BuilderIO",
+        pullRequest.userId,
         pullRequest.userLogin,
       );
       const postClaimGovernance = decidePullRequestGovernance({
@@ -932,6 +939,69 @@ export default defineAction({
               "Live GitHub pull-request state changed after review; no approval was posted.",
           };
         }
+        let finalReviewSnapshot;
+        try {
+          finalReviewSnapshot = await aiServicesGit.fetchPullRequest({
+            projectId,
+            repo,
+            pullRequestNumber,
+          });
+          if (finalReviewSnapshot.headSha !== snapshot.headSha) {
+            throw new Error(
+              `PR review evidence changed before approval: expected ${snapshot.headSha}, received ${finalReviewSnapshot.headSha}.`,
+            );
+          }
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown review evidence error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Review evidence could not be revalidated before approval: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        let finalApprovals;
+        try {
+          finalApprovals = currentPullRequestApprovals(
+            finalReviewSnapshot.reviews,
+            finalReviewSnapshot.headSha,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "unknown approval evidence error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Approval evidence could not be revalidated before approval: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        if (
+          finalApprovals.length > 0 ||
+          hasCurrentBlockingPullRequestReview(
+            finalReviewSnapshot.reviews,
+            finalReviewSnapshot.headSha,
+          ) ||
+          finalReviewSnapshot.commentsTruncated ||
+          hasActiveCredibleSafetyFinding(
+            finalReviewSnapshot.reviews,
+            finalReviewSnapshot.comments,
+          )
+        ) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "Review evidence changed before approval; reconciliation is required before retrying.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "Review evidence changed before approval; no duplicate or unsafe approval was posted.",
+          };
+        }
         const decisionId = stableId(
           "pr-governance",
           orgId,
@@ -1021,6 +1091,33 @@ export default defineAction({
           throw error;
         }
         approvalUrl = approval.htmlUrl;
+        let postApprovalPullRequest;
+        try {
+          postApprovalPullRequest = await github.getPullRequestSummary(
+            repository,
+            pullRequestNumber,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "unknown GitHub error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Live GitHub state could not be revalidated after approval: ${message}. Reconciliation is required before finalizing.`,
+          );
+          throw error;
+        }
+        if (postApprovalPullRequest.headSha !== snapshot.headSha) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "The pull request changed after approval was posted; reconciliation is required before finalizing.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "The pull request changed after approval was posted; durable approval state was not finalized.",
+          };
+        }
         const latestItem = (
           await getDb()
             .select({ metadataJson: triageItems.metadataJson })

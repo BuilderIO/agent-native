@@ -104,6 +104,8 @@ describe("GitHub triage client", () => {
           },
         ]);
       }
+      if (path === "/users/reviewer")
+        return response({ id: 17, login: "reviewer" });
       if (path.endsWith("/permission")) return response({ permission: "push" });
       if (path.includes("/orgs/")) return emptyResponse(204);
       if (path.endsWith("/reviews"))
@@ -137,6 +139,13 @@ describe("GitHub triage client", () => {
     });
     await expect(
       client.checkOrganizationMember("BuilderIO", "reviewer"),
+    ).resolves.toEqual({
+      username: "reviewer",
+      isMember: true,
+      permission: null,
+    });
+    await expect(
+      client.checkOrganizationMemberById("BuilderIO", 17, "reviewer"),
     ).resolves.toEqual({
       username: "reviewer",
       isMember: true,

@@ -93,6 +93,7 @@ export function decidePullRequestGovernance(
     input.authorId === LIAMDEBEASI_USER_ID &&
     input.repository.trim().toLowerCase() === "builderio/agent-native" &&
     input.internalBuilderMember &&
+    input.factoryTriggered &&
     !ultraScary;
   const ownerException = detectPullRequestOwnerException(input);
   const verifiedOwnerException =
@@ -326,8 +327,10 @@ export function hasCurrentBlockingPullRequestReview(
   reviews: readonly {
     author: string;
     state: string;
+    commitSha?: string | null;
     observedAt: string;
   }[],
+  headSha: string,
 ): boolean {
   const stateByAuthor = new Map<
     string,
@@ -346,7 +349,10 @@ export function hasCurrentBlockingPullRequestReview(
       const author = review.author.trim().toLowerCase();
       if (!author) return;
       const previous = stateByAuthor.get(author);
-      if (review.state === "approved" || review.state === "dismissed") {
+      if (
+        (review.state === "approved" || review.state === "dismissed") &&
+        review.commitSha === headSha
+      ) {
         stateByAuthor.set(author, { blocking: false });
       } else if (
         review.state === "changes_requested" ||
@@ -411,6 +417,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith(".github/workflows/") ||
       normalized.startsWith(".github/actions/") ||
+      /(^|\/)(?:package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb|pnpm-workspace\.yaml|\.npmrc|\.yarnrc(?:\.yml)?|turbo\.jsonc?|nx\.json|lerna\.json|dockerfile(?:\..*)?|docker-compose(?:\..*)?|\.nvmrc|\.node-version|vite\.config\..*|webpack\.config\..*|rollup\.config\..*|esbuild\.config\..*|tsconfig(?:\..*)?\.json|makefile)$/i.test(
+        normalized,
+      ) ||
       /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
         normalized,
       )

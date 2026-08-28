@@ -379,6 +379,40 @@ export function createGitHubClient(options: GitHubClientOptions) {
       }
     },
 
+    async checkOrganizationMemberById(
+      organization: string,
+      userId: number,
+      username: string,
+    ): Promise<GitHubMemberCheck> {
+      const member = username.trim();
+      if (!organization.trim() || !member || !Number.isInteger(userId)) {
+        throw new Error(
+          "GitHub organization, member username, and user ID are required",
+        );
+      }
+      try {
+        const user = record(
+          await request<unknown>(`/users/${encodeURIComponent(member)}`),
+        );
+        const resolvedId = requiredNumber(user.id, "GitHub user ID");
+        const resolvedLogin = requiredString(user.login, "GitHub user login");
+        if (resolvedId !== userId || resolvedLogin !== member) {
+          return { username: member, isMember: false, permission: null };
+        }
+        await request<undefined>(
+          `/orgs/${encodeURIComponent(organization.trim())}/members/${encodeURIComponent(resolvedLogin)}`,
+          {},
+          { allowEmpty: true },
+        );
+        return { username: member, isMember: true, permission: null };
+      } catch (error) {
+        if (error instanceof GitHubRequestError && error.status === 404) {
+          return { username: member, isMember: false, permission: null };
+        }
+        throw error;
+      }
+    },
+
     async approvePullRequest(
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
