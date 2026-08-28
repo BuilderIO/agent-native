@@ -167,7 +167,9 @@ export default function DeckEditor() {
     updateDeck,
     updateSlide,
     deleteSlide,
+    deleteSlides,
     pasteSlide,
+    pasteSlides,
     duplicateDeck,
     addSlide,
     flushDeckSave,
@@ -991,9 +993,9 @@ export default function DeckEditor() {
    * mechanism existed (Cmd+Z) but wasn't discoverable. This surfaces a
    * 6-second undo toast right next to the action.
    */
-  const deleteSlideWithUndo = useCallback(
-    (deckId: string, slideId: string) => {
-      deleteSlide(deckId, slideId);
+  const deleteSlidesWithUndo = useCallback(
+    (deckId: string, slideIds: string[]) => {
+      deleteSlides(deckId, slideIds);
       toast(t("editorSidebar.slideDeleted"), {
         className: "!bg-background !text-foreground !border-border",
         duration: 6000,
@@ -1003,7 +1005,7 @@ export default function DeckEditor() {
         },
       });
     },
-    [deleteSlide, t, undo],
+    [deleteSlides, t, undo],
   );
 
   const deleteSlideIds = useCallback(
@@ -1022,14 +1024,22 @@ export default function DeckEditor() {
         deck.slides.find(
           (slide, index) => index < firstIndex && !selected.has(slide.id),
         );
-      for (const slide of slides) deleteSlideWithUndo(id, slide.id);
+      deleteSlidesWithUndo(
+        id,
+        slides.map((slide) => slide.id),
+      );
+      const activeSlideSurvives =
+        activeSlideId &&
+        !selected.has(activeSlideId) &&
+        deck.slides.some((slide) => slide.id === activeSlideId);
+      if (activeSlideSurvives) return;
       if (nextSlide) {
         selectionAnchorSlideIdRef.current = nextSlide.id;
         setSelectedSlideIds([nextSlide.id]);
         setActiveSlideId(nextSlide.id);
       }
     },
-    [deck, deleteSlideWithUndo, id, selectedSlideIdsForAction],
+    [activeSlideId, deck, deleteSlidesWithUndo, id, selectedSlideIdsForAction],
   );
 
   useEffect(() => {
@@ -1199,22 +1209,18 @@ export default function DeckEditor() {
     (targetSlideId: string) => {
       const clipboard = slideClipboardRef.current;
       if (!clipboard || !id) return;
-      let afterSlideId = targetSlideId;
-      const newIds: string[] = [];
-      for (const slide of clipboard) {
-        const { id: _clipboardId, ...fields } = slide;
-        const newId = pasteSlide(id, afterSlideId, fields);
-        if (!newId) continue;
-        newIds.push(newId);
-        afterSlideId = newId;
-      }
+      const newIds = pasteSlides(
+        id,
+        targetSlideId,
+        clipboard.map(({ id: _clipboardId, ...fields }) => fields),
+      );
       if (newIds.length > 0) {
         selectionAnchorSlideIdRef.current = newIds[0] ?? null;
         setSelectedSlideIds(newIds);
         setActiveSlideId(newIds[newIds.length - 1] ?? null);
       }
     },
-    [id, pasteSlide],
+    [id, pasteSlides],
   );
 
   // Handlers backing the slide rail's right-click menu.
@@ -1230,29 +1236,20 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const slides = selectedSlideIdsForAction(slideIds);
       if (!slides.length) return;
-      let afterSlideId = slides[slides.length - 1]?.id;
-      const newIds: string[] = [];
-      for (const slide of slides) {
-        if (!afterSlideId) break;
-        const newId = pasteSlide(
-          id,
-          afterSlideId,
-          (() => {
-            const { id: _slideId, ...fields } = slide;
-            return fields;
-          })(),
-        );
-        if (!newId) continue;
-        newIds.push(newId);
-        afterSlideId = newId;
-      }
+      const afterSlideId = slides[slides.length - 1]?.id;
+      if (!afterSlideId) return;
+      const newIds = pasteSlides(
+        id,
+        afterSlideId,
+        slides.map(({ id: _slideId, ...fields }) => fields),
+      );
       if (newIds.length > 0) {
         selectionAnchorSlideIdRef.current = newIds[0] ?? null;
         setSelectedSlideIds(newIds);
         setActiveSlideId(newIds[newIds.length - 1] ?? null);
       }
     },
-    [deck, id, pasteSlide, selectedSlideIdsForAction],
+    [deck, id, pasteSlides, selectedSlideIdsForAction],
   );
 
   const handleNewSlideAfter = useCallback(
@@ -1277,10 +1274,10 @@ export default function DeckEditor() {
   );
 
   const handleToggleSkipSlide = useCallback(
-    (slideIds: string[]) => {
+    (slideIds: string[], skipped: boolean) => {
       if (!deck || !id) return;
       for (const slide of selectedSlideIdsForAction(slideIds)) {
-        updateSlide(id, slide.id, { skipped: !slide.skipped });
+        updateSlide(id, slide.id, { skipped });
       }
     },
     [deck, id, selectedSlideIdsForAction, updateSlide],
@@ -1450,13 +1447,43 @@ export default function DeckEditor() {
   }, [id]);
 
   useEffect(() => {
-    if (!deck || selectedSlideIds.length > 0) return;
-    const slideId = activeSlideId ?? deck.slides[0]?.id;
-    if (slideId) {
-      selectionAnchorSlideIdRef.current = slideId;
-      setSelectedSlideIds([slideId]);
+    if (!deck) return;
+    const slideIds = new Set(deck.slides.map((slide) => slide.id));
+    const validSelectedIds = selectedSlideIds.filter((slideId) =>
+      slideIds.has(slideId),
+    );
+    if (validSelectedIds.length !== selectedSlideIds.length) {
+      const nextActiveSlideId =
+        activeSlideId && slideIds.has(activeSlideId)
+          ? activeSlideId
+          : (validSelectedIds[0] ?? deck.slides[0]?.id ?? null);
+      const nextSelectedIds = validSelectedIds.length
+        ? validSelectedIds
+        : nextActiveSlideId
+          ? [nextActiveSlideId]
+          : [];
+      selectionAnchorSlideIdRef.current =
+        selectionAnchorSlideIdRef.current &&
+        slideIds.has(selectionAnchorSlideIdRef.current)
+          ? selectionAnchorSlideIdRef.current
+          : (nextSelectedIds[0] ?? null);
+      setSelectedSlideIds(nextSelectedIds);
+      if (nextActiveSlideId !== activeSlideId) {
+        setActiveSlideId(nextActiveSlideId);
+      }
+      return;
     }
-  }, [activeSlideId, deck, selectedSlideIds.length]);
+    if (selectedSlideIds.length === 0) {
+      const slideId =
+        activeSlideId && slideIds.has(activeSlideId)
+          ? activeSlideId
+          : deck.slides[0]?.id;
+      if (slideId) {
+        selectionAnchorSlideIdRef.current = slideId;
+        setSelectedSlideIds([slideId]);
+      }
+    }
+  }, [activeSlideId, deck, selectedSlideIds]);
 
   // Sync active slide index to URL
   useEffect(() => {

@@ -106,7 +106,7 @@ interface EditorSidebarProps {
   onNewSlideAfter?: (slideId: string) => void;
   onDuplicateSlide?: (slideIds: string[]) => void;
   /** Toggles whether this slide is excluded from Present/Presenter mode. */
-  onToggleSkipSlide?: (slideIds: string[]) => void;
+  onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
 }
 
 export interface SlideSelectionOptions {
@@ -313,7 +313,7 @@ function SortableSlideThumb({
   onDeleteSlide?: (slideIds: string[]) => void;
   onNewSlideAfter?: (slideId: string) => void;
   onDuplicateSlide?: (slideIds: string[]) => void;
-  onToggleSkipSlide?: (slideIds: string[]) => void;
+  onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
 }) {
   const t = useT();
   const {
@@ -491,7 +491,9 @@ function SortableSlideThumb({
           <ContextMenuItem onSelect={() => onDuplicateSlide?.(actionSlideIds)}>
             {t("editorSidebar.duplicateSlide")}
           </ContextMenuItem>
-          <ContextMenuItem onSelect={() => onToggleSkipSlide?.(actionSlideIds)}>
+          <ContextMenuItem
+            onSelect={() => onToggleSkipSlide?.(actionSlideIds, !slide.skipped)}
+          >
             {slide.skipped
               ? t("editorSidebar.unskipSlide")
               : t("editorSidebar.skipSlide")}
