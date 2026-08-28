@@ -24,6 +24,7 @@ const INITIAL_TOOL_NAMES = [
   "navigate",
   "get-mail-settings",
   "update-mail-settings",
+  "manage-automations",
   "find-contact",
   "provider-api-catalog",
   "provider-api-docs",

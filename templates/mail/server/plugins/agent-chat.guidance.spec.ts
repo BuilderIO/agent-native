@@ -15,6 +15,12 @@ const agentChat = readFileSync(
 );
 
 describe("Mail agent guidance", () => {
+  it("loads automation management before confirming creation", () => {
+    expect(agentChat).toMatch(
+      /const INITIAL_TOOL_NAMES = \[[\s\S]*"manage-automations",/,
+    );
+  });
+
   it("routes durable writing-style changes through settings, not drafts", () => {
     const guidance = `${skill}\n${agentGuide}`;
 
