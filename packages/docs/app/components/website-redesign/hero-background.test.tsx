@@ -19,31 +19,11 @@ vi.mock("./hero-shader-background", () => ({
 }));
 
 vi.mock("./ocean/hero-ocean-background", () => ({
-  HeroOceanBackground: (props: {
-    onError: (error: unknown) => void;
-    introPlayed?: boolean;
-    onFirstFrame?: () => void;
-  }) => {
+  HeroOceanBackground: (props: { onError: (error: unknown) => void }) => {
     oceanMount(props);
     return <div data-testid="ocean" />;
   },
 }));
-
-/**
- * The probe result and the intro-played flag are deliberately module scope, so
- * every test needs its own copy of the module or the first test's GPU decides
- * the rest of the file.
- */
-async function loadHero() {
-  vi.resetModules();
-  const { HeroBackground } = await import("./hero-background");
-  return HeroBackground;
-}
-
-async function renderHero() {
-  const HeroBackground = await loadHero();
-  return render(<HeroBackground />);
-}
 
 function stubReducedMotion(matches: boolean) {
   const listeners = new Set<() => void>();
@@ -159,7 +139,7 @@ describe("HeroBackground", () => {
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
-  it("renders no background at all while the probe is in flight", async () => {
+  it("renders no background at all while the probe is in flight", () => {
     stubGpu(() => new Promise(() => {}));
     render(
       <Settled>
@@ -209,52 +189,6 @@ describe("HeroBackground", () => {
     const { onError } = oceanMount.mock.calls.at(-1)![0];
     onError(new Error("device lost"));
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-  });
-
-  it("goes straight back to the ocean on a remount, with no probing gap", async () => {
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    stubGpu(requestAdapter);
-    const HeroBackground = await loadHero();
-
-    const first = render(<HeroBackground />);
-    await screen.findByTestId("ocean");
-    first.unmount();
-
-    // Present on the very first render of the second mount: going back through
-    // `probing` would render nothing, which reads as the hero blanking out.
-    render(<HeroBackground />);
-    expect(screen.queryByTestId("ocean")).not.toBeNull();
-    expect(requestAdapter).toHaveBeenCalledTimes(1);
-  });
-
-  it("retires the intro fade after the first drawn frame", async () => {
-    stubGpu(async () => ({ name: "adapter" }));
-    const HeroBackground = await loadHero();
-
-    const first = render(<HeroBackground />);
-    await screen.findByTestId("ocean");
-    expect(oceanMount.mock.calls.at(-1)![0].introPlayed).toBe(false);
-    oceanMount.mock.calls.at(-1)![0].onFirstFrame();
-    first.unmount();
-
-    render(<HeroBackground />);
-    expect(oceanMount.mock.calls.at(-1)![0].introPlayed).toBe(true);
-  });
-
-  it("does not demote a remount when the previous mount's GPU died", async () => {
-    stubGpu(async () => ({ name: "adapter" }));
-    const HeroBackground = await loadHero();
-
-    const first = render(<HeroBackground />);
-    await screen.findByTestId("ocean");
-    oceanMount.mock.calls.at(-1)![0].onError(new Error("device lost"));
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-    first.unmount();
-
-    // The demotion is a fact about this device, so a remount must not retry it.
-    render(<HeroBackground />);
-    expect(screen.queryByTestId("halftone")).not.toBeNull();
-    expect(screen.queryByTestId("ocean")).toBeNull();
   });
 });
 

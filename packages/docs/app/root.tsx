@@ -7,7 +7,14 @@ import {
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import {
   Links,
   Meta,
@@ -49,13 +56,10 @@ import appCss from "./global.css?url";
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
-type AgentSidebarComponent = Awaited<
-  ReturnType<typeof importAgentSidebar>
->["AgentSidebar"];
-
-function importAgentSidebar() {
-  return import("@agent-native/core/client/agent-chat");
-}
+const LazyAgentSidebar = lazy(async () => {
+  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  return { default: AgentSidebar };
+});
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
@@ -439,37 +443,14 @@ export default function Root() {
         defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
       }),
   );
-  // The component, not a `mounted` flag behind `lazy()`. React reconciles by
-  // position, so every parent chain the page content passes through unmounts and
-  // rebuilds it -- and the hero rebuilds its GPU context and replays its intro
-  // each time. Suspense added two of those swaps (fallback in its old position,
-  // then in the boundary's) before the real subtree. Resolving the chunk first
-  // and swapping once leaves one.
-  const [AgentSidebar, setAgentSidebar] =
-    useState<AgentSidebarComponent | null>(null);
-  const mounted = AgentSidebar !== null;
+  const [mounted, setMounted] = useState(false);
   const pendingHydrationScrollTopRef = useRef<number | null>(null);
 
   useEffect(() => {
     pendingHydrationScrollTopRef.current = window.location.hash
       ? null
       : getManagedScrollTop();
-
-    let cancelled = false;
-    void importAgentSidebar()
-      .then((module) => {
-        if (!cancelled) setAgentSidebar(() => module.AgentSidebar);
-      })
-      .catch((error: unknown) => {
-        // Keep the sidebar-less shell rather than mounting a subtree that will
-        // only throw again. Usually a chunk left stale by a deploy, which the
-        // shared recovery reloads; anything else has to stay visible.
-        if (!recoverFromStaleChunkError(error)) console.error(error);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -510,7 +491,7 @@ export default function Root() {
   return (
     <QueryClientProvider client={queryClient}>
       <DocsI18nProvider>
-        <RootShell AgentSidebar={AgentSidebar} />
+        <RootShell mounted={mounted} />
       </DocsI18nProvider>
     </QueryClientProvider>
   );

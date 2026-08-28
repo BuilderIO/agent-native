@@ -3,24 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useShellSettled } from "../../shell-ready";
 import { HeroShaderBackground } from "./hero-shader-background";
 import { HeroOceanBackground } from "./ocean/hero-ocean-background";
-import { probeWebgpuSupport, type WebgpuSupport } from "./ocean/webgpu-support";
+import { probeWebgpuSupport } from "./ocean/webgpu-support";
 
 type Background = "probing" | "ocean" | "fallback";
-
-// Module scope, not per-mount. The hero remounts whenever its ancestor chain
-// changes, and a second mount that went back through `probing` would render
-// null for the length of another adapter request -- the hero blanking out and
-// coming back. The decision is a property of this GPU, not of this mount.
-let resolvedBackground: Background | undefined;
-let pendingProbe: Promise<WebgpuSupport> | undefined;
-// Same reasoning for the ocean's 700ms reveal: it is the page's introduction,
-// so a remount must pick up where the last one left off rather than fade in a
-// second time.
-let oceanIntroPlayed = false;
-
-function markOceanIntroPlayed() {
-  oceanIntroPlayed = true;
-}
 
 /**
  * Picks the hero's background. The WebGPU ocean when the browser can actually
@@ -45,7 +30,6 @@ export function HeroBackground() {
     // rather than a composition.
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     if (reduced?.matches) {
-      resolvedBackground = "fallback";
       setBackground("fallback");
       return;
     }
@@ -58,14 +42,12 @@ export function HeroBackground() {
     // from running one after the other on browsers that will use it.
     if ("gpu" in navigator) void import("./ocean/hero-ocean-background");
 
-    pendingProbe ??= probeWebgpuSupport();
-    void pendingProbe.then((support) => {
-      resolvedBackground = support === "supported" ? "ocean" : "fallback";
-      if (!cancelled) setBackground(resolvedBackground);
+    void probeWebgpuSupport().then((support) => {
+      if (cancelled) return;
+      setBackground(support === "supported" ? "ocean" : "fallback");
     });
 
     const demoteToFallback = () => {
-      resolvedBackground = "fallback";
       if (!cancelled) setBackground("fallback");
     };
     reduced?.addEventListener("change", demoteToFallback);
@@ -76,21 +58,11 @@ export function HeroBackground() {
   }, [shellSettled]);
 
   // A renderer that fails after a good probe -- device lost, shader compile,
-  // out of memory -- is still a broken hero, so it demotes the same way, and
-  // the demotion sticks: a remount must not retry a device that just died.
-  const handleOceanError = useCallback(() => {
-    resolvedBackground = "fallback";
-    setBackground("fallback");
-  }, []);
+  // out of memory -- is still a broken hero, so it demotes the same way.
+  const handleOceanError = useCallback(() => setBackground("fallback"), []);
 
   if (background === "ocean")
-    return (
-      <HeroOceanBackground
-        onError={handleOceanError}
-        introPlayed={oceanIntroPlayed}
-        onFirstFrame={markOceanIntroPlayed}
-      />
-    );
+    return <HeroOceanBackground onError={handleOceanError} />;
 
   // Nothing at all while probing. The halftone is the *fallback*, not a
   // placeholder: showing it for the few hundred milliseconds before the ocean

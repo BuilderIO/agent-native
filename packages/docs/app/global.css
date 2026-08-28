@@ -154,6 +154,7 @@
   --bg: #0a0a0a;
   --bg-secondary: #1a1a1a;
   --docs-border: #1f1f1f;
+  --sidebar-seam: #1a1a1a;
   --docs-accent: #52a8ff;
   --docs-accent-light: rgba(82, 168, 255, 0.1);
   --header-bg: rgba(10, 10, 10, 0.8);
@@ -175,6 +176,7 @@
     --bg: #0a0a0a;
     --bg-secondary: #1a1a1a;
     --docs-border: #1f1f1f;
+    --sidebar-seam: #1a1a1a;
     --docs-accent: #52a8ff;
     --docs-accent-light: rgba(82, 168, 255, 0.1);
     --header-bg: rgba(10, 10, 10, 0.8);

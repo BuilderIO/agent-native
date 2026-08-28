@@ -14,15 +14,6 @@ const FADE_IN_MS = 700;
 export interface HeroOceanBackgroundProps {
   /** Called on any GPU failure so the caller can swap in the fallback. */
   onError: (error: unknown) => void;
-  /**
-   * The intro fade belongs to the page load, not to the mount, so the caller
-   * owns the flag: replaying it on a remount is the "fades in, then flashes,
-   * then fades in again" the reconciler used to cause. Mirrors the halftone
-   * fallback's `shaderEpoch`.
-   */
-  introPlayed?: boolean;
-  /** Fired once the GPU has actually drawn, so the caller can set that flag. */
-  onFirstFrame?: () => void;
   frameRate?: number;
 }
 
@@ -31,20 +22,13 @@ export interface HeroOceanBackgroundProps {
 // the page-grid column dividers.
 export function HeroOceanBackground({
   onError,
-  introPlayed = false,
-  onFirstFrame,
   frameRate = 30,
 }: HeroOceanBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Held for the life of the mount, so the flag flipping under us cannot turn
-  // the transition back on halfway through this canvas's own reveal.
-  const skipIntro = useRef(introPlayed).current;
-  const [ready, setReady] = useState(skipIntro);
+  const [ready, setReady] = useState(false);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
-  const onFirstFrameRef = useRef(onFirstFrame);
-  onFirstFrameRef.current = onFirstFrame;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -74,7 +58,6 @@ export function HeroOceanBackground({
         // canvas. It rejects on failure, which onError already handles.
         void renderer.firstFrame
           .then(() => {
-            onFirstFrameRef.current?.();
             if (!cancelled) setReady(true);
           })
           .catch(() => {});
@@ -128,7 +111,7 @@ export function HeroOceanBackground({
       className="absolute inset-0 z-[-1]"
       style={{
         opacity: ready ? "var(--b-hero-ocean-opacity)" : 0,
-        transition: skipIntro ? undefined : `opacity ${FADE_IN_MS}ms ease-out`,
+        transition: `opacity ${FADE_IN_MS}ms ease-out`,
         ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}),
       }}
     >
