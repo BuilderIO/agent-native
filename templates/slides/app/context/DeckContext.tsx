@@ -3151,8 +3151,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const getDeck = useCallback(
-    (id: string) => decks.find((d) => d.id === id),
-    [decks],
+    (id: string) => decksRef.current.find((d) => d.id === id),
+    [],
   );
 
   const addSlide = useCallback(
@@ -3276,18 +3276,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       markDeckDirty(deckId);
       if (!options?.preserveLocalState) {
-        setDecksLocal((prev: Deck[]) =>
-          prev.map((d) => {
-            if (d.id !== deckId) return d;
-            return {
-              ...d,
-              slides: d.slides.map((s) =>
-                s.id === slideId ? { ...s, ...localUpdates } : s,
-              ),
-              updatedAt: new Date().toISOString(),
-            };
-          }),
-        );
+        const nextDecks = decksRef.current.map((d) => {
+          if (d.id !== deckId) return d;
+          return {
+            ...d,
+            slides: d.slides.map((s) =>
+              s.id === slideId ? { ...s, ...localUpdates } : s,
+            ),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+        decksRef.current = nextDecks;
+        setDecksLocal(() => nextDecks);
       }
       // Granular op — only this slide's changed fields reach the server.
       enqueueDeckOp(deckId, op, {

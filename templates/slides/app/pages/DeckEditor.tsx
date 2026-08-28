@@ -945,9 +945,10 @@ export default function DeckEditor() {
           return;
         }
         const targetSlide =
-          currentSlideRef.current?.id === targetSlideId
+          getDeck(id)?.slides.find((slide) => slide.id === targetSlideId) ??
+          (currentSlideRef.current?.id === targetSlideId
             ? currentSlideRef.current
-            : getDeck(id)?.slides.find((slide) => slide.id === targetSlideId);
+            : undefined);
         if (!targetSlide) {
           clearPreview();
           return;
