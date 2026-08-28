@@ -35,8 +35,21 @@ const DESIGN_MUTATION_OBJECTS =
   /\b(?:animation|animations|asset|background|behavior|behaviors|border|button|canvas|card|color|colors|component|design|file|footer|font|gap|header|height|hero|image|interaction|interactions|it|layout|mockup|motion|nav|page|palette|padding|prototype|radius|screen|shadow|size|spacing|state|states|style|styles|text|this|theme|transition|transitions|typography|variant|version|width|wireframe)\b/i;
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|recommend(?:ation)?s?|review|suggest(?:ion)?s?)\b/i;
-const DESIGN_ADVISORY_SKILLS =
-  /\b(?:improve|learn|develop)\s+(?:my|your)\s+(?:[\w-]+\s+)*?skills?\b(?!\s+(?:section|card|component|layout|panel|row|screen|page|button|text)\b)/i;
+const DESIGN_WORD_PATTERN = /\b[\w-]+\b/g;
+const DESIGN_ADVISORY_SKILL_VERBS = new Set(["develop", "improve", "learn"]);
+const DESIGN_ADVISORY_SKILL_PRONOUNS = new Set(["my", "your"]);
+const DESIGN_SKILL_UI_TARGETS = new Set([
+  "button",
+  "card",
+  "component",
+  "layout",
+  "page",
+  "panel",
+  "row",
+  "screen",
+  "section",
+  "text",
+]);
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -173,6 +186,73 @@ function hasSuccessfulMutation(
   });
 }
 
+function removeAdvisorySkillsClauses(text: string): string {
+  const words = Array.from(text.matchAll(DESIGN_WORD_PATTERN)).map((match) => {
+    const start = match.index ?? 0;
+    return {
+      end: start + match[0].length,
+      start,
+      value: match[0].toLowerCase(),
+    };
+  });
+  const removals: Array<[number, number]> = [];
+
+  const isWhitespaceBetween = (left: number, right: number) =>
+    text.slice(left, right).trim() === "";
+
+  let index = 0;
+  while (index < words.length - 2) {
+    const verb = words[index];
+    const pronoun = words[index + 1];
+    if (
+      !DESIGN_ADVISORY_SKILL_VERBS.has(verb.value) ||
+      !DESIGN_ADVISORY_SKILL_PRONOUNS.has(pronoun.value) ||
+      !isWhitespaceBetween(verb.end, pronoun.start)
+    ) {
+      index += 1;
+      continue;
+    }
+
+    let skillIndex = index + 2;
+    while (
+      skillIndex < words.length &&
+      isWhitespaceBetween(words[skillIndex - 1].end, words[skillIndex].start) &&
+      !/^skills?$/.test(words[skillIndex].value)
+    ) {
+      skillIndex += 1;
+    }
+
+    const skill = words[skillIndex];
+    if (
+      !skill ||
+      !/^skills?$/.test(skill.value) ||
+      !isWhitespaceBetween(words[skillIndex - 1].end, skill.start)
+    ) {
+      index = skillIndex;
+      continue;
+    }
+
+    const nextWord = words[skillIndex + 1];
+    const targetsUiContent =
+      nextWord &&
+      isWhitespaceBetween(skill.end, nextWord.start) &&
+      DESIGN_SKILL_UI_TARGETS.has(nextWord.value);
+    if (!targetsUiContent) removals.push([verb.start, skill.end]);
+    index = skillIndex + 1;
+  }
+
+  if (removals.length === 0) return text;
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const [start, end] of removals) {
+    parts.push(text.slice(cursor, start), " ");
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return parts.join("");
+}
+
 export function looksLikeDesignMutationRequest(text: string): boolean {
   const normalized = text.trim();
   if (!normalized) return false;
@@ -184,12 +264,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   }
   if (/\bhow\s+to\b/i.test(normalized)) return false;
 
-  const advisorySkillsMatch = DESIGN_ADVISORY_SKILLS.exec(normalized);
-  const mutationText = advisorySkillsMatch
-    ? `${normalized.slice(0, advisorySkillsMatch.index)} ${normalized.slice(
-        advisorySkillsMatch.index + advisorySkillsMatch[0].length,
-      )}`
-    : normalized;
+  const mutationText = removeAdvisorySkillsClauses(normalized);
 
   const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
   if (advisoryMatch) {

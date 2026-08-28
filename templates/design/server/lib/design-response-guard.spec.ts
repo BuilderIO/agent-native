@@ -86,6 +86,16 @@ describe("Design final response guard", () => {
     ).toBe(false);
     expect(
       looksLikeDesignMutationRequest(
+        "improve my design skills and improve my interaction design skills",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        `improve my ${"web ".repeat(2_000)}design skills`,
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
         "improve my design skills and update the color palette",
       ),
     ).toBe(true);
