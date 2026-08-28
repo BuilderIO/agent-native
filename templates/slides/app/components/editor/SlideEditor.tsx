@@ -42,6 +42,7 @@ import {
   exitEmptyBulletAtCaret,
   findEnclosingList,
   insertBulletAfterCaret,
+  isBulletList,
   removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
@@ -194,6 +195,7 @@ import {
   findSmartBlock,
   isInlineTextElement,
   isSlideTextEditingTarget,
+  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
@@ -364,6 +366,31 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
+}
+
+/** Block tags that can hold rich multi-paragraph content */
+const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
+
+/** Insert a soft line break without creating a new layout block. */
+function insertLineBreak(editable: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount !== 1) return false;
+  const range = selection.getRangeAt(0);
+  if (
+    !editable.contains(range.startContainer) ||
+    !editable.contains(range.endContainer)
+  ) {
+    return false;
+  }
+
+  range.deleteContents();
+  const lineBreak = document.createElement("br");
+  range.insertNode(lineBreak);
+  range.setStartAfter(lineBreak);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
 }
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
@@ -2334,6 +2361,15 @@ export default function SlideEditor({
   // Global keyboard handling while inline-editing
   useEffect(() => {
     if (!editingEl) return;
+    // Determine "multi-line capable" once at entry time. contentEditable's
+    // default Enter behavior inserts block-level children (e.g. <div><br></div>)
+    // after a couple of presses, which would otherwise flip isTextLeaf to false
+    // mid-edit and incorrectly commit the user out of the block. The user's
+    // intent (rich-block edit vs single-line commit) doesn't change while
+    // they're editing the same node, so latch it.
+    const isMultiLineLeaf =
+      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
+      isBulletList(editingEl);
     const onKey = (e: KeyboardEvent) => {
       const isSelectAll =
         (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "a";
@@ -2399,8 +2435,9 @@ export default function SlideEditor({
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
-        //  - Enter remains native for every text block, so repeated presses
-        //    never end the editing session.
+        //  - Rich block leaves keep contentEditable's native multi-line edit.
+        //  - Other text blocks get a <br> so repeated presses stay within the
+        //    existing layout instead of creating new block children.
         if (e.shiftKey) return;
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
@@ -2419,6 +2456,14 @@ export default function SlideEditor({
           e.preventDefault();
           captureInlineEditDraft(slide.id);
           return;
+        }
+
+        if (!isMultiLineLeaf) {
+          e.preventDefault();
+          const editing = editingElRef.current;
+          if (editing && insertLineBreak(editing)) {
+            captureInlineEditDraft(slide.id);
+          }
         }
       }
     };
