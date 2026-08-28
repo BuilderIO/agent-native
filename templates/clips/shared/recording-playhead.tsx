@@ -125,6 +125,7 @@ export function RecordingPlayhead({
     useState<RecordingPlayheadIntent | null>(null);
   const [expanded, setExpanded] = useState(false);
   const playheadRef = useRef<HTMLDivElement | null>(null);
+  const confirmActionRef = useRef<HTMLButtonElement | null>(null);
   const segmentRefs = useRef<Record<Segment, HTMLSpanElement | null>>({
     mid: null,
     q: null,
@@ -372,6 +373,10 @@ export function RecordingPlayhead({
     ]);
   }, [confirmIntent, expanded]);
 
+  useLayoutEffect(() => {
+    if (confirmIntent) confirmActionRef.current?.focus();
+  }, [confirmIntent]);
+
   useEffect(() => {
     if (
       !confirmRequest ||
@@ -434,10 +439,12 @@ export function RecordingPlayhead({
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    const target = event.target as Element | null;
     if (
       (event.pointerType !== "touch" && event.pointerType !== "pen") ||
       confirmIntent ||
-      expanded
+      expanded ||
+      target?.closest("[data-recording-playhead-button]")
     ) {
       return;
     }
@@ -541,6 +548,7 @@ export function RecordingPlayhead({
           <button
             type="button"
             data-recording-playhead-button
+            ref={confirmActionRef}
             onClick={confirmAction}
             disabled={pendingAction !== null}
             tabIndex={isConfirming ? 0 : -1}
@@ -584,6 +592,7 @@ export function RecordingPlayhead({
             data-recording-playhead-button
             onClick={() => openConfirm("restart")}
             disabled={!enabled || pendingAction !== null}
+            tabIndex={isConfirming ? -1 : 0}
             aria-label={labels.restart}
             title={labels.restartShortcut}
             className="recording-playhead__button recording-playhead__extras-restart"
@@ -597,6 +606,7 @@ export function RecordingPlayhead({
               enabled ? openConfirm("delete") : onDeleteRequest?.()
             }
             disabled={(!enabled && !onDeleteRequest) || pendingAction !== null}
+            tabIndex={isConfirming ? -1 : 0}
             aria-label={labels.delete}
             title={labels.deleteShortcut}
             className="recording-playhead__button recording-playhead__extras-delete"

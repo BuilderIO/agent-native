@@ -122,6 +122,15 @@ describe("the recording playhead has a shared visual source", () => {
       intent: "delete",
       enteredPaused: false,
     });
+    const confirmButton = container.querySelector<HTMLButtonElement>(
+      ".recording-playhead__confirm-action",
+    );
+    expect(document.activeElement).toBe(confirmButton);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".recording-playhead__extras-restart",
+      )?.tabIndex,
+    ).toBe(-1);
 
     await act(async () => {
       root?.render(render(false));
@@ -173,6 +182,57 @@ describe("the recording playhead has a shared visual source", () => {
 
     expect(expanded).toBe(true);
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("keeps visible stop and pause buttons one-tap actions on touch", async () => {
+    let stops = 0;
+    let pauses = 0;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        createElement(RecordingPlayhead, {
+          elapsedMs: 1_000,
+          paused: false,
+          meter: createElement("span"),
+          labels,
+          onStop: () => {
+            stops += 1;
+          },
+          onTogglePause: () => {
+            pauses += 1;
+          },
+          onConfirmAction: () => {},
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const stopButton = container.querySelector<HTMLButtonElement>(
+      ".recording-playhead__stop",
+    );
+    const pauseButton = container.querySelector<HTMLButtonElement>(
+      ".recording-playhead__pause",
+    );
+    for (const button of [stopButton, pauseButton]) {
+      expect(button).not.toBeNull();
+      const pointerEvent = new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        pointerType: "touch",
+      });
+      await act(async () => {
+        button?.dispatchEvent(pointerEvent);
+        button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(pointerEvent.defaultPrevented).toBe(false);
+    }
+
+    expect(stops).toBe(1);
+    expect(pauses).toBe(1);
   });
 
   it("keeps hidden confirmation actions out of tab navigation", async () => {
