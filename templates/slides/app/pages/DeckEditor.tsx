@@ -1127,6 +1127,13 @@ export default function DeckEditor() {
 
   const syncSlideClipboard = useCallback(() => {
     if (!slideClipboardStorageKey) {
+      if (
+        slideClipboardRef.current !== null &&
+        slideClipboardScopeRef.current === null
+      ) {
+        setHasSlideClipboard(true);
+        return slideClipboardRef.current;
+      }
       slideClipboardRef.current = null;
       slideClipboardScopeRef.current = null;
       slideClipboardPersistenceFailedRef.current = false;
