@@ -20,6 +20,7 @@ export interface SlideStyleSnapshot {
   slideWidth: number;
   slideHeight: number;
   color: string;
+  fontFamily: string;
   backgroundColor: string;
   fontSize: number;
   fontWeight: string;
@@ -41,6 +42,7 @@ export interface SlideStyleSnapshot {
 
 export type SlideStylePatch = Partial<{
   color: string;
+  fontFamily: string;
   backgroundColor: string;
   fontSize: string;
   fontWeight: string;
@@ -66,6 +68,7 @@ export type SlideStylePatch = Partial<{
 
 const MULTI_STYLE_KEYS = [
   "color",
+  "fontFamily",
   "fontSize",
   "fontWeight",
   "fontStyle",

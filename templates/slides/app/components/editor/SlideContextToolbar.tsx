@@ -1,9 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  FONT_FAMILY_OPTIONS,
+  VisualFontFamilyPicker,
   VisualColorPicker,
   VisualControlRow,
   VisualScrubInput,
   VisualSegmentedControl,
+  displayFontFamilyName,
+  resolveFontFamilySelectValue,
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
@@ -188,10 +192,30 @@ export function SlideContextToolbar({
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
+  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(`styleInspector.fontFamilies.${option.key}`),
+  }));
   const inlineEditSurfaceProps = {
     "data-slide-inline-edit-surface": "true",
   };
   const mixedTextStyles = snapshot?.mixedTextStyles ?? [];
+  const fontFamilyIsMixed = mixedTextStyles.includes("fontFamily");
+  const fontFamily = snapshot
+    ? resolveFontFamilySelectValue(snapshot.fontFamily)
+    : "sans-serif";
+  const fontFamilyOptions =
+    !snapshot ||
+    fontFamilyIsMixed ||
+    baseFontFamilyOptions.some((option) => option.value === fontFamily)
+      ? baseFontFamilyOptions
+      : [
+          {
+            value: fontFamily,
+            label: displayFontFamilyName(snapshot.fontFamily || fontFamily),
+          },
+          ...baseFontFamilyOptions,
+        ];
   // A mixed selection has no single state to reflect, so the toggle reads as
   // off and one click makes the whole selection consistent.
   const isItalic =
@@ -379,6 +403,20 @@ export function SlideContextToolbar({
         <>
           {snapshot.isText ? (
             <>
+              <VisualFontFamilyPicker
+                label={t("styleInspector.fontFamily")}
+                value={fontFamily}
+                options={fontFamilyOptions}
+                mixed={fontFamilyIsMixed}
+                mixedLabel={t("styleInspector.mixed")}
+                className={cn(
+                  VALUE_MENU_CLASS,
+                  "w-32 border-0 bg-transparent px-1.5 shadow-none focus:ring-0 focus:ring-offset-0",
+                )}
+                contentProps={inlineEditSurfaceProps}
+                onChange={(value) => onChange({ fontFamily: value })}
+              />
+              <div className={TOOLBAR_DIVIDER} />
               <VisualScrubInput
                 label={t("styleInspector.size")}
                 icon={IconLetterCase}

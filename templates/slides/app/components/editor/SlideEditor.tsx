@@ -468,6 +468,7 @@ function stylePropertyName(property: string): string {
 
 const INLINE_INSPECTOR_STYLE_KEYS = [
   "color",
+  "fontFamily",
   "fontSize",
   "fontWeight",
   "fontStyle",
@@ -559,6 +560,7 @@ function buildStyleSnapshot(
   const selectedTextStyle =
     inlineTextStyle?.scope === "selection" ? inlineTextStyle : null;
   const selectedColor = selectedTextStyle?.values.color;
+  const selectedFontFamily = selectedTextStyle?.values.fontFamily;
   const selectedFontSize = selectedTextStyle?.values.fontSize;
   const selectedFontWeight = selectedTextStyle?.values.fontWeight;
   const selectedFontStyle = selectedTextStyle?.values.fontStyle;
@@ -580,6 +582,7 @@ function buildStyleSnapshot(
       selectedColor === null || selectedColor === undefined
         ? normalizedColor(computed.color)
         : normalizedColor(selectedColor),
+    fontFamily: selectedFontFamily ?? computed.fontFamily,
     backgroundColor: normalizedColor(computed.backgroundColor),
     fontSize:
       selectedFontSize === null || selectedFontSize === undefined
