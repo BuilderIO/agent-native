@@ -73,7 +73,8 @@ Read the relevant skill before deeper work:
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
 | `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
 | `manage-gmail-filters` | Gmail-native filters. |
-| `manage-automations` / `trigger-automations` | Inbox automation rules. |
+| `manage-automations` | Recurring and event-triggered automations shown in Settings. |
+| `manage-email-rules` / `trigger-automations` | Inbox automation rules. |
 | `respond-calendar-invite` | Accept/decline/tentative an invite. |
 | `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature and writing style. |
 | `manage-snippets` | Saved reply snippets. |

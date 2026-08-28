@@ -2123,6 +2123,18 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
+      // the run config so a queued send keeps its label when it finally flushes,
+      // and every auto-continuation of the turn re-sends the same one.
+      const usageLabel = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { usageLabel?: unknown }).usageLabel
+            : undefined;
+        return typeof raw === "string" && raw.trim()
+          ? raw.trim().slice(0, 120)
+          : undefined;
+      })();
       const queuedMessageId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -4016,6 +4028,7 @@ export function createAgentChatAdapter(
                   structuredHistory: currentStructuredHistory,
                   turnId,
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
+                  ...(usageLabel ? { usageLabel } : {}),
                   ...(threadId ? { threadId } : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }
