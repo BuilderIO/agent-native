@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -24,7 +23,6 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "content",
   durableBackgroundRuns: true,
-  a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {

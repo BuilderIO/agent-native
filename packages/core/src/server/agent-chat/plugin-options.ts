@@ -8,7 +8,6 @@ import type {
   AgentChatReference,
   MentionProvider,
 } from "../../agent/types.js";
-import type { FeatureFlagDefinition } from "../../feature-flags/registry.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
@@ -424,12 +423,6 @@ export interface AgentChatPluginOptions {
    * cycle safety does not depend on removing the tool.
    */
   a2aAgentDelegation?: boolean;
-
-  /**
-   * Default-off app-owned rollout for binding a delegated objective to this
-   * selected receiver before it considers another cross-app delegation.
-   */
-  a2aReceiverOwnershipFlag?: FeatureFlagDefinition;
 
   /**
    * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter

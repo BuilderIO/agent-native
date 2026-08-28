@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -11,6 +12,7 @@ import {
   buildAuthenticatedAgentA2ASkills,
   createA2AEngineToolSurface,
   filterDirectA2AActions,
+  isSelectedA2AReceiver,
 } from "./action-filters-a2a.js";
 
 const contentProjectRoot = path.resolve(
@@ -32,6 +34,27 @@ async function loadContentActions() {
 }
 
 describe("Content authenticated A2A capabilities", () => {
+  it("keeps a selected Content intake local for a managed Slack channel service principal", () => {
+    const managedChannelPrincipal = "scope-test-content-app@integration.local";
+    expect(managedChannelPrincipal).toMatch(/@integration\.local$/);
+    expect(isSelectedA2AReceiver("content", "content")).toBe(true);
+
+    const source = readFileSync(
+      path.resolve(
+        contentProjectRoot,
+        "../../packages/core/src/server/agent-chat-plugin.ts",
+      ),
+      "utf8",
+    );
+    const decisionStart = source.indexOf(
+      "const receiverOwnsObjective = isSelectedA2AReceiver(",
+    );
+    const decision = source.slice(decisionStart, decisionStart + 300);
+    expect(decisionStart).toBeGreaterThan(-1);
+    expect(decision).not.toContain("isFeatureFlagEnabled");
+    expect(decision).not.toContain("a2aReceiverOwnershipFlag");
+  });
+
   it(
     "publishes bounded reads and message-only intake mutations for generic Dispatch delegation",
     async () => {
