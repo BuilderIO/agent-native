@@ -530,12 +530,12 @@ export function FirstRunOnboarding({
                 <div>
                   <h2 className="text-sm font-semibold">
                     {canActivateBuilderFreeCredits
-                      ? "Activate Builder.io free credits"
-                      : "Connect Builder.io free credits"}
+                      ? t("agentChat.onboarding.builderActivateCredits")
+                      : t("agentChat.onboarding.builderConnectCredits")}
                   </h2>
                   <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
                     {canActivateBuilderFreeCredits ? (
-                      "Create or reuse your Builder.io account and activate its free credits in one click."
+                      t("agentChat.onboarding.builderActivateDescription")
                     ) : (
                       <>
                         One click connects{" "}
@@ -557,8 +557,8 @@ export function FirstRunOnboarding({
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
                   {canActivateBuilderFreeCredits
-                    ? "Included with active Builder.io free credits"
-                    : "Included with Builder.io free credits"}
+                    ? t("agentChat.onboarding.builderActiveCredits")
+                    : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
                   {builderCapabilities.map((capability, index) => (
@@ -617,7 +617,7 @@ export function FirstRunOnboarding({
                       data-testid="first-run-connect-builder"
                       className={cn(primaryButtonClass, "mt-5 w-full")}
                     >
-                      Activate Builder.io free credits
+                      {t("agentChat.onboarding.builderActivateCredits")}
                       <IconArrowRight size={15} />
                     </button>
                   </PopoverTrigger>
@@ -634,11 +634,10 @@ export function FirstRunOnboarding({
                         id="first-run-builder-consent-title"
                         className="text-sm font-semibold text-foreground"
                       >
-                        Activate free credits
+                        {t("agentChat.onboarding.builderActivateTitle")}
                       </h2>
                       <p className="text-xs leading-5 text-muted-foreground">
-                        We&apos;ll automatically create your Builder.io account
-                        for you.
+                        {t("agentChat.onboarding.builderActivationDescription")}
                       </p>
                       <button
                         type="button"
@@ -649,40 +648,40 @@ export function FirstRunOnboarding({
                           handleBuilder();
                         }}
                       >
-                        Create and activate
+                        {t("agentChat.onboarding.builderCreateAndActivate")}
                         <IconArrowRight size={15} />
                       </button>
                       <p className="text-[11px] leading-4 text-muted-foreground">
-                        By continuing, you agree to Builder.io&apos;s{" "}
+                        {t("agentChat.onboarding.builderConsentPrefix")}{" "}
                         <a
                           href="https://www.builder.io/legal/terms"
                           target="_blank"
                           rel="noreferrer"
                           className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          Terms
+                          {t("agentChat.onboarding.builderTerms")}
                         </a>{" "}
-                        and{" "}
+                        {t("agentChat.onboarding.builderConsentAnd")}{" "}
                         <a
                           href="https://www.builder.io/legal/privacy"
                           target="_blank"
                           rel="noreferrer"
                           className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          Privacy
+                          {t("agentChat.onboarding.builderPrivacy")}
                         </a>
                         .
                       </p>
                       <button
                         type="button"
                         data-testid="first-run-builder-existing-account"
-                        className={cn(secondaryButtonClass, "w-full")}
+                        className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={() => {
                           setBuilderActivationOpen(false);
                           handleBuilder(false);
                         }}
                       >
-                        I have a Builder.io account
+                        {t("agentChat.onboarding.builderExistingAccount")}
                       </button>
                     </div>
                   </PopoverContent>
@@ -694,7 +693,7 @@ export function FirstRunOnboarding({
                   className={cn(primaryButtonClass, "mt-5 w-full")}
                   onClick={() => handleBuilder()}
                 >
-                  Connect Builder.io free credits
+                  {t("agentChat.onboarding.builderConnectCredits")}
                   <IconArrowRight size={15} />
                 </button>
               )}
@@ -1044,13 +1043,13 @@ export function FirstRunOnboarding({
           </div>
           <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
             {provisioning
-              ? "Activating Builder.io free credits"
-              : "Connecting Builder.io free credits"}
+              ? t("agentChat.onboarding.builderActivating")
+              : t("agentChat.onboarding.builderConnecting")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {provisioning
-              ? "Creating or reusing your Builder.io account. This usually takes a few seconds."
-              : "Finish the one-click connection in the new window."}
+              ? t("agentChat.onboarding.builderProvisioningDescription")
+              : t("agentChat.onboarding.builderConnectionDescription")}
           </p>
           <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
             <div className="flex items-center justify-between gap-3">

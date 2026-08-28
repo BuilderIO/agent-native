@@ -226,7 +226,7 @@ describe("FirstRunOnboarding", () => {
         ?.textContent,
     ).toContain("Activate free credits");
     expect(document.body.textContent).toContain(
-      "We'll automatically create your Builder.io account for you.",
+      "We'll automatically create your Builder.io account for you in one click.",
     );
     expect(document.body.textContent).toContain("Create and activate");
     const existingAccountButton = document.body.querySelector(
@@ -235,6 +235,8 @@ describe("FirstRunOnboarding", () => {
     expect(existingAccountButton?.textContent).toContain(
       "I have a Builder.io account",
     );
+    expect(existingAccountButton?.className).not.toContain("border");
+    expect(existingAccountButton?.className).toContain("text-muted-foreground");
     expect(existingAccountButton?.querySelector("svg")).toBeNull();
     expect(document.body.textContent).not.toContain("Google credentials");
     expect(document.body.textContent).not.toContain("Connect or log in");
