@@ -4,12 +4,15 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -1047,6 +1050,7 @@ export default (event) =>
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("Churning");
     expect(html).toContain("an-cube-pulse");
+    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
     expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");

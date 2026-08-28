@@ -1950,17 +1950,40 @@ const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
 
 const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 const STATIC_SHELL_LOADING_MARKUP = [
-  '<div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%">',
+  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100%">',
   '<div style="display:flex;align-items:center;gap:12px">',
-  '<svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">',
-  "<style>@keyframes an-cube-pulse{0%,100%{opacity:.15}50%{opacity:.95}}.an-cube-cell{animation:an-cube-pulse 650ms ease-in-out infinite;fill:currentColor;opacity:.15}@media (prefers-reduced-motion:reduce){.an-cube-cell{animation:none}}</style>",
+  '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
+  `<style>
+        @keyframes an-cube-pulse {
+          0%, 100% { opacity: 0.15; }
+          50% { opacity: 0.95; }
+        }
+        .an-cube-cell {
+          animation: an-cube-pulse 650ms ease-in-out infinite;
+          fill: currentColor;
+          opacity: 0.15;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .an-cube-cell { animation: none; }
+        }
+      </style>`,
   ...STATIC_SHELL_CUBE_DELAYS.map(
     (delay, index) =>
-      `<rect class="an-cube-cell" x="${1 + (index % 3) * 7}" y="${1 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:${delay}ms"></rect>`,
+      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:${delay}ms"></rect>`,
   ),
-  '</svg><span style="font-family:ui-sans-serif,system-ui,sans-serif;font-size:16px;font-weight:500;opacity:.65">Churning</span>',
-  // guard:allow-raw-color - static shell loads before app theme tokens exist
-  "</div><style>html{background:hsl(var(--background,0 0% 100%));color:hsl(var(--foreground,240 10% 3.9%))}@media (prefers-color-scheme:dark){html{background:#09090b;color:#fafafa}}</style></div>",
+  '</svg><span style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  `<\/div><style>
+        html {
+          background: hsl(var(--background, 0 0% 100%));
+          color: hsl(var(--foreground, 240 10% 3.9%));
+        }
+        @media (prefers-color-scheme: dark) {
+          html {
+            background: hsl(var(--background, 240 10% 3.9%));
+            color: hsl(var(--foreground, 0 0% 98%));
+          }
+        }
+      </style></div>`,
 ].join("");
 
 export function generateCloudflarePagesStaticShellFromManifest(
