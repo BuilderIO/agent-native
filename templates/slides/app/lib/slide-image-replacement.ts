@@ -670,12 +670,17 @@ function nonRenderedSourceRanges(
   const ranges: SourceRange[] = [];
   let start = 0;
   while (start < content.length) {
+    const htmlTagEnd = htmlTagEndAt(content, start);
     const end =
       markdownFenceEndAt(content, start) ??
       markdownInlineCodeEndAt(content, start) ??
       htmlNonRenderedElementRangeEndAt(content, start) ??
-      (includeHtmlTags ? htmlTagEndAt(content, start) : null);
+      (includeHtmlTags ? htmlTagEnd : null);
     if (end === null || end <= start) {
+      if (!includeHtmlTags && htmlTagEnd !== null) {
+        start = htmlTagEnd;
+        continue;
+      }
       start += 1;
       continue;
     }

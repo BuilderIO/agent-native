@@ -326,6 +326,21 @@ describe("slide image replacement", () => {
     );
   });
 
+  it("does not let HTML-like attribute text hide a following HTML image", () => {
+    const src = "https://cdn.example.com/shared.png";
+    const html = `<span data-example="<code>![Attribute example](${src})">Text</span><img src="${src}" alt="Rendered image">`;
+    const updated = updateImageFitInSlideHtml(html, src, {
+      objectFit: "cover",
+    });
+
+    expect(updated).toContain(
+      `<span data-example="<code>![Attribute example](${src})">Text</span>`,
+    );
+    expect(updated).toContain(
+      `<img src="${src}" alt="Rendered image" style="object-fit: cover;">`,
+    );
+  });
+
   it("keeps Markdown and HTML duplicate occurrences in rendered order", () => {
     const src = "https://cdn.example.com/shared.png";
     const html = `![First](${src})<img src="${src}" alt="Raw" style="object-fit: contain;">![Third](${src})`;
