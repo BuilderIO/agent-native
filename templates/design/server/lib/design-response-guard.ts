@@ -183,12 +183,18 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
     return false;
   }
   if (/\bhow\s+to\b/i.test(normalized)) return false;
-  if (DESIGN_ADVISORY_SKILLS.test(normalized)) return false;
 
-  const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(normalized);
+  const advisorySkillsMatch = DESIGN_ADVISORY_SKILLS.exec(normalized);
+  const mutationText = advisorySkillsMatch
+    ? `${normalized.slice(0, advisorySkillsMatch.index)} ${normalized.slice(
+        advisorySkillsMatch.index + advisorySkillsMatch[0].length,
+      )}`
+    : normalized;
+
+  const advisoryMatch = DESIGN_ADVISORY_WORDS.exec(mutationText);
   if (advisoryMatch) {
-    const beforeAdvisory = normalized.slice(0, advisoryMatch.index);
-    const afterAdvisory = normalized.slice(
+    const beforeAdvisory = mutationText.slice(0, advisoryMatch.index);
+    const afterAdvisory = mutationText.slice(
       advisoryMatch.index + advisoryMatch[0].length,
     );
     const followsAdvisory =
@@ -201,8 +207,8 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   }
 
   return (
-    DESIGN_MUTATION_VERBS.test(normalized) &&
-    DESIGN_MUTATION_OBJECTS.test(normalized)
+    DESIGN_MUTATION_VERBS.test(mutationText) &&
+    DESIGN_MUTATION_OBJECTS.test(mutationText)
   );
 }
 
