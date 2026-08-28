@@ -61,6 +61,15 @@ permissions, tenant isolation, secrets, destructive data loss or migrations,
 remote code execution, SSRF, payments, deployment, or unexplained dependency
 and infrastructure risk.
 
+For the exact `liamdebeasi` login and immutable GitHub user ID `2721089`, a
+current BuilderIO membership check is still required. When the current,
+non-draft PR has no current-head, non-dismissed approval, the Liam exception
+allows approval across ordinary check, review-feedback, scope, and UX-owner
+gates without authorizing a merge. It does not apply to ultra-scary changes or
+changes to review/approval policy, agent-safety instructions, membership
+verification, or CI/deployment security controls; those require independent
+human review.
+
 The verified owner exceptions are current and must be applied only after
 membership and the ultra-scary assessment: Alice (\`3mdistal\`) for Content,
 Nick (\`NKoech123\`) for Slides, Enzo (\`enzoames\`) for Factory-specific PRs,

@@ -10,6 +10,7 @@ export type PullRequestReviewState =
 export interface PullRequestReviewObservation {
   author: string;
   state: PullRequestReviewState;
+  commitSha?: string;
   observedAt: string;
 }
 

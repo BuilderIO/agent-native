@@ -58,6 +58,44 @@ describe("pull-request governance", () => {
     });
   });
 
+  it("applies the verified Liam exception across ordinary UX gates", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        changedFiles: ["templates/design/app/pages/DesignEditor.tsx"],
+        clearBug: false,
+        productUxImplications: true,
+        checksPassed: false,
+        reviewFeedbackHandled: false,
+      }),
+    ).toMatchObject({
+      trustException: "liamdebeasi",
+      autoApprove: true,
+      autoMerge: false,
+    });
+  });
+
+  it("keeps the Liam exception behind membership and governance safety gates", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        changedFiles: ["templates/design/app/pages/DesignEditor.tsx"],
+        clearBug: false,
+        productUxImplications: true,
+        internalBuilderMember: false,
+      }).autoApprove,
+    ).toBe(false);
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        changedFiles: [".agents/skills/review-prs/SKILL.md"],
+      }).autoApprove,
+    ).toBe(false);
+  });
+
   it("does not trust an owner username without verified membership", () => {
     expect(
       decidePullRequestGovernance({
@@ -201,23 +239,39 @@ describe("pull-request governance", () => {
         {
           author: "reviewer",
           state: "approved",
+          commitSha: "head-1",
           observedAt: "2026-08-19T10:00:00Z",
         },
-      ]),
+      ], "head-1"),
     ).toBe(true);
     expect(
       hasCurrentPullRequestApproval([
         {
           author: "reviewer",
           state: "approved",
+          commitSha: "head-1",
           observedAt: "2026-08-19T10:00:00Z",
         },
         {
           author: "reviewer",
           state: "dismissed",
+          commitSha: "head-1",
           observedAt: "2026-08-19T11:00:00Z",
         },
-      ]),
+      ], "head-1"),
+    ).toBe(false);
+    expect(
+      hasCurrentPullRequestApproval(
+        [
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "old-head",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "new-head",
+      ),
     ).toBe(false);
   });
 });

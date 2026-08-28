@@ -62,16 +62,17 @@ auto-approved, even when the patch looks safe or the issue is obviously valid.
 
 ## Liamdebeasi approval policy
 
-For a PR authored by the exact GitHub login `liamdebeasi`, always submit an
-approval when it is a current, non-draft PR in `BuilderIO/agent-native` and
-does not already have a current, non-dismissed approval; never duplicate an
-existing approval. This exception overrides the ordinary membership, check,
-review-feedback, scope, and UX-owner gates. It does not authorize a merge,
-suppress the ultra-scary safety gate, or permit approval when the diff shows a
-credible auth bypass, permission or tenant-isolation failure, secret or
-credential leak, destructive data loss or migration, remote code execution,
-SSRF, payment compromise, deployment compromise, or similarly severe
-production risk.
+For a PR authored by the exact GitHub login `liamdebeasi` and immutable user
+ID `2721089`, always submit an approval when it is a current, non-draft PR in
+`BuilderIO/agent-native`, the membership API verifies current BuilderIO
+membership, and it does not already have a current-head, non-dismissed
+approval; never duplicate an existing approval. This exception overrides the
+ordinary check, ordinary review-feedback, scope, and UX-owner gates. It does
+not override membership verification, the ultra-scary safety gate, or the
+independent-review requirement for PRs changing review or approval policy,
+agent-safety instructions, membership verification, or CI/deployment security
+controls. Active credible safety findings remain approval-blocking. It does
+not authorize a merge.
 
 ## Internal-author approval policy
 

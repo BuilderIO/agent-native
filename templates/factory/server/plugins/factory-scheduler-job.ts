@@ -319,6 +319,14 @@ pending, skipped, unknown, and unresolved ordinary feedback accurately - never
 call it clean just because the author is internal. Sid's verified Design-owner
 exception still does not waive membership or the ultra-scary gate.
 
+For the exact `liamdebeasi` login and immutable GitHub user ID `2721089`, keep
+current BuilderIO membership mandatory. If the current, non-draft PR has no
+current-head, non-dismissed approval, the Liam exception permits approval
+through ordinary check, review-feedback, scope, and UX-owner gates. It never
+waives ultra-scary review or the independent-review requirement for changes to
+review/approval policy, agent-safety instructions, membership verification, or
+CI/deployment security controls, and it never authorizes a merge.
+
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
 includePullRequests true. List at most 3 new or changed pull requests by

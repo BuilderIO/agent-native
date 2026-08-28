@@ -115,7 +115,7 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
@@ -219,7 +219,7 @@ export default defineAction({
         `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
       );
     }
-    if (hasCurrentPullRequestApproval(snapshot.reviews)) {
+    if (hasCurrentPullRequestApproval(snapshot.reviews, snapshot.headSha)) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -322,6 +322,7 @@ export default defineAction({
           autoApprove: governance.autoApprove,
           autoMerge: governance.autoMerge,
           ownerException: governance.ownerException,
+          trustException: governance.trustException,
           ownerOwnedArea: governance.ownerOwnedArea ?? null,
           guardResults: governance.guardResults,
         },
@@ -418,7 +419,9 @@ export default defineAction({
         const approval = await github.approvePullRequest(
           repository,
           pullRequestNumber,
-          governance.ownerException
+          governance.trustException
+            ? `Factory auto-approved under the verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
+            : governance.ownerException
             ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
             : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
         );

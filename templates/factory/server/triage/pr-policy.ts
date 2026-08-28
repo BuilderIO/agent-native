@@ -9,6 +9,8 @@ export type PullRequestOwnerException =
   | "sid-design"
   | "docs-only";
 
+export type PullRequestTrustException = "liamdebeasi";
+
 export interface PullRequestGovernanceInput {
   author: string;
   repository: string;
@@ -27,6 +29,7 @@ export interface PullRequestGovernanceInput {
 export interface PullRequestGovernanceDecision {
   ownerOwnedArea: OwnerOwnedArea | null;
   ownerException: PullRequestOwnerException | null;
+  trustException: PullRequestTrustException | null;
   autoApprove: boolean;
   autoMerge: boolean;
   reason: string;
@@ -78,6 +81,10 @@ export function decidePullRequestGovernance(
     ...input.changedFiles,
   ]);
   const ultraScary = isUltraScaryChange(input.changedFiles);
+  const liamException =
+    input.author.trim().toLowerCase() === "liamdebeasi" &&
+    input.internalBuilderMember &&
+    !ultraScary;
   const ownerException = detectPullRequestOwnerException(input);
   const verifiedOwnerException =
     input.internalBuilderMember && !ultraScary ? ownerException : null;
@@ -92,9 +99,12 @@ export function decidePullRequestGovernance(
     },
     {
       code: "unknown_change",
-      passed: input.clearBug || verifiedOwnerException !== null,
+      passed:
+        input.clearBug ||
+        verifiedOwnerException !== null ||
+        liamException,
       reason:
-        input.clearBug || verifiedOwnerException !== null
+        input.clearBug || verifiedOwnerException !== null || liamException
           ? "The automation classified this as a clear bug with a concrete failure signal."
           : "The automation did not establish a clear bug; product requests and guesses stay manual.",
     },
@@ -134,7 +144,8 @@ export function decidePullRequestGovernance(
 
   if (
     ownerOwnedArea &&
-    !ownerExceptionCoversArea(verifiedOwnerException, ownerOwnedArea)
+    !ownerExceptionCoversArea(verifiedOwnerException, ownerOwnedArea) &&
+    !liamException
   ) {
     gates.push({
       code: "owner_owned",
@@ -142,7 +153,11 @@ export function decidePullRequestGovernance(
       reason: `${ownerOwnedArea} is owner-managed and is never auto-approved, auto-merged, or dispatched by this Factory.`,
     });
   }
-  if (input.productUxImplications && verifiedOwnerException === null) {
+  if (
+    input.productUxImplications &&
+    verifiedOwnerException === null &&
+    !liamException
+  ) {
     gates.push({
       code: "unknown_change",
       passed: false,
@@ -156,7 +171,9 @@ export function decidePullRequestGovernance(
   const reason = autoApprove
     ? verifiedOwnerException
       ? `Verified ${verifiedOwnerException} owner exception; approval is safe to automate while ordinary check and review states remain recorded.`
-      : "Clear internal bug fix with verified membership; approval is safe to automate while ordinary check and review states remain recorded."
+      : liamException
+        ? "Verified liamdebeasi exception; approval is safe to automate while ordinary check and review states remain recorded."
+        : "Clear internal bug fix with verified membership; approval is safe to automate while ordinary check and review states remain recorded."
     : gates
         .filter((gate) => !gate.passed)
         .map((gate) => gate.reason)
@@ -165,6 +182,7 @@ export function decidePullRequestGovernance(
   return {
     ownerOwnedArea,
     ownerException: verifiedOwnerException,
+    trustException: liamException ? "liamdebeasi" : null,
     autoApprove,
     autoMerge,
     reason,
@@ -203,12 +221,14 @@ export function hasCurrentPullRequestApproval(
   reviews: readonly {
     author: string;
     state: string;
+    commitSha?: string;
     observedAt: string;
   }[],
+  headSha: string,
 ): boolean {
   const latestByAuthor = new Map<
     string,
-    { state: string; observedAt: string; order: number }
+    { state: string; commitSha?: string; observedAt: string; order: number }
   >();
   reviews.forEach((review, order) => {
     const author = review.author.trim().toLowerCase();
@@ -221,13 +241,14 @@ export function hasCurrentPullRequestApproval(
     ) {
       latestByAuthor.set(author, {
         state: review.state,
+        commitSha: review.commitSha,
         observedAt: review.observedAt,
         order,
       });
     }
   });
   return [...latestByAuthor.values()].some(
-    (review) => review.state === "approved",
+    (review) => review.state === "approved" && review.commitSha === headSha,
   );
 }
 
@@ -259,6 +280,9 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
   return changedFiles.some((file) => {
     const normalized = normalizePath(file);
     return (
+      normalized === ".agents/skills/review-prs/skill.md" ||
+      normalized.includes("/review-skill-alignment.") ||
+      normalized.endsWith("/govern-agent-native-pull-request.ts") ||
       normalized.startsWith(".github/workflows/") ||
       /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
         normalized,
