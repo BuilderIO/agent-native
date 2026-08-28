@@ -1402,9 +1402,8 @@ function DesignEditor() {
   const keyboardShortcutsReturnFocusRef = useRef<HTMLElement | null>(null);
   const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const suppressProjectMenuReturnFocusRef = useRef(false);
-  // PF13: refs to the resizable sidebar containers so a splitter drag can
-  // update width imperatively (no React re-render per pointermove) and only
-  // commit the final width to state once, on pointerup.
+  // Refs to the resizable sidebar containers keep the splitter responsive
+  // between React renders while the live width state drives dependent layout.
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
@@ -1981,14 +1980,11 @@ function DesignEditor() {
     if (hasSelectedElement) focusDesignInspectorForSelection();
   }, [focusDesignInspectorForSelection, hasSelectedElement]);
 
-  // PF13: the splitter previously called setWidth (React state) on every raw
-  // pointermove, re-rendering the whole DesignEditor tree (including the
-  // canvas) per pixel dragged. Now the drag updates the target container's
-  // style.width imperatively via a ref — no re-render — and only commits the
-  // final width to state once, on pointerup/pointercancel. The left panel's
-  // `transition-[width]` class is temporarily suspended during the drag (it
-  // otherwise fights the imperative per-frame width with its own easing) and
-  // restored afterward so panel-open/close still animates normally.
+  // The splitter updates the target container immediately and mirrors every
+  // move into React state so width-dependent Inspector layout changes are
+  // visible during the gesture. The panel's `transition-[width]` class is
+  // suspended during the drag so easing cannot lag behind the pointer, then
+  // restored afterward for normal panel-open/close animation.
   const startSidebarResize = useCallback(
     (side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) =>
       runStartSidebarResize(
@@ -9973,11 +9969,32 @@ function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
       metadata?: {
+        phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
       },
     ) => {
       if (!activeFile?.id) return;
+      if (metadata?.phase === "preview") {
+        // Resize gestures mutate the iframe DOM on every pointermove. Mirror
+        // that payload into the Inspector immediately without creating a
+        // source patch or history entry; the bridge's final commit remains
+        // the single persistence boundary on pointerup.
+        if (elementInfo) {
+          setSelectedElement((current) =>
+            current
+              ? {
+                  ...current,
+                  computedStyles: elementInfo.computedStyles,
+                  inlineStyles: elementInfo.inlineStyles,
+                  boundingRect: elementInfo.boundingRect,
+                  parentBoundingRect: elementInfo.parentBoundingRect,
+                }
+              : current,
+          );
+        }
+        return;
+      }
       // The gesture already moved the live DOM, so this never needs the
       // runtime push. Which screens queue a pending edit instead of writing
       // source is commitVisualStyles' single decision — inline/fusion screens
@@ -10136,6 +10153,7 @@ function DesignEditor() {
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
       metadata?: {
+        phase?: "preview" | "commit";
         originalStyles?: Record<string, string>;
         preserveSelection?: boolean;
       },
@@ -18834,9 +18852,12 @@ function DesignEditor() {
 
   // ── Right sidebar actions ──────────────────────────────────────────────────
   const rightSidebarActions = (
-    <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
-      <div className="flex min-h-8 items-center gap-1">
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+    <div
+      data-design-chrome-region="right-toolbar"
+      className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+    >
+      <div className="flex min-h-[var(--design-row-height)] items-center gap-[var(--design-baseline-half)]">
+        <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
           {hostEmbeddedEditor ? null : (
             <DesignCollaboratorsMenu
               collaborators={designCollaborators}
@@ -18851,14 +18872,14 @@ function DesignEditor() {
             nowrap label wide enough to push this row past the right rail's
             edge on its own, and a shrink-0 row has no way to give that space
             back — it just overflows the panel. */}
-        <div className="flex min-w-0 shrink items-center gap-1">
+        <div className="flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
           {pendingNodeRewriteControl}
           {canEditDesign && reviewAgentQueueCount > 0 ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 gap-1 rounded-md px-2 text-xs"
+              className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
               onClick={handleApplyReviewFeedback}
               disabled={reviewFeedbackApplying}
             >
@@ -18889,7 +18910,7 @@ function DesignEditor() {
                     variant="ghost"
                     size="sm"
                     className={cn(
-                      "h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground",
+                      "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
                       hostEmbeddedEditor && "hidden",
                     )}
                     aria-label={"Preview or publish app" /* i18n-ignore */}
@@ -19012,7 +19033,7 @@ function DesignEditor() {
               }}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
-              triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
+              triggerClassName="h-[var(--design-row-height)] rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
             />
           ) : sessionResolved ? (
             signedOutPersistenceActions
@@ -19022,12 +19043,12 @@ function DesignEditor() {
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (
-        <div className="mt-1 flex min-w-0 items-center gap-1">
+        <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 items-center gap-[var(--design-baseline-half)]">
           <a
             href={activeScreenPreviewUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-[var(--design-control-height)] min-w-0 flex-1 items-center gap-[var(--design-baseline-half)] rounded-md border border-border bg-[var(--design-editor-panel-raised-bg)] px-[var(--design-baseline-unit)] text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={"Open local preview" /* i18n-ignore */}
             title={activeScreenPreviewUrl}
           >
@@ -19048,7 +19069,7 @@ function DesignEditor() {
                     <Button
                       size="icon"
                       variant="outline"
-                      className="size-7"
+                      className="size-[var(--design-control-height)]"
                       disabled
                       aria-label={t("designEditor.applyToSource")}
                     >
@@ -19066,7 +19087,7 @@ function DesignEditor() {
                   <Button
                     size="icon"
                     variant="outline"
-                    className="size-7"
+                    className="size-[var(--design-control-height)]"
                     disabled={
                       applyToSourcePending || !activeLocalhostSourceWriteContent
                     }
@@ -19106,8 +19127,8 @@ function DesignEditor() {
           collaborators menu to a sliver behind the segments. */}
       {/* Zoom sits here rather than in the inspector tab row below: sharing
           that row truncated the "Comments" tab label at normal panel widths. */}
-      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5">
-        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="mt-[var(--design-baseline-half)] flex h-[var(--design-row-height)] min-w-0 flex-nowrap items-center gap-[var(--design-baseline-half)]">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-[var(--design-baseline-half)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {deviceFrameControl}
           {responsiveEditScopeControl}
         </div>
@@ -19146,6 +19167,12 @@ function DesignEditor() {
       ? handleCreateScreenFromPreset
       : undefined,
     zoom,
+    inspectorGridDebug: editorPreferences.inspectorGridDebug,
+    onInspectorGridDebugChange: (inspectorGridDebug: boolean) =>
+      setEditorPreferences({
+        ...editorPreferences,
+        inspectorGridDebug,
+      }),
     activeTab: activeInspectorTab,
     onActiveTabChange: setActiveInspectorTab,
     tweaks,
@@ -19229,7 +19256,10 @@ function DesignEditor() {
       {/* ── Render: main canvas area ── */}
       <div className="flex-1 flex overflow-hidden relative">
         {!hostOwnsChrome && !uiHidden ? (
-          <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
+          <div
+            data-design-chrome-region="left-shell"
+            className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]"
+          >
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
               disabledPanels={
@@ -19250,7 +19280,7 @@ function DesignEditor() {
               ref={leftSidebarContentRef}
               aria-hidden={activeLeftPanel === null}
               className={cn(
-                "flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
+                "flex min-h-0 max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
                 activeLeftPanel === null &&
                   "pointer-events-none invisible border-r-0",
               )}
@@ -19262,7 +19292,10 @@ function DesignEditor() {
                   activeLeftPanel === "file" ? "flex" : "hidden",
                 )}
               >
-                <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
+                <div
+                  data-design-chrome-region="left-header"
+                  className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] border-b border-border px-[var(--design-baseline-unit)]"
+                >
                   {projectTitleControl}
                 </div>
                 <div className="min-h-0 flex-1">
@@ -19369,7 +19402,7 @@ function DesignEditor() {
                     activeLeftPanel === "assets" ? "flex" : "hidden",
                   )}
                 >
-                  <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                  <div className="flex h-[var(--design-section-height)] shrink-0 items-center border-b border-border/60 px-[var(--design-baseline-unit)]">
                     <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
                       {t("designEditor.leftRail.assets")}
                     </h3>
@@ -20543,6 +20576,7 @@ function DesignEditor() {
         {!hostOwnsChrome && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
+            data-design-chrome-region="right-panel"
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
             style={{ width: rightSidebarWidth }}
           >
