@@ -53,11 +53,13 @@ export function resolveSlideClipboardForPaste(
   cachedCopiedAt: number | null = null,
   cachedPersistenceFailed = false,
 ): Slide | null {
-  const isSameScope = cachedStorageKey === storageKey;
+  const canUseCachedClipboard =
+    cachedStorageKey === storageKey ||
+    (cachedStorageKey === null && cachedSlide !== null);
   if (
     result.status === "ready" &&
-    isSameScope &&
-    cachedPersistenceFailed &&
+    canUseCachedClipboard &&
+    (cachedPersistenceFailed || cachedStorageKey === null) &&
     cachedSlide &&
     cachedCopiedAt !== null &&
     cachedCopiedAt > result.copiedAt
@@ -66,8 +68,10 @@ export function resolveSlideClipboardForPaste(
   }
   if (result.status === "ready") return result.slide;
   if (
-    isSameScope &&
-    (result.status === "unavailable" || cachedPersistenceFailed)
+    canUseCachedClipboard &&
+    (result.status === "unavailable" ||
+      cachedPersistenceFailed ||
+      cachedStorageKey === null)
   ) {
     return cachedSlide;
   }

@@ -222,4 +222,29 @@ describe("slide clipboard storage", () => {
       ),
     ).toEqual(cachedSlide);
   });
+
+  it("keeps a pending copy while the session scope hydrates", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlide = { ...slide, content: "Copied before session loaded" };
+    const olderSlide = { ...slide, content: "Older persisted copy" };
+
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "ready", slide: olderSlide, copiedAt: 3_000 },
+        cachedSlide,
+        null,
+        storageKey,
+        4_000,
+      ),
+    ).toEqual(cachedSlide);
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "empty", slide: null, copiedAt: null },
+        cachedSlide,
+        null,
+        storageKey,
+        4_000,
+      ),
+    ).toEqual(cachedSlide);
+  });
 });

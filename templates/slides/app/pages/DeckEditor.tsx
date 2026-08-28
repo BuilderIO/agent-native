@@ -1137,6 +1137,8 @@ export default function DeckEditor() {
     const result = readSlideClipboard(slideClipboardStorageKey);
     const cachedSlide = slideClipboardRef.current;
     const cachedCopiedAt = slideClipboardArmedAtRef.current;
+    const isPendingSessionClipboard =
+      cachedSlide !== null && slideClipboardScopeRef.current === null;
     const slide = resolveSlideClipboardForPaste(
       result,
       cachedSlide,
@@ -1153,7 +1155,17 @@ export default function DeckEditor() {
       : result.status === "ready"
         ? result.copiedAt
         : null;
-    if (!usedCachedClipboard) {
+    if (
+      isPendingSessionClipboard &&
+      usedCachedClipboard &&
+      cachedCopiedAt !== null
+    ) {
+      slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+        slideClipboardStorageKey,
+        slide,
+        cachedCopiedAt,
+      );
+    } else if (!usedCachedClipboard) {
       slideClipboardPersistenceFailedRef.current = false;
     }
     setHasSlideClipboard(slide !== null);
