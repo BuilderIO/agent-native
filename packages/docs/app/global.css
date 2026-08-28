@@ -861,7 +861,7 @@ hr {
 
 .docs-sequence-card {
   min-width: 0;
-  border: 1.25px solid var(--docs-border);
+  border: 1.25px solid var(--fg-secondary);
   border-radius: 8px;
   background: var(--bg);
   padding: 14px 18px;
@@ -938,7 +938,7 @@ hr {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg-secondary);
+  color: var(--fg);
   font-size: 16px;
   line-height: 1;
 }
@@ -963,7 +963,7 @@ hr {
   top: 0;
   width: 1.5px;
   height: 12px;
-  background: var(--docs-border);
+  background: var(--fg-secondary);
 }
 
 .docs-sequence-elbow-down-right {
@@ -983,7 +983,7 @@ hr {
   transform: translateX(-50%);
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-top: 5px solid var(--fg-secondary);
+  border-top: 5px solid var(--fg);
 }
 
 .docs-sequence-elbow-line {
@@ -992,7 +992,7 @@ hr {
   left: calc(100% / 6);
   right: calc(100% / (var(--seq-prev-cols) * 2));
   height: 1.5px;
-  background: var(--docs-border);
+  background: var(--fg-secondary);
 }
 
 /* Signature: function/hook signature reference — call line + parameter/return
