@@ -224,13 +224,11 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-consent"]')
         ?.textContent,
-    ).toContain(
-      "We will create your Builder account for you automatically in one click.",
-    );
+    ).toContain("Activate free credits");
     expect(document.body.textContent).toContain("Create and activate");
-    expect(document.body.textContent).toContain(
-      "Connect or log in to an existing Builder.io account",
-    );
+    expect(document.body.textContent).toContain("Log in");
+    expect(document.body.textContent).not.toContain("Google credentials");
+    expect(document.body.textContent).not.toContain("Connect or log in");
 
     act(() => {
       document.body

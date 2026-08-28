@@ -623,29 +623,19 @@ export function FirstRunOnboarding({
                   </PopoverTrigger>
                   <PopoverContent
                     align="end"
-                    sideOffset={8}
+                    side="bottom"
+                    sideOffset={-40}
                     aria-labelledby="first-run-builder-consent-title"
                     data-testid="first-run-builder-consent"
-                    className="w-[min(360px,calc(100vw-2rem))] p-4 text-left"
+                    className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-3 text-left"
                   >
-                    <div className="space-y-3">
-                      <div>
-                        <h2
-                          id="first-run-builder-consent-title"
-                          className="text-sm font-semibold text-foreground"
-                        >
-                          Activate Builder.io free credits
-                        </h2>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          We will create your Builder account for you
-                          automatically in one click.
-                        </p>
-                      </div>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        We use your verified Agent-Native email to create or
-                        reuse your Builder account. Google credentials are never
-                        shared.
-                      </p>
+                    <div className="space-y-2.5">
+                      <h2
+                        id="first-run-builder-consent-title"
+                        className="text-sm font-semibold text-foreground"
+                      >
+                        Activate free credits
+                      </h2>
                       <button
                         type="button"
                         data-testid="first-run-builder-create-and-activate"
@@ -659,15 +649,14 @@ export function FirstRunOnboarding({
                         <IconArrowRight size={15} />
                       </button>
                       <p className="text-[11px] leading-4 text-muted-foreground">
-                        By selecting Create and activate, you agree to
-                        Builder.io&apos;s{" "}
+                        By continuing, you agree to Builder.io&apos;s{" "}
                         <a
                           href="https://www.builder.io/legal/terms"
                           target="_blank"
                           rel="noreferrer"
                           className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          Terms of Service
+                          Terms
                         </a>{" "}
                         and{" "}
                         <a
@@ -676,24 +665,22 @@ export function FirstRunOnboarding({
                           rel="noreferrer"
                           className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          Privacy Policy
+                          Privacy
                         </a>
                         .
                       </p>
-                      <div className="border-t border-border pt-3">
-                        <button
-                          type="button"
-                          data-testid="first-run-builder-existing-account"
-                          className={cn(secondaryButtonClass, "w-full")}
-                          onClick={() => {
-                            setBuilderActivationOpen(false);
-                            handleBuilder(false);
-                          }}
-                        >
-                          Connect or log in to an existing Builder.io account
-                          <IconArrowRight size={15} />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        data-testid="first-run-builder-existing-account"
+                        className={cn(secondaryButtonClass, "w-full")}
+                        onClick={() => {
+                          setBuilderActivationOpen(false);
+                          handleBuilder(false);
+                        }}
+                      >
+                        Log in
+                        <IconArrowRight size={15} />
+                      </button>
                     </div>
                   </PopoverContent>
                 </Popover>
