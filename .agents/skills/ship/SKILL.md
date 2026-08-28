@@ -240,9 +240,9 @@ branch, stay on it.
      exit 1
    fi
    if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
-     git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD
+     git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
    else
-     git log --oneline --decorate HEAD --not --remotes=origin
+     git log --oneline --decorate HEAD --not --remotes=origin -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
    fi
    ```
 
@@ -274,7 +274,9 @@ branch, stay on it.
    `origin/main` once, resolve it, push, and wait for the new checks. Before
    that merge, both `git status --short -- . ':(exclude)learnings.md'
    ':(exclude)bridge/**' ':(exclude)data/**'` and the branch-specific
-   unpublished-commit check above must be empty. The excluded paths remain
+   unpublished-commit check above must be empty. The check is also scoped to
+   publishable paths, so a commit containing only an excluded path does not
+   block recovery. The excluded paths remain
    preserved and reported, but do not block conflict recovery unless the
    merge itself touches them. If either publishable-path check is not empty,
    inspect every dirty path and unpushed commit; publish them first only when

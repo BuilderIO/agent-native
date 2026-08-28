@@ -62,9 +62,9 @@ fi
 git status --short
 git diff --name-only
 if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
-  git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD
+  git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
 else
-  git log --oneline --decorate HEAD --not --remotes=origin
+  git log --oneline --decorate HEAD --not --remotes=origin -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
 fi
 ```
 
@@ -87,7 +87,9 @@ can change within minutes, so re-check before every actionable push.
    and unpushed commits; do not run the merge until the publishable-path check
    `git status --short -- . ':(exclude)learnings.md' ':(exclude)bridge/**'
    ':(exclude)data/**'` and the branch-specific unpublished-commit check in
-   Step 0 are empty. Preserve and report excluded paths; they do not block
+   Step 0 are empty. The unpublished-commit check is also scoped to
+   publishable paths, so excluded-only commits do not block recovery. Preserve
+   and report excluded paths; they do not block
    recovery unless the merge itself touches them.
    Before merging, compare the local checkout with the live PR head:
 
@@ -226,8 +228,8 @@ of waiting for this section's remote-CI and soak requirements.
 When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
 
 1. **No local uncommitted changes** except the documented routine exclusions
-2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be
-   empty
+2. **No unpushed commits** — the publishable-path `git log` check from Step 0
+   must be empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
 4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
