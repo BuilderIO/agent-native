@@ -60,6 +60,15 @@ describe("desktop passive-access regressions", () => {
 
     expect(signIn).toContain('resolveDesktopIdentityApp("dispatch")');
     expect(signIn).not.toContain("resolveDesktopIdentityApp(activeAppId)");
+
+    const resolver = between(
+      main,
+      "function resolveDesktopIdentityApp(",
+      "function listDesktopIdentityApps(",
+    );
+    expect(resolver).toContain(
+      'allowDisabled: appId === "dispatch" && isCanonical',
+    );
   });
 
   it("keeps remembered Content folder discovery metadata-only", () => {

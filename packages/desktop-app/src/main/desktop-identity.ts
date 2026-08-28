@@ -199,14 +199,21 @@ export function isDesktopIdentityAppConfigEligible<
   },
 >(
   configured: T | null | undefined,
-  options?: { canonical?: boolean; forCleanup?: boolean },
+  options?: {
+    allowDisabled?: boolean;
+    canonical?: boolean;
+    forCleanup?: boolean;
+  },
 ): configured is T {
   if (!configured || !isDesktopIdentityAppIdEligible(configured.id)) {
     return false;
   }
   const productionMode =
     configured.mode === undefined || configured.mode === "prod";
-  const enabled = options?.forCleanup ? true : configured.enabled === true;
+  const enabled =
+    options?.forCleanup || options?.allowDisabled
+      ? true
+      : configured.enabled === true;
   return Boolean(
     productionMode &&
     enabled &&

@@ -264,6 +264,12 @@ describe("Desktop identity navigation boundaries", () => {
     expect(
       isDesktopIdentityAppConfigEligible(custom, { canonical: true }),
     ).toBe(true);
+    expect(
+      isDesktopIdentityAppConfigEligible(
+        { id: "dispatch", enabled: false, mode: "prod" },
+        { allowDisabled: true, canonical: true },
+      ),
+    ).toBe(true);
     expect(isDesktopIdentityOriginEligible("https://custom.example")).toBe(
       true,
     );

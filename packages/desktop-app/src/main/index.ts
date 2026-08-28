@@ -802,6 +802,7 @@ function resolveDesktopIdentityApp(
     if (canonical && !isCanonical) return null;
     if (
       !isDesktopIdentityAppConfigEligible(configured, {
+        allowDisabled: appId === "dispatch" && isCanonical,
         canonical: isCanonical,
       })
     ) {
