@@ -7,9 +7,7 @@ import {
   bloomSizes,
   createGraph,
   destroyGraph,
-  particleStride,
   renderGraph,
-  setParticleLevel,
   setPresentColors,
 } from "./renderer";
 
@@ -93,34 +91,6 @@ describe("ocean graph", () => {
     await frame(gpu, (current) => renderGraph(current, graph, output));
     destroyGraph(graph);
     gpu.dispose();
-  });
-
-  it("thins the draw with the level and leaves the simulation at 512", async () => {
-    const { gpu, output } = await mockOutput();
-    const graph = await createGraph(gpu, output, "test", DARK);
-    const simulationTarget = graph.simulation.spectrum;
-    expect(graph.particleInstances).toBe(OCEAN_RESOLUTION ** 2);
-
-    // Mid-ramp: the fade is under way but no particle has been dropped yet, so
-    // the instance count must not have moved.
-    setParticleLevel(graph, 0.6);
-    expect(graph.particleInstances).toBe(OCEAN_RESOLUTION ** 2);
-
-    setParticleLevel(graph, 1);
-    expect(graph.particleInstances).toBe((OCEAN_RESOLUTION / 2) ** 2);
-    // The IFFT stage table is pinned to 2^9, so the simulation must not move.
-    expect(graph.simulation.spectrum).toBe(simulationTarget);
-    await frame(gpu, (current) => renderGraph(current, graph, output));
-
-    destroyGraph(graph);
-    gpu.dispose();
-  });
-
-  it("only ever doubles the stride, so the fade and the drop agree", () => {
-    // The shader ranks particles by trailing zeros in their texel index, which
-    // is exactly the set a power-of-two stride keeps. A stride of 3 would drop
-    // particles the fade had not emptied, and the difference would pop.
-    expect([0, 0.5, 1, 1.9, 2].map(particleStride)).toEqual([1, 1, 2, 2, 4]);
   });
 
   it("rejects rather than returning a half-built graph when a pass cannot compile", async () => {

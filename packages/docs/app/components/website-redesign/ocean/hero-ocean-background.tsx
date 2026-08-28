@@ -97,38 +97,6 @@ export function HeroOceanBackground({
         );
         visibility.observe(container);
         cleanups.push(() => visibility.disconnect());
-
-        // On window, not on the container: the hero sits behind the headline and
-        // the CTA row, so a container listener would drop out every time the
-        // cursor crossed a word. The renderer eases toward whatever it is given
-        // and decays a zero strength away, so leaving the hero fades the pull
-        // out instead of dropping it.
-        let aimX = 0;
-        let aimY = 0;
-        const aimPointer = (event: PointerEvent) => {
-          const rect = container.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0) return;
-          const x = (event.clientX - rect.left) / rect.width;
-          const y = (event.clientY - rect.top) / rect.height;
-          aimX = x * 2 - 1;
-          aimY = 1 - y * 2;
-          const inside = x >= 0 && x <= 1 && y >= 0 && y <= 1;
-          renderer?.setPointer(aimX, aimY, inside ? 1 : 0);
-        };
-        // Holds the last aim point so the pull fades where it was rather than
-        // sliding to the centre of the hero on its way out.
-        const releasePointer = () => renderer?.setPointer(aimX, aimY, 0);
-
-        window.addEventListener("pointermove", aimPointer, { passive: true });
-        document.addEventListener("pointerleave", releasePointer, {
-          passive: true,
-        });
-        window.addEventListener("blur", releasePointer);
-        cleanups.push(() => {
-          window.removeEventListener("pointermove", aimPointer);
-          document.removeEventListener("pointerleave", releasePointer);
-          window.removeEventListener("blur", releasePointer);
-        });
       })
       .catch((error: unknown) => {
         if (!cancelled) onErrorRef.current(error);
