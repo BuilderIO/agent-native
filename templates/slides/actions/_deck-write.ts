@@ -11,6 +11,19 @@ import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 /** A deck is stored as one opaque JSON blob in `decks.data`. */
 export type DeckPayload = Record<string, unknown>;
 
+export function nextDeckRevision(
+  expectedUpdatedAt: string | null | undefined,
+  now = new Date(),
+): string {
+  const expectedMs = expectedUpdatedAt
+    ? Date.parse(expectedUpdatedAt)
+    : Number.NaN;
+  const nextMs = Number.isFinite(expectedMs)
+    ? Math.max(now.getTime(), expectedMs + 1)
+    : now.getTime();
+  return new Date(nextMs).toISOString();
+}
+
 export function deckRevisionWhere(
   table: { id: AnyColumn; updatedAt: AnyColumn },
   deckId: string,
@@ -55,7 +68,8 @@ export function assertDeckWriteApplied(
     );
   }
   if (affected !== 1) {
-    throw new Error(
+    throw deckHttpError(
+      409,
       `Deck ${deckId} changed while saving ${operation}; re-read the deck and retry the edit.`,
     );
   }

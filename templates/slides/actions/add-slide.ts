@@ -22,7 +22,11 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
-import { assertDeckWriteApplied, deckRevisionWhere } from "./_deck-write.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -313,7 +317,7 @@ export default defineAction({
       const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
       deck.updatedAt = now;
       const currentTitle =
@@ -333,16 +337,16 @@ export default defineAction({
               reuseLabels: mergedReuseLabels,
             };
 
-      await createDeckVersionSnapshot(
-        {
-          id: row.id,
-          title: row.title,
-          data: row.data,
-          ownerEmail: row.ownerEmail,
-        },
-        { label: "Before adding slide" },
-      );
       await db.transaction(async (tx: any) => {
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title,
+            data: row.data,
+            ownerEmail: row.ownerEmail,
+          },
+          { label: "Before adding slide", db: tx },
+        );
         const updateResult = await tx
           .update(schema.decks)
           .set({

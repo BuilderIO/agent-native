@@ -43,7 +43,11 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
-import { assertDeckWriteApplied, deckRevisionWhere } from "./_deck-write.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -770,7 +774,7 @@ export default defineAction({
         requireElementPaths: isAgentCaller,
       });
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.updatedAt = now;
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =

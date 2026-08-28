@@ -30,7 +30,11 @@ import {
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
-import { assertDeckWriteApplied, deckRevisionWhere } from "./_deck-write.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -198,33 +202,57 @@ const protectedStyleProperties = new Set([
   "clip",
   "clip-path",
   "text-indent",
+  "box-sizing",
+  "aspect-ratio",
+  "object-fit",
+  "object-position",
 ]);
 
 function protectedStyleInvariant(content: string): string {
-  const styles = [
-    ...Array.from(
-      content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
-      (match) => match[1] ?? "",
-    ),
-    ...Array.from(
-      content.matchAll(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
-      (match) => match[1] ?? match[2] ?? match[3] ?? "",
-    ),
-  ];
-  const declarations: string[] = [];
-  for (const style of styles) {
-    for (const match of style.matchAll(
-      /(?:^|[;{])\s*([\w-]+)\s*:\s*([^;{}]+)/g,
-    )) {
-      const property = match[1].toLowerCase();
-      if (protectedStyleProperties.has(property)) {
-        declarations.push(
-          `${property}:${match[2].replace(/\s+/g, " ").trim()}`,
+  const styleBlocks = Array.from(
+    content.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi),
+    (match) => match[1] ?? "",
+  );
+  const inlineStyles = Array.from(
+    content.matchAll(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi),
+    (match) => match[1] ?? match[2] ?? match[3] ?? "",
+  );
+  const ruleSignatures: string[] = [];
+  for (const stylesheet of styleBlocks) {
+    const source = stylesheet.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const rule of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const declarations = protectedCssDeclarations(rule[2]);
+      if (declarations.length > 0) {
+        ruleSignatures.push(
+          `rule:${rule[1].replace(/\s+/g, " ").trim()}{${declarations.join(";")}}`,
         );
       }
     }
   }
-  return declarations.sort().join(";");
+  const inlineSignatures: string[] = [];
+  let inlineIndex = 0;
+  for (const style of inlineStyles) {
+    const declarations = protectedCssDeclarations(style);
+    if (declarations.length > 0) {
+      inlineSignatures.push(`inline:${inlineIndex}{${declarations.join(";")}}`);
+      inlineIndex += 1;
+    }
+  }
+  return [...ruleSignatures.sort(), ...inlineSignatures].join("|");
+}
+
+function protectedCssDeclarations(style: string): string[] {
+  const declarations: string[] = [];
+  const source = style.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const match of source.matchAll(
+    /(?:^|[;{])\s*([\w-]+)\s*:\s*([^;{}]+)/g,
+  )) {
+    const property = match[1].toLowerCase();
+    if (protectedStyleProperties.has(property) || property.startsWith("--")) {
+      declarations.push(`${property}:${match[2].replace(/\s+/g, " ").trim()}`);
+    }
+  }
+  return declarations.sort();
 }
 
 function assertStyleOnlyEdit(
@@ -503,7 +531,9 @@ export default defineAction({
           edits as SlideContentEdit[],
           format,
         );
-        const nextContent = normalizeSlidePadding(patched.content);
+        const nextContent = styleOnly
+          ? patched.content
+          : normalizeSlidePadding(patched.content);
         validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;
@@ -606,18 +636,18 @@ export default defineAction({
                 contextPackId: validated.contextPackId,
                 reuseLabels: mergedReuseLabels,
               };
-        await createDeckVersionSnapshot(
-          {
-            id: row.id,
-            title: row.title ?? "Untitled",
-            data: row.data ?? "",
-            ownerEmail: row.ownerEmail ?? "",
-          },
-          { label: "Before slide edit" },
-        );
-        const now = new Date().toISOString();
+        const now = nextDeckRevision(row.updatedAt);
         deck.updatedAt = now;
         await db.transaction(async (tx: any) => {
+          await createDeckVersionSnapshot(
+            {
+              id: row.id,
+              title: row.title ?? "Untitled",
+              data: row.data ?? "",
+              ownerEmail: row.ownerEmail ?? "",
+            },
+            { label: "Before slide edit", db: tx },
+          );
           const updateResult = await tx
             .update(schema.decks)
             .set({ data: JSON.stringify(deck), updatedAt: now })
