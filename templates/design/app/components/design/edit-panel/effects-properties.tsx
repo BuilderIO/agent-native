@@ -446,7 +446,7 @@ function ShadowNumberControl({
   const clamp = (value: number) =>
     min === undefined ? value : Math.max(min, value);
   return (
-    <div className="grid h-6 min-w-0 grid-cols-[32px_minmax(0,1fr)] overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
+    <div className="design-inspector-popover-number grid h-6 min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
       <span className="flex items-center justify-center !text-[11px] text-muted-foreground">
         {label}
       </span>
@@ -559,22 +559,23 @@ function ShadowEffectRow({
         ) : undefined
       }
     >
-      <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-x-2 gap-y-2">
-        <span className="row-span-2 flex h-6 items-center !text-[11px] text-muted-foreground">
-          {t("editPanel.labels.position")}
-        </span>
-        <ShadowNumberControl
-          label="X"
-          ariaLabel="X"
-          value={layer.x}
-          onChange={(value, meta) => onChange({ x: value }, meta)}
-        />
-        <ShadowNumberControl
-          label="Y"
-          ariaLabel="Y"
-          value={layer.y}
-          onChange={(value, meta) => onChange({ y: value }, meta)}
-        />
+      <div className="design-sidebar-control-stack">
+        <InspectorControlField label={t("editPanel.labels.position")}>
+          <div className="design-sidebar-control-stack">
+            <ShadowNumberControl
+              label="X"
+              ariaLabel="X"
+              value={layer.x}
+              onChange={(value, meta) => onChange({ x: value }, meta)}
+            />
+            <ShadowNumberControl
+              label="Y"
+              ariaLabel="Y"
+              value={layer.y}
+              onChange={(value, meta) => onChange({ y: value }, meta)}
+            />
+          </div>
+        </InspectorControlField>
       </div>
       <InspectorControlField label={t("editPanel.labels.blur")}>
         <ShadowNumberControl
