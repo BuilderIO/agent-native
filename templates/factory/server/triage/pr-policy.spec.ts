@@ -131,6 +131,20 @@ describe("pull-request governance", () => {
     expect(
       isUltraScaryChange(["templates/factory/server/triage/github-client.ts"]),
     ).toBe(true);
+    expect(
+      isUltraScaryChange([
+        "templates/factory/server/triage/ai-services-git.ts",
+        "templates/factory/server/triage/pr-monitor.ts",
+        "templates/factory/actions/ingest-github-observation.ts",
+        "templates/factory/actions/reconcile-triage-run.ts",
+      ]),
+    ).toBe(true);
+    expect(
+      isUltraScaryChange([
+        "templates/factory/actions/approve-factory-item.ts",
+        "templates/factory/actions/start-builder-for-item.ts",
+      ]),
+    ).toBe(true);
   });
 
   it("does not trust an owner username without verified membership", () => {
@@ -272,36 +286,30 @@ describe("pull-request governance", () => {
 
   it("recognizes a current approval but not a later dismissal", () => {
     expect(
-      hasCurrentPullRequestApproval(
-        [
-          {
-            author: "reviewer",
-            state: "approved",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T10:00:00Z",
-          },
-        ],
-        "head-1",
-      ),
+      hasCurrentPullRequestApproval([
+        {
+          author: "reviewer",
+          state: "approved",
+          commitSha: "head-1",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+      ]),
     ).toBe(true);
     expect(
-      hasCurrentPullRequestApproval(
-        [
-          {
-            author: "reviewer",
-            state: "approved",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T10:00:00Z",
-          },
-          {
-            author: "reviewer",
-            state: "dismissed",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T11:00:00Z",
-          },
-        ],
-        "head-1",
-      ),
+      hasCurrentPullRequestApproval([
+        {
+          author: "reviewer",
+          state: "approved",
+          commitSha: "head-1",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+        {
+          author: "reviewer",
+          state: "dismissed",
+          commitSha: "head-1",
+          observedAt: "2026-08-19T11:00:00Z",
+        },
+      ]),
     ).toBe(false);
     expect(
       hasCurrentPullRequestApproval(
@@ -317,69 +325,53 @@ describe("pull-request governance", () => {
       ),
     ).toBe(false);
     expect(() =>
-      hasCurrentPullRequestApproval(
-        [
-          {
-            author: "reviewer",
-            state: "approved",
-            observedAt: "2026-08-19T10:00:00Z",
-          },
-        ],
-        "head-1",
-      ),
+      hasCurrentPullRequestApproval([
+        {
+          author: "reviewer",
+          state: "approved",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+      ]),
     ).toThrow("missing a commit SHA");
   });
 
   it("preserves active changes requests across comments", () => {
     expect(
-      hasCurrentBlockingPullRequestReview(
-        [
-          {
-            author: "reviewer",
-            state: "changes_requested",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T10:00:00Z",
-          },
-          {
-            author: "reviewer",
-            state: "approved",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T11:00:00Z",
-          },
-        ],
-        "head-1",
-      ),
+      hasCurrentBlockingPullRequestReview([
+        {
+          author: "reviewer",
+          state: "changes_requested",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+        {
+          author: "reviewer",
+          state: "approved",
+          observedAt: "2026-08-19T11:00:00Z",
+        },
+      ]),
     ).toBe(false);
     expect(
-      hasCurrentBlockingPullRequestReview(
-        [
-          {
-            author: "reviewer",
-            state: "changes_requested",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T10:00:00Z",
-          },
-          {
-            author: "reviewer",
-            state: "commented",
-            commitSha: "head-1",
-            observedAt: "2026-08-19T11:00:00Z",
-          },
-        ],
-        "head-1",
-      ),
+      hasCurrentBlockingPullRequestReview([
+        {
+          author: "reviewer",
+          state: "changes_requested",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+        {
+          author: "reviewer",
+          state: "commented",
+          observedAt: "2026-08-19T11:00:00Z",
+        },
+      ]),
     ).toBe(true);
     expect(
-      hasCurrentBlockingPullRequestReview(
-        [
-          {
-            author: "reviewer",
-            state: "pending",
-            observedAt: "2026-08-19T10:00:00Z",
-          },
-        ],
-        "head-1",
-      ),
+      hasCurrentBlockingPullRequestReview([
+        {
+          author: "reviewer",
+          state: "pending",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+      ]),
     ).toBe(true);
   });
 });

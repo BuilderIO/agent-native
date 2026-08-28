@@ -280,7 +280,6 @@ export default defineAction({
       snapshot.checks.every((check) => check.state === "passed");
     const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
       snapshot.reviews,
-      snapshot.headSha,
     );
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,

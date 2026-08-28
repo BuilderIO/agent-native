@@ -278,16 +278,13 @@ export function hasCurrentBlockingPullRequestReview(
   reviews: readonly {
     author: string;
     state: string;
-    commitSha?: string | null;
     observedAt: string;
   }[],
-  headSha: string,
 ): boolean {
   const stateByAuthor = new Map<
     string,
     {
       blocking: boolean;
-      commitSha?: string | null;
     }
   >();
   reviews
@@ -307,22 +304,12 @@ export function hasCurrentBlockingPullRequestReview(
         review.state === "changes_requested" ||
         review.state === "pending"
       ) {
-        stateByAuthor.set(author, {
-          blocking: true,
-          commitSha: review.commitSha,
-        });
+        stateByAuthor.set(author, { blocking: true });
       } else if (previous?.blocking) {
-        stateByAuthor.set(author, {
-          blocking: true,
-          commitSha: review.commitSha ?? previous.commitSha,
-        });
+        stateByAuthor.set(author, { blocking: true });
       }
     });
-  return [...stateByAuthor.values()].some(
-    (review) =>
-      review.blocking &&
-      (review.commitSha === headSha || review.commitSha == null),
-  );
+  return [...stateByAuthor.values()].some((review) => review.blocking);
 }
 
 export function isDocsOnly(changedFiles: readonly string[]): boolean {
@@ -362,6 +349,14 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.includes("/review-skill-alignment.") ||
       normalized.endsWith("/govern-agent-native-pull-request.ts") ||
       normalized.endsWith("/github-client.ts") ||
+      normalized.endsWith("/ai-services-git.ts") ||
+      normalized.endsWith("/github-ingestion.ts") ||
+      normalized.endsWith("/pr-monitor.ts") ||
+      normalized.endsWith("/pr-babysit.ts") ||
+      normalized.endsWith("/ingest-github-observation.ts") ||
+      normalized.endsWith("/reconcile-triage-run.ts") ||
+      normalized.endsWith("/approve-factory-item.ts") ||
+      normalized.endsWith("/start-builder-for-item.ts") ||
       normalized.includes("/pr-policy.") ||
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith(".github/workflows/") ||
