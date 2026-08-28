@@ -42,7 +42,6 @@ import {
   exitEmptyBulletAtCaret,
   findEnclosingList,
   insertBulletAfterCaret,
-  isBulletList,
   removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
