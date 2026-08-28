@@ -283,35 +283,44 @@ export function hasCurrentBlockingPullRequestReview(
   }[],
   headSha: string,
 ): boolean {
-  const latestByAuthor = new Map<
+  const stateByAuthor = new Map<
     string,
     {
-      state: string;
+      blocking: boolean;
       commitSha?: string | null;
-      observedAt: string;
-      order: number;
     }
   >();
-  reviews.forEach((review, order) => {
-    const author = review.author.trim().toLowerCase();
-    if (!author) return;
-    const previous = latestByAuthor.get(author);
-    if (
-      !previous ||
-      Date.parse(review.observedAt) > Date.parse(previous.observedAt) ||
-      (review.observedAt === previous.observedAt && order > previous.order)
-    ) {
-      latestByAuthor.set(author, {
-        state: review.state,
-        commitSha: review.commitSha,
-        observedAt: review.observedAt,
-        order,
-      });
-    }
-  });
-  return [...latestByAuthor.values()].some(
+  reviews
+    .map((review, order) => ({ review, order }))
+    .sort(
+      (left, right) =>
+        Date.parse(left.review.observedAt) -
+          Date.parse(right.review.observedAt) || left.order - right.order,
+    )
+    .forEach(({ review }) => {
+      const author = review.author.trim().toLowerCase();
+      if (!author) return;
+      const previous = stateByAuthor.get(author);
+      if (review.state === "approved" || review.state === "dismissed") {
+        stateByAuthor.set(author, { blocking: false });
+      } else if (
+        review.state === "changes_requested" ||
+        review.state === "pending"
+      ) {
+        stateByAuthor.set(author, {
+          blocking: true,
+          commitSha: review.commitSha,
+        });
+      } else if (previous?.blocking) {
+        stateByAuthor.set(author, {
+          blocking: true,
+          commitSha: review.commitSha ?? previous.commitSha,
+        });
+      }
+    });
+  return [...stateByAuthor.values()].some(
     (review) =>
-      (review.state === "changes_requested" || review.state === "pending") &&
+      review.blocking &&
       (review.commitSha === headSha || review.commitSha == null),
   );
 }
@@ -352,6 +361,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized === ".agents/skills/review-prs/skill.md" ||
       normalized.includes("/review-skill-alignment.") ||
       normalized.endsWith("/govern-agent-native-pull-request.ts") ||
+      normalized.endsWith("/github-client.ts") ||
       normalized.includes("/pr-policy.") ||
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith(".github/workflows/") ||

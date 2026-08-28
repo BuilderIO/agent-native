@@ -128,6 +128,9 @@ describe("pull-request governance", () => {
     expect(
       isUltraScaryChange(["templates/factory/server/triage/pr-policy.ts"]),
     ).toBe(true);
+    expect(
+      isUltraScaryChange(["templates/factory/server/triage/github-client.ts"]),
+    ).toBe(true);
   });
 
   it("does not trust an owner username without verified membership", () => {
@@ -327,7 +330,7 @@ describe("pull-request governance", () => {
     ).toThrow("missing a commit SHA");
   });
 
-  it("uses the latest reviewer state and current head for blocking reviews", () => {
+  it("preserves active changes requests across comments", () => {
     expect(
       hasCurrentBlockingPullRequestReview(
         [
@@ -353,13 +356,19 @@ describe("pull-request governance", () => {
           {
             author: "reviewer",
             state: "changes_requested",
-            commitSha: "old-head",
+            commitSha: "head-1",
             observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
+            state: "commented",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T11:00:00Z",
           },
         ],
         "head-1",
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       hasCurrentBlockingPullRequestReview(
         [

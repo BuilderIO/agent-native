@@ -121,7 +121,7 @@ export default defineAction({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
     pullRequestNumber: z.number().int().positive(),
-    itemId: z.string().min(1).optional(),
+    itemId: z.string().min(1),
     clearBug: z.boolean(),
     productUxImplications: z.boolean().default(false),
     reason: z.string().trim().min(1).max(4_000),
@@ -394,9 +394,30 @@ export default defineAction({
           .onConflictDoNothing()
           .returning({ id: triageDecisions.id });
         if (governance.autoApprove && !inserted[0]) {
-          throw new Error(
-            "A pull-request approval intent already exists; reconcile the provider result before retrying.",
-          );
+          const reclaimed = await tx
+            .update(triageDecisions)
+            .set({
+              outcome: "auto_approval_claimed",
+              reason: `${reason} ${governance.reason}`.trim(),
+              guardResultsJson: JSON.stringify(governance.guardResults),
+              createdAt: new Date().toISOString(),
+              ownerEmail: userEmail,
+            })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "needs_manual"),
+              ),
+            )
+            .returning({ id: triageDecisions.id });
+          if (!reclaimed[0]) {
+            throw new Error(
+              "A pull-request approval intent already exists; reconcile the provider result before retrying.",
+            );
+          }
         }
         await requireExistingFactory(
           tx as unknown as ReturnType<typeof getDb>,
