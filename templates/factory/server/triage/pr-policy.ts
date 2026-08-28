@@ -410,6 +410,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
       normalized.includes("/pr-policy.") ||
       normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith(".github/workflows/") ||
+      normalized.startsWith(".github/actions/") ||
       /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
         normalized,
       )
@@ -433,7 +434,9 @@ export function hasActiveCredibleSafetyFinding(
 ): boolean {
   const isFinding = (body: string) =>
     body
-      .split(/(?:[.!?]\s+|;\s*|,\s+(?:but|however|while)\s+)/i)
+      .split(
+        /(?:[.!?]\s+|;\s*|,\s*(?:but|however|while)\s+|\s+(?:but|however|while)\s+)/i,
+      )
       .some(
         (sentence) =>
           SAFETY_FINDING_PATTERN.test(sentence) &&
@@ -448,12 +451,16 @@ export function hasActiveCredibleSafetyFinding(
     }
   });
   return (
-    [...latestReviewByAuthor.values()].some(
-      (review) =>
+    reviews.some((review) => {
+      const author = review.author?.trim().toLowerCase();
+      const latest = author ? latestReviewByAuthor.get(author) : undefined;
+      return (
         review.state !== "dismissed" &&
         typeof review.body === "string" &&
-        isFinding(review.body),
-    ) ||
+        isFinding(review.body) &&
+        (latest?.state !== "approved" || latest === review)
+      );
+    }) ||
     comments.some(
       (comment) => comment.isResolved !== true && isFinding(comment.body),
     )

@@ -224,7 +224,7 @@ export default defineAction({
     const reconcileClaim = async (headSha: string, reason: string) => {
       if (!itemId) return;
       await getDb().transaction(async (tx) => {
-        await tx
+        const released = await tx
           .update(triageDecisions)
           .set({ outcome: "needs_manual", reason })
           .where(
@@ -238,7 +238,9 @@ export default defineAction({
               eq(triageDecisions.factoryId, factoryId),
               eq(triageDecisions.outcome, "auto_approval_claimed"),
             ),
-          );
+          )
+          .returning({ id: triageDecisions.id });
+        if (!released[0]) return;
         await tx
           .update(triageItems)
           .set({
@@ -264,10 +266,23 @@ export default defineAction({
     const safetyFindingsClean =
       !snapshot.commentsTruncated &&
       !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
-    const currentApprovals = currentPullRequestApprovals(
-      snapshot.reviews,
-      snapshot.headSha,
-    );
+    let currentApprovals;
+    try {
+      currentApprovals = currentPullRequestApprovals(
+        snapshot.reviews,
+        snapshot.headSha,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "unknown approval evidence error";
+      await reconcileClaim(
+        snapshot.headSha,
+        `Approval evidence could not be verified: ${message}. Reconciliation is required before approval.`,
+      );
+      throw error;
+    }
     const currentApproval = currentApprovals[0] ?? null;
     if (currentApproval) {
       await recordFactoryAudit(
@@ -497,7 +512,7 @@ export default defineAction({
       {
         action: "govern-agent-native-pull-request",
         kind: "governance",
-        status: governance.autoApprove ? "success" : "skipped",
+        status: "skipped",
         itemId: itemId ?? null,
         source: "github",
         sourceUrl: pullRequest.htmlUrl,
@@ -788,6 +803,7 @@ export default defineAction({
               : governance.ownerException
                 ? `Factory auto-approved under decision ${decisionId}; verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
                 : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
+            snapshot.headSha,
           );
         } catch (error) {
           if (error instanceof GitHubRequestError) {

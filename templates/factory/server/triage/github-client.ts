@@ -383,6 +383,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
       body?: string,
+      commitSha?: string,
     ): Promise<GitHubApproval> {
       if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1)
         throw new Error(
@@ -397,6 +398,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
             body: JSON.stringify({
               event: "APPROVE",
               ...(body ? { body: body.slice(0, 4_000) } : {}),
+              ...(commitSha ? { commit_id: commitSha } : {}),
             }),
           },
         ),

@@ -127,6 +127,9 @@ describe("pull-request governance", () => {
     ).toBe(false);
     expect(isUltraScaryChange(["nested/AGENTS.md"])).toBe(true);
     expect(isUltraScaryChange([".agents/skills/other/SKILL.md"])).toBe(true);
+    expect(isUltraScaryChange([".github/actions/checkout/action.yml"])).toBe(
+      true,
+    );
     expect(
       isUltraScaryChange(["templates/factory/server/triage/pr-policy.ts"]),
     ).toBe(true);
@@ -153,6 +156,38 @@ describe("pull-request governance", () => {
           {
             state: "commented",
             body: "Authentication middleware does not enforce tenant isolation.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            author: "reviewer",
+            state: "commented",
+            body: "Authentication is secure but this endpoint has an SSRF vulnerability.",
+            observedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            author: "reviewer",
+            state: "commented",
+            body: "This endpoint has an SSRF vulnerability.",
+            observedAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            author: "reviewer",
+            state: "commented",
+            body: "Nit: rename this variable.",
+            observedAt: "2026-01-02T00:00:00.000Z",
           },
         ],
         [],
