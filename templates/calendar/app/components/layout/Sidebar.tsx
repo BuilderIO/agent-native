@@ -1154,7 +1154,7 @@ export function Sidebar({
             "shrink-0",
             collapsed
               ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 p-2.5",
+              : "space-y-0.5 px-2.5 pt-2.5",
           )}
         >
           {bottomNavItems.map((item) => {
