@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getSlideClipboardStorageKey,
   readSlideClipboard,
   writeSlideClipboard,
 } from "../lib/slide-clipboard";
@@ -56,9 +57,10 @@ describe("slide clipboard storage", () => {
 
   it("round-trips a slide snapshot and copy timestamp", () => {
     const storage = createStorage();
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
 
-    expect(writeSlideClipboard(slide, 1_000, storage)).toBe(true);
-    expect(readSlideClipboard(storage)).toEqual({
+    expect(writeSlideClipboard(storageKey, slide, 1_000, storage)).toBe(true);
+    expect(readSlideClipboard(storageKey, storage)).toEqual({
       status: "ready",
       slide,
       copiedAt: 1_000,
@@ -66,15 +68,17 @@ describe("slide clipboard storage", () => {
   });
 
   it("distinguishes an empty or malformed clipboard", () => {
-    expect(readSlideClipboard(createStorage())).toEqual({
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    expect(readSlideClipboard(storageKey, createStorage())).toEqual({
       status: "empty",
       slide: null,
       copiedAt: null,
     });
     expect(
       readSlideClipboard(
+        storageKey,
         createStorage({
-          "slides:slide-clipboard": JSON.stringify({ version: 1 }),
+          [storageKey]: JSON.stringify({ version: 1 }),
         }),
       ),
     ).toEqual({
@@ -85,9 +89,11 @@ describe("slide clipboard storage", () => {
   });
 
   it("normalizes omitted notes and layout from older slides", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
     const result = readSlideClipboard(
+      storageKey,
       createStorage({
-        "slides:slide-clipboard": JSON.stringify({
+        [storageKey]: JSON.stringify({
           version: 1,
           slide: { ...slide, notes: null, layout: null },
           copiedAt: 2_000,
@@ -100,5 +106,19 @@ describe("slide clipboard storage", () => {
       slide: { ...slide, notes: "", layout: "content" },
       copiedAt: 2_000,
     });
+  });
+
+  it("keeps clipboard snapshots isolated by signed-in user", () => {
+    const storage = createStorage();
+    const aliceKey = getSlideClipboardStorageKey("alice@example.com");
+    const bobKey = getSlideClipboardStorageKey("bob@example.com");
+
+    expect(writeSlideClipboard(aliceKey, slide, 3_000, storage)).toBe(true);
+    expect(readSlideClipboard(bobKey, storage)).toEqual({
+      status: "empty",
+      slide: null,
+      copiedAt: null,
+    });
+    expect(readSlideClipboard(aliceKey, storage).status).toBe("ready");
   });
 });

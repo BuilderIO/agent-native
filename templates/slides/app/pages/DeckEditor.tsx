@@ -116,8 +116,8 @@ import {
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
+  getSlideClipboardStorageKey,
   readSlideClipboard,
-  SLIDE_CLIPBOARD_STORAGE_KEY,
   writeSlideClipboard,
 } from "@/lib/slide-clipboard";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
@@ -1118,34 +1118,49 @@ export default function DeckEditor() {
   // long ago the copy happened.
   const slideClipboardArmedAtRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+  const slideClipboardStorageKey = session?.email
+    ? getSlideClipboardStorageKey(session.email)
+    : null;
 
   const syncSlideClipboard = useCallback(() => {
-    const result = readSlideClipboard();
+    if (!slideClipboardStorageKey) {
+      slideClipboardRef.current = null;
+      slideClipboardArmedAtRef.current = null;
+      setHasSlideClipboard(false);
+      return null;
+    }
+    const result = readSlideClipboard(slideClipboardStorageKey);
     const slide = result.status === "ready" ? result.slide : null;
     slideClipboardRef.current = slide;
     slideClipboardArmedAtRef.current =
       result.status === "ready" ? result.copiedAt : null;
     setHasSlideClipboard(slide !== null);
     return slide;
-  }, []);
+  }, [slideClipboardStorageKey]);
 
   useEffect(() => {
     syncSlideClipboard();
+    if (!slideClipboardStorageKey) return;
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === SLIDE_CLIPBOARD_STORAGE_KEY) syncSlideClipboard();
+      if (event.key === slideClipboardStorageKey) syncSlideClipboard();
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [syncSlideClipboard]);
+  }, [slideClipboardStorageKey, syncSlideClipboard]);
 
-  const saveSlideToClipboard = useCallback((slide: Slide) => {
-    const copiedAt = Date.now();
-    const snapshot = { ...slide };
-    slideClipboardRef.current = snapshot;
-    slideClipboardArmedAtRef.current = copiedAt;
-    setHasSlideClipboard(true);
-    writeSlideClipboard(snapshot, copiedAt);
-  }, []);
+  const saveSlideToClipboard = useCallback(
+    (slide: Slide) => {
+      const copiedAt = Date.now();
+      const snapshot = { ...slide };
+      slideClipboardRef.current = snapshot;
+      slideClipboardArmedAtRef.current = copiedAt;
+      setHasSlideClipboard(true);
+      if (slideClipboardStorageKey) {
+        writeSlideClipboard(slideClipboardStorageKey, snapshot, copiedAt);
+      }
+    },
+    [slideClipboardStorageKey],
+  );
 
   const copySlide = useCallback(
     (slideId: string) => {

@@ -2,6 +2,10 @@ import type { Slide, SlideLayout } from "@/context/DeckContext";
 
 export const SLIDE_CLIPBOARD_STORAGE_KEY = "slides:slide-clipboard";
 
+export function getSlideClipboardStorageKey(email: string): string {
+  return `${SLIDE_CLIPBOARD_STORAGE_KEY}:${encodeURIComponent(email)}`;
+}
+
 const SLIDE_CLIPBOARD_VERSION = 1;
 const SLIDE_LAYOUTS: readonly SlideLayout[] = [
   "title",
@@ -77,6 +81,7 @@ function normalizeSlide(value: unknown): Slide | null {
 }
 
 export function readSlideClipboard(
+  storageKey: string,
   storage: SlideClipboardStorage | null = getBrowserStorage(),
 ): SlideClipboardReadResult {
   if (!storage) {
@@ -85,7 +90,7 @@ export function readSlideClipboard(
 
   let raw: string | null;
   try {
-    raw = storage.getItem(SLIDE_CLIPBOARD_STORAGE_KEY);
+    raw = storage.getItem(storageKey);
   } catch {
     // coercion-ok: storage read failures return an explicit unreadable status.
     // A failed read is not the same as an empty clipboard.
@@ -117,6 +122,7 @@ export function readSlideClipboard(
 }
 
 export function writeSlideClipboard(
+  storageKey: string,
   slide: Slide,
   copiedAt: number,
   storage: SlideClipboardStorage | null = getBrowserStorage(),
@@ -125,7 +131,7 @@ export function writeSlideClipboard(
   if (!storage || !normalizedSlide) return false;
   try {
     storage.setItem(
-      SLIDE_CLIPBOARD_STORAGE_KEY,
+      storageKey,
       JSON.stringify({
         version: SLIDE_CLIPBOARD_VERSION,
         slide: normalizedSlide,
