@@ -1,6 +1,6 @@
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CubeLoader } from "./cube-loader.js";
 
@@ -31,5 +31,17 @@ describe("CubeLoader", () => {
     expect(renderToStaticMarkup(createElement(CubeLoader))).toContain(
       "calc(90ms - var(--an-cube-loader-phase, 0ms))",
     );
+  });
+
+  it("preserves a caller ref while anchoring its phase", () => {
+    const callerRef = vi.fn();
+    const loader = CubeLoader({ ref: callerRef }) as ReactElement<{
+      ref: (svg: SVGSVGElement | null) => void;
+    }>;
+    const svg = {} as SVGSVGElement;
+
+    loader.props.ref(svg);
+
+    expect(callerRef).toHaveBeenCalledWith(svg);
   });
 });
