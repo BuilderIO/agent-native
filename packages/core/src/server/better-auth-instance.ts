@@ -59,6 +59,7 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -68,6 +69,7 @@ import {
   getRuntimeConfigReport,
 } from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
+import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -995,11 +997,42 @@ export interface BetterAuthInternalAdapter {
       id: string;
       email: string;
       name?: string;
+      image?: string | null;
       emailVerified?: boolean;
       onboardingRole?: string | null;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
+  listUsers?: (
+    limit?: number,
+    offset?: number,
+    sortBy?: { field: string; direction: "asc" | "desc" },
+    where?: Array<{
+      field: string;
+      value: string | number | boolean | string[] | number[] | Date | null;
+      operator?:
+        | "eq"
+        | "ne"
+        | "lt"
+        | "lte"
+        | "gt"
+        | "gte"
+        | "in"
+        | "not_in"
+        | "contains"
+        | "starts_with"
+        | "ends_with";
+      connector?: "AND" | "OR";
+      mode?: "sensitive" | "insensitive";
+    }>,
+  ) => Promise<
+    Array<{
+      id: string;
+      email: string;
+      name?: string;
+      image?: string | null;
+    }>
+  >;
   linkAccount: (account: {
     userId: string;
     providerId: string;
@@ -1008,6 +1041,7 @@ export interface BetterAuthInternalAdapter {
   createUser: (user: {
     email: string;
     name: string;
+    image?: string | null;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
   createSession: (
@@ -1015,7 +1049,12 @@ export interface BetterAuthInternalAdapter {
     dontRememberMe?: boolean,
   ) => Promise<{ token: string }>;
   createOAuthUser?: (
-    user: { email: string; name: string; emailVerified?: boolean },
+    user: {
+      email: string;
+      name: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
     account: { providerId: string; accountId: string },
   ) => Promise<{ user: { id: string }; account: unknown }>;
   findAccountByProviderId: (
@@ -1205,6 +1244,42 @@ export interface GoogleAuthIdentity {
   email: string;
   accountId: string;
   name?: string;
+  image?: string;
+}
+
+function googleProfileImage(identity: GoogleAuthIdentity): string | undefined {
+  return isGoogleProfileImageUrl(identity.image)
+    ? identity.image.trim()
+    : undefined;
+}
+
+async function syncGoogleProfile(
+  adapter: BetterAuthInternalAdapter,
+  existing: NonNullable<
+    Awaited<ReturnType<BetterAuthInternalAdapter["findUserByEmail"]>>
+  >,
+  email: string,
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  if (!adapter.updateUser) return;
+
+  const name = identity.name?.trim();
+  const image = googleProfileImage(identity);
+  const updates: {
+    name?: string;
+    image?: string;
+  } = {};
+  if (
+    name &&
+    isEmailDerivedName(existing.user.name, email) &&
+    existing.user.name?.trim() !== name
+  ) {
+    updates.name = name;
+  }
+  if (image && existing.user.image !== image) updates.image = image;
+  if (Object.keys(updates).length > 0) {
+    await adapter.updateUser(existing.user.id, updates);
+  }
 }
 
 /**
@@ -1247,6 +1322,13 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   };
 
   const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const image = googleProfileImage(identity);
+  const user = {
+    email,
+    name,
+    emailVerified: true,
+    ...(image ? { image } : {}),
+  };
   const findExisting = () =>
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
@@ -1259,16 +1341,17 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
+    await syncGoogleProfile(adapter, existing, email, identity);
     return false;
   }
 
   if (!existing) {
     if (adapter.createOAuthUser) {
       try {
-        await adapter.createOAuthUser(
-          { email, name, emailVerified: true },
-          { providerId: "google", accountId },
-        );
+        await adapter.createOAuthUser(user, {
+          providerId: "google",
+          accountId,
+        });
         return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
@@ -1288,15 +1371,12 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
+          await syncGoogleProfile(adapter, existing, email, identity);
           return false;
         }
       }
     } else {
-      const created = await adapter.createUser({
-        email,
-        name,
-        emailVerified: true,
-      });
+      const created = await adapter.createUser(user);
       await adapter.linkAccount({
         userId: created.id,
         providerId: "google",
@@ -1314,7 +1394,10 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return false;
+  if (alreadyLinked) {
+    await syncGoogleProfile(adapter, existing, email, identity);
+    return false;
+  }
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1338,6 +1421,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
+    await syncGoogleProfile(adapter, existing, email, identity);
     await reconcilePendingInvitations();
     return false;
   }
@@ -1346,6 +1430,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     providerId: "google",
     accountId,
   });
+  await syncGoogleProfile(adapter, existing, email, identity);
   return false;
 }
 

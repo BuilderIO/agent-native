@@ -262,6 +262,7 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       user: { id: "google-user" },
       account: {},
     }));
+    const updateUser = vi.fn(async () => undefined);
     const adapter: BetterAuthInternalAdapter = {
       findUserByEmail: vi.fn(async () => user),
       linkAccount,
@@ -269,12 +270,14 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       createOAuthUser,
       findAccountByProviderId: vi.fn(async () => null),
       replaceUnverifiedCredentialWithGoogle,
+      updateUser,
     };
     return {
       adapter,
       linkAccount,
       createOAuthUser,
       replaceUnverifiedCredentialWithGoogle,
+      updateUser,
     };
   }
 
@@ -340,6 +343,53 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
 
     expect(created).toBe(false);
     expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("stores the connected Google profile image on a new canonical user", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      {
+        email: "owner@example.com",
+        name: "Owner",
+        emailVerified: true,
+        image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+      },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("refreshes an email-derived profile with the connected Google identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        name: "owner",
+        image: null,
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, updateUser } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
+
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      name: "Owner Name",
+      image: "https://lh3.googleusercontent.com/a/avatar.jpg",
+    });
   });
 
   it("links an already verified canonical user", async () => {

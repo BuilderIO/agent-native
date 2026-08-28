@@ -11,6 +11,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -20,6 +21,7 @@ import {
   ownerEmailMatches,
   sameOwnerEmail,
 } from "../server/lib/recordings.js";
+import { profileNameFor } from "../server/lib/user-identities.js";
 
 export default defineAction({
   description:
@@ -84,31 +86,42 @@ export default defineAction({
       "i",
     );
 
+    const commentRows = comments.filter(
+      (c) => !sameOwnerEmail(c.authorEmail, me),
+    );
+    const reactionRows = reactions.filter(
+      (r) => !sameOwnerEmail(r.viewerEmail, me),
+    );
+    const profiles = await getUserProfiles([
+      ...commentRows.map((c) => c.authorEmail),
+      ...reactionRows.flatMap((r) => (r.viewerEmail ? [r.viewerEmail] : [])),
+    ]);
+
     const items = [
-      ...comments
-        .filter((c) => !sameOwnerEmail(c.authorEmail, me))
-        .map((c) => ({
-          id: `c:${c.id}`,
-          kind: (mentionRegex.test(c.content) ? "mention" : "comment") as
-            | "mention"
-            | "comment",
-          recordingId: c.recordingId,
-          recordingTitle: titleById.get(c.recordingId) ?? "Untitled",
-          authorEmail: c.authorEmail,
-          preview: c.content,
-          createdAt: c.createdAt,
-        })),
-      ...reactions
-        .filter((r) => !sameOwnerEmail(r.viewerEmail, me))
-        .map((r) => ({
-          id: `r:${r.id}`,
-          kind: "reaction" as const,
-          recordingId: r.recordingId,
-          recordingTitle: titleById.get(r.recordingId) ?? "Untitled",
-          authorEmail: r.viewerEmail,
-          preview: `Reacted with ${r.emoji}`,
-          createdAt: r.createdAt,
-        })),
+      ...commentRows.map((c) => ({
+        id: `c:${c.id}`,
+        kind: (mentionRegex.test(c.content) ? "mention" : "comment") as
+          | "mention"
+          | "comment",
+        recordingId: c.recordingId,
+        recordingTitle: titleById.get(c.recordingId) ?? "Untitled",
+        authorEmail: c.authorEmail,
+        authorName: profileNameFor(c.authorEmail, c.authorName, profiles),
+        preview: c.content,
+        createdAt: c.createdAt,
+      })),
+      ...reactionRows.map((r) => ({
+        id: `r:${r.id}`,
+        kind: "reaction" as const,
+        recordingId: r.recordingId,
+        recordingTitle: titleById.get(r.recordingId) ?? "Untitled",
+        authorEmail: r.viewerEmail,
+        authorName: r.viewerEmail
+          ? profileNameFor(r.viewerEmail, r.viewerName, profiles)
+          : null,
+        preview: `Reacted with ${r.emoji}`,
+        createdAt: r.createdAt,
+      })),
     ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
     return { items, count: items.length };
