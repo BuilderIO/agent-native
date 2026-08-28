@@ -328,15 +328,17 @@ function EffectPopoverRow({
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <InspectorPaintRow {...rowProps}>
-        <InspectorGridCell span={20}>
-          {dragHandleLabel && handleProps ? (
+      <InspectorPaintRow {...rowProps} draggable={Boolean(handleProps)}>
+        {handleProps ? (
+          <InspectorGridCell span={1}>
             <RowDragHandle
-              label={dragHandleLabel}
+              label={dragHandleLabel ?? t("editPanel.labels.reorderLayer")}
               dropIndicator={dropIndicator}
               {...handleProps}
             />
-          ) : null}
+          </InspectorGridCell>
+        ) : null}
+        <InspectorGridCell span={20}>
           <PopoverTrigger asChild>
             <button
               type="button"
