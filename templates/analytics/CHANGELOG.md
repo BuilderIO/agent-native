@@ -3,6 +3,21 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-27
+
+### Added
+
+- Dashboard owners can archive dashboards from the actions menu.
+- See signup, onboarding, activation, and sharing drop-off in one filterable dashboard.
+
+### Improved
+
+- Show connected Google names and profile photos in analytics
+
+### Fixed
+
+- Analytics exports now show a direct download in chat and reject failed responses
+
 ## 2026-08-26
 
 ### Improved
