@@ -1138,7 +1138,7 @@ export default function ShareRoute() {
               </Link>
             </Button>
           ) : null}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="hidden min-w-0 flex-1 items-center gap-2 sm:flex">
             {recording.visibility === "private" ? (
               <span
                 className="inline-flex shrink-0 text-muted-foreground"
