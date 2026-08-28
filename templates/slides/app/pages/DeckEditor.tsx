@@ -125,7 +125,10 @@ import {
   replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
-import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
+import {
+  shouldActivateRectangleTool,
+  shouldActivateTextTool,
+} from "@/lib/text-tool-shortcut";
 
 type EditorSidePanel = "comments" | null;
 
@@ -1055,32 +1058,35 @@ export default function DeckEditor() {
   );
 
   useEffect(() => {
-    const handleTextToolShortcut = (event: KeyboardEvent) => {
-      if (
-        !shouldActivateTextTool(event, {
-          canEdit,
-          activeElement: document.activeElement,
-          blockingSurfaceOpen: Boolean(
-            document.querySelector(
-              "[role='dialog'], [role='menu'], [role='listbox']",
-            ),
+    const handleSlideToolShortcut = (event: KeyboardEvent) => {
+      const options = {
+        canEdit,
+        activeElement: document.activeElement,
+        blockingSurfaceOpen: Boolean(
+          document.querySelector(
+            "[role='dialog'], [role='menu'], [role='listbox']",
           ),
-        })
-      ) {
+        ),
+      };
+
+      if (shouldActivateTextTool(event, options)) {
+        event.preventDefault();
+        setDrawMode(false);
+        setPinMode(false);
+        setShapeType(null);
+        setTextBoxMode(true);
         return;
       }
 
+      if (!shouldActivateRectangleTool(event, options)) return;
       event.preventDefault();
-      setDrawMode(false);
-      setPinMode(false);
-      setShapeType(null);
-      setTextBoxMode(true);
+      selectShape("rectangle");
     };
 
-    document.addEventListener("keydown", handleTextToolShortcut);
+    document.addEventListener("keydown", handleSlideToolShortcut);
     return () =>
-      document.removeEventListener("keydown", handleTextToolShortcut);
-  }, [canEdit]);
+      document.removeEventListener("keydown", handleSlideToolShortcut);
+  }, [canEdit, selectShape]);
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {

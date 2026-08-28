@@ -15,6 +15,19 @@ export interface SlideObjectGeometry {
   height: number;
 }
 
+export function createSlideObjectPlacementGeometry(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  minSize = MIN_SLIDE_OBJECT_SIZE,
+): SlideObjectGeometry {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.max(Math.abs(end.x - start.x), minSize),
+    height: Math.max(Math.abs(end.y - start.y), minSize),
+  };
+}
+
 export interface SlideLayoutRect {
   left: number;
   top: number;

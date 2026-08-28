@@ -145,7 +145,7 @@ interface EditorToolbarProps {
   onToggleTextBoxMode?: () => void;
   /** Active shape tool */
   shapeType?: SlideShapeType | null;
-  /** Arm a shape tool for the next canvas click */
+  /** Arm a shape tool for drag-to-place on the canvas */
   onSelectShape?: (shape: SlideShapeType) => void;
   /** Update the current slide's entrance transition from the overflow menu. */
   onChangeSlideTransition?: (transition: SlideTransition) => void;
