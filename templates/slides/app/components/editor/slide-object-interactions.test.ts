@@ -55,6 +55,8 @@ function createFreeformObject(
 describe("slide object interactions", () => {
   it("rejects nesting into void layer targets while keeping containers valid", () => {
     expect(canDropSlideLayerInside(document.createElement("img"))).toBe(false);
+    expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);
+    expect(canDropSlideLayerInside(document.createElement("h2"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
   });
 

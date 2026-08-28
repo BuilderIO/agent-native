@@ -23,8 +23,51 @@ const SLIDE_LAYER_VOID_ELEMENTS = new Set([
   "WBR",
 ]);
 
+const SLIDE_LAYER_NON_CONTAINER_ELEMENTS = new Set([
+  "A",
+  "ABBR",
+  "B",
+  "BDI",
+  "BDO",
+  "BUTTON",
+  "CITE",
+  "CODE",
+  "DATA",
+  "DFN",
+  "EM",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "I",
+  "KBD",
+  "LABEL",
+  "MARK",
+  "P",
+  "Q",
+  "RP",
+  "RT",
+  "RUBY",
+  "S",
+  "SAMP",
+  "SMALL",
+  "SPAN",
+  "STRONG",
+  "SUB",
+  "SUP",
+  "TEXTAREA",
+  "TIME",
+  "U",
+  "VAR",
+]);
+
 export function canDropSlideLayerInside(target: Element): boolean {
-  return !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName);
+  return (
+    !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
+    !SLIDE_LAYER_NON_CONTAINER_ELEMENTS.has(target.tagName)
+  );
 }
 
 export type ResizeHandle = CanvasResizeHandle;
