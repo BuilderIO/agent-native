@@ -175,6 +175,8 @@ export interface BuilderConnectStartOptions {
   trackingSource?: string;
   /** Override the hook-level flow for this click. */
   trackingFlow?: string;
+  /** Override whether this click should use the optional account provisioning flow. */
+  provisionAccount?: boolean;
 }
 
 export interface BuilderConnectFlow {
@@ -757,6 +759,8 @@ export function useBuilderConnectFlow(
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
+      const provisionAccountForStart =
+        startOptions?.provisionAccount ?? provisionAccount;
       connectStartedAtRef.current = started;
       callbackSuccessStartedAtRef.current = null;
       activeTrackingRef.current = {
@@ -790,7 +794,11 @@ export function useBuilderConnectFlow(
         provisioningEnabled = agentNativeProvisioningEnabled,
         provisioningToken = agentNativeProvisioningToken,
       ): string => {
-        if (!provisionAccount || !provisioningEnabled || !provisioningToken) {
+        if (
+          !provisionAccountForStart ||
+          !provisioningEnabled ||
+          !provisioningToken
+        ) {
           return url;
         }
         const provisionUrl = new URL(url, origin);

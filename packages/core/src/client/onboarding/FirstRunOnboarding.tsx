@@ -24,6 +24,11 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -147,6 +152,10 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [builderActivationOpen, setBuilderActivationOpen] = useState(false);
+  const [builderConnectionMode, setBuilderConnectionMode] = useState<
+    "existing" | "provision"
+  >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
@@ -282,7 +291,7 @@ export function FirstRunOnboarding({
     (capability) => capability.builderIncluded,
   );
 
-  const handleBuilder = () => {
+  const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
       showTools();
       return;
@@ -292,10 +301,16 @@ export function FirstRunOnboarding({
       showTools();
       return;
     }
+    setBuilderConnectionMode(
+      provisionAccount && canActivateBuilderFreeCredits
+        ? "provision"
+        : "existing",
+    );
     setScreen("connecting");
     connectFlow.start({
       trackingSource: "first_run_onboarding",
       trackingFlow: "connect_llm",
+      provisionAccount,
     });
   };
 
@@ -515,12 +530,12 @@ export function FirstRunOnboarding({
                 <div>
                   <h2 className="text-sm font-semibold">
                     {canActivateBuilderFreeCredits
-                      ? "Activate Builder.io free credits"
-                      : "Connect Builder.io free credits"}
+                      ? t("agentChat.onboarding.builderActivateCredits")
+                      : t("agentChat.onboarding.builderConnectCredits")}
                   </h2>
                   <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
                     {canActivateBuilderFreeCredits ? (
-                      "Create or reuse your Builder.io account and activate its free credits in one click."
+                      t("agentChat.onboarding.builderActivateDescription")
                     ) : (
                       <>
                         One click connects{" "}
@@ -542,8 +557,8 @@ export function FirstRunOnboarding({
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
                   {canActivateBuilderFreeCredits
-                    ? "Included with active Builder.io free credits"
-                    : "Included with Builder.io free credits"}
+                    ? t("agentChat.onboarding.builderActiveCredits")
+                    : t("agentChat.onboarding.builderCredits")}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
                   {builderCapabilities.map((capability, index) => (
@@ -591,50 +606,96 @@ export function FirstRunOnboarding({
                   </Tooltip>
                 </div>
               </div>
-              <button
-                type="button"
-                data-testid="first-run-connect-builder"
-                aria-describedby={
-                  canActivateBuilderFreeCredits
-                    ? "first-run-builder-consent"
-                    : undefined
-                }
-                className={cn(primaryButtonClass, "mt-5 w-full")}
-                onClick={handleBuilder}
-              >
-                {canActivateBuilderFreeCredits
-                  ? "Activate Builder.io free credits"
-                  : "Connect Builder.io free credits"}
-                <IconArrowRight size={15} />
-              </button>
-              {canActivateBuilderFreeCredits && (
-                <p
-                  id="first-run-builder-consent"
-                  data-testid="first-run-builder-consent"
-                  className="mt-3 text-[11px] leading-4 text-muted-foreground"
+              {canActivateBuilderFreeCredits ? (
+                <Popover
+                  open={builderActivationOpen}
+                  onOpenChange={setBuilderActivationOpen}
                 >
-                  Uses your verified Agent-Native email only. Google credentials
-                  are never shared. By selecting Activate, you agree to
-                  Builder.io&apos;s{" "}
-                  <a
-                    href="https://www.builder.io/legal/terms"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      data-testid="first-run-connect-builder"
+                      className={cn(primaryButtonClass, "mt-5 w-full")}
+                    >
+                      {t("agentChat.onboarding.builderActivateCredits")}
+                      <IconArrowRight size={15} />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    side="bottom"
+                    sideOffset={-40}
+                    aria-labelledby="first-run-builder-consent-title"
+                    data-testid="first-run-builder-consent"
+                    className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-3 text-left"
                   >
-                    Terms of Service
-                  </a>{" "}
-                  and{" "}
-                  <a
-                    href="https://www.builder.io/legal/privacy"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Privacy Policy
-                  </a>
-                  .
-                </p>
+                    <div className="space-y-2.5">
+                      <h2
+                        id="first-run-builder-consent-title"
+                        className="text-sm font-semibold text-foreground"
+                      >
+                        {t("agentChat.onboarding.builderActivateTitle")}
+                      </h2>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {t("agentChat.onboarding.builderActivationDescription")}
+                      </p>
+                      <button
+                        type="button"
+                        data-testid="first-run-builder-create-and-activate"
+                        className={cn(primaryButtonClass, "w-full")}
+                        onClick={() => {
+                          setBuilderActivationOpen(false);
+                          handleBuilder();
+                        }}
+                      >
+                        {t("agentChat.onboarding.builderCreateAndActivate")}
+                        <IconArrowRight size={15} />
+                      </button>
+                      <p className="text-[11px] leading-4 text-muted-foreground">
+                        {t("agentChat.onboarding.builderConsentPrefix")}{" "}
+                        <a
+                          href="https://www.builder.io/legal/terms"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {t("agentChat.onboarding.builderTerms")}
+                        </a>{" "}
+                        {t("agentChat.onboarding.builderConsentAnd")}{" "}
+                        <a
+                          href="https://www.builder.io/legal/privacy"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {t("agentChat.onboarding.builderPrivacy")}
+                        </a>
+                        .
+                      </p>
+                      <button
+                        type="button"
+                        data-testid="first-run-builder-existing-account"
+                        className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => {
+                          setBuilderActivationOpen(false);
+                          handleBuilder(false);
+                        }}
+                      >
+                        {t("agentChat.onboarding.builderExistingAccount")}
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="first-run-connect-builder"
+                  className={cn(primaryButtonClass, "mt-5 w-full")}
+                  onClick={() => handleBuilder()}
+                >
+                  {t("agentChat.onboarding.builderConnectCredits")}
+                  <IconArrowRight size={15} />
+                </button>
               )}
             </section>
 
@@ -968,7 +1029,7 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "connecting") {
-    const provisioning = connectFlow.agentNativeProvisioningEnabled;
+    const provisioning = builderConnectionMode === "provision";
     return (
       <OnboardingShell profile={profile} screen="choice">
         <div
@@ -982,13 +1043,13 @@ export function FirstRunOnboarding({
           </div>
           <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
             {provisioning
-              ? "Activating Builder.io free credits"
-              : "Connecting Builder.io free credits"}
+              ? t("agentChat.onboarding.builderActivating")
+              : t("agentChat.onboarding.builderConnecting")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {provisioning
-              ? "Creating or reusing your Builder.io account. This usually takes a few seconds."
-              : "Finish the one-click connection in the new window."}
+              ? t("agentChat.onboarding.builderProvisioningDescription")
+              : t("agentChat.onboarding.builderConnectionDescription")}
           </p>
           <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
             <div className="flex items-center justify-between gap-3">
