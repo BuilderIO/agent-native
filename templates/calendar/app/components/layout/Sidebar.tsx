@@ -1190,15 +1190,15 @@ export function Sidebar({
         </nav>
 
         {!collapsed ? (
-          <div className="shrink-0">
+          <>
             <div className="px-3 py-2">
-              <OrgSwitcher reserveSpace />
+              <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-1.5 py-1.5">
+            <div className="px-3 py-2 empty:hidden">
               <DevDatabaseLink />
             </div>
-          </div>
+          </>
         ) : null}
         <SidebarFooterActions
           collapsed={collapsed}
