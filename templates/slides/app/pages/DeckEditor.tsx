@@ -130,14 +130,14 @@ import {
   captureOptimisticImagePreview,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
+  insertDroppedImageIntoSlideHtml,
   replaceOptimisticImagePreview,
+  replaceImageTargetInSlideHtml,
   stripOptimisticImagePreviews,
+  updateImageFitInSlideHtml,
+  type ImageObjectPosition,
   type OptimisticImagePreview,
   type SlideImageDropPosition,
-} from "@/lib/slide-image-replacement";
-import {
-  insertDroppedImageIntoSlideHtml,
-  replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
 import {
@@ -500,14 +500,6 @@ export default function DeckEditor() {
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
-  useEffect(() => {
-    const handleToggleLayers = () => {
-      if (canEdit) toggleLayers();
-    };
-    window.addEventListener("slides:toggle-layers", handleToggleLayers);
-    return () =>
-      window.removeEventListener("slides:toggle-layers", handleToggleLayers);
-  }, [canEdit, toggleLayers]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -1050,6 +1042,33 @@ export default function DeckEditor() {
     [replaceImageInSlide, updateSlideContent],
   );
 
+  // Update fit or crop position on an image in the current slide
+  const updateImageFit = useCallback(
+    (
+      imgSrc: string,
+      updates: {
+        objectFit?: "cover" | "contain";
+        objectPosition?: ImageObjectPosition;
+      },
+      imageOccurrence?: number,
+    ) => {
+      if (!id || !currentSlideRef.current) return;
+      const slide = currentSlideRef.current;
+      const currentContent =
+        latestSlideContentRef.current.get(slide.id) ?? slide.content;
+      const updatedContent = updateImageFitInSlideHtml(
+        currentContent,
+        imgSrc,
+        updates,
+        imageOccurrence,
+      );
+      if (updatedContent !== currentContent) {
+        updateSlideContent(slide.id, updatedContent);
+      }
+    },
+    [updateSlideContent],
+  );
+
   const handleClipboardImagePaste = useCallback(
     (event: ClipboardEvent) => {
       if (!canEdit || event.defaultPrevented) return;
@@ -1084,44 +1103,21 @@ export default function DeckEditor() {
 
   // Toggle object-fit on an image in the current slide
   const toggleObjectFit = useCallback(
-    (imgSrc: string, newFit: string) => {
-      if (!id || !currentSlideRef.current) return;
-      const slide = currentSlideRef.current;
-      const currentContent =
-        latestSlideContentRef.current.get(slide.id) ?? slide.content;
-      const escapedSrc = imgSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      // Match the img tag containing this src and update/add object-fit in its style
-      const imgRegex = new RegExp(
-        `(<img[^>]*src=["']${escapedSrc}["'][^>]*?)(/?>)`,
-      );
-      const match = currentContent.match(imgRegex);
-      if (!match) return;
-      let imgTag = match[1];
-      // Update or add style attribute with object-fit
-      if (/style\s*=\s*["']/.test(imgTag)) {
-        if (/object-fit\s*:/.test(imgTag)) {
-          imgTag = imgTag.replace(
-            /object-fit\s*:\s*[^;"']+/,
-            `object-fit: ${newFit}`,
-          );
-        } else {
-          imgTag = imgTag.replace(
-            /style\s*=\s*["']/,
-            `style="object-fit: ${newFit}; `,
-          );
-        }
-      } else {
-        imgTag += ` style="object-fit: ${newFit};"`;
-      }
-      const updatedContent = currentContent.replace(
-        imgRegex,
-        imgTag + match[2],
-      );
-      if (updatedContent !== currentContent) {
-        updateSlideContent(slide.id, updatedContent);
-      }
+    (imgSrc: string, newFit: "cover" | "contain", imageOccurrence?: number) => {
+      updateImageFit(imgSrc, { objectFit: newFit }, imageOccurrence);
     },
-    [updateSlideContent],
+    [updateImageFit],
+  );
+
+  const updateObjectPosition = useCallback(
+    (
+      imgSrc: string,
+      objectPosition: ImageObjectPosition,
+      imageOccurrence?: number,
+    ) => {
+      updateImageFit(imgSrc, { objectPosition }, imageOccurrence);
+    },
+    [updateImageFit],
   );
 
   // Handle direct file upload and replace image
@@ -2431,6 +2427,7 @@ export default function DeckEditor() {
             onDropImage={uploadAndApplyImage}
             onDropImageUrl={dropImageUrlOnSlide}
             onToggleObjectFit={toggleObjectFit}
+            onChangeObjectPosition={updateObjectPosition}
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
             designSystem={designSystem}
             aspectRatio={deck.aspectRatio}
