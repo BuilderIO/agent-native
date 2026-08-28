@@ -368,6 +368,21 @@ describe("the recording playhead has a shared visual source", () => {
       "animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS",
     );
     expect(source).toContain("userDragActiveRef");
+    expect(source).toContain("userDragArmedRef");
+    expect(source).toContain("userDragGenerationRef");
+    expect(source).toContain("userDragChangeRef");
+    expect(source).toContain("USER_DRAG_ARM_TIMEOUT_MS");
+    expect(source).toContain("saveGeneration");
     expect(source).toContain("remainingGuardMs");
+  });
+
+  it("serializes web restart requests", () => {
+    const source = readFileSync(
+      resolve(clipsRoot, "app/routes/record.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("restartInFlightRef");
+    expect(source).toContain("if (restartInFlightRef.current)");
+    expect(source).toContain("restartInFlightRef.current === run");
   });
 });

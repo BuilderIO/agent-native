@@ -36,6 +36,7 @@ import type { PillMode } from "../lib/pill-session";
 // edge and grows left instead, so growth never runs off-screen.
 const RIGHT_EDGE_ANCHOR_PX = 200;
 const NATIVE_LAYOUT_GUARD_MS = 1_500;
+const USER_DRAG_ARM_TIMEOUT_MS = 1_000;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
 type RecorderSession = {
@@ -151,6 +152,12 @@ export function RecordingPill() {
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animatingUntilRef = useRef(0);
   const userDragActiveRef = useRef(false);
+  const userDragArmedRef = useRef(false);
+  const userDragGenerationRef = useRef(0);
+  const userDragChangeRef = useRef(0);
+  const userDragMarkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -630,6 +637,8 @@ export function RecordingPill() {
         userDragActiveRef.current = false;
         return;
       }
+      const saveGeneration = userDragGenerationRef.current;
+      const saveChange = userDragChangeRef.current;
       const remainingGuardMs = animatingUntilRef.current - Date.now();
       if (remainingGuardMs > 0) {
         timer = setTimeout(saveDraggedPosition, remainingGuardMs + 1);
@@ -641,13 +650,28 @@ export function RecordingPill() {
           safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
         )
         .finally(() => {
-          userDragActiveRef.current = false;
+          if (
+            userDragGenerationRef.current === saveGeneration &&
+            userDragChangeRef.current === saveChange
+          ) {
+            userDragActiveRef.current = false;
+          }
         });
     }
 
     void getCurrentWindow()
       .onMoved(() => {
+        if (!userDragArmedRef.current && !userDragActiveRef.current) return;
+        if (userDragArmedRef.current) {
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = true;
+          if (userDragMarkerTimerRef.current) {
+            clearTimeout(userDragMarkerTimerRef.current);
+            userDragMarkerTimerRef.current = null;
+          }
+        }
         if (!userDragActiveRef.current) return;
+        userDragChangeRef.current += 1;
         if (timer) clearTimeout(timer);
         timer = setTimeout(saveDraggedPosition, 600);
       })
@@ -657,6 +681,10 @@ export function RecordingPill() {
       .catch(() => {});
     return () => {
       if (timer) clearTimeout(timer);
+      if (userDragMarkerTimerRef.current) {
+        clearTimeout(userDragMarkerTimerRef.current);
+        userDragMarkerTimerRef.current = null;
+      }
       unlisten?.();
     };
   }, []);
@@ -754,10 +782,30 @@ export function RecordingPill() {
     const target = e.target as HTMLElement;
     if (target.closest("button")) return;
     if (hasTauri) {
-      userDragActiveRef.current = true;
+      const generation = userDragGenerationRef.current + 1;
+      userDragGenerationRef.current = generation;
+      userDragArmedRef.current = true;
+      userDragActiveRef.current = false;
+      if (userDragMarkerTimerRef.current) {
+        clearTimeout(userDragMarkerTimerRef.current);
+      }
+      userDragMarkerTimerRef.current = setTimeout(() => {
+        if (userDragGenerationRef.current !== generation) return;
+        userDragArmedRef.current = false;
+        userDragActiveRef.current = false;
+        userDragMarkerTimerRef.current = null;
+      }, USER_DRAG_ARM_TIMEOUT_MS);
       getCurrentWindow()
         .startDragging()
-        .catch(() => {});
+        .catch(() => {
+          if (userDragGenerationRef.current !== generation) return;
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = false;
+          if (userDragMarkerTimerRef.current) {
+            clearTimeout(userDragMarkerTimerRef.current);
+            userDragMarkerTimerRef.current = null;
+          }
+        });
     }
   }
 

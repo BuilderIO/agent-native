@@ -968,6 +968,7 @@ export default function RecordRoute() {
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
+  const restartInFlightRef = useRef<Promise<void> | null>(null);
 
   // Elapsed-time display now ticks inside RecordingToolbar itself (via
   // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
@@ -2381,12 +2382,29 @@ export default function RecordRoute() {
     };
   }, [cameraStream, liveTranscription, recordingMode]);
 
-  const restart = useCallback(async () => {
-    await doCancel();
-    const opts = pendingStartOptsRef.current;
-    if (opts) {
-      await startFlow(opts);
-    }
+  const restart = useCallback(() => {
+    if (restartInFlightRef.current) return restartInFlightRef.current;
+    const run = (async () => {
+      await doCancel();
+      const opts = pendingStartOptsRef.current;
+      if (opts) {
+        await startFlow(opts);
+      }
+    })();
+    restartInFlightRef.current = run;
+    void run.then(
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+    );
+    return run;
   }, [doCancel, startFlow]);
 
   const handlePlayheadConfirmChange = useCallback(
