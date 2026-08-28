@@ -5,6 +5,7 @@ import {
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import {
   actionsToEngineTools,
@@ -670,6 +671,14 @@ async function executeBackgroundAutomation(
               runId,
               maxIterations: automation.meta.maxIterations,
               maxRunInputTokens: automation.meta.maxRunInputTokens,
+              // Same model-aware ceiling the interactive paths pass (see
+              // agent-teams.ts and webhook-handler.ts). Without it a scheduled
+              // run silently inherits the flat per-engine default — a LOWER
+              // budget than chat, on exactly the runs that produce the largest
+              // single tool call (a digest, a dashboard, a batch insert), and
+              // the truncation surfaces as an unexplained invalid-arguments
+              // retry loop rather than as a budget problem.
+              maxOutputTokens: resolveMainChatMaxOutputTokens(model),
             };
             // Same adapter A2A uses: bridge this runner's multi-argument shape
             // to the single-argument `runAgentLoop` `instrumentAgentLoop`
@@ -699,10 +708,17 @@ async function executeBackgroundAutomation(
                   // makes it visible to per-user observability reads.
                   userId: ownerEmail,
                   config,
-                  spanName: "background_automation_run",
+                  // The trace list column is a name, so it has to say WHICH
+                  // automation ran; a constant here made every scheduled run
+                  // in LLM analytics indistinguishable from every other one.
+                  spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
                     trigger: "background_automation",
+                    // `recurring-job:` / `manual-automation:` / `automation:`
+                    // — what actually started this run, which the span name
+                    // alone does not say.
+                    label: usageLabel,
                     scope: orgId ? "organization" : "personal",
                   },
                 });

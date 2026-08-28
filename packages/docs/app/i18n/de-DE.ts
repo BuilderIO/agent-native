@@ -502,7 +502,7 @@ const deDE = {
     },
     showcase: {
       title: "Was kannst du mit Agent-Native bauen?",
-      body: "Starte mit einem Chat, einem fokussierten internen Tool oder einem vollständigen kundenorientierten Produkt. Jede App gibt Nutzern eine UI und Agenten die Werkzeuge für dieselbe Arbeit.",
+      body: "Agentische Apps, die deine Arbeit verstehen, handeln und mit dir zusammenarbeiten. Baue deine eigene oder teste eine dieser Open-Source-Apps.",
       browseApps: "Apps durchsuchen",
       scrollLeft: "Apps nach links scrollen",
       scrollRight: "Apps nach rechts scrollen",
@@ -518,7 +518,7 @@ const deDE = {
       community: "Community",
       legal: "Rechtliches",
       docs: "Docs",
-      actions: "Actions",
+      download: "Herunterladen",
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
       saasTerms: "SaaS-Bedingungen",
@@ -591,7 +591,7 @@ const deDE = {
     clips: {
       replaces: "Ersetzt oder erweitert Loom, Granola und Wisprflow",
       description:
-        "Bildschirmaufzeichnungen mit Browser-Debug-Erfassung, kalendersynchronisierten Besprechungsnotizen und Fn-gehaltenem Sprachdiktat – alles transkribiert, zusammengefasst und durchsuchbar, mit einem Agenten, der alles bearbeiten kann.",
+        "Zeichnet Bildschirm, Meetings und Sprachnotizen auf, damit Agenten verstehen, was passiert ist, und handeln können.",
     },
     plan: {
       replaces: "Visueller Planmodus für Codex, Claude Code und Coding-Agenten",
@@ -601,27 +601,27 @@ const deDE = {
     design: {
       replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
       description:
-        "Agent-Native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
+        "Verwandelt Prompts in interaktive Designs, die Ihrem Designsystem folgen, während der Agent jeden Bildschirm mit Feedback verfeinert.",
     },
     content: {
       replaces: "Ersetzt oder erweitert Obsidian für MDX, Notion, Google Docs",
       description:
-        "Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian, generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke und verwenden Sie einen AI-Agenten zum Entwerfen, Umschreiben und Veröffentlichen.",
+        "Arbeitet mit Ihren Dokumenten, während ein Agent in Ihrem Stil schreibt, interaktive Inhalte erstellt und auf Ihrer Website veröffentlicht.",
     },
     slides: {
       replaces: "Ersetzt oder erweitert Google Slides, Pitch",
       description:
-        "Generieren Sie vollständige Präsentationen aus einer Eingabeaufforderung. Bearbeiten Sie visuell oder im Gespräch. AI Bildgenerierung, 8 Layouts und integrierter Präsentationsmodus.",
+        "Erstellt markengerechte, bearbeitbare Präsentationen aus Prompts oder vorhandenen Folien, die ein Agent erstellen, bearbeiten und verfeinern kann.",
     },
     analytics: {
       replaces: "Open-Source-Alternative zu Amplitude und FullStory",
       description:
-        "Verbinden Sie beliebige Datenquellen, fordern Sie beliebige Diagramme an und erstellen Sie wiederverwendbare Dashboards. Der Agent schreibt SQL, generiert Visualisierungen und entwickelt die App weiter.",
+        "Verbindet Ihre Daten, damit ein Agent Fragen in Alltagssprache beantwortet und die Ergebnisse in Diagramme und Dashboards verwandelt.",
     },
     mail: {
       replaces: "Ersetzt oder erweitert Superhuman, Gmail",
       description:
-        "E-Mail-Client im Superhuman-Stil mit Tastaturkürzeln, AI-Triage, Unterstützung für mehrere Konten und E-Mail-Automatisierungen. Besitzen Sie Ihren Posteingangs-Workflow.",
+        "Ein tastaturorientierter Posteingang, in dem ein Agent E-Mails priorisiert, Antworten entwirft, Threads zusammenfasst und nachfasst.",
     },
     forms: {
       replaces: "Ersetzt oder erweitert Typeform, Google Forms",
@@ -632,12 +632,12 @@ const deDE = {
       replaces:
         "Ersetzt oder erweitert DAMs, Marken-Asset-Bibliotheken und AI-Mediengeneratoren",
       description:
-        "Digitaler Asset-Manager für Uploads, Markenbibliotheken, durchsuchbare Referenzen und die Generierung von markenbezogenen Bildern/Videos, die andere Apps über A2A aufrufen oder als Auswahl einbetten können.",
+        "Bietet Agenten eine gemeinsame Bibliothek aus Markenrichtlinien, Bildern und Videos, um in Apps markengerechte Medien zu erstellen und auszuwählen.",
     },
     calendar: {
       replaces: "Ersetzt oder erweitert Google Calendar, Calendly",
       description:
-        "Vollständiger Kalender mit Google-Synchronisierung, Verfügbarkeitsverwaltung und einer öffentlichen Buchungsseite. Der Agent findet offene Slots, erstellt Events und verwaltet Ihren Zeitplan.",
+        "Führt Ihre Google-Kalender zusammen, damit ein Agent freie Zeiten findet, Termine plant oder verschiebt und Buchungen verwaltet.",
     },
     dispatch: {
       replaces: "Missionskontrolle für Ihre agentennativen Apps",
@@ -2152,8 +2152,9 @@ const deDE = {
     dispatchDevelopers: "Entwicklerhandbuch",
     forms: "Formulare",
     formsOverview: "Überblick",
-    formsBuildingPublishing: "Erstellen und Veröffentlichen",
-    formsResponses: "Antworten und Erkenntnisse",
+    formsFeatures: "Funktionen",
+    formsAgent: "Mit dem Agent sprechen",
+    formsIntegrations: "Cross-App-Nutzung",
     docsComponents: "Docs Components",
     formsDevelopers: "Entwicklerhandbuch",
   },

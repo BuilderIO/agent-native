@@ -501,7 +501,7 @@ const koKR = {
     },
     showcase: {
       title: "Agent-Native로 무엇을 만들 수 있나요?",
-      body: "채팅, 집중된 내부 도구, 또는 완전한 고객 대면 제품으로 시작하세요. 모든 앱은 사용자에게 UI를, 에이전트에게 같은 일을 할 수 있는 도구를 제공합니다.",
+      body: "업무를 이해하고, 행동하며, 함께 협업하는 에이전틱 앱입니다. 직접 만들거나 이 오픈 소스 앱 중 하나를 사용해 보세요.",
       browseApps: "앱 살펴보기",
       scrollLeft: "앱 왼쪽으로 스크롤",
       scrollRight: "앱 오른쪽으로 스크롤",
@@ -517,7 +517,7 @@ const koKR = {
       community: "커뮤니티",
       legal: "법적 고지",
       docs: "문서",
-      actions: "액션",
+      download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
       saasTerms: "SaaS 약관",
@@ -587,7 +587,7 @@ const koKR = {
     clips: {
       replaces: "Loom, Granola, Wisprflow를 대체하거나 보강",
       description:
-        "브라우저 디버그 캡처, 캘린더에 동기화된 회의 메모, Fn 보류 음성 받아쓰기가 포함된 화면 녹화 — 모두 기록, 요약 및 검색 가능하며 에이전트는 이를 편집할 수 있습니다.",
+        "화면, 회의, 음성 메모를 기록해 에이전트가 상황을 이해하고 필요한 조치를 취하게 합니다.",
     },
     plan: {
       replaces: "Codex, Claude Code 및 코딩 에이전트를 위한 시각적 계획 모드",
@@ -597,28 +597,28 @@ const koKR = {
     design: {
       replaces: "디자인 프로토타이핑 도구를 대체하거나 보강",
       description:
-        "Agent-Native HTML 프로토타이핑 스튜디오. 대화형 Alpine/Tailwind 디자인을 생성하고, 변형을 비교하고, 라이브 조정 컨트롤을 다듬고, 결과를 내보냅니다.",
+        "프롬프트를 디자인 시스템에 맞는 대화형 디자인으로 바꾸고, 에이전트가 피드백으로 각 화면을 다듬습니다.",
     },
     content: {
       replaces:
         "MDX, Notion, Google Docs에 대해 Obsidian을 대체하거나 확장합니다.",
       description:
-        "Obsidian와 같은 로컬 Markdown/MDX 파일을 편집하고, 풍부한 대화형 사용자 정의 블록을 생성하고, AI 에이전트를 사용하여 초안을 작성하고 다시 작성하고 게시합니다.",
+        "문서를 다루면서 에이전트가 당신의 문체로 초안을 작성하고, 대화형 콘텐츠를 만들고, 사이트에 게시합니다.",
     },
     slides: {
       replaces: "Google Slides, Pitch을 대체하거나 확장합니다.",
       description:
-        "프롬프트에서 전체 프레젠테이션을 생성합니다. 시각적으로 또는 대화식으로 편집하세요. AI 이미지 생성, 8가지 레이아웃 및 프레젠테이션 모드가 내장되어 있습니다.",
+        "프롬프트나 기존 슬라이드에서 브랜드에 맞는 편집 가능한 프레젠테이션을 만들고, 에이전트가 제작, 편집, 개선합니다.",
     },
     analytics: {
       replaces: "Amplitude 및 FullStory에 대한 오픈 소스 대안",
       description:
-        "모든 데이터 소스를 연결하고, 차트에 대한 메시지를 표시하고, 재사용 가능한 대시보드를 구축하세요. 에이전트는 SQL을 작성하고 시각화를 생성하며 앱을 발전시킵니다.",
+        "데이터를 연결해 에이전트가 쉬운 말로 질문에 답하고 결과를 차트와 대시보드로 만듭니다.",
     },
     mail: {
       replaces: "Superhuman, Gmail을 대체하거나 확장합니다.",
       description:
-        "키보드 단축키, AI 분류, 다중 계정 지원 및 이메일 자동화를 갖춘 Superhuman 스타일 이메일 클라이언트입니다. 받은 편지함 워크플로를 소유하세요.",
+        "키보드 중심의 받은편지함에서 에이전트가 메일 우선순위를 정하고, 답장을 작성하고, 대화를 요약하며, 후속 조치를 합니다.",
     },
     forms: {
       replaces: "Typeform, Google Forms을 대체하거나 확장합니다.",
@@ -629,12 +629,12 @@ const koKR = {
       replaces:
         "DAMs, 브랜드 자산 라이브러리 및 AI 미디어 생성기를 대체하거나 강화합니다.",
       description:
-        "다른 앱이 A2A을 통해 호출하거나 선택기로 삽입할 수 있는 업로드, 브랜드 라이브러리, 검색 가능한 참조 및 브랜드 이미지/동영상 생성을 위한 디지털 자산 관리자입니다.",
+        "브랜드 가이드라인, 이미지, 동영상의 공유 라이브러리를 에이전트에게 제공해 앱에서 브랜드에 맞는 미디어를 만들고 선택하게 합니다.",
     },
     calendar: {
       replaces: "Google Calendar, Calendly을 대체하거나 확장합니다.",
       description:
-        "Google 동기화, 가용성 관리 및 공개 예약 페이지가 포함된 전체 달력입니다. 상담원은 빈 슬롯을 찾아 이벤트를 생성하고 일정을 관리합니다.",
+        "여러 Google Calendar를 모아 에이전트가 빈 시간을 찾고, 일정을 잡거나 변경하며, 예약을 관리합니다.",
     },
     dispatch: {
       replaces: "에이전트 기반 앱의 임무 제어",
@@ -2133,8 +2133,9 @@ const koKR = {
     dispatchDevelopers: "개발자 가이드",
     forms: "양식",
     formsOverview: "개요",
-    formsBuildingPublishing: "빌드 및 게시",
-    formsResponses: "응답 및 인사이트",
+    formsFeatures: "기능",
+    formsAgent: "Agent와 대화",
+    formsIntegrations: "앱 간 사용",
     docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },

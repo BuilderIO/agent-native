@@ -39,6 +39,11 @@ import {
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -879,7 +884,7 @@ async function appendDeckSlides(
       throw new Error(`Deck ${deckId} not found`);
     }
 
-    const writeNow = new Date().toISOString();
+    const writeNow = nextDeckRevision(existing[0].updatedAt);
     const previousData = safeParseDeckData(existing[0].data);
     const previousSlides = Array.isArray(
       (previousData as { slides?: unknown }).slides,
@@ -927,14 +932,15 @@ async function appendDeckSlides(
       updatedAt: writeNow,
     };
 
-    await db
+    const updateResult = await db
       .update(schema.decks)
       .set({
         title: nextTitle,
         data: JSON.stringify(data),
         updatedAt: writeNow,
       })
-      .where(eq(schema.decks.id, deckId));
+      .where(deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt));
+    assertDeckWriteApplied(updateResult, deckId, "file import");
 
     return writeNow;
   });

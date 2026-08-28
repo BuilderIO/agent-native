@@ -4234,3 +4234,48 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event.node.res.headersSent).toBe(false);
   });
 });
+
+describe("handleMcpRequest — $mcp_initialize analytics", () => {
+  const events: any[] = [];
+
+  beforeEach(async () => {
+    process.env.ACCESS_TOKEN = "test-access-token";
+    events.length = 0;
+    const { registerTrackingProvider } =
+      await import("../tracking/registry.js");
+    registerTrackingProvider({
+      name: "spec-collector",
+      track: (event) => {
+        events.push(event);
+      },
+    });
+  });
+
+  afterEach(async () => {
+    delete process.env.ACCESS_TOKEN;
+    const { unregisterTrackingProvider } =
+      await import("../tracking/registry.js");
+    unregisterTrackingProvider("spec-collector");
+  });
+
+  it("records the client name, version, and protocol from the handshake", async () => {
+    await callWeb({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "Claude Code", version: "1.2.3" },
+      },
+    });
+
+    const init = events.find((event) => event.name === "$mcp_initialize");
+    expect(init).toBeDefined();
+    expect(init.properties.$mcp_client_name).toBe("Claude Code");
+    expect(init.properties.$mcp_client_version).toBe("1.2.3");
+    expect(init.properties.$mcp_vendor_client).toBe("claude-code");
+    expect(init.properties.$mcp_protocol_version).toBe("2025-06-18");
+    expect(init.properties.$mcp_source).toBe("http");
+  });
+});

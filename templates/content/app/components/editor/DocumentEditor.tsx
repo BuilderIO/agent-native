@@ -41,6 +41,7 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
@@ -465,6 +466,7 @@ export function documentEditorBreadcrumbItems(
   const membership = document.databaseMembership;
   if (
     !membership ||
+    !membership.databaseDocumentId ||
     pageItems.some((item) => item.id === membership.databaseDocumentId)
   ) {
     return pageItems;
@@ -893,6 +895,7 @@ function DocumentEditorBody({
     ydoc,
     awareness,
     isSynced: collabSynced,
+    initialization: collabInitialization,
     activeUsers,
     agentActive,
     agentPresent,
@@ -902,18 +905,24 @@ function DocumentEditorBody({
     user: currentUser,
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
+  const collabInitializationFailed =
+    collabEnabled && collabInitialization.status === "error";
   const editorCanEdit =
     canEdit &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
-    (isLocalFileDocument || collabSynced);
-  // Bind an editor's stable Y.Doc on its first mount, even while the initial
-  // state is loading. Editability and the reconcile hook share the exact
-  // `collabSynced` boundary; "not loading" can precede persisted Y.Doc
-  // projection and briefly expose duplicated blocks. Keeping the Y.Doc binding
-  // stable avoids a snapshot -> collab remount while the read-only editor waits.
-  const collabEditorEnabled = collabEnabled && canEdit && !bodyHydrationPending;
+    (isLocalFileDocument || collabSynced) &&
+    !collabInitializationFailed;
+  // Yjs only becomes a body source after the authoritative initial state is
+  // ready. Until then the canonical SQL body stays visible and read-only.
+  const collabEditorEnabled =
+    collabEnabled &&
+    canEdit &&
+    !bodyHydrationPending &&
+    collabSynced &&
+    collabInitialization.status === "ready" &&
+    !collabInitializationFailed;
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but
@@ -1591,9 +1600,23 @@ function DocumentEditorBody({
           updates.content !== undefined
             ? (lastSavedContentRef.current.updatedAt ?? undefined)
             : undefined;
+        const loadedContentWasEmpty =
+          updates.content !== undefined
+            ? isEffectivelyEmptyDocumentContent(
+                lastSavedContentRef.current.content,
+              )
+            : undefined;
+        const loadedUpdatedAt =
+          updates.content !== undefined
+            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            : undefined;
         const body = JSON.stringify({
           id: documentId,
           ...updates,
+          ...(loadedContentWasEmpty !== undefined
+            ? { loadedContentWasEmpty }
+            : {}),
+          ...(loadedUpdatedAt !== undefined ? { loadedUpdatedAt } : {}),
           ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
         const ok = fetch(url, {
@@ -2431,58 +2454,68 @@ function DocumentEditorBody({
                       // header/collapsible shell when the row has multiple Blocks
                       // fields.
                       const primaryEditor = (
-                        <VisualEditor
-                          key={visualEditorInstanceKey({
-                            documentId,
-                            documentUpdatedAt: document.updatedAt,
-                            isLocalFileDocument,
-                            canEdit,
-                            collabEditorEnabled,
-                            hasYDoc: Boolean(ydoc),
-                            localFileSyncRevision,
-                          })}
-                          documentId={documentId}
-                          content={
-                            isLocalFileDocument
-                              ? localContent
-                              : document.content
-                          }
-                          contentUpdatedAt={
-                            isLocalFileDocument
-                              ? (localContentUpdatedAt ?? document.updatedAt)
-                              : document.updatedAt
-                          }
-                          onChange={handleContentChange}
-                          onSaveContent={handleContentSaveNow}
-                          ydoc={collabEditorEnabled ? ydoc : null}
-                          collabSynced={
-                            collabEditorEnabled ? collabSynced : true
-                          }
-                          awareness={collabEditorEnabled ? awareness : null}
-                          user={currentUser}
-                          editable={editorCanEdit}
-                          localFileMode={isLocalFileDocument}
-                          localFilePath={
-                            isLocalFileDocument ? document.source?.path : null
-                          }
-                          onComment={canComment ? handleComment : undefined}
-                          commentThreads={threads ?? []}
-                          activeThreadId={activeThreadId}
-                          pendingHighlight={pendingComment?.range ?? null}
-                          onActivateThread={
-                            !isLocalFileDocument
-                              ? activateCommentThread
-                              : undefined
-                          }
-                          onJoinTitle={joinFirstBodyBlockToTitle}
-                          notionPageLinks={notionPageLinks}
-                          onOpenNotionPageLink={handleOpenNotionPageLink}
-                          notionPageId={document.notionPageId}
-                          onHistoryControllerChange={
-                            handleHistoryControllerChange
-                          }
-                          onHistoryStateChange={handleHistoryStateChange}
-                        />
+                        <>
+                          {canEdit && collabInitializationFailed ? (
+                            <div data-collab-initialization-error role="alert">
+                              <QueryErrorState
+                                compact
+                                onRetry={() => globalThis.location.reload()}
+                              />
+                            </div>
+                          ) : null}
+                          <VisualEditor
+                            key={visualEditorInstanceKey({
+                              documentId,
+                              documentUpdatedAt: document.updatedAt,
+                              isLocalFileDocument,
+                              canEdit,
+                              collabEditorEnabled,
+                              hasYDoc: Boolean(ydoc),
+                              localFileSyncRevision,
+                            })}
+                            documentId={documentId}
+                            content={
+                              isLocalFileDocument
+                                ? localContent
+                                : document.content
+                            }
+                            contentUpdatedAt={
+                              isLocalFileDocument
+                                ? (localContentUpdatedAt ?? document.updatedAt)
+                                : document.updatedAt
+                            }
+                            onChange={handleContentChange}
+                            onSaveContent={handleContentSaveNow}
+                            ydoc={collabEditorEnabled ? ydoc : null}
+                            collabSynced={
+                              collabEditorEnabled ? collabSynced : true
+                            }
+                            awareness={collabEditorEnabled ? awareness : null}
+                            user={currentUser}
+                            editable={editorCanEdit}
+                            localFileMode={isLocalFileDocument}
+                            localFilePath={
+                              isLocalFileDocument ? document.source?.path : null
+                            }
+                            onComment={canComment ? handleComment : undefined}
+                            commentThreads={threads ?? []}
+                            activeThreadId={activeThreadId}
+                            pendingHighlight={pendingComment?.range ?? null}
+                            onActivateThread={
+                              !isLocalFileDocument
+                                ? activateCommentThread
+                                : undefined
+                            }
+                            onJoinTitle={joinFirstBodyBlockToTitle}
+                            notionPageLinks={notionPageLinks}
+                            onOpenNotionPageLink={handleOpenNotionPageLink}
+                            notionPageId={document.notionPageId}
+                            onHistoryControllerChange={
+                              handleHistoryControllerChange
+                            }
+                            onHistoryStateChange={handleHistoryStateChange}
+                          />
+                        </>
                       );
 
                       // Only database rows have Blocks fields. Standalone pages

@@ -371,6 +371,39 @@ function getBuilderSelector(el: HTMLElement): string | null {
 /** Block tags that can hold rich multi-paragraph content */
 const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
 
+/** Insert a soft line break inside one text leaf through native edit history. */
+function insertLineBreak(editable: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount !== 1) return false;
+  const range = selection.getRangeAt(0);
+
+  const textLeafFor = (node: Node) => {
+    if (!editable.contains(node)) return null;
+    let element = node instanceof HTMLElement ? node : node.parentElement;
+    while (element && element !== editable) {
+      if (isTextLeaf(element)) return element;
+      element = element.parentElement;
+    }
+    const canUseEditableFallback =
+      isTextLeaf(editable) ||
+      (editable.tagName !== "IMG" &&
+        !editable.classList.contains("fmd-img-placeholder") &&
+        (editable.classList.contains("fmd-text-box") ||
+          Array.from(editable.children).every((child) =>
+            isInlineTextElement(child),
+          )));
+    return canUseEditableFallback ? editable : null;
+  };
+
+  const startLeaf = textLeafFor(range.startContainer);
+  const endLeaf = textLeafFor(range.endContainer);
+  if (!startLeaf || startLeaf !== endLeaf) {
+    return false;
+  }
+
+  return document.execCommand("insertLineBreak");
+}
+
 /** Strip renderer/editor-only attributes from an HTML string before saving */
 function stripBuilderIds(html: string): string {
   let cleaned = html;
@@ -2138,6 +2171,7 @@ export default function SlideEditor({
     richTextSelectionRef.current = null;
     el.contentEditable = "false";
     el.removeAttribute("data-editing-block");
+    window.getSelection()?.removeAllRanges();
 
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
@@ -2413,10 +2447,9 @@ export default function SlideEditor({
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
-        //  - A single <p> or <div> leaf is multi-line capable — Enter
-        //    creates a new line via contentEditable's default behavior.
-        //  - Headings, inline leaves, and smart groups commit on Enter
-        //    so the slide layout can never be broken by a stray new node.
+        //  - Rich block leaves keep contentEditable's native multi-line edit.
+        //  - Other text blocks get a <br> so repeated presses stay within the
+        //    existing layout instead of creating new block children.
         if (e.shiftKey) return;
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
@@ -2438,8 +2471,16 @@ export default function SlideEditor({
         }
 
         if (!isMultiLineLeaf) {
+          const editing = editingElRef.current;
+          const inserted = editing ? insertLineBreak(editing) : false;
+          if (!inserted) {
+            // Keep an unsupported cross-leaf selection in edit mode rather
+            // than letting native Enter split the smart group into blocks.
+            e.preventDefault();
+            return;
+          }
           e.preventDefault();
-          exitInlineEdit();
+          captureInlineEditDraft(slide.id);
         }
       }
     };
@@ -2634,6 +2675,10 @@ export default function SlideEditor({
    */
   const applyMultiSelection = useCallback(
     (ids: Set<string>) => {
+      // A canvas selection supersedes native text selection. Keep every entry
+      // point (shift-click, marquee, layer panel, and restored selection) in
+      // the same object-selection mode.
+      if (ids.size > 0 && editingElRef.current) exitInlineEdit();
       const slideContent = getSlideContent();
       const rects = new Map<
         string,
@@ -2676,7 +2721,12 @@ export default function SlideEditor({
         items.length > 0 ? buildSelectionState("multi", items) : null,
       );
     },
-    [buildSelectionState, clearSelectedElement, getSlideContent],
+    [
+      buildSelectionState,
+      clearSelectedElement,
+      exitInlineEdit,
+      getSlideContent,
+    ],
   );
 
   const clearMultiSelection = useCallback(() => {
@@ -3083,6 +3133,72 @@ export default function SlideEditor({
     },
     [getSlideContent],
   );
+
+  // Portal selection chrome uses viewport coordinates, so a flex layout change
+  // can move the canvas without resizing the selected element. Re-measure the
+  // active selection when the editor layout changes, not only on canvas input.
+  useLayoutEffect(() => {
+    if (
+      !selectedImg &&
+      multiSelection.size === 0 &&
+      (!selectedElementPath || !selectedElementSelector)
+    ) {
+      return;
+    }
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const update = () => {
+      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+      if (selectedImg) setSelectionRect(selectedImg.getBoundingClientRect());
+      if (multiSelection.size > 0) {
+        refreshMultiSelectionRects(multiSelection);
+      }
+      if (selectedElementPath && selectedElementSelector) {
+        invalidateSelectionOverlayMeasurement();
+      }
+    };
+
+    update();
+    const layoutRoot = scrollContainer.closest(".deck-editor-workspace");
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    for (const element of [
+      layoutRoot,
+      scrollContainer,
+      canvasTrackRef.current,
+      containerRef.current,
+      slideCanvasRef.current,
+      selectedImg,
+    ]) {
+      if (element) resizeObserver?.observe(element);
+    }
+    const mutationObserver =
+      typeof MutationObserver === "undefined" || !layoutRoot
+        ? null
+        : new MutationObserver(update);
+    if (mutationObserver && layoutRoot) {
+      mutationObserver.observe(layoutRoot, { childList: true });
+    }
+    layoutRoot?.addEventListener("animationend", update);
+    layoutRoot?.addEventListener("transitionend", update);
+
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      layoutRoot?.removeEventListener("animationend", update);
+      layoutRoot?.removeEventListener("transitionend", update);
+    };
+  }, [
+    animationsOpen,
+    invalidateSelectionOverlayMeasurement,
+    layersOpen,
+    multiSelection,
+    refreshMultiSelectionRects,
+    selectedElementPath,
+    selectedElementSelector,
+    selectedImg,
+  ]);
 
   // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned.
   // Group drag calls the same helper every pointer move so its outlines do not
@@ -5634,7 +5750,15 @@ export default function SlideEditor({
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
-      if (
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      const targetIsEditingBlock =
+        editingEl?.contains(e.target as Node) ?? false;
+      if (editingEl) {
+        if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
+          return;
+        }
+        exitInlineEdit();
+      } else if (
         isSlideTextEditingTarget(e.target, document.activeElement, editingEl)
       ) {
         return;

@@ -60,10 +60,10 @@ app rechecks the signed caller against its own item and pack access. Responses
 are opaque, size-limited, strictly validated, and fail closed on timeout or
 malformation. Context mode `off` never calls the remote deployment.
 
-Google Slides imports use the workspace's existing Google OAuth client and a
-separate workspace-connection callback at
-`/_agent-native/connections/oauth/google_drive/callback`; it requests offline
-Drive metadata plus read-only Slides consent without changing Google sign-in.
+Google Slides imports use the workspace's existing Google OAuth client and the
+shared callback at `/_agent-native/google/callback`; state selects the final
+workspace connection route. It requests offline Drive metadata plus read-only
+Slides consent without changing Google sign-in.
 Figma and Notion Connect buttons use workspace-owned OAuth apps configured with `FIGMA_CLIENT_ID` /
 `FIGMA_CLIENT_SECRET` and `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET`. Register
 `/_agent-native/connections/oauth/{provider}/callback` on the deployed app

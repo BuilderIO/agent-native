@@ -474,6 +474,7 @@ export default function App() {
 
       {showSettings ? (
         <AppSettings
+          key={settingsTab}
           apps={apps}
           initialTab={settingsTab}
           onClose={() => {

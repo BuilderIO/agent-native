@@ -69,7 +69,7 @@ Every operation is a TypeScript file in `templates/mail/actions/`, auto-mounted 
 
 **Automations & Gmail filters**
 
-- `manage-automations` / `trigger-automations` — agent-facing natural-language triage rules
+- `manage-email-rules` / `trigger-automations` — agent-facing natural-language triage rules
 - `create-automation` / `list-automations` / `update-automation` / `delete-automation` — UI-only, back the Settings automations list (same `automation_rules` table)
 - `get-automation-settings` / `update-automation-settings` — UI-only, the engine/model used to evaluate rules
 - `manage-gmail-filters` — native Gmail filters (list/create/replace/delete); Gmail has no update endpoint, so `replace` creates a new filter and deletes the old one
@@ -329,7 +329,7 @@ Emails flowing through the API have the shape `{ id, threadId, from, to, cc, sub
 
 Mail is yours to change. Everything important lives in a handful of places — start there.
 
-**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes an agent tool, a CLI command (`pnpm action <name>`), and a typed frontend hook surface through `useActionQuery` / `useActionMutation`. Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-automations.ts` for one with multiple sub-actions. See the [actions](/docs/actions-overview) docs for the full pattern.
+**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes an agent tool, a CLI command (`pnpm action <name>`), and a typed frontend hook surface through `useActionQuery` / `useActionMutation`. Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-email-rules.ts` for one with multiple sub-actions. See the [actions](/docs/actions-overview) docs for the full pattern.
 
 **Changing the UI.** Routes are in `templates/mail/app/routes/` and components in `templates/mail/app/components/email/` and `templates/mail/app/components/layout/`. The app uses shadcn/ui primitives from `app/components/ui/` and Tabler Icons — stick to those.
 
@@ -337,7 +337,7 @@ Mail is yours to change. Everything important lives in a handful of places — s
 
 **Changing data or settings.** Mail's own schema is in `templates/mail/server/db/schema.ts`. Settings reads and writes go through `readSetting`/`writeSetting` (or the per-user `getUserSetting`/`putUserSetting`) from `@agent-native/core/settings`. Application state (navigation, drafts, one-shot commands) uses `readAppState`/`writeAppState` from `@agent-native/core/application-state`.
 
-**Adding a new automation action type.** Extend the action schema in `templates/mail/actions/manage-automations.ts` and the executor in `templates/mail/actions/trigger-automations.ts`.
+**Adding a new automation action type.** Extend the action schema in `templates/mail/actions/manage-email-rules.ts` and the executor in `templates/mail/actions/trigger-automations.ts`.
 
 **Adding a sidebar CRM integration.** Follow the pattern in `server/handlers/gong.ts`, `pylon.ts`, or `apollo.ts` for a read-only sidebar panel, or register a new provider in `MAIL_PROVIDER_API_IDS` (`server/lib/provider-api.ts`) to make it reachable through `provider-api-request` as well.
 
