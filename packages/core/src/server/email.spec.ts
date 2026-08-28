@@ -53,6 +53,25 @@ describe("sendEmail", () => {
     expect(body.categories).toContain("calendar.booking-confirmed::org::org-1");
   });
 
+  it("disables click tracking for security-sensitive links", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: '<a href="https://design.agent-native.com/verify">Verify</a>',
+      disableClickTracking: true,
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.tracking_settings).toEqual({
+      click_tracking: { enable: false },
+    });
+  });
+
   it("applies per-app sender branding on agent-native.com deployments", async () => {
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent-Native <noreply@agent-native.com>");
