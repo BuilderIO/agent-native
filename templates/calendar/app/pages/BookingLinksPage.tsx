@@ -59,6 +59,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  TimeZoneGrid,
+  type TimeZoneGridHost,
+} from "@/components/booking/TimeZoneGrid";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
@@ -138,6 +142,7 @@ import {
 } from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
+import { usePublicBookingLink } from "@/hooks/use-public-data";
 import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
 import {
@@ -1765,6 +1770,7 @@ export default function BookingLinksPage({
                   customFields={draft.customFields}
                   isActive={draft.isActive}
                   availability={availability ?? undefined}
+                  bookingUsername={bookingUsername}
                   bookingSourceSlug={
                     selectedLink.id?.startsWith(OPTIMISTIC_PREFIX) ||
                     !availabilityPreview
@@ -2262,6 +2268,7 @@ function BookingPreview({
   customFields = [],
   isActive,
   availability,
+  bookingUsername,
   bookingSourceSlug,
   availabilityPreview,
   bookingUrl,
@@ -2276,6 +2283,7 @@ function BookingPreview({
   customFields?: CustomField[];
   isActive: boolean;
   availability?: AvailabilityConfig;
+  bookingUsername?: string;
   bookingSourceSlug?: string;
   availabilityPreview?: BookingAvailabilityPreview;
   bookingUrl?: string;
@@ -2298,6 +2306,10 @@ function BookingPreview({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+  const [showPreviewTimeZones, setShowPreviewTimeZones] = useState(false);
+  const [previewExtraTimezones, setPreviewExtraTimezones] = useState<string[]>(
+    [],
+  );
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
   const [previewForm, setPreviewForm] = useState<BookingPreviewFormValue>({
     name: t("bookingLinks.previewGuest"),
@@ -2395,6 +2407,61 @@ function BookingPreview({
     hasLiveAvailability,
     liveSlots,
   ]);
+
+  // The time-zone grid needs the raw ISO instant to convert per-row, which
+  // only exists once the link is saved and real availability is loaded —
+  // the synthetic placeholder slots above have no absolute timestamp.
+  //
+  // The admin's own booking-link fetch doesn't resolve peer timezones (that
+  // enrichment only runs for public visitors), so fetch the real public
+  // response here to preview it accurately instead of only showing the
+  // owner's own timezone.
+  const { data: previewPublicLink } = usePublicBookingLink(
+    showPreviewTimeZones ? bookingSourceSlug : undefined,
+    bookingUsername,
+  );
+  const previewTimeZoneHosts: TimeZoneGridHost[] = previewPublicLink
+    ? [
+        ...(previewPublicLink.ownerTimezone
+          ? [
+              {
+                id: "owner",
+                label: t("bookingLinks.hostLabel"),
+                timezone: previewPublicLink.ownerTimezone,
+              },
+            ]
+          : []),
+        ...(previewPublicLink.hosts ?? [])
+          .filter((host) => host.timezone)
+          .map((host) => ({
+            id: host.email,
+            label: host.displayName || host.email,
+            timezone: host.timezone as string,
+          })),
+      ]
+    : [
+        ...(settings?.timezone
+          ? [
+              {
+                id: "owner",
+                label: t("bookingLinks.hostLabel"),
+                timezone: settings.timezone,
+              },
+            ]
+          : []),
+        ...hosts
+          .filter((host) => host.timezone)
+          .map((host) => ({
+            id: host.email,
+            label: host.displayName || host.email,
+            timezone: host.timezone as string,
+          })),
+      ];
+  const selectedLiveSlotStart = hasLiveAvailability
+    ? (liveSlots.find(
+        (slot) => format(parseISO(slot.start), "h:mm a") === selectedSlot,
+      )?.start ?? null)
+    : null;
 
   // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
@@ -2705,24 +2772,37 @@ function BookingPreview({
         {step === "time" && (
           <div className="space-y-2">
             {selectedDate && (
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-muted-foreground">
                   {format(selectedDate, "EEEE, MMM d")}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedDate(null);
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  }}
-                  className={cn(
-                    "text-[11px] hover:underline",
-                    BRAND_LINK_CLASS,
+                <div className="flex items-center gap-2">
+                  {hasLiveAvailability && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPreviewTimeZones((prev) => !prev)}
+                      className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
+                    >
+                      {showPreviewTimeZones
+                        ? t("bookingLinks.hideTimeZones")
+                        : t("bookingLinks.showTimeZones")}
+                    </button>
                   )}
-                >
-                  {t("bookingLinks.changeDate")}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(null);
+                      setSelectedSlot(null);
+                      setForcedStep(null);
+                    }}
+                    className={cn(
+                      "text-[11px] hover:underline",
+                      BRAND_LINK_CLASS,
+                    )}
+                  >
+                    {t("bookingLinks.changeDate")}
+                  </button>
+                </div>
               </div>
             )}
             {!selectedDate && (
@@ -2730,7 +2810,25 @@ function BookingPreview({
                 {t("bookingLinks.availableTimes")}
               </p>
             )}
-            {liveSlotsLoading ? (
+            {hasLiveAvailability && showPreviewTimeZones ? (
+              <TimeZoneGrid
+                slots={liveSlots}
+                selectedSlot={selectedLiveSlotStart}
+                onSelect={(start) => {
+                  setSelectedSlot(format(parseISO(start), "h:mm a"));
+                  setForcedStep(null);
+                }}
+                loading={liveSlotsLoading}
+                errorMessage={
+                  liveSlotsError
+                    ? t("bookingLinks.availabilityUnavailable")
+                    : undefined
+                }
+                hosts={previewTimeZoneHosts}
+                extraTimezones={previewExtraTimezones}
+                onExtraTimezonesChange={setPreviewExtraTimezones}
+              />
+            ) : liveSlotsLoading ? (
               <div className="grid grid-cols-3 gap-1.5">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <Skeleton key={index} className="h-8 rounded-md" />
