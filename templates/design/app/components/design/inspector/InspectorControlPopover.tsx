@@ -95,7 +95,7 @@ export function InspectorControlField({
   return (
     <div
       className={cn(
-        "grid min-h-6 grid-cols-[72px_minmax(0,1fr)] items-center gap-2",
+        "design-inspector-popover-field grid min-h-6 items-center gap-2",
         className,
       )}
     >
