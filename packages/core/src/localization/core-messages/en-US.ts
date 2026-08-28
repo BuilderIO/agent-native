@@ -43,6 +43,28 @@ const messages = {
   "onboarding.roleOther": "Other",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
+  "onboarding.builderActivateCredits": "Activate Builder.io free credits",
+  "onboarding.builderConnectCredits": "Connect Builder.io free credits",
+  "onboarding.builderActivateDescription":
+    "Create or reuse your Builder.io account and activate its free credits in one click.",
+  "onboarding.builderActiveCredits":
+    "Included with active Builder.io free credits",
+  "onboarding.builderCredits": "Included with Builder.io free credits",
+  "onboarding.builderActivateTitle": "Activate free credits",
+  "onboarding.builderActivationDescription":
+    "We'll automatically create your Builder.io account for you in one click.",
+  "onboarding.builderCreateAndActivate": "Create and activate",
+  "onboarding.builderConsentPrefix": "By continuing, you agree to Builder.io's",
+  "onboarding.builderTerms": "Terms",
+  "onboarding.builderPrivacy": "Privacy",
+  "onboarding.builderConsentAnd": "and",
+  "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.builderActivating": "Activating Builder.io free credits",
+  "onboarding.builderConnecting": "Connecting Builder.io free credits",
+  "onboarding.builderProvisioningDescription":
+    "Creating or reusing your Builder.io account. This usually takes a few seconds.",
+  "onboarding.builderConnectionDescription":
+    "Finish the one-click connection in the new window.",
   "aboutAgentNative.title": "About Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environment",
