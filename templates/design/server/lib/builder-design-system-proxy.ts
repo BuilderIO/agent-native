@@ -32,7 +32,9 @@ type HydratedBuilderDesignSystemReference =
     completionConfirmed?: boolean;
   };
 
-export function isBuilderDesignSystemReady(status: string | undefined): boolean {
+export function isBuilderDesignSystemReady(
+  status: string | undefined,
+): boolean {
   return status === "ready" || status === "complete" || status === "completed";
 }
 

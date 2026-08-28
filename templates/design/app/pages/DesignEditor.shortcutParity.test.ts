@@ -84,9 +84,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
       editorSource.indexOf("const handleOverviewScreenPick"),
       editorSource.indexOf("/** The one add-breakpoint path"),
     );
-    expect(pickHandler).toContain(
-      "setOverviewSelectedScreenIds([pickedId]);",
-    );
+    expect(pickHandler).toContain("setOverviewSelectedScreenIds([pickedId]);");
     expect(pickHandler).toContain("setSelectedLayerIdsState((current)");
   });
 });

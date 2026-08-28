@@ -37,7 +37,8 @@ export default defineAction({
       isBuilderBacked: true,
       builderDesignSystemId: reference.builderDesignSystemId,
       builderJobId: reference.builderJobId,
-      status: hydrated.builderStatus ?? reference.builderStatus ?? "in-progress",
+      status:
+        hydrated.builderStatus ?? reference.builderStatus ?? "in-progress",
       ready:
         hydrated.builderStatus === "ready" ||
         hydrated.builderStatus === "complete" ||
