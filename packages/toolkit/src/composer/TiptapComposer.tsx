@@ -431,15 +431,25 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
 }
 
 function persistComposerDraft(
-  draftKey: string,
+  draftKey: string | null,
   editor: { getHTML(): string; state: { doc: ComposerDocument } },
 ): void {
+  if (!draftKey) return;
   try {
     if (!composerDocumentHasContent(editor.state.doc)) {
       localStorage.removeItem(draftKey);
     } else {
       localStorage.setItem(draftKey, editor.getHTML());
     }
+  } catch {
+    // coercion-ok: browser storage is optional and can be unavailable or full.
+  }
+}
+
+function clearComposerDraft(draftKey: string | null): void {
+  if (!draftKey) return;
+  try {
+    localStorage.removeItem(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
   }
@@ -2463,7 +2473,12 @@ export function TiptapComposer({
   }, []);
 
   // Persist draft to localStorage so refreshes don't lose the prompt.
-  const draftKey = getComposerDraftKey(draftScope);
+  const hasDraftScope = Boolean(draftScope?.trim());
+  const draftKey =
+    hasDraftScope || initialText === undefined
+      ? getComposerDraftKey(draftScope)
+      : null;
+  const previousDraftKeyRef = useRef(draftKey);
   useEffect(() => {
     lastComposerRuntimeSyncRef.current = null;
   }, [composerRuntime]);
@@ -3281,11 +3296,7 @@ export function TiptapComposer({
     setEditorHasText(false);
     setSlotReferences([]);
     resetComposerRuntimeState();
-    try {
-      localStorage.removeItem(draftKey);
-    } catch {
-      // coercion-ok: browser storage is optional and can be unavailable or full.
-    }
+    clearComposerDraft(draftKey);
     closePopover();
   }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
 
@@ -3403,9 +3414,7 @@ export function TiptapComposer({
         setSlotReferences([]);
         setComposerMode(null);
         composerModeRef.current = null;
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
+        clearComposerDraft(draftKey);
         closePopover();
         return;
       }
@@ -3434,9 +3443,7 @@ export function TiptapComposer({
       if (isComposerEditorUsable(ed)) ed.commands.clearContent();
       setEditorHasText(false);
       setSlotReferences([]);
-      try {
-        localStorage.removeItem(draftKey);
-      } catch {}
+      clearComposerDraft(draftKey);
       closePopover();
     },
     [
@@ -3616,19 +3623,32 @@ export function TiptapComposer({
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
+    if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
     editor.commands.clearContent();
-  }, [composerText, editor]);
+  }, [composerText, draftKey, editor]);
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
+    const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
+    previousDraftKeyRef.current = draftKey;
+    if (draftKeyChanged) {
+      editor.commands.clearContent(false);
+      initialTextKeyRef.current = undefined;
+      setEditorHasText(false);
+      setSlotReferences([]);
+      composerRuntime.setText("");
+      onTextChangeRef.current?.("");
+    }
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
-    try {
-      saved = localStorage.getItem(draftKey);
-    } catch {
-      // coercion-ok: browser storage is optional and can be unavailable or full.
+    if (draftKey) {
+      try {
+        saved = localStorage.getItem(draftKey);
+      } catch {
+        // coercion-ok: browser storage is optional and can be unavailable or full.
+      }
     }
 
     try {

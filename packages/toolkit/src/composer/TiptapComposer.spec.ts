@@ -241,7 +241,7 @@ describe("createTiptapComposerExtensions", () => {
     const focusRef = React.createRef<TiptapComposerHandle>();
     const onTextChange = vi.fn();
 
-    function Harness({ currentScope }: { currentScope: string }) {
+    function Harness({ currentScope }: { currentScope?: string }) {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
       return React.createElement(
         AssistantRuntimeProvider,
@@ -250,7 +250,6 @@ describe("createTiptapComposerExtensions", () => {
           TooltipProvider,
           null,
           React.createElement(TiptapComposer, {
-            key: currentScope,
             focusRef,
             draftScope: currentScope,
             initialText: "Seed prompt",
@@ -265,6 +264,18 @@ describe("createTiptapComposerExtensions", () => {
     }
 
     await act(async () => {
+      localStorage.setItem(getComposerDraftKey(), "<p>Legacy prompt</p>");
+      root.render(React.createElement(Harness, { currentScope: undefined }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Seed prompt");
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "Legacy prompt",
+    );
+
+    await act(async () => {
       root.render(React.createElement(Harness, { currentScope: scope }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -273,11 +284,17 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe("Saved prompt");
     expect(onTextChange).toHaveBeenCalledWith("Saved prompt");
 
-    act(() =>
+    act(() => focusRef.current?.setText("Typed prompt"));
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "Typed prompt",
+    );
+
+    await act(async () => {
       root.render(
         React.createElement(Harness, { currentScope: "draft-recovery:other" }),
-      ),
-    );
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(
       container.querySelector(".agent-composer-prosemirror")?.textContent,
     ).toBe("Seed prompt");
