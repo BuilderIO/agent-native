@@ -23,7 +23,8 @@ describe("analytics query catalog", () => {
     });
 
     const signupResult = results.find(
-      (result) => result.panelId === "total-signups",
+      (result) =>
+        result.kind === "dashboard-panel" && result.panelId === "total-signups",
     );
     expect(signupResult).toMatchObject({
       kind: "dashboard-panel",
