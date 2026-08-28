@@ -197,9 +197,7 @@ describe("contextual toolbar font family", () => {
 
     fireEvent.click(trigger);
     expect(
-      screen
-        .getByRole("listbox")
-        .closest("[data-slide-inline-edit-surface]")
+      screen.getByRole("listbox").closest("[data-slide-inline-edit-surface]"),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: "Inter" }));
 
