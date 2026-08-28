@@ -14,6 +14,7 @@ import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   focusAgentChat: vi.fn(),
+  SIDEBAR_STATE_CHANGE_EVENT: "agent-panel:state-change",
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -105,6 +106,22 @@ describe("AgentWorkIndicator", () => {
     await waitFor(() => {
       expect(screen.queryByText("Agent is working")).toBeNull();
     });
+  });
+
+  it("uses the authoritative sidebar state while the panel is mounting", () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:state-change", {
+          detail: { open: true, source: "app", mode: "app" },
+        }),
+      );
+    });
+
+    expect(screen.queryByText("Agent is working")).toBeNull();
   });
 
   it("hides when the portal wrapper becomes inaccessible", async () => {

@@ -1,4 +1,8 @@
-import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  focusAgentChat,
+  SIDEBAR_STATE_CHANGE_EVENT,
+  type AgentSidebarStateChangeDetail,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
@@ -38,9 +42,19 @@ export function isAgentSidebarVisible() {
 
 function useAgentSidebarVisible() {
   const [visible, setVisible] = useState(false);
+  const sidebarStateRef = useRef<boolean | null>(null);
 
   useEffect(() => {
-    const update = () => setVisible(isAgentSidebarVisible());
+    const update = () => {
+      setVisible(sidebarStateRef.current ?? isAgentSidebarVisible());
+    };
+    const handleStateChange = (event: Event) => {
+      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
+        .detail;
+      if (typeof detail?.open !== "boolean") return;
+      sidebarStateRef.current = detail.open;
+      setVisible(detail.open);
+    };
     update();
 
     // The panel is a portal and is normally a direct child of body. Discover
@@ -78,6 +92,7 @@ function useAgentSidebarVisible() {
     discovery.observe(document.body, { childList: true });
     updateAndObserve();
     window.addEventListener("resize", update);
+    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
     window.addEventListener("agent-panel:open", update);
     window.addEventListener("agent-panel:toggle", update);
     window.addEventListener("agent-panel:set-mode", update);
@@ -87,6 +102,7 @@ function useAgentSidebarVisible() {
       panelObserver?.disconnect();
       parentObserver?.disconnect();
       window.removeEventListener("resize", update);
+      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
       window.removeEventListener("agent-panel:open", update);
       window.removeEventListener("agent-panel:toggle", update);
       window.removeEventListener("agent-panel:set-mode", update);
