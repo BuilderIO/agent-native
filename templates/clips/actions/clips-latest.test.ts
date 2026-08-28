@@ -1,11 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   classifyClipsAsset,
   compareClipsReleaseTags,
+  __clipsLatestTest,
+  CLIPS_RELEASE_CACHE_HEADERS,
   isClipsReleaseForChannel,
   normalizeClipsReleaseChannel,
 } from "../server/routes/api/clips-latest.json.get";
+
+function jsonResponse(json: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => json,
+  } as Response;
+}
 
 describe("classifyClipsAsset", () => {
   it("recognizes Clips installer assets", () => {
@@ -95,5 +105,73 @@ describe("Clips release channels", () => {
     expect(normalizeClipsReleaseChannel("nightly")).toBe("nightly");
     expect(normalizeClipsReleaseChannel("production")).toBe("production");
     expect(normalizeClipsReleaseChannel("other")).toBe("production");
+  });
+});
+
+describe("Clips release manifest cache", () => {
+  afterEach(() => {
+    __clipsLatestTest.reset();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("serves stale manifests immediately while revalidating", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-28T00:00:00Z"));
+    const release = (tag_name: string) => ({
+      tag_name,
+      name: tag_name,
+      published_at: "2026-08-28T00:00:00Z",
+      draft: false,
+      prerelease: false,
+      assets: [
+        {
+          name: "Clips_universal.dmg",
+          browser_download_url: `https://downloads.example.com/${tag_name}.dmg`,
+          size: 1,
+        },
+      ],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("pointer unavailable"))
+      .mockResolvedValueOnce(jsonResponse([release("clips-v1.0.0")]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+    });
+
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    let resolveRefresh!: (response: Response) => void;
+    fetchMock
+      .mockRejectedValueOnce(new Error("pointer unavailable"))
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+      );
+
+    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+    });
+    await Promise.resolve();
+    resolveRefresh(jsonResponse([release("clips-v1.1.0")]));
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
+      version: "1.1.0",
+    });
+  });
+
+  it("exposes durable stale-while-revalidate headers", () => {
+    expect(CLIPS_RELEASE_CACHE_HEADERS).toEqual({
+      "cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "cdn-cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "netlify-cdn-cache-control":
+        "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+    });
   });
 });

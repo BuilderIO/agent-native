@@ -32,12 +32,12 @@ import {
  *
  *   - A 5-minute process-wide memoization (`cached`) — every request
  *     for 5 min shares one upstream fetch.
- *   - A stale-while-error fallback — if GitHub ever errors out AND we
- *     have a previously-successful payload (even expired), we return
- *     it. Avoids a download outage during a transient GitHub hiccup or
- *     a rate-limit burst.
- *   - HTTP `cache-control: max-age=60` on the response so downstream
- *     CDNs + the browser cache this aggressively.
+ *   - A stale-while-revalidate refresh — once the cache expires, we return the
+ *     previous payload immediately and refresh it in the background.
+ *   - A stale-while-error fallback — if GitHub ever errors out AND we have a
+ *     previously-successful payload (even expired), we keep serving it.
+ *   - Durable HTTP cache headers with short freshness and a long stale window
+ *     for downstream CDNs + the browser.
  */
 
 const RELEASES_URL_BASE =
@@ -47,6 +47,15 @@ const PER_PAGE = 100;
 // by then, something else is wrong and the 404 is correct.
 const MAX_PAGES = 10;
 const CACHE_TTL_MS = 5 * 60_000;
+
+export const CLIPS_RELEASE_CACHE_HEADERS = {
+  "cache-control":
+    "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+  "cdn-cache-control":
+    "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+  "netlify-cdn-cache-control":
+    "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+} as const;
 
 export type ClipsReleaseChannel = "production" | "nightly";
 
@@ -347,31 +356,46 @@ async function buildManifest(
   };
 }
 
+function refreshManifest(
+  channel: ClipsReleaseChannel,
+): Promise<DownloadManifest> {
+  const pending = inFlight.get(channel);
+  if (pending) return pending;
+  const request = (async () => {
+    const data = await buildManifest(channel);
+    cache.set(channel, { data, ts: Date.now() });
+    return data;
+  })();
+  inFlight.set(
+    channel,
+    request.finally(() => {
+      inFlight.delete(channel);
+    }),
+  );
+  return inFlight.get(channel)!;
+}
+
 async function getManifest(
   channel: ClipsReleaseChannel = "production",
 ): Promise<DownloadManifest> {
   const now = Date.now();
   const cached = cache.get(channel);
-  if (cached && now - cached.ts < CACHE_TTL_MS) return cached.data;
-  const pending = inFlight.get(channel);
-  if (pending) return pending;
-  const request = (async () => {
-    try {
-      const data = await buildManifest(channel);
-      cache.set(channel, { data, ts: Date.now() });
-      return data;
-    } catch (err) {
-      // Stale-while-error: if we have an older payload, serve it. Only
-      // bubble the error if the cache is empty.
-      if (cached) return cached.data;
-      throw err;
-    } finally {
-      inFlight.delete(channel);
+  if (cached) {
+    if (now - cached.ts >= CACHE_TTL_MS) {
+      void refreshManifest(channel).catch(() => undefined);
     }
-  })();
-  inFlight.set(channel, request);
-  return request;
+    return cached.data;
+  }
+  return refreshManifest(channel);
 }
+
+export const __clipsLatestTest = {
+  getManifest,
+  reset() {
+    cache.clear();
+    inFlight.clear();
+  },
+};
 
 export function normalizeClipsReleaseChannel(
   value: unknown,
@@ -397,7 +421,7 @@ export default defineEventHandler(async (event) => {
   }
   setResponseHeaders(event, {
     "content-type": "application/json; charset=utf-8",
-    "cache-control": "public, max-age=60",
+    ...CLIPS_RELEASE_CACHE_HEADERS,
   });
   return manifest;
 });

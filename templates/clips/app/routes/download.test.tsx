@@ -96,6 +96,7 @@ describe("Clips download page", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    window.localStorage.clear();
     fetchMock.mockImplementation(async (input: string) => ({
       ok: true,
       json: async () =>
@@ -115,6 +116,7 @@ describe("Clips download page", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    window.localStorage.clear();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
