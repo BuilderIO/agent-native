@@ -79,10 +79,11 @@ describe("Content agent chat plugin", () => {
     expect(options.initialToolNames).not.toContain("create-document");
   });
 
-  it("does not require app-owned rollout plumbing for selected-receiver ownership", async () => {
+  it("keeps selected Content receivers local without rollout plumbing", async () => {
     await import("./agent-chat.js");
 
     const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0];
+    expect(options).toHaveProperty("selectedA2AReceiverOwnsObjective", true);
     expect(options).not.toHaveProperty("a2aReceiverOwnershipFlag");
   });
 });

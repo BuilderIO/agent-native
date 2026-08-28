@@ -425,6 +425,12 @@ export interface AgentChatPluginOptions {
   a2aAgentDelegation?: boolean;
 
   /**
+   * Keep a delegated objective on this app when trusted A2A metadata already
+   * selected it as the receiver. This is app behavior, not rollout state.
+   */
+  selectedA2AReceiverOwnsObjective?: boolean;
+
+  /**
    * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter
    * than interactive chat because every retained tool result is re-sent on
    * later iterations and delegated callers need a compact answer, not a raw

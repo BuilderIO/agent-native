@@ -322,6 +322,7 @@ import {
   filterDirectA2AActions,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
+  shouldSelectedA2AReceiverOwnObjective,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -1950,10 +1951,12 @@ export function createAgentChatPlugin(
           const extra = await resolveExtraContext(context.event, owner);
 
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
-          const receiverOwnsObjective = isSelectedA2AReceiver(
-            correlation.selectedReceiverApp,
-            options?.appId,
-          );
+          const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+            authenticatedCallerEmail: userEmail,
+            enabled: !!options?.selectedA2AReceiverOwnsObjective,
+            selectedReceiverApp: correlation.selectedReceiverApp,
+            appId: options?.appId,
+          });
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -12,7 +11,7 @@ import {
   buildAuthenticatedAgentA2ASkills,
   createA2AEngineToolSurface,
   filterDirectA2AActions,
-  isSelectedA2AReceiver,
+  shouldSelectedA2AReceiverOwnObjective,
 } from "./action-filters-a2a.js";
 
 const contentProjectRoot = path.resolve(
@@ -34,25 +33,59 @@ async function loadContentActions() {
 }
 
 describe("Content authenticated A2A capabilities", () => {
-  it("keeps a selected Content intake local for a managed Slack channel service principal", () => {
+  it("keeps a selected Content intake local for a managed Slack channel service principal", async () => {
     const managedChannelPrincipal = "scope-test-content-app@integration.local";
-    expect(managedChannelPrincipal).toMatch(/@integration\.local$/);
-    expect(isSelectedA2AReceiver("content", "content")).toBe(true);
+    const receiverOwnsObjective = shouldSelectedA2AReceiverOwnObjective({
+      authenticatedCallerEmail: managedChannelPrincipal,
+      enabled: true,
+      selectedReceiverApp: "content",
+      appId: "content",
+    });
+    const actions = await loadContentActions();
+    const availableTools = [
+      ...actionsToEngineTools(actions),
+      {
+        name: "tool-search",
+        description: "Find a local action",
+        inputSchema: { type: "object" as const },
+      },
+      {
+        name: "call-agent",
+        description: "Delegate to another app",
+        inputSchema: { type: "object" as const },
+      },
+    ];
+    const surface = createA2AEngineToolSurface(
+      availableTools,
+      ["update-document"],
+      {
+        receiverOwnsObjective,
+        localCapabilityNames: [
+          "list-content-databases",
+          "describe-content-database",
+        ],
+      },
+    );
 
-    const source = readFileSync(
-      path.resolve(
-        contentProjectRoot,
-        "../../packages/core/src/server/agent-chat-plugin.ts",
-      ),
-      "utf8",
+    expect(receiverOwnsObjective).toBe(true);
+    expect(surface.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "list-content-databases",
+        "describe-content-database",
+        "update-document",
+        "tool-search",
+      ]),
     );
-    const decisionStart = source.indexOf(
-      "const receiverOwnsObjective = isSelectedA2AReceiver(",
-    );
-    const decision = source.slice(decisionStart, decisionStart + 300);
-    expect(decisionStart).toBeGreaterThan(-1);
-    expect(decision).not.toContain("isFeatureFlagEnabled");
-    expect(decision).not.toContain("a2aReceiverOwnershipFlag");
+    expect(surface.tools.map((tool) => tool.name)).not.toContain("call-agent");
+
+    expect(
+      shouldSelectedA2AReceiverOwnObjective({
+        authenticatedCallerEmail: managedChannelPrincipal,
+        enabled: false,
+        selectedReceiverApp: "analytics",
+        appId: "analytics",
+      }),
+    ).toBe(false);
   });
 
   it(

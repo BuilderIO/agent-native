@@ -23,6 +23,7 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "content",
   durableBackgroundRuns: true,
+  selectedA2AReceiverOwnsObjective: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
