@@ -338,6 +338,47 @@ describe("FirstRunOnboarding", () => {
     expect(mocks.completeFirstRun).not.toHaveBeenCalled();
   });
 
+  it("only records first-run steps completed after moving forward", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding skipIntegrations />
+        </TooltipProvider>,
+      );
+    });
+
+    const completedSteps = () =>
+      mocks.trackOnboardingEvent.mock.calls
+        .filter(([event]) => event === "onboarding_step_completed")
+        .map(([, properties]) => (properties as { step_id: string }).step_id);
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
+
+    act(() => {
+      document.body
+        .querySelector("[data-onboarding-screen='role'] button")
+        ?.click();
+    });
+
+    expect(completedSteps()).toEqual(["intro", "choice", "manual"]);
+  });
+
   it("saves the selected role before completing first-run onboarding", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
@@ -641,6 +682,15 @@ describe("FirstRunOnboarding", () => {
       "first-run completion failed: 500",
     );
     expect(document.body.textContent).toContain("Try again");
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.some(
+        ([event, properties]) =>
+          event === "onboarding_step_completed" &&
+          (properties as { step_id?: string }).step_id?.startsWith(
+            "extension:",
+          ),
+      ),
+    ).toBe(false);
   });
 
   it("renders the role step from the non-English core catalog", async () => {

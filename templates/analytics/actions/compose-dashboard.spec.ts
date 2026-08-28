@@ -93,7 +93,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
-const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES } =
+const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES, listMetricKeys } =
   await import("../server/lib/first-party-metric-catalog");
 
 const LARGE_METRICS = [
@@ -297,6 +297,12 @@ describe("compose-dashboard", () => {
       expect(panel.sql).toContain("{{timeRange}}");
       expect(panel.sql).toContain("{{emailFilter}}");
       expect(panel.sql).toContain("{{appFilter}}");
+    }
+  });
+
+  it("applies the shared App filter to every catalog panel", () => {
+    for (const metric of listMetricKeys()) {
+      expect(buildPanel(metric)?.sql).toContain("{{appFilter}}");
     }
   });
 

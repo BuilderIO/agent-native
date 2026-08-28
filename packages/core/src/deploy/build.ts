@@ -771,6 +771,10 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
 
 export interface GenerateWorkerEntryOptions {
   includeReactRouterSsr?: boolean;
+  analytics?: {
+    agentNativePublicKey?: string;
+    agentNativeEndpoint?: string;
+  };
 }
 
 interface ReactRouterAssetManifest {
@@ -1060,10 +1064,12 @@ ${["post", "put", "delete"]
   }
 
   const builtAnalyticsPublicKey =
+    options.analytics?.agentNativePublicKey?.trim() ||
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
     process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
     process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY?.trim();
   const builtAnalyticsEndpoint =
+    options.analytics?.agentNativeEndpoint?.trim() ||
     process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
     process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
     process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT?.trim();
@@ -2110,6 +2116,21 @@ async function buildCloudflarePages() {
   const missingDefaults = await getMissingDefaultPlugins(cwd);
   const workspaceCore = await getWorkspaceCoreExports(cwd);
   const includeReactRouterSsr = false;
+  const buildMode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const agentNativeWorkspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const buildEnvironment = {
+    ...(agentNativeWorkspaceRoot && agentNativeWorkspaceRoot !== cwd
+      ? loadEnv(buildMode, agentNativeWorkspaceRoot, "")
+      : {}),
+    ...loadEnv(buildMode, cwd, ""),
+    ...process.env,
+  };
+  const agentNativeConfig = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("build", buildMode),
+    { environment: buildEnvironment },
+  );
 
   const workspaceSlotCount = workspaceCore
     ? Object.keys(workspaceCore.plugins).length
@@ -2128,7 +2149,7 @@ async function buildCloudflarePages() {
     workspaceCore,
     immutableAssetPaths,
     normalizeConfiguredAppBasePath(),
-    { includeReactRouterSsr },
+    { includeReactRouterSsr, analytics: agentNativeConfig.analytics },
   );
 
   // Create _worker.js output directory
