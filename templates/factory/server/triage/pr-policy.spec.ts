@@ -286,30 +286,36 @@ describe("pull-request governance", () => {
 
   it("recognizes a current approval but not a later dismissal", () => {
     expect(
-      hasCurrentPullRequestApproval([
-        {
-          author: "reviewer",
-          state: "approved",
-          commitSha: "head-1",
-          observedAt: "2026-08-19T10:00:00Z",
-        },
-      ]),
+      hasCurrentPullRequestApproval(
+        [
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
     ).toBe(true);
     expect(
-      hasCurrentPullRequestApproval([
-        {
-          author: "reviewer",
-          state: "approved",
-          commitSha: "head-1",
-          observedAt: "2026-08-19T10:00:00Z",
-        },
-        {
-          author: "reviewer",
-          state: "dismissed",
-          commitSha: "head-1",
-          observedAt: "2026-08-19T11:00:00Z",
-        },
-      ]),
+      hasCurrentPullRequestApproval(
+        [
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
+            state: "dismissed",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T11:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
     ).toBe(false);
     expect(
       hasCurrentPullRequestApproval(
@@ -325,13 +331,16 @@ describe("pull-request governance", () => {
       ),
     ).toBe(false);
     expect(() =>
-      hasCurrentPullRequestApproval([
-        {
-          author: "reviewer",
-          state: "approved",
-          observedAt: "2026-08-19T10:00:00Z",
-        },
-      ]),
+      hasCurrentPullRequestApproval(
+        [
+          {
+            author: "reviewer",
+            state: "approved",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
     ).toThrow("missing a commit SHA");
   });
 
