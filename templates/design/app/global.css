@@ -103,6 +103,12 @@
   --design-inspector-grid-unit: var(--design-baseline-unit);
   --design-inspector-grid-row: var(--design-control-height);
   --design-inspector-grid-gap: var(--design-baseline-unit);
+  --design-inspector-section-padding-inline: var(--design-baseline-unit);
+  --design-inspector-section-padding-block: var(--design-baseline-unit);
+  --design-inspector-control-gap: var(--design-baseline-half);
+  --design-inspector-popover-label-width: calc(var(--design-baseline-unit) * 9);
+  --design-inspector-popover-icon-width: calc(var(--design-baseline-unit) * 4);
+  --design-inspector-popover-value-width: calc(var(--design-baseline-unit) * 7);
   --design-sidebar-font-control: 11px;
   --design-sidebar-line-control: 16px;
   --design-sidebar-font-label: 10px;
@@ -300,6 +306,28 @@
   gap: 4px;
 }
 
+.design-sidebar-section-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--design-inspector-grid-gap);
+  padding-inline: var(--design-inspector-section-padding-inline);
+  padding-block-end: var(--design-inspector-section-padding-block);
+}
+
+.design-sidebar-control-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--design-inspector-control-gap);
+}
+
+.design-inspector-popover-stack {
+  display: grid;
+  min-width: 0;
+  gap: var(--design-inspector-grid-gap);
+}
+
 .design-inspector-grid.design-sidebar-property-grid {
   grid-auto-rows: auto;
   row-gap: var(--design-baseline-half);
@@ -319,6 +347,14 @@
 .design-sidebar-comments .text-xs {
   font-size: var(--design-sidebar-font-label);
   line-height: var(--design-sidebar-line-label);
+}
+
+.design-sidebar-comments [data-slot="tabs-list"] {
+  min-height: var(--design-control-height);
+}
+
+.design-sidebar-comments [data-slot="tabs-trigger"] {
+  min-height: var(--design-control-height);
 }
 
 /* Keep workspace-rail typography explicit. Tailwind cannot infer whether an
@@ -404,7 +440,9 @@
       var(--design-inspector-debug-column-fill) 50%,
       transparent 50%
     );
-  background-position: left top;
+  /* Section separators are 1px, so the content baseline begins one pixel
+     below the outer inspector origin. Keep the debug coordinates honest. */
+  background-position: left 1px, left 1px, left 1px, left 1px, left 1px;
   background-size:
     calc(100% / var(--design-inspector-grid-columns)) 100%,
     calc(100% / var(--design-inspector-grid-columns)) 100%,
@@ -595,6 +633,26 @@
   grid-template-columns:
     minmax(0, 10fr) var(--design-baseline-unit) minmax(0, 9fr)
     repeat(2, var(--design-action-slot-width));
+}
+
+.design-inspector-popover-field {
+  grid-template-columns: var(--design-inspector-popover-label-width) minmax(
+      0,
+      1fr
+    );
+}
+
+.design-inspector-popover-number {
+  grid-template-columns: var(--design-inspector-popover-icon-width) minmax(
+      0,
+      1fr
+    );
+}
+
+.design-inspector-popover-slider {
+  grid-template-columns: minmax(0, 1fr) var(
+      --design-inspector-popover-value-width
+    );
 }
 
 .design-inspector-grid[data-inspector-layout="stroke-details"]
