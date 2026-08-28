@@ -159,6 +159,17 @@ describe("pull-request governance", () => {
       ),
     ).toBe(true);
     expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "The previous authorization issue is resolved, but this endpoint has an SSRF vulnerability.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
       isUltraScaryChange(["templates/factory/server/triage/github-client.ts"]),
     ).toBe(true);
     expect(

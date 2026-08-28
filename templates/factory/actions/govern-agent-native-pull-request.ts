@@ -282,6 +282,10 @@ export default defineAction({
           snapshot.headSha,
         );
         const authenticatedUser = await github.getAuthenticatedUser();
+        const currentAuthorMembership = await github.checkOrganizationMember(
+          "BuilderIO",
+          pullRequest.userLogin,
+        );
         const attributedApproval = currentApprovals.find(
           (approval) =>
             approval.reviewerLogin ===
@@ -294,6 +298,7 @@ export default defineAction({
           attributedApproval?.htmlUrl ?? pullRequest.htmlUrl;
         if (
           attributedApproval &&
+          currentAuthorMembership.isMember &&
           blockingReviewStatesClean &&
           safetyFindingsClean &&
           !isUltraScaryChange(snapshot.changedFiles ?? [])

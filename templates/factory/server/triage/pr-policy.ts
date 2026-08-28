@@ -427,7 +427,13 @@ export function hasActiveCredibleSafetyFinding(
   comments: readonly { body: string; isResolved?: boolean }[],
 ): boolean {
   const isFinding = (body: string) =>
-    SAFETY_FINDING_PATTERN.test(body) && !NON_FINDING_PATTERN.test(body);
+    body
+      .split(/(?:[.!?]\s+|[,;]\s+(?:but|however|while)\s+)/i)
+      .some(
+        (sentence) =>
+          SAFETY_FINDING_PATTERN.test(sentence) &&
+          !NON_FINDING_PATTERN.test(sentence),
+      );
   return (
     reviews.some(
       (review) =>
