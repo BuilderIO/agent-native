@@ -767,7 +767,11 @@ function getInjectionTargetForAppId(
 
 function resolveDesktopIdentityApp(
   appId: string,
-  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
+  options?: {
+    forCleanup?: boolean;
+    allowDisabled?: boolean;
+    appConfigs?: AppConfig[];
+  },
 ): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
 

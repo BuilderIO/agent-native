@@ -483,6 +483,9 @@ export default function App() {
                 void handleAppRemoval(app.id);
               }}
               onChatFirstAppSelectionChange={handleChatFirstAppSelectionChange}
+              onDesktopIdentitySyncFailure={() =>
+                setDesktopIdentityStatus("failed")
+              }
             />
           </div>
         </div>

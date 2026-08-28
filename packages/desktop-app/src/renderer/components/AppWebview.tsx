@@ -319,9 +319,6 @@ export function resolveDesktopIdentityLazySyncStatus(
   status: DesktopIdentityStatus,
   synchronized: boolean,
 ): DesktopIdentityStatus {
-  // Lazy child fan-out is best-effort. It must not demote a verified
-  // workspace session; the child app owns its fallback login surface.
-  if (status === "signed-in") return "signed-in";
   return synchronized ? status : "failed";
 }
 
@@ -1047,7 +1044,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             // authoritative sign-out status or the next activation rechecks.
             invalidateRememberedDesktopIdentityStatus();
           }
-          updateDesktopIdentitySessionReady(true);
+          updateDesktopIdentitySessionReady(
+            preserveLoadedSession || synchronized === true,
+          );
           setDesktopIdentityStatus(
             resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
           );

@@ -69,6 +69,7 @@ describe("desktop passive-access regressions", () => {
     expect(resolver).toContain(
       'allowDisabled: appId === "dispatch" && isCanonical',
     );
+    expect(resolver).toContain("allowDisabled?: boolean");
   });
 
   it("keeps remembered Content folder discovery metadata-only", () => {
