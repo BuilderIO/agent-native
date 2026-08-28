@@ -240,9 +240,11 @@ describe("createTiptapComposerExtensions", () => {
 
     const focusRef = React.createRef<TiptapComposerHandle>();
     const onTextChange = vi.fn();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
 
     function Harness({ currentScope }: { currentScope?: string }) {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
+      harnessRuntime = runtime;
       return React.createElement(
         AssistantRuntimeProvider,
         { runtime },
@@ -290,6 +292,18 @@ describe("createTiptapComposerExtensions", () => {
     );
 
     await act(async () => {
+      await harnessRuntime?.thread.composer.addAttachment({
+        id: "scope-a-attachment",
+        type: "document",
+        name: "scope-a.txt",
+        content: [],
+      });
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+
+    await act(async () => {
       root.render(
         React.createElement(Harness, { currentScope: "draft-recovery:other" }),
       );
@@ -298,6 +312,9 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector(".agent-composer-prosemirror")?.textContent,
     ).toBe("Seed prompt");
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
   });
 
   it.each([

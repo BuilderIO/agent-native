@@ -3639,6 +3639,11 @@ export function TiptapComposer({
       setEditorHasText(false);
       setSlotReferences([]);
       composerRuntime.setText("");
+      void composerRuntime.clearAttachments().catch((error) => {
+        onAttachmentErrorRef.current?.(
+          error instanceof Error ? error.message : String(error),
+        );
+      });
       onTextChangeRef.current?.("");
     }
     const key = initialTextKey ?? initialText;
