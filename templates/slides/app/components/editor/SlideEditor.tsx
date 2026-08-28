@@ -195,7 +195,6 @@ import {
   findSmartBlock,
   isInlineTextElement,
   isSlideTextEditingTarget,
-  isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 import { SlideContextToolbar } from "./SlideContextToolbar";
@@ -367,9 +366,6 @@ function getBuilderSelector(el: HTMLElement): string | null {
   if (id) return `[data-builder-id="${id}"]`;
   return null;
 }
-
-/** Block tags that can hold rich multi-paragraph content */
-const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
 function stripBuilderIds(html: string): string {
@@ -2339,15 +2335,6 @@ export default function SlideEditor({
   // Global keyboard handling while inline-editing
   useEffect(() => {
     if (!editingEl) return;
-    // Determine "multi-line capable" once at entry time. contentEditable's
-    // default Enter behavior inserts block-level children (e.g. <div><br></div>)
-    // after a couple of presses, which would otherwise flip isTextLeaf to false
-    // mid-edit and incorrectly commit the user out of the block. The user's
-    // intent (rich-block edit vs single-line commit) doesn't change while
-    // they're editing the same node, so latch it.
-    const isMultiLineLeaf =
-      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
-      isBulletList(editingEl);
     const onKey = (e: KeyboardEvent) => {
       const isSelectAll =
         (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "a";
@@ -2413,10 +2400,8 @@ export default function SlideEditor({
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
-        //  - A single <p> or <div> leaf is multi-line capable — Enter
-        //    creates a new line via contentEditable's default behavior.
-        //  - Headings, inline leaves, and smart groups commit on Enter
-        //    so the slide layout can never be broken by a stray new node.
+        //  - Enter remains native for every text block, so repeated presses
+        //    never end the editing session.
         if (e.shiftKey) return;
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
@@ -2435,11 +2420,6 @@ export default function SlideEditor({
           e.preventDefault();
           captureInlineEditDraft(slide.id);
           return;
-        }
-
-        if (!isMultiLineLeaf) {
-          e.preventDefault();
-          exitInlineEdit();
         }
       }
     };
