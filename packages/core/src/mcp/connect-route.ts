@@ -35,7 +35,10 @@ import { getMethod, getHeader } from "h3";
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
-import type { LocaleCode } from "../localization/shared.js";
+import {
+  normalizeLocaleCode,
+  type LocaleCode,
+} from "../localization/shared.js";
 import { getOrgDomain } from "../org/context.js";
 import {
   getSession,
@@ -1212,8 +1215,21 @@ export async function handleMcpConnect(
   const origin = deriveOrigin(event);
   const basePath = configuredBasePath();
   const appUrl = `${origin}${basePath}`;
+  let requestUrl: URL | null = null;
+  try {
+    requestUrl = new URL(
+      event.node?.req?.url ?? event.path ?? "/",
+      "http://an.invalid",
+    );
+  } catch {
+    requestUrl = null;
+  }
+  const requestedLocale = normalizeLocaleCode(
+    requestUrl?.searchParams.get("locale"),
+  );
   const locale = resolveLocaleFromRequest({
     acceptLanguage: getHeader(event, "accept-language"),
+    preference: requestedLocale ?? undefined,
   }).locale;
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
@@ -1245,16 +1261,8 @@ export async function handleMcpConnect(
       );
     }
     let userCode: string | null = null;
-    try {
-      const u = new URL(
-        event.node?.req?.url ?? event.path ?? "/",
-        "http://an.invalid",
-      );
-      const raw = u.searchParams.get("user_code");
-      if (raw && USER_CODE_RE.test(raw)) userCode = raw;
-    } catch {
-      userCode = null;
-    }
+    const raw = requestUrl?.searchParams.get("user_code");
+    if (raw && USER_CODE_RE.test(raw)) userCode = raw;
     return html(
       renderConnectPage({
         connectBasePath: basePath,

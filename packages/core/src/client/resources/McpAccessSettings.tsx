@@ -117,6 +117,8 @@ export function McpAccessSettings({
       mcpUrl: "",
       serverId: `agent-native-${hostname}`,
     } satisfies McpConnectTemplateValues;
+    const connectUrl = new URL(appPath("/mcp/connect"), origin);
+    connectUrl.searchParams.set("locale", locale);
     setUrls({
       appName,
       appUrl: baseUrl,
@@ -124,13 +126,13 @@ export function McpAccessSettings({
         MCP_CONNECT_MCP_URL_TEMPLATE,
         templateValues,
       ),
-      connectUrl: new URL(appPath("/mcp/connect"), origin).toString(),
+      connectUrl: connectUrl.toString(),
       agentCardUrl: new URL(
         appPath("/.well-known/agent-card.json"),
         origin,
       ).toString(),
     });
-  }, [appNameProp]);
+  }, [appNameProp, locale]);
 
   useEffect(() => {
     if (!urls) return;

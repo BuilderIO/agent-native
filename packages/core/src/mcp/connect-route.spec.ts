@@ -228,6 +228,17 @@ describe("handleMcpConnect", () => {
       expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
     });
 
+    it("uses a validated locale from the Settings connect link", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ path: "/?locale=es-ES", acceptLanguage: "en-US" }),
+        "/",
+      );
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+    });
+
     it("shows the device user_code when present and well-formed", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(
