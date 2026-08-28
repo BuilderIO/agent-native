@@ -41,6 +41,7 @@ import {
   currentPullRequestApprovals,
   FACTORY_APPROVAL_BODY_MARKER,
   hasCurrentBlockingPullRequestReview,
+  isUltraScaryChange,
 } from "../server/triage/pr-policy.js";
 
 function repositoryRef(value: string): { owner: string; repo: string } {
@@ -225,6 +226,12 @@ export default defineAction({
         `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
       );
     }
+    const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
+      snapshot.reviews,
+    );
+    const safetyFindingsClean =
+      !snapshot.commentsTruncated &&
+      !hasActiveCredibleSafetyFinding(snapshot.reviews, snapshot.comments);
     const currentApprovals = currentPullRequestApprovals(
       snapshot.reviews,
       snapshot.headSha,
@@ -285,47 +292,55 @@ export default defineAction({
         );
         const attributedApprovalUrl =
           attributedApproval?.htmlUrl ?? pullRequest.htmlUrl;
-        if (attributedApproval) {
-          const recovered = await getDb()
-            .update(triageDecisions)
-            .set({ outcome: "auto_approve" })
-            .where(
-              and(
-                eq(triageDecisions.id, decisionId),
-                eq(triageDecisions.itemId, itemId),
-                eq(triageDecisions.orgId, orgId),
-                eq(triageDecisions.factoryId, factoryId),
-                eq(triageDecisions.outcome, "auto_approval_claimed"),
-              ),
-            )
-            .returning({ id: triageDecisions.id });
-          recoveredApproval = Boolean(recovered[0]);
+        if (
+          attributedApproval &&
+          blockingReviewStatesClean &&
+          safetyFindingsClean &&
+          !isUltraScaryChange(snapshot.changedFiles ?? [])
+        ) {
+          recoveredApproval = await getDb().transaction(async (tx) => {
+            const recovered = await tx
+              .update(triageDecisions)
+              .set({ outcome: "auto_approve" })
+              .where(
+                and(
+                  eq(triageDecisions.id, decisionId),
+                  eq(triageDecisions.itemId, itemId),
+                  eq(triageDecisions.orgId, orgId),
+                  eq(triageDecisions.factoryId, factoryId),
+                  eq(triageDecisions.outcome, "auto_approval_claimed"),
+                ),
+              )
+              .returning({ id: triageDecisions.id });
+            if (!recovered[0]) return false;
+            const latestItem = (
+              await tx
+                .select({ metadataJson: triageItems.metadataJson })
+                .from(triageItems)
+                .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+                .limit(1)
+            )[0];
+            if (!latestItem) {
+              throw new Error(
+                "Factory item disappeared during approval recovery.",
+              );
+            }
+            const metadata = parseTriageMetadata(latestItem.metadataJson);
+            metadata.autoApprovedAt = new Date().toISOString();
+            metadata.autoApprovalUrl = attributedApprovalUrl;
+            metadata.autoApprovalHeadSha = snapshot.headSha;
+            await tx
+              .update(triageItems)
+              .set({
+                metadataJson: serializeTriageMetadata(metadata),
+                status: "auto_approved",
+                updatedAt: new Date().toISOString(),
+              })
+              .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+            return true;
+          });
         }
         if (recoveredApproval) {
-          const latestItem = (
-            await getDb()
-              .select({ metadataJson: triageItems.metadataJson })
-              .from(triageItems)
-              .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
-              .limit(1)
-          )[0];
-          if (!latestItem) {
-            throw new Error(
-              "Factory item disappeared during approval recovery.",
-            );
-          }
-          const metadata = parseTriageMetadata(latestItem.metadataJson);
-          metadata.autoApprovedAt = new Date().toISOString();
-          metadata.autoApprovalUrl = attributedApprovalUrl;
-          metadata.autoApprovalHeadSha = snapshot.headSha;
-          await getDb()
-            .update(triageItems)
-            .set({
-              metadataJson: serializeTriageMetadata(metadata),
-              status: "auto_approved",
-              updatedAt: new Date().toISOString(),
-            })
-            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
           await recordFactoryAudit(
             context,
             { userEmail, orgId },
@@ -397,13 +412,6 @@ export default defineAction({
       snapshot.coverage === "complete" &&
       snapshot.checks.length > 0 &&
       snapshot.checks.every((check) => check.state === "passed");
-    const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
-      snapshot.reviews,
-    );
-    const safetyFindingsClean = !hasActiveCredibleSafetyFinding(
-      snapshot.reviews,
-      snapshot.comments,
-    );
     const reviewFeedback = reconcileBabysitState({
       comments: snapshot.comments,
       checks: snapshot.checks,
@@ -608,31 +616,40 @@ export default defineAction({
                 : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
           );
         } catch (error) {
-          if (
-            error instanceof GitHubRequestError &&
-            (!error.requestAttempted ||
-              (error.status !== null &&
-                error.status >= 400 &&
-                error.status < 500))
-          ) {
-            await getDb()
-              .update(triageDecisions)
-              .set({
-                outcome: "needs_manual",
-                reason: `GitHub rejected the approval request definitively: ${error.message}`,
-              })
-              .where(
-                and(
-                  eq(
-                    triageDecisions.id,
-                    stableId("pr-governance", orgId, itemId, snapshot.headSha),
+          if (error instanceof GitHubRequestError) {
+            const definitiveRejection =
+              error.status !== null &&
+              error.status >= 400 &&
+              error.status < 500;
+            const claimCanBeReleased =
+              definitiveRejection || !error.requestAttempted;
+            if (claimCanBeReleased) {
+              await getDb()
+                .update(triageDecisions)
+                .set({
+                  outcome: "needs_manual",
+                  reason: definitiveRejection
+                    ? `GitHub rejected the approval request definitively: ${error.message}`
+                    : `GitHub approval request was unavailable before the provider call: ${error.message}`,
+                })
+                .where(
+                  and(
+                    eq(
+                      triageDecisions.id,
+                      stableId(
+                        "pr-governance",
+                        orgId,
+                        itemId,
+                        snapshot.headSha,
+                      ),
+                    ),
+                    eq(triageDecisions.itemId, itemId),
+                    eq(triageDecisions.orgId, orgId),
+                    eq(triageDecisions.factoryId, factoryId),
+                    eq(triageDecisions.outcome, "auto_approval_claimed"),
                   ),
-                  eq(triageDecisions.itemId, itemId),
-                  eq(triageDecisions.orgId, orgId),
-                  eq(triageDecisions.factoryId, factoryId),
-                  eq(triageDecisions.outcome, "auto_approval_claimed"),
-                ),
-              );
+                );
+            }
           }
           throw error;
         }

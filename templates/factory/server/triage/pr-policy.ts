@@ -293,7 +293,6 @@ export function currentPullRequestApprovals(
         });
       } else if (
         review.state === "changes_requested" ||
-        review.state === "pending" ||
         review.state === "dismissed"
       ) {
         approvalByAuthor.delete(author);
