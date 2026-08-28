@@ -674,7 +674,7 @@ export default defineAction({
         repository: repo,
         title: postClaimSnapshot.title,
         summary: postClaimSnapshot.summary,
-        changedFiles: postClaimSnapshot.changedFiles,
+        changedFiles: postClaimSnapshot.changedFiles ?? [],
         clearBug,
         productUxImplications,
         checksPassed: postClaimChecksPassed,
