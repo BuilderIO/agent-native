@@ -1523,6 +1523,17 @@ export function EventDetailPopover({
     return () => setEventDetailPopoverOpen(token, false);
   }, [popoverOpen]);
 
+  const repeatControl = canEditRecurrence ? (
+    <RepeatPicker
+      compact
+      preset={getRecurrencePreset(recurrenceRules)}
+      referenceDate={event.start}
+      recurrence={recurrenceRules}
+      onChange={handleSaveRecurrence}
+      onCustomChange={handleSaveCustomRecurrence}
+    />
+  ) : null;
+
   return (
     <Popover open={popoverOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild onClick={handleTriggerClick}>
@@ -1741,6 +1752,7 @@ export function EventDetailPopover({
                           />
                         </>
                       )}
+                      <span className="ml-auto">{repeatControl}</span>
                     </div>
                   ) : (
                     <>
@@ -1802,7 +1814,8 @@ export function EventDetailPopover({
                             />
                           </>
                         )}
-                        <span className="ml-auto">
+                        <span className="ml-auto flex items-center gap-1">
+                          {repeatControl}
                           <TimezonePickerPopover
                             compact
                             value={editTimezone}
@@ -1815,16 +1828,6 @@ export function EventDetailPopover({
                   )}
                 </div>
               </div>
-
-              {canEditRecurrence && (
-                <RepeatPicker
-                  preset={getRecurrencePreset(recurrenceRules)}
-                  referenceDate={event.start}
-                  recurrence={recurrenceRules}
-                  onChange={handleSaveRecurrence}
-                  onCustomChange={handleSaveCustomRecurrence}
-                />
-              )}
 
               {!event.allDay && !isOverlay && !isWorkingLocation && (
                 <div className="flex items-center gap-2 py-1">
@@ -1942,8 +1945,8 @@ export function EventDetailPopover({
                     >
                       <IconVideo className="mr-2 size-4 opacity-80" />
                       <span>{getMeetingLabel(meetingLink.type, t)}</span>
-                      <span className="absolute right-2 hidden items-center gap-1 opacity-50 sm:flex">
-                        <kbd className="text-xs font-normal">
+                      <span className="absolute right-2 hidden items-center gap-1 opacity-70 sm:flex">
+                        <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
                           {shortcutModifierLabel()}
                         </kbd>
                         <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">

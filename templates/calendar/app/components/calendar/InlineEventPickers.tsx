@@ -259,12 +259,15 @@ export function RepeatPicker({
   recurrence,
   onChange,
   onCustomChange,
+  compact = false,
 }: {
   preset: RecurrencePreset;
   referenceDate: string;
   recurrence?: string[];
   onChange: (preset: RecurrencePreset) => void;
   onCustomChange?: (draft: CustomRecurrenceDraft) => void;
+  /** Inline on the date line, the way Notion stacks repeat next to the timezone. */
+  compact?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -338,10 +341,15 @@ export function RepeatPicker({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-auto w-full justify-start rounded-md px-1.5 py-1 text-[13px] leading-[18px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={cn(
+            "h-auto font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+            compact
+              ? "rounded px-1.5 py-0.5 text-[13px] leading-[18px]"
+              : "w-full justify-start rounded-md px-1.5 py-1 text-[13px] leading-[18px]",
+          )}
           aria-label={t("eventForm.repeat")}
         >
-          <IconRefresh className="mr-2 size-4 shrink-0" />
+          {!compact && <IconRefresh className="mr-2 size-4 shrink-0" />}
           {triggerLabel}
         </Button>
       </PopoverTrigger>

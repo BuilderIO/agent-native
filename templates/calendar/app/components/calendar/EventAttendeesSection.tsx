@@ -205,54 +205,61 @@ function RsvpControls({
       open={!!pendingStatus}
       onOpenChange={(open) => !open && closePopover()}
     >
-      <div className="mt-1.5 flex items-center gap-1 rounded-lg bg-muted/60 p-0.5">
-        {options.map((option) => {
-          const active = value === option.value;
-          const btn = (
-            <button
-              key={option.value}
-              type="button"
-              disabled={mutation.isPending}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRsvp(option.value);
-              }}
-              className={cn(
-                "min-w-0 flex-1 rounded-md px-3 py-1 text-[13px] leading-[18px] font-medium",
-                active
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-                  : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
-                mutation.isPending && "opacity-60",
-              )}
-            >
-              {option.label}
-            </button>
-          );
-          if (pendingStatus === option.value) {
-            return (
-              <PopoverTrigger key={option.value} asChild>
-                {btn}
-              </PopoverTrigger>
+      <div className="mt-1.5 flex items-center gap-1">
+        <div className="flex min-w-0 flex-1 items-center gap-1 rounded-lg bg-muted/60 p-0.5">
+          {options.map((option) => {
+            const active = value === option.value;
+            const btn = (
+              <button
+                key={option.value}
+                type="button"
+                disabled={mutation.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRsvp(option.value);
+                }}
+                className={cn(
+                  "min-w-0 flex-1 rounded-md px-3 py-1 text-[13px] leading-[18px] font-medium",
+                  active
+                    ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                  mutation.isPending && "opacity-60",
+                )}
+              >
+                {option.label}
+              </button>
             );
-          }
-          return btn;
-        })}
-      </div>
+            if (pendingStatus === option.value) {
+              return (
+                <PopoverTrigger key={option.value} asChild>
+                  {btn}
+                </PopoverTrigger>
+              );
+            }
+            return btn;
+          })}
+        </div>
 
-      {canEditNote && (
-        <button
-          type="button"
-          disabled={mutation.isPending}
-          onClick={(e) => {
-            e.stopPropagation();
-            openPopover(value as EditableRsvpStatus);
-          }}
-          className="mt-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
-        >
-          <IconMessageCircle className="h-3 w-3" />
-          {currentNote ? t("eventForm.editNote") : t("eventForm.addNote")}
-        </button>
-      )}
+        {canEditNote && (
+          <button
+            type="button"
+            disabled={mutation.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              openPopover(value as EditableRsvpStatus);
+            }}
+            aria-label={
+              currentNote ? t("eventForm.editNote") : t("eventForm.addNote")
+            }
+            title={
+              currentNote ? t("eventForm.editNote") : t("eventForm.addNote")
+            }
+            className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+          >
+            <IconMessageCircle className="size-3.5" />
+          </button>
+        )}
+      </div>
 
       <PopoverContent
         side="left"
@@ -444,7 +451,7 @@ function AttendeeRow({
   }, [timezonePickerOpen, resolvedZone]);
 
   return (
-    <div className="group -mx-1 rounded-lg px-1 py-1 transition-colors hover:bg-muted/40">
+    <div className="group -mx-1 rounded-lg px-1 py-0.5 transition-colors hover:bg-muted/40">
       <div className="flex items-start">
         <div className="min-w-0 flex-1">
           <AttendeeApolloPopover attendee={attendee}>
@@ -727,7 +734,7 @@ export function EventAttendeesSection({
         </div>
       )}
 
-      <div className="space-y-0.5">
+      <div>
         {visibleOthers.map((attendee, index) => (
           <AttendeeRow
             key={attendee.email + index}
