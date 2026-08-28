@@ -13,21 +13,21 @@ export function Spinner({
   height,
   ...props
 }: SpinnerProps) {
-  const hasAriaLabel = Object.prototype.hasOwnProperty.call(
-    props,
-    "aria-label",
-  );
+  const hasRole = Object.prototype.hasOwnProperty.call(props, "role");
+  const hasExplicitSize =
+    size !== undefined || width !== undefined || height !== undefined;
+  const ariaLabel = props["aria-label"] ?? (hasRole ? undefined : "Loading");
 
   return (
     <svg
       {...props}
-      role={props.role ?? "status"}
-      aria-label={hasAriaLabel ? props["aria-label"] : "Loading"}
+      role={hasRole ? props.role : "status"}
+      aria-label={ariaLabel}
       width={width ?? size ?? 24}
       height={height ?? size ?? 24}
       viewBox="0 0 24 24"
       fill="currentColor"
-      className={cn("size-4", className)}
+      className={cn(!hasExplicitSize && "size-4", className)}
       data-agent-native-spinner="true"
     >
       <style>{`
