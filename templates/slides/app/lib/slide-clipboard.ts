@@ -45,6 +45,19 @@ export type SlideClipboardReadResult =
     }
   | { status: "ready"; slide: Slide; copiedAt: number };
 
+export function resolveSlideClipboardForPaste(
+  result: SlideClipboardReadResult,
+  cachedSlide: Slide | null,
+  cachedStorageKey: string | null,
+  storageKey: string,
+): Slide | null {
+  if (result.status === "ready") return result.slide;
+  if (result.status === "unavailable" && cachedStorageKey === storageKey) {
+    return cachedSlide;
+  }
+  return null;
+}
+
 function getBrowserStorage(): SlideClipboardStorage | null {
   if (typeof window === "undefined") return null;
   try {

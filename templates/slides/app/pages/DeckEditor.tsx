@@ -118,6 +118,7 @@ import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
 import {
   getSlideClipboardStorageKey,
   readSlideClipboard,
+  resolveSlideClipboardForPaste,
   writeSlideClipboard,
 } from "@/lib/slide-clipboard";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
@@ -1132,11 +1133,20 @@ export default function DeckEditor() {
       return null;
     }
     const result = readSlideClipboard(slideClipboardStorageKey);
-    const slide = result.status === "ready" ? result.slide : null;
+    const slide = resolveSlideClipboardForPaste(
+      result,
+      slideClipboardRef.current,
+      slideClipboardScopeRef.current,
+      slideClipboardStorageKey,
+    );
     slideClipboardRef.current = slide;
     slideClipboardScopeRef.current = slideClipboardStorageKey;
     slideClipboardArmedAtRef.current =
-      result.status === "ready" ? result.copiedAt : null;
+      result.status === "ready"
+        ? result.copiedAt
+        : slide
+          ? slideClipboardArmedAtRef.current
+          : null;
     setHasSlideClipboard(slide !== null);
     return slide;
   }, [slideClipboardStorageKey]);
@@ -1193,10 +1203,7 @@ export default function DeckEditor() {
 
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
-      const clipboard =
-        slideClipboardScopeRef.current === slideClipboardStorageKey
-          ? (slideClipboardRef.current ?? syncSlideClipboard())
-          : syncSlideClipboard();
+      const clipboard = syncSlideClipboard();
       if (!clipboard || !id) return;
       const { id: _clipboardId, ...fields } = clipboard;
       const newId = pasteSlide(id, targetSlideId, fields);

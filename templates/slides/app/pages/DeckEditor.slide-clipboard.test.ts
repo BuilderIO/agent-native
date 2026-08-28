@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getSlideClipboardStorageKey,
   readSlideClipboard,
+  resolveSlideClipboardForPaste,
   writeSlideClipboard,
 } from "../lib/slide-clipboard";
 import {
@@ -168,5 +169,20 @@ describe("slide clipboard storage", () => {
       copiedAt: null,
     });
     expect(readSlideClipboard(aliceKey, storage).status).toBe("ready");
+  });
+
+  it("uses a newer cross-tab snapshot instead of a stale cached slide", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlide = { ...slide, content: "Cached" };
+    const latestSlide = { ...slide, content: "Latest" };
+
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "ready", slide: latestSlide, copiedAt: 4_000 },
+        cachedSlide,
+        storageKey,
+        storageKey,
+      ),
+    ).toEqual(latestSlide);
   });
 });
