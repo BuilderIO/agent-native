@@ -99,6 +99,19 @@ describe("add-comment reply boundary", () => {
     });
   });
 
+  it("derives authorship from the authenticated caller", async () => {
+    await run({
+      documentId: "doc-1",
+      content: "Comment",
+      authorName: "Impersonated Person",
+    });
+
+    expect(state.inserted[0]).toMatchObject({
+      authorEmail: "author@example.com",
+      authorName: "Author",
+    });
+  });
+
   it.each([
     { threadId: "root-1" },
     { parentId: "root-1" },

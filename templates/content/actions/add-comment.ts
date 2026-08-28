@@ -75,7 +75,6 @@ export default defineAction({
       .number()
       .optional()
       .describe("Character offset of the quote start within the document"),
-    authorName: z.string().optional().describe("Display name of the author"),
     mentions: z
       .union([z.string(), z.array(z.unknown())])
       .optional()
@@ -116,16 +115,8 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
 
-    const providedName = args.authorName?.trim();
-    let name: string;
-    if (providedName) {
-      name = providedName;
-    } else if (email) {
-      const derived = displayNameFromEmail(email).trim();
-      name = derived || "AI Agent";
-    } else {
-      name = "AI Agent";
-    }
+    const derived = displayNameFromEmail(email).trim();
+    const name = derived || "AI Agent";
 
     const mentions = parseMentions(args.mentions);
     const mentionsJson = mentions.length > 0 ? JSON.stringify(mentions) : null;

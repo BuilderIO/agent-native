@@ -148,6 +148,13 @@ beforeEach(() => {
 });
 
 describe("update-comment (action) — reopen permission", () => {
+  it("rejects an update without a mutation", async () => {
+    await expect(run({ id: "c-1" })).rejects.toThrow(
+      "Provide content or resolved to update a comment",
+    );
+    expect(mockAssertAccess).not.toHaveBeenCalled();
+  });
+
   it("requires editor access to reopen a thread, even for the comment's own author", async () => {
     state.rows.forEach((r) => (r.resolved = 1));
     mockGetUserEmail.mockReturnValue("author@example.com");

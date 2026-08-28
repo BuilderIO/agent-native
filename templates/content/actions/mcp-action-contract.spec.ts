@@ -56,9 +56,13 @@ describe("Content action-owned agent catalogs", () => {
       expect.arrayContaining(["documentId", "content"]),
     );
     expect(addProperties?.documentId?.description).toBe("Document ID");
+    expect(addProperties?.authorName).toBeUndefined();
     expect(addProperties?.threadId?.description).toContain("parentId");
     expect(updateProperties?.id?.description).toBe("Comment ID");
     expect(updateProperties?.documentId?.description).toBe("Document ID");
+    expect(updateComment.tool.description).toContain(
+      "calls without a mutation fail",
+    );
   });
 
   it("keeps the existing Content starter surface action-owned", () => {

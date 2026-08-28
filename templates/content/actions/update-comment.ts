@@ -9,7 +9,7 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Update one exact document comment by ID. Comment text supports inline Markdown without headings. Resolving or reopening applies to the full thread; include documentId to fail closed on a mismatched pair.",
+    "Update one exact document comment by ID. Provide content, resolved, or both; calls without a mutation fail. Comment text supports inline Markdown without headings. Resolving or reopening applies to the full thread; include documentId to fail closed on a mismatched pair.",
   mcpTool: true,
   schema: z.object({
     id: z.string().describe("Comment ID"),
@@ -18,6 +18,10 @@ export default defineAction({
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
   run: async (args) => {
+    if (args.content === undefined && args.resolved === undefined) {
+      throw new Error("Provide content or resolved to update a comment");
+    }
+
     const db = getDb();
     const [comment] = await db
       .select({
@@ -74,11 +78,6 @@ export default defineAction({
         );
       await writeAppState("refresh-signal", { ts: Date.now() });
       return { ok: true, resolved: false };
-    }
-
-    // Both resolve and reopen return early above, so only content edits remain.
-    if (args.content === undefined) {
-      return { ok: true };
     }
 
     const updates: Partial<typeof schema.documentComments.$inferInsert> = {
