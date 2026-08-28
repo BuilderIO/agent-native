@@ -295,6 +295,7 @@ describe("ThumbsFeedback localization", () => {
       textarea.form?.requestSubmit();
       textarea.form?.requestSubmit();
     });
+    expect(textarea.disabled).toBe(true);
 
     const formSubmitCalls = await vi.waitFor(() => {
       const calls = fetchMock.mock.calls.filter(([input]) =>

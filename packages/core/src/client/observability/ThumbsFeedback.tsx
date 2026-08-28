@@ -230,6 +230,7 @@ export function ThumbsFeedback({
                 autoFocus
                 value={textFeedback}
                 onChange={(event) => setTextFeedback(event.target.value)}
+                disabled={textSubmitting}
                 onKeyDown={(event) => {
                   if (
                     (event.metaKey || event.ctrlKey) &&
