@@ -2461,11 +2461,16 @@ export default function SlideEditor({
         }
 
         if (!isMultiLineLeaf) {
-          e.preventDefault();
           const editing = editingElRef.current;
-          if (editing && insertLineBreak(editing)) {
-            captureInlineEditDraft(slide.id);
+          const inserted = editing ? insertLineBreak(editing) : false;
+          if (!inserted) {
+            // Keep an unsupported cross-leaf selection in edit mode rather
+            // than letting native Enter split the smart group into blocks.
+            e.preventDefault();
+            return;
           }
+          e.preventDefault();
+          captureInlineEditDraft(slide.id);
         }
       }
     };
