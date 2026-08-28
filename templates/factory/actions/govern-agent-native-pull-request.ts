@@ -217,10 +217,15 @@ export default defineAction({
         "BUILDER_PRIVATE_KEY is required to read PR review evidence.",
       );
     const projectId = requiredAiServicesEnv("BUILDER_PROJECT_ID");
-    const snapshot = await createAiServicesGitReadClient({
+    const aiServicesGit = createAiServicesGitReadClient({
       baseUrl: requiredAiServicesEnv("BUILDER_AI_SERVICES_URL"),
       authorization: `Bearer ${privateKey.startsWith("bpk-") ? privateKey : `bpk-${privateKey}`}`,
-    }).fetchPullRequest({ projectId, repo, pullRequestNumber });
+    });
+    const snapshot = await aiServicesGit.fetchPullRequest({
+      projectId,
+      repo,
+      pullRequestNumber,
+    });
     if (snapshot.headSha !== pullRequest.headSha) {
       throw new Error(
         `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
@@ -581,6 +586,60 @@ export default defineAction({
         checksPassed,
         reviewFeedbackHandled,
       };
+    }
+
+    if (itemId) {
+      const postClaimSnapshot = await aiServicesGit.fetchPullRequest({
+        projectId,
+        repo,
+        pullRequestNumber,
+      });
+      if (postClaimSnapshot.headSha !== snapshot.headSha) {
+        throw new Error(
+          `PR evidence changed after approval claim: expected ${snapshot.headSha}, received ${postClaimSnapshot.headSha}.`,
+        );
+      }
+      if (
+        currentPullRequestApprovals(
+          postClaimSnapshot.reviews,
+          postClaimSnapshot.headSha,
+        ).length > 0
+      ) {
+        await getDb().transaction(async (tx) => {
+          await tx
+            .update(triageDecisions)
+            .set({
+              outcome: "needs_manual",
+              reason:
+                "A current approval appeared after the Factory claim; reconciliation is required before posting another review.",
+            })
+            .where(
+              and(
+                eq(
+                  triageDecisions.id,
+                  stableId("pr-governance", orgId, itemId, snapshot.headSha),
+                ),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approval_claimed"),
+              ),
+            );
+          await tx
+            .update(triageItems)
+            .set({
+              status: "reconciliation_required",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+        });
+        return {
+          ok: true,
+          action: "needs_manual",
+          reason:
+            "A current approval appeared after the Factory claim; no duplicate review was created.",
+        };
+      }
     }
 
     let approvalUrl: string | null = null;

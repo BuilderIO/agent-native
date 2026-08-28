@@ -141,12 +141,42 @@ describe("pull-request governance", () => {
         [
           {
             state: "commented",
+            body: "No security vulnerabilities were identified.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
             body: "Authentication middleware does not enforce tenant isolation.",
           },
         ],
         [],
       ),
     ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            author: "reviewer",
+            state: "commented",
+            body: "This endpoint has an SSRF vulnerability.",
+            observedAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            author: "reviewer",
+            state: "approved",
+            body: "Resolved.",
+            observedAt: "2026-01-02T00:00:00.000Z",
+          },
+        ],
+        [],
+      ),
+    ).toBe(false);
     expect(
       hasActiveCredibleSafetyFinding(
         [

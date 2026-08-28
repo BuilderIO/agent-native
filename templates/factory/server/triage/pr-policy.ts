@@ -423,19 +423,32 @@ const NON_FINDING_PATTERN =
   /(?:\b(?:no|none|zero)\s+(?:known\s+)?(?:active\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\b)|(?:\b(?:not|isn't|is not)\s+(?:an?\s+)?(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\s+(?:change|issue|finding|concern|risk)\b)|(?:\b(?:auth|authentication|authorization|credential|secret|permission|access control|privilege escalation|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|data loss)\b.{0,50}\b(?:resolved|fixed|mitigated|safe|secure|good|clear|clean|false positive)\b)/i;
 
 export function hasActiveCredibleSafetyFinding(
-  reviews: readonly { state: string; body?: string | null }[],
+  reviews: readonly {
+    author?: string;
+    state: string;
+    body?: string | null;
+    observedAt?: string;
+  }[],
   comments: readonly { body: string; isResolved?: boolean }[],
 ): boolean {
   const isFinding = (body: string) =>
     body
-      .split(/(?:[.!?]\s+|[,;]\s+(?:but|however|while)\s+)/i)
+      .split(/(?:[.!?]\s+|;\s*|,\s+(?:but|however|while)\s+)/i)
       .some(
         (sentence) =>
           SAFETY_FINDING_PATTERN.test(sentence) &&
           !NON_FINDING_PATTERN.test(sentence),
       );
+  const latestReviewByAuthor = new Map<string, (typeof reviews)[number]>();
+  reviews.forEach((review, index) => {
+    const author = review.author?.trim().toLowerCase() || `review-${index}`;
+    const previous = latestReviewByAuthor.get(author);
+    if (!previous || (review.observedAt ?? "") >= (previous.observedAt ?? "")) {
+      latestReviewByAuthor.set(author, review);
+    }
+  });
   return (
-    reviews.some(
+    [...latestReviewByAuthor.values()].some(
       (review) =>
         review.state === "commented" &&
         typeof review.body === "string" &&
