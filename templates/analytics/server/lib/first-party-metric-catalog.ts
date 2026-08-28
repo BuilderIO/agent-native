@@ -637,26 +637,35 @@ const FUNNEL_EVENTS_CTE = `WITH signup_identity AS (
   WHERE ${DASHBOARD_TIME_RANGE_FILTER}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
+), funnel_events AS (
+  SELECT e.*
+  FROM raw_funnel_events e
+  WHERE ${FUNNEL_SCOPE_FILTER}
 ), signup_cohort AS (
   SELECT funnel_user_key, MIN(timestamp::timestamptz) AS signup_at
-  FROM raw_funnel_events
+  FROM funnel_events
   WHERE event_name = 'signup'
     AND funnel_user_key IS NOT NULL
     AND ${FUNNEL_SCOPE_FILTER}
   GROUP BY funnel_user_key
-), funnel_events AS (
+), cohort_events AS (
   SELECT e.*, c.signup_at
-  FROM raw_funnel_events e
+  FROM funnel_events e
   JOIN signup_cohort c ON c.funnel_user_key = e.funnel_user_key
 )`;
 const SIGNIFICANT_ACTION_FILTER = `(event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
-const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
-  SELECT c.*, page.page_at
-  FROM signup_cohort c
+const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, funnel_users AS (
+  SELECT DISTINCT funnel_user_key
+  FROM funnel_events
+  WHERE funnel_user_key IS NOT NULL
+), page_stage AS (
+  SELECT u.funnel_user_key, c.signup_at, page.page_at
+  FROM funnel_users u
+  LEFT JOIN signup_cohort c ON c.funnel_user_key = u.funnel_user_key
   LEFT JOIN LATERAL (
     SELECT MIN(e.timestamp::timestamptz) AS page_at
     FROM funnel_events e
-    WHERE e.funnel_user_key = c.funnel_user_key
+    WHERE e.funnel_user_key = u.funnel_user_key
       AND e.event_name = 'auth.signup_viewed'
       AND ${FUNNEL_SCOPE_FILTER}
   ) page ON true
@@ -681,7 +690,7 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
   FROM signup_stage s
   LEFT JOIN LATERAL (
     SELECT MIN(e.timestamp::timestamptz) AS started_at
-    FROM funnel_events e
+    FROM cohort_events e
     WHERE e.funnel_user_key = s.funnel_user_key
       AND s.signed_up_at IS NOT NULL
       AND e.event_name = 'onboarding_started'
@@ -693,7 +702,7 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
   FROM onboarding_start_stage s
   LEFT JOIN LATERAL (
     SELECT MIN(e.timestamp::timestamptz) AS step_at
-    FROM funnel_events e
+    FROM cohort_events e
     WHERE e.funnel_user_key = s.funnel_user_key
       AND s.started_at IS NOT NULL
       AND e.event_name = 'onboarding_step_viewed'
@@ -705,7 +714,7 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
   FROM step_stage s
   LEFT JOIN LATERAL (
     SELECT MIN(e.timestamp::timestamptz) AS completed_at
-    FROM funnel_events e
+    FROM cohort_events e
     WHERE e.funnel_user_key = s.funnel_user_key
       AND s.step_at IS NOT NULL
       AND e.event_name = 'onboarding_completed'
@@ -717,7 +726,7 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
   FROM completion_stage s
   LEFT JOIN LATERAL (
     SELECT MIN(e.timestamp::timestamptz) AS entered_at
-    FROM funnel_events e
+    FROM cohort_events e
     WHERE e.funnel_user_key = s.funnel_user_key
       AND s.completed_at IS NOT NULL
       AND (e.event_name = 'onboarding_app_entered' OR (e.event_name = 'session status' AND e.signed_in = 'true'))
@@ -729,7 +738,7 @@ const ACTIVATION_FUNNEL_SQL = `${FUNNEL_EVENTS_CTE}, page_stage AS (
   FROM entry_stage s
   LEFT JOIN LATERAL (
     SELECT MIN(e.timestamp::timestamptz) AS action_at
-    FROM funnel_events e
+    FROM cohort_events e
     WHERE e.funnel_user_key = s.funnel_user_key
       AND s.entered_at IS NOT NULL
       AND ${SIGNIFICANT_ACTION_FILTER}

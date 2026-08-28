@@ -300,6 +300,21 @@ describe("compose-dashboard", () => {
     }
   });
 
+  it("keeps pre-signup and standalone panels outside the signup cohort", () => {
+    const activationSql = buildPanel("activation-funnel")!.sql;
+    expect(activationSql).toContain("FROM funnel_users");
+    expect(activationSql).toContain("FROM funnel_events e");
+    expect(activationSql).toContain("FROM cohort_events e");
+
+    for (const metric of [
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      expect(buildPanel(metric)!.sql).toContain("FROM funnel_events");
+    }
+  });
+
   it("groups the recurring bar panel into Monday-based weekly buckets", () => {
     const panel = buildPanel("recurring-users-by-template-bar")!;
     expect(panel.sql).toContain("date_trunc('week', event_date::date)");
