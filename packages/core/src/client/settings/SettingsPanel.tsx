@@ -82,7 +82,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
+import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { McpAccessSettings } from "../resources/McpAccessSettings.js";
@@ -3848,6 +3848,7 @@ export function useAgentSettingsTabs(
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const { data: org } = useOrg();
+  const locale = useOptionalLocale()?.locale ?? "en-US";
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
@@ -3880,7 +3881,7 @@ export function useAgentSettingsTabs(
   );
 
   return useMemo<SettingsTabItem[]>(() => {
-    const searchTabs = getAgentSettingsSearchTabs();
+    const searchTabs = getAgentSettingsSearchTabs(locale);
     const searchTab = (
       id:
         | "agent"
@@ -4109,6 +4110,7 @@ export function useAgentSettingsTabs(
     appName,
     baseProps,
     extensionToolsEnabled,
+    locale,
     organizationContent,
     usageAppId,
     usageViewAllHref,

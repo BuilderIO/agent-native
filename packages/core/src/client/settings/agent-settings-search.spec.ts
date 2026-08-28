@@ -43,4 +43,17 @@ describe("getAgentSettingsSearchTabs", () => {
       }),
     );
   });
+
+  it("localizes the MCP result metadata", () => {
+    const mcp = getAgentSettingsSearchTabs("es-ES").find(
+      (tab) => tab.id === "mcp",
+    );
+    const entry = mcp?.searchEntries?.[0];
+
+    expect(entry).toMatchObject({
+      label: "URL del servidor MCP",
+      description: "Conectar un host de IA",
+    });
+    expect(entry?.label).not.toBe("MCP server URL");
+  });
 });

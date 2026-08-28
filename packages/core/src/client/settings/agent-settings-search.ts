@@ -1,3 +1,5 @@
+import { MCP_SETTINGS_MESSAGES } from "../../localization/mcp-settings-messages.js";
+import type { LocaleCode } from "../../localization/shared.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
 
 export type SettingsSectionId =
@@ -188,7 +190,10 @@ export interface AgentSettingsSearchTab {
   searchEntries?: SettingsSearchEntry[];
 }
 
-export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
+export function getAgentSettingsSearchTabs(
+  locale: LocaleCode = "en-US",
+): AgentSettingsSearchTab[] {
+  const mcpMessages = MCP_SETTINGS_MESSAGES[locale];
   return [
     {
       id: "agent",
@@ -212,10 +217,10 @@ export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
       searchEntries: [
         {
           id: "mcp-server-url",
-          label: "MCP server URL",
+          label: mcpMessages.mcpUrlLabel,
           keywords:
             "remote host external agent connect claude chatgpt cursor codex",
-          description: "Connect an AI host to this app",
+          description: mcpMessages.mcpClientSetup,
         },
       ],
     },
