@@ -18,6 +18,7 @@ function args(
   applyLocalContentUpdate: PastedImageFilesArgs["applyLocalContentUpdate"],
   replacePreviewContent: PastedImageFilesArgs["replacePreviewContent"],
   uploadImageFileForHtml: PastedImageFilesArgs["uploadImageFileForHtml"],
+  getFreshActiveContent: () => string = () => "<main></main>",
 ): PastedImageFilesArgs {
   return {
     activeFile: { id: "screen-1" } as DesignFile,
@@ -27,7 +28,7 @@ function args(
     canEditDesign: true,
     canvasContainerRef: ref(null),
     canvasFrameGeometryById: {},
-    getFreshActiveContent: () => "<main></main>",
+    getFreshActiveContent,
     getScreenContent: () => "<main></main>",
     overviewScreens: [],
     overviewSelectedScreenIds: [],
@@ -62,8 +63,10 @@ describe("runPastedImageFiles", () => {
     );
     const updates: Array<{ content: string; persist?: boolean }> = [];
     const previews: string[] = [];
+    let currentContent = "<main></main>";
     const replacePreviewContent = vi.fn((content: string) => {
       previews.push(content);
+      currentContent = content;
     });
     const applyLocalContentUpdate = vi.fn((content, options) => {
       updates.push({ content, persist: options?.persist });
@@ -71,7 +74,12 @@ describe("runPastedImageFiles", () => {
 
     expect(
       runPastedImageFiles(
-        args(applyLocalContentUpdate, replacePreviewContent, upload),
+        args(
+          applyLocalContentUpdate,
+          replacePreviewContent,
+          upload,
+          () => currentContent,
+        ),
         [file],
         { fileId: "screen-1", point: { x: 40, y: 60 } },
       ),
@@ -110,6 +118,35 @@ describe("runPastedImageFiles", () => {
     expect(replacePreviewContent.mock.calls[1]?.[0]).not.toContain(
       "blob:failed",
     );
+  });
+
+  it("does not resurrect a preview deleted while its upload is pending", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:deleted");
+    const applyLocalContentUpdate = vi.fn();
+    const upload = vi.fn(async () => "https://cdn.example/deleted.png");
+    let currentContent = "<main></main>";
+    const replacePreviewContent = vi.fn(() => {
+      currentContent = "<main></main>";
+    });
+
+    runPastedImageFiles(
+      args(
+        applyLocalContentUpdate,
+        replacePreviewContent,
+        upload,
+        () => currentContent,
+      ),
+      [file],
+      { fileId: "screen-1", point: { x: 0, y: 0 } },
+    );
+
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+    await vi.waitFor(() =>
+      expect(replacePreviewContent).toHaveBeenCalledOnce(),
+    );
+
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(currentContent).toBe("<main></main>");
   });
 });
 

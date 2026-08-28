@@ -229,9 +229,11 @@ function AppContent() {
     );
     const active = document.activeElement;
     const editing =
-      active instanceof HTMLElement &&
-      (active.isContentEditable ||
-        Boolean(active.closest("[contenteditable='true']")));
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement ||
+      (active instanceof HTMLElement && active.isContentEditable) ||
+      Boolean(active?.closest("[contenteditable='true'], [role='textbox']"));
     if (editor?.dataset.slidesEditorEditable === "true" && !editing) {
       window.dispatchEvent(new CustomEvent("slides:toggle-layers"));
       setCmdkOpen(false);

@@ -76,6 +76,8 @@ export interface UpdateSlideOptions {
   preserveLocalState?: boolean;
   /** Record the edit for undo without enqueueing a duplicate server write. */
   recordUndoOnly?: boolean;
+  /** Explicit object deletion may clear previews missing from the submitted HTML. */
+  clearMissingImagePreviews?: boolean;
 }
 
 // ---------------------------------------------------------------------------

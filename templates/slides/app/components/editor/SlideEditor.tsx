@@ -2671,6 +2671,8 @@ export default function SlideEditor({
       }
 
       if (multiSelection.size > 0) clearMultiSelection();
+      setSelectedImg(null);
+      setImageOverlay(null);
       const selector = getBuilderSelector(element);
       if (selector) selectElementForStyling(element, selector);
     },
@@ -3095,7 +3097,9 @@ export default function SlideEditor({
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        onUpdateSlideRef.current({ content: html, animations: [] });
+        onUpdateSlideRef.current({ content: html, animations: [] }, undefined, {
+          clearMissingImagePreviews: true,
+        });
       }
       syncSelectionToAppState(null);
       return true;

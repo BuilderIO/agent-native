@@ -155,12 +155,23 @@ export function runPastedImageFiles(
           continue;
         }
 
+        const insertedNodeId =
+          previewUrl === null
+            ? nodeId
+            : (Array.from(
+                new DOMParser()
+                  .parseFromString(previewContent, "text/html")
+                  .querySelectorAll<HTMLImageElement>("img"),
+              ).find((image) => image.getAttribute("src") === previewUrl)
+                ?.dataset.agentNativeNodeId ?? nodeId);
         if (previewUrl && targetFileId === activeFile?.id) {
           replacePreviewContent(previewContent, null, {
             forceFullDocument: true,
           });
         }
-        selectInsertedLayers(targetFileId, previewContent, [nodeId]);
+        const previewWasMounted =
+          previewUrl !== null && targetFileId === activeFile?.id;
+        selectInsertedLayers(targetFileId, previewContent, [insertedNodeId]);
 
         try {
           const imageUrl = await uploadImageFileForHtml(file);
@@ -172,11 +183,13 @@ export function runPastedImageFiles(
             imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
           const replacedContent = replacePastedImageSource(
             currentContent,
-            nodeId,
+            insertedNodeId,
             durableImageUrl,
           );
           const nextContent =
-            replacedContent !== currentContent || !durableImageUrl
+            replacedContent !== currentContent ||
+            !durableImageUrl ||
+            previewWasMounted
               ? replacedContent
               : (cloneHtmlLayerAtPosition(
                   currentContent,

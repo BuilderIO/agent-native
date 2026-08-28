@@ -892,7 +892,15 @@ export default function DeckEditor() {
         position,
         objectId: replaceSrc ? undefined : nanoid(8),
       };
-      updatePendingImagePreviews((current) => [...current, pendingPreview]);
+      updatePendingImagePreviews((current) => [
+        ...current.filter(
+          (preview) =>
+            preview.slideId !== targetSlideId ||
+            replaceSrc === null ||
+            preview.replaceSrc !== replaceSrc,
+        ),
+        pendingPreview,
+      ]);
       const clearPreview = () => {
         updatePendingImagePreviews((current) =>
           current.filter((preview) => preview.previewSrc !== previewSrc),
@@ -2144,16 +2152,20 @@ export default function DeckEditor() {
               const pendingForSlide = pendingImagePreviewsRef.current.filter(
                 (preview) => preview.slideId === targetSlideId,
               );
+              const clearMissingPreviews =
+                options?.clearMissingImagePreviews === true;
               const activePreviews =
                 updates.content === undefined
                   ? pendingForSlide
-                  : pendingForSlide.filter((preview) =>
-                      hasOptimisticImagePreview(
-                        updates.content as string,
-                        preview.previewSrc,
-                      ),
-                    );
-              if (updates.content !== undefined) {
+                  : clearMissingPreviews
+                    ? pendingForSlide.filter((preview) =>
+                        hasOptimisticImagePreview(
+                          updates.content as string,
+                          preview.previewSrc,
+                        ),
+                      )
+                    : pendingForSlide;
+              if (updates.content !== undefined && clearMissingPreviews) {
                 updatePendingImagePreviews((current) =>
                   current.filter(
                     (preview) =>
