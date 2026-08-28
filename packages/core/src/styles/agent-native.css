@@ -490,13 +490,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
 
-  /* Tailwind's stock pulse swings opacity 1 -> 0.5 and eases hard into both
-     ends, so a placeholder reads as blinking rather than breathing. Skeletons
-     also mount at different moments, so their cycles never line up: at that
-     amplitude a screen of them strobes. Keep the swing small enough that
-     out-of-phase neighbours stay calm. */
-  --animate-pulse: skeleton-pulse 2s ease-in-out infinite;
-
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-bounce-once: bounce-once 0.46s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -546,16 +539,45 @@
   }
 }
 
-/* Declared at top level, not inside `@theme`, so it is emitted even in a build
-   where no `animate-pulse` utility survives tree-shaking — other stylesheets
-   reference it by name. */
-@keyframes skeleton-pulse {
-  50% {
-    opacity: 0.72;
+/* Whole-surface loading treatment. The muted selectors keep hand-rolled
+   placeholders on the same motion until they migrate to the shared class. */
+.skeleton-shimmer,
+.animate-pulse[class~="bg-muted"],
+.animate-pulse[class*="bg-muted/"],
+.animate-pulse[class~="bg-card"],
+.animate-pulse[class~="bg-border"],
+.animate-pulse[class*="bg-border/"] {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    hsl(var(--foreground, var(--ui-foreground)) / 0.12) 50%,
+    transparent 70%
+  );
+  background-position: 150% 0;
+  background-repeat: repeat;
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer,
+  .animate-pulse[class~="bg-muted"],
+  .animate-pulse[class*="bg-muted/"],
+  .animate-pulse[class~="bg-card"],
+  .animate-pulse[class~="bg-border"],
+  .animate-pulse[class*="bg-border/"] {
+    animation: none;
+  }
+
   .animate-pulse {
     animation: none;
   }

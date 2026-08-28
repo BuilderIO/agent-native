@@ -14,6 +14,7 @@ import {
 import {
   isSlideClipboardStillArmed,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
+  syncSlideContentSnapshots,
 } from "./DeckEditor";
 
 const deckEditorSource = readFileSync(
@@ -72,6 +73,34 @@ describe("slide paste fallback", () => {
     expect(pasteBody).toContain("slidePasteFallbackRef.current = null");
     expect(pasteBody).not.toContain("hasText");
     expect(pasteBody).not.toContain("hasImage");
+  });
+});
+
+describe("syncSlideContentSnapshots", () => {
+  it("adopts an inactive slide update without losing a queued local edit", () => {
+    const latestContent = new Map<string, string>();
+    const renderedContent = new Map<string, string>();
+    const initialSlides = [
+      { id: "slide-a", content: "A initial" },
+      { id: "slide-b", content: "B initial" },
+    ];
+
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+    latestContent.set("slide-a", "A queued local edit");
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+
+    expect(latestContent.get("slide-a")).toBe("A queued local edit");
+
+    syncSlideContentSnapshots(
+      [
+        { id: "slide-a", content: "A intervening update" },
+        { id: "slide-b", content: "B initial" },
+      ],
+      latestContent,
+      renderedContent,
+    );
+
+    expect(latestContent.get("slide-a")).toBe("A intervening update");
   });
 });
 

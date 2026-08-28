@@ -29,6 +29,11 @@ import {
   rebindCreativeContextSlideLabels,
 } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 const ReuseLabelSchema = z
   .object({
@@ -253,37 +258,47 @@ export default defineAction({
         repairGeneratedDeckTitle(title, firstSlideContent, existing[0].title) ??
         resolvedTitle;
       assertHumanReadableDeckTitle(existingDeckTitle);
-      await createDeckVersionSnapshot(
-        {
-          id: existing[0].id,
-          title: existing[0].title,
-          data: existing[0].data,
-          ownerEmail: existing[0].ownerEmail,
-        },
-        { force: true, label: "Before bulk replace" },
-      );
-      const prevData = existing[0] ? JSON.parse(existing[0].data) : {};
+      const writeNow = nextDeckRevision(existing[0].updatedAt);
+      const prevData = JSON.parse(existing[0].data);
       const data = {
         title: existingDeckTitle,
         slides,
-        updatedAt: now,
+        updatedAt: writeNow,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
         designSystemId: designSystemId ?? prevData.designSystemId,
         creativeContext: creativeContextProvenance,
       };
-      await db
-        .update(schema.decks)
-        .set({
-          title: existingDeckTitle,
-          data: JSON.stringify(data),
-          designSystemId: designSystemId ?? existing[0]?.designSystemId ?? null,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
+      await db.transaction(async (tx: any) => {
+        await createDeckVersionSnapshot(
+          {
+            id: existing[0].id,
+            title: existing[0].title,
+            data: existing[0].data,
+            ownerEmail: existing[0].ownerEmail,
+          },
+          { force: true, label: "Before bulk replace", db: tx },
+        );
+        const updateResult = await tx
+          .update(schema.decks)
+          .set({
+            title: existingDeckTitle,
+            data: JSON.stringify(data),
+            designSystemId:
+              designSystemId ?? existing[0].designSystemId ?? null,
+            updatedAt: writeNow,
+          })
+          .where(
+            deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt),
+          );
+        assertDeckWriteApplied(updateResult, deckId, "deck replacement");
+      });
       // Broadcast to open editors (in-process SSE) + application-state
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
-      await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+      await writeAppState("refresh-signal", {
+        ts: writeNow,
+        source: "create-deck",
+      });
       await recordGenerationCreativeContext({
         appId: "slides",
         artifactType: "deck",

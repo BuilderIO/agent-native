@@ -2479,11 +2479,9 @@ function workspaceOAuthCallbackRelayResponse(
   const normalizedPath = stripAppBasePath(rawPath);
   const basePath = getAppBasePath();
   if (
-    !basePath ||
-    !isWorkspaceOAuthCallbackRelayEnabled() ||
     !isFrameworkOAuthCallbackPath(normalizedPath) ||
-    rawPath === `${basePath}/_agent-native` ||
-    rawPath.startsWith(`${basePath}/_agent-native/`)
+    (basePath && rawPath === `${basePath}/_agent-native`) ||
+    (basePath && rawPath.startsWith(`${basePath}/_agent-native/`))
   ) {
     return undefined;
   }
@@ -2493,6 +2491,15 @@ function workspaceOAuthCallbackRelayResponse(
   ).get("state");
   const appId = extractOAuthStateAppId(state);
   const provider = extractOAuthStateProvider(state);
+  const isWorkspaceCallbackRelay = isWorkspaceOAuthCallbackRelayEnabled();
+  const isStandaloneGoogleProviderCallback =
+    !basePath &&
+    !isWorkspaceCallbackRelay &&
+    normalizedPath === "/_agent-native/google/callback" &&
+    isWorkspaceGoogleOAuthProvider(provider);
+  if (!isWorkspaceCallbackRelay && !isStandaloneGoogleProviderCallback) {
+    return undefined;
+  }
   const cookieAppId =
     !appId && !provider && normalizedPath === "/_agent-native/google/callback"
       ? extractMcpOAuthCookieAppId(event, state)
@@ -2519,7 +2526,7 @@ function workspaceOAuthCallbackRelayResponse(
   return new Response("", {
     status: 302,
     headers: {
-      Location: `/${effectiveAppId}${providerCallbackPath}${search}`,
+      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : ""}${providerCallbackPath}${search}`,
     },
   });
 }
