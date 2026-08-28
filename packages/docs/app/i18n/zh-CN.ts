@@ -508,7 +508,7 @@ const zhCN = {
       community: "社区",
       legal: "法律",
       docs: "文档",
-      actions: "行动",
+      download: "下载",
       apps: "应用",
       privacyPolicy: "隐私政策",
       saasTerms: "SaaS 条款",
