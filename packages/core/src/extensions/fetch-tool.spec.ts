@@ -1,8 +1,24 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import { createFetchToolEntry } from "./fetch-tool.js";
 
+const mockWriteWorkspaceFile = vi.hoisted(() => vi.fn());
+
+vi.mock("../workspace-files/store.js", () => ({
+  SAVE_TO_FILE_MAX_BYTES: 20 * 1024 * 1024,
+  isScratchWorkspacePath: (path: string) =>
+    path === "scratch" || path.startsWith("scratch/"),
+  toWorkspaceFileCard: (meta: unknown) => ({ meta }),
+  writeWorkspaceFile: mockWriteWorkspaceFile,
+}));
+
 describe("createFetchToolEntry", () => {
+  beforeEach(() => {
+    mockWriteWorkspaceFile.mockReset();
+    mockWriteWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -191,6 +207,32 @@ describe("createFetchToolEntry", () => {
 
     expect(result).toContain("[redacted]");
     expect(result).not.toContain("sk-secret");
+  });
+
+  it("does not persist failed responses to durable files", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("error_code,permission_denied\n", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/csv" },
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () =>
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/api",
+          responseMode: "raw",
+          saveToFile: "exports/report.csv",
+        }),
+    );
+
+    expect(String(result)).toContain(
+      "saveToFile error: Refusing to save a failed response",
+    );
+    expect(String(result)).toContain("HTTP 403 Forbidden");
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
   it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {

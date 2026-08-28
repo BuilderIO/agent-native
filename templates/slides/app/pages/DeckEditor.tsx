@@ -125,6 +125,13 @@ import {
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import {
+  getSlideClipboardStorageKey,
+  normalizeSlideClipboard,
+  readSlideClipboard,
+  resolveSlideClipboardForPaste,
+  writeSlideClipboard,
+} from "@/lib/slide-clipboard";
+import {
   insertDroppedImageIntoSlideHtml,
   replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
@@ -1215,22 +1222,111 @@ export default function DeckEditor() {
   // (rather than just an id) so paste still works after Cut has already
   // removed the original slide from the deck.
   const slideClipboardRef = useRef<Slide | null>(null);
+  const slideClipboardScopeRef = useRef<string | null>(null);
+  const slideClipboardPersistenceFailedRef = useRef(false);
   // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
   // rail's right-click "Paste" menu item is an explicit click with no
   // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
   // long ago the copy happened.
   const slideClipboardArmedAtRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+  const slideClipboardStorageKey = session?.email
+    ? getSlideClipboardStorageKey(session.email)
+    : null;
+
+  const syncSlideClipboard = useCallback(() => {
+    if (!slideClipboardStorageKey) {
+      if (
+        slideClipboardRef.current !== null &&
+        slideClipboardScopeRef.current === null
+      ) {
+        setHasSlideClipboard(true);
+        return slideClipboardRef.current;
+      }
+      slideClipboardRef.current = null;
+      slideClipboardScopeRef.current = null;
+      slideClipboardPersistenceFailedRef.current = false;
+      slideClipboardArmedAtRef.current = null;
+      setHasSlideClipboard(false);
+      return null;
+    }
+    const result = readSlideClipboard(slideClipboardStorageKey);
+    const cachedSlide = slideClipboardRef.current;
+    const cachedCopiedAt = slideClipboardArmedAtRef.current;
+    const isPendingSessionClipboard =
+      cachedSlide !== null && slideClipboardScopeRef.current === null;
+    const slide = resolveSlideClipboardForPaste(
+      result,
+      cachedSlide,
+      slideClipboardScopeRef.current,
+      slideClipboardStorageKey,
+      cachedCopiedAt,
+      slideClipboardPersistenceFailedRef.current,
+    );
+    const usedCachedClipboard = slide !== null && slide === cachedSlide;
+    slideClipboardRef.current = slide;
+    slideClipboardScopeRef.current = slideClipboardStorageKey;
+    slideClipboardArmedAtRef.current = usedCachedClipboard
+      ? cachedCopiedAt
+      : result.status === "ready"
+        ? result.copiedAt
+        : null;
+    if (
+      isPendingSessionClipboard &&
+      usedCachedClipboard &&
+      cachedCopiedAt !== null
+    ) {
+      slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+        slideClipboardStorageKey,
+        slide,
+        cachedCopiedAt,
+      );
+    } else if (!usedCachedClipboard) {
+      slideClipboardPersistenceFailedRef.current = false;
+    }
+    setHasSlideClipboard(slide !== null);
+    return slide;
+  }, [slideClipboardStorageKey]);
+
+  useEffect(() => {
+    syncSlideClipboard();
+    if (!slideClipboardStorageKey) return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === slideClipboardStorageKey) syncSlideClipboard();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [slideClipboardStorageKey, syncSlideClipboard]);
+
+  const saveSlideToClipboard = useCallback(
+    (slide: Slide) => {
+      const copiedAt = Date.now();
+      const snapshot = normalizeSlideClipboard(slide);
+      if (!snapshot) return;
+      slideClipboardRef.current = snapshot;
+      slideClipboardScopeRef.current = slideClipboardStorageKey;
+      slideClipboardArmedAtRef.current = copiedAt;
+      setHasSlideClipboard(true);
+      if (slideClipboardStorageKey) {
+        slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+          slideClipboardStorageKey,
+          snapshot,
+          copiedAt,
+        );
+      } else {
+        slideClipboardPersistenceFailedRef.current = false;
+      }
+    },
+    [slideClipboardStorageKey],
+  );
 
   const copySlide = useCallback(
     (slideId: string) => {
       const slide = deck?.slides.find((s) => s.id === slideId);
       if (!slide) return;
-      slideClipboardRef.current = slide;
-      slideClipboardArmedAtRef.current = Date.now();
-      setHasSlideClipboard(true);
+      saveSlideToClipboard(slide);
     },
-    [deck],
+    [deck, saveSlideToClipboard],
   );
 
   const cutSlide = useCallback(
@@ -1238,9 +1334,7 @@ export default function DeckEditor() {
       if (!deck || !id || deck.slides.length <= 1) return; // don't cut the last slide
       const slide = deck.slides.find((s) => s.id === slideId);
       if (!slide) return;
-      slideClipboardRef.current = slide;
-      slideClipboardArmedAtRef.current = Date.now();
-      setHasSlideClipboard(true);
+      saveSlideToClipboard(slide);
       const idx = deck.slides.findIndex((s) => s.id === slideId);
       const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
       deleteSlideWithUndo(id, slideId);
@@ -1248,18 +1342,18 @@ export default function DeckEditor() {
         setActiveSlideId(nextSlide.id);
       }
     },
-    [deck, id, activeSlideId, deleteSlideWithUndo],
+    [deck, id, activeSlideId, deleteSlideWithUndo, saveSlideToClipboard],
   );
 
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
-      const clipboard = slideClipboardRef.current;
+      const clipboard = syncSlideClipboard();
       if (!clipboard || !id) return;
       const { id: _clipboardId, ...fields } = clipboard;
       const newId = pasteSlide(id, targetSlideId, fields);
       if (newId) setActiveSlideId(newId);
     },
-    [id, pasteSlide],
+    [id, pasteSlide, slideClipboardStorageKey, syncSlideClipboard],
   );
 
   // Handlers backing the slide rail's right-click menu.
