@@ -39,7 +39,7 @@ describe("GitHub triage client", () => {
           state: "open",
           draft: false,
           html_url: "https://github.test/pull/7",
-          user: { login: "author" },
+          user: { id: 17, login: "author" },
           head: { sha: "sha-7", ref: "fix" },
           base: { ref: "main" },
           created_at: "2026-08-04T00:00:00Z",
@@ -54,7 +54,11 @@ describe("GitHub triage client", () => {
       fetchImpl,
     }).listOpenPullRequests(repository);
 
-    expect(pullRequests[0]).toMatchObject({ number: 7, headSha: "sha-7" });
+    expect(pullRequests[0]).toMatchObject({
+      number: 7,
+      headSha: "sha-7",
+      userId: 17,
+    });
     expect(
       new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get(
         "per_page",
