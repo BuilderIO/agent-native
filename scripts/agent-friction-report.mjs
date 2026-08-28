@@ -71,7 +71,8 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
-const SHIPPING_CHURN_RE = /\b(?:don['’]?t|do not|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:origin\/)?main)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
+const SHIPPING_CHURN_RE =
+  /\b(?:don['’]?t|do not|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:origin\/)?main)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
 
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
@@ -112,8 +113,7 @@ const PATTERNS = [
     // generic ship commits as a measurable source of CI churn.
     key: "shipping-churn",
     label: "Had to stop routine ship commits or main merges",
-    fixedBy:
-      ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
+    fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
   },
   {
