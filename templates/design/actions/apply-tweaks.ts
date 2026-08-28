@@ -102,6 +102,7 @@ export default defineAction({
 
     return {
       designId,
+      applied: Object.keys(selections).length > 0,
       appliedTweaks: readSelections(persistedData),
       selectionsHash: tweakSelectionsHash(readSelections(persistedData)),
       deepLink: designDeepLink(designId),

@@ -64,6 +64,122 @@ describe("Design final response guard", () => {
     expect(looksLikeDesignMutationRequest("update the color palette")).toBe(
       true,
     );
+    expect(looksLikeDesignMutationRequest("add an animation to the hero")).toBe(
+      true,
+    );
+    expect(looksLikeDesignMutationRequest("change the interaction state")).toBe(
+      true,
+    );
+    expect(
+      looksLikeDesignMutationRequest("I want to improve my design skills"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("improve my product design skills"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("improve my interaction design skills"),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "improve my web and mobile UI design skills",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "improve my design skills and improve my interaction design skills",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        `improve my ${"web ".repeat(2_000)}design skills`,
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        `improve my ${"web ".repeat(2_000)}portfolio`,
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "improve my design skills and update the color palette",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "can you review this card and recommend changes?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("review this card and fix the button"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please give me advice to improve this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please provide suggestions for this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("improve your design skills card layout"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("improve your Design Skills section"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("improve my Design Skills hero section"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "I want to improve my design skills in card layout and improve my portfolio",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please give feedback to improve this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest(
+        "please share your thoughts on this design",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeDesignMutationRequest("review this card. fix the button"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("review this card; fix the button"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "review this card, then polish the button",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "review this card and then fix the button",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest("review this card. Please fix the button"),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "review this card, could you fix the button?",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "review this card and recommend changes, then improve the design",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDesignMutationRequest(
+        "review this card; suggest changes; fix the button",
+      ),
+    ).toBe(true);
   });
 
   it("retries prose-only completion for a design mutation", () => {
@@ -104,6 +220,14 @@ describe("Design final response guard", () => {
       ],
       [toolResult("edit-design", { fileId: "file-1", changed: true })],
       [toolResult("insert-asset", { fileId: "file-1", inserted: true })],
+      [
+        toolResult("apply-motion-edit", {
+          designId: "design-1",
+          timelineId: "timeline-1",
+          persisted: true,
+          contentPatched: true,
+        }),
+      ],
       [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
       [
         toolResult("apply-component-prop-edit", {
@@ -126,11 +250,26 @@ describe("Design final response guard", () => {
       [
         toolResult("apply-tweaks", {
           designId: "design-1",
+          applied: true,
           appliedTweaks: { "theme-accent": "#0EA5E9" },
         }),
       ],
       [toolResult("create-design-system", { id: "design-system-1" })],
       [toolResult("update-file", { id: "file-1", updated: true })],
+      [
+        toolResult("update-design", {
+          id: "design-1",
+          updated: true,
+          changed: true,
+        }),
+      ],
+      [
+        toolResult("import-figma-clipboard", {
+          designId: "design-1",
+          strategy: "htmlFallback",
+          files: [{ id: "file-1", filename: "screen.html" }],
+        }),
+      ],
       [
         toolResult("import-figma-frame", {
           designId: "design-1",
@@ -174,6 +313,7 @@ describe("Design final response guard", () => {
       [
         toolResult("apply-tweaks", {
           designId: "design-1",
+          applied: false,
           appliedTweaks: {},
         }),
       ],
@@ -182,6 +322,22 @@ describe("Design final response guard", () => {
           id: "file-1",
           updated: true,
           skippedStaleMirror: true,
+        }),
+      ],
+      [
+        toolResult("update-design", {
+          id: "design-1",
+          updated: true,
+          stale: true,
+        }),
+      ],
+      [toolResult("update-design", { id: "design-1", updated: true })],
+      [
+        toolResult("apply-motion-edit", {
+          designId: "design-1",
+          timelineId: "timeline-1",
+          persisted: true,
+          contentPatched: false,
         }),
       ],
     ]) {
