@@ -440,6 +440,7 @@ export default function ExplorerDashboardPage() {
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
