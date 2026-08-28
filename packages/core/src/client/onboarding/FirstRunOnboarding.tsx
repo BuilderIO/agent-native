@@ -132,10 +132,13 @@ export function FirstRunOnboarding({
   const showTools = () => setScreen(skipIntegrations ? "ready" : "tools");
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
+    provisionAccount: true,
     trackingSource: "first_run_onboarding",
     trackingFlow: "connect_llm",
     onConnected: showTools,
   });
+  const canActivateBuilderFreeCredits =
+    connectFlow.agentNativeProvisioningEnabled;
 
   if (!firstRun) return null;
 
@@ -368,26 +371,36 @@ export function FirstRunOnboarding({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-semibold">
-                    Connect Builder.io free credits
+                    {canActivateBuilderFreeCredits
+                      ? "Activate Builder.io free credits"
+                      : "Connect Builder.io free credits"}
                   </h2>
                   <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
-                    One click connects{" "}
-                    <a
-                      href="https://www.builder.io/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      Builder.io free credits
-                    </a>{" "}
-                    with the services this app needs.
+                    {canActivateBuilderFreeCredits ? (
+                      "Create or reuse your Builder.io account and activate its free credits in one click."
+                    ) : (
+                      <>
+                        One click connects{" "}
+                        <a
+                          href="https://www.builder.io/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          Builder.io free credits
+                        </a>{" "}
+                        with the services this app needs.
+                      </>
+                    )}
                   </p>
                 </div>
                 <IconArrowRight className="mt-0.5 text-primary" size={17} />
               </div>
               <div className="mt-5 pt-3">
                 <p className="text-[11px] font-medium text-muted-foreground">
-                  Included with Builder.io free credits
+                  {canActivateBuilderFreeCredits
+                    ? "Included with active Builder.io free credits"
+                    : "Included with Builder.io free credits"}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
                   {builderCapabilities.map((capability, index) => (
@@ -438,12 +451,48 @@ export function FirstRunOnboarding({
               <button
                 type="button"
                 data-testid="first-run-connect-builder"
+                aria-describedby={
+                  canActivateBuilderFreeCredits
+                    ? "first-run-builder-consent"
+                    : undefined
+                }
                 className={cn(primaryButtonClass, "mt-5 w-full")}
                 onClick={handleBuilder}
               >
-                Connect Builder.io free credits
+                {canActivateBuilderFreeCredits
+                  ? "Activate Builder.io free credits"
+                  : "Connect Builder.io free credits"}
                 <IconArrowRight size={15} />
               </button>
+              {canActivateBuilderFreeCredits && (
+                <p
+                  id="first-run-builder-consent"
+                  data-testid="first-run-builder-consent"
+                  className="mt-3 text-[11px] leading-4 text-muted-foreground"
+                >
+                  Uses your verified Agent-Native email only. Google credentials
+                  are never shared. By selecting Activate, you agree to
+                  Builder.io&apos;s{" "}
+                  <a
+                    href="https://www.builder.io/legal/terms"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="https://www.builder.io/legal/privacy"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Privacy Policy
+                  </a>
+                  .
+                </p>
+              )}
             </section>
 
             <div
@@ -682,17 +731,27 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "connecting") {
+    const provisioning = connectFlow.agentNativeProvisioningEnabled;
     return (
       <OnboardingShell profile={profile} screen="choice">
-        <div className="mx-auto flex w-full max-w-md flex-col items-center text-center">
+        <div
+          className="mx-auto flex w-full max-w-md flex-col items-center text-center"
+          role="status"
+          aria-live="polite"
+          aria-busy={connectFlow.connecting}
+        >
           <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
             <IconLoader2 className="animate-spin" size={19} />
           </div>
           <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
-            Connecting Builder.io free credits
+            {provisioning
+              ? "Activating Builder.io free credits"
+              : "Connecting Builder.io free credits"}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Finish the one-click connection in the new window.
+            {provisioning
+              ? "Creating or reusing your Builder.io account. This usually takes a few seconds."
+              : "Finish the one-click connection in the new window."}
           </p>
           <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
             <div className="flex items-center justify-between gap-3">

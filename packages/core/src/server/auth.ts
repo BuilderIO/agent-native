@@ -278,6 +278,8 @@ export interface AuthSession {
   name?: string;
   /** Profile image from the auth provider, when available. */
   image?: string;
+  /** Whether the auth provider has verified this session's email address. */
+  emailVerified?: boolean;
   /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -3688,7 +3690,13 @@ async function maybeAutoCreateDevSession(
  * Map a Better Auth session to our AuthSession type.
  */
 function mapBetterAuthSession(baSession: {
-  user: { id: string; email: string; name?: string; image?: string | null };
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+    image?: string | null;
+    emailVerified?: boolean;
+  };
   session: { token: string };
 }): AuthSession {
   return {
@@ -3696,6 +3704,9 @@ function mapBetterAuthSession(baSession: {
     userId: baSession.user.id,
     name: baSession.user.name,
     ...(baSession.user.image ? { image: baSession.user.image } : {}),
+    ...(typeof baSession.user.emailVerified === "boolean"
+      ? { emailVerified: baSession.user.emailVerified }
+      : {}),
     token: baSession.session?.token,
   };
 }

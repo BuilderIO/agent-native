@@ -60,6 +60,7 @@ describe("FirstRunOnboarding", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
       configured: false,
+      agentNativeProvisioningEnabled: false,
       error: null,
       start: vi.fn(),
     });
@@ -149,6 +150,81 @@ describe("FirstRunOnboarding", () => {
 
     expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
+  });
+
+  it("keeps the legacy Builder connection when account provisioning is disabled", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-connect-builder"]')
+        ?.textContent,
+    ).toContain("Connect Builder.io free credits");
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).toBeNull();
+  });
+
+  it("shows one-click account consent and its loading state when enabled", () => {
+    const start = vi.fn();
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: true,
+      error: null,
+      start,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-connect-builder"]')
+        ?.textContent,
+    ).toContain("Activate Builder.io free credits");
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-consent"]'),
+    ).toBeTruthy();
+
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-connect-builder"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).toContain(
+      "Activating Builder.io free credits",
+    );
+    expect(document.body.textContent).toContain(
+      "Creating or reusing your Builder.io account",
+    );
+    expect(
+      document.body.querySelector('[role="status"][aria-busy="true"]'),
+    ).toBeTruthy();
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it("shows the searchable integration catalog and keeps onboarding open after connecting", async () => {

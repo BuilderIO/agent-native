@@ -10,6 +10,8 @@ import { usePollLoop } from "../use-poll-loop.js";
 export interface BuilderStatus {
   configured: boolean;
   builderEnabled: boolean;
+  /** True when the deploy can create or reuse a Builder account via SSO. */
+  agentNativeProvisioningEnabled?: boolean;
   /**
    * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. This is a
    * fallback credential; per-user/org Builder connections are still allowed
@@ -156,6 +158,8 @@ export interface BuilderConnectFlowOptions {
   enabled?: boolean;
   /** URL to synchronously open on start(). Defaults to the 302 shortcut. */
   popupUrl?: string;
+  /** Provision or reuse a Builder account from the signed-in verified email. */
+  provisionAccount?: boolean;
   /** Low-cardinality label for the UI surface that opened Builder connect. */
   trackingSource?: string;
   /** Product flow that needed Builder connect, e.g. connect_llm. */
@@ -181,6 +185,8 @@ export interface BuilderConnectFlow {
    * Builder account.
    */
   envManaged: boolean;
+  /** True only when the server has enabled the one-click account flow. */
+  agentNativeProvisioningEnabled: boolean;
   /**
    * True when legacy Builder private/public keys are present. Cloud code-change
    * routes (`/builder/run`, `/builder/agents-run`) still require those keys;
@@ -218,6 +224,8 @@ const STATUS_FETCH_ABORT_MS = 10_000;
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
+const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
+const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
@@ -562,6 +570,7 @@ export function useBuilderConnectFlow(
   const {
     enabled = true,
     popupUrl,
+    provisionAccount = false,
     trackingSource = "builder_connect_flow",
     trackingFlow,
     onConnected,
@@ -569,6 +578,8 @@ export function useBuilderConnectFlow(
   const [configured, setConfigured] = useState(false);
   const [codeChangeConfigured, setCodeChangeConfigured] = useState(false);
   const [envManaged, setEnvManaged] = useState(false);
+  const [agentNativeProvisioningEnabled, setAgentNativeProvisioningEnabled] =
+    useState(false);
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -624,6 +635,7 @@ export function useBuilderConnectFlow(
         return (await r.json()) as Pick<
           BuilderStatus,
           | "configured"
+          | "agentNativeProvisioningEnabled"
           | "envManaged"
           | "builderEnabled"
           | "orgName"
@@ -655,6 +667,7 @@ export function useBuilderConnectFlow(
       setConfigured(false);
       setCodeChangeConfigured(false);
       setEnvManaged(false);
+      setAgentNativeProvisioningEnabled(false);
       setBuilderEnabled(false);
       setOrgName(null);
       setConnecting(false);
@@ -679,6 +692,7 @@ export function useBuilderConnectFlow(
       setConfigured(!!s.configured);
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
+      setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -761,7 +775,18 @@ export function useBuilderConnectFlow(
         agentNativePath("/_agent-native/builder/connect"),
         origin,
       ).href;
-      const directUrl = cachedFreshUrl ?? signedPropUrl ?? fallbackUrl;
+      const withProvisionMode = (url: string): string => {
+        if (!provisionAccount || !agentNativeProvisioningEnabled) return url;
+        const provisionUrl = new URL(url, origin);
+        provisionUrl.searchParams.set(
+          BUILDER_CONNECT_MODE_PARAM,
+          BUILDER_AGENT_NATIVE_PROVISION_MODE,
+        );
+        return provisionUrl.toString();
+      };
+      const directUrl = withProvisionMode(
+        cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
+      );
 
       if (isAgentNativeDesktop()) {
         const opened = openBuilderConnectPopup({
@@ -797,6 +822,9 @@ export function useBuilderConnectFlow(
               setConfigured(!!s.configured);
               setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
+              setAgentNativeProvisioningEnabled(
+                !!s.agentNativeProvisioningEnabled,
+              );
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
@@ -806,7 +834,9 @@ export function useBuilderConnectFlow(
               setOrgName(s.orgName ?? null);
             }
 
-            const hostUrl = s?.connectUrl ?? cachedFreshUrl ?? directUrl;
+            const hostUrl = withProvisionMode(
+              s?.connectUrl ?? cachedFreshUrl ?? directUrl,
+            );
             const trackedHostUrl = withBuilderConnectTrackingParams(hostUrl, {
               source: clickTrackingSource,
               flow: clickTrackingFlow,
@@ -838,6 +868,9 @@ export function useBuilderConnectFlow(
               setConfigured(!!s.configured);
               setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
+              setAgentNativeProvisioningEnabled(
+                !!s.agentNativeProvisioningEnabled,
+              );
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
@@ -851,8 +884,9 @@ export function useBuilderConnectFlow(
             // already rendered into the CTA as a fallback. This avoids closing
             // the popup when the refresh hits a transient 401/HTML/error
             // response before the status cache has warmed.
-            const freshUrl =
-              s?.connectUrl ?? cachedFreshUrl ?? signedPropUrl ?? fallbackUrl;
+            const freshUrl = withProvisionMode(
+              s?.connectUrl ?? cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
+            );
             if (!freshUrl) {
               try {
                 opened.close();
@@ -884,6 +918,8 @@ export function useBuilderConnectFlow(
     [
       enabled,
       fetchStatus,
+      agentNativeProvisioningEnabled,
+      provisionAccount,
       popupUrl,
       statusConnectUrl,
       trackingFlow,
@@ -906,6 +942,7 @@ export function useBuilderConnectFlow(
         setConfigured(true);
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
+        setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
@@ -999,6 +1036,7 @@ export function useBuilderConnectFlow(
           setConfigured(false);
           setCodeChangeConfigured(false);
           setEnvManaged(!!s.envManaged);
+          setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
           setBuilderEnabled(!!s.builderEnabled);
           const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
@@ -1019,6 +1057,7 @@ export function useBuilderConnectFlow(
       setConfigured(true);
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
+      setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -1078,6 +1117,7 @@ export function useBuilderConnectFlow(
     codeChangeConfigured,
     statusResolved,
     envManaged,
+    agentNativeProvisioningEnabled,
     builderEnabled,
     orgName,
     connecting,

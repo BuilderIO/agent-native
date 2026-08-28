@@ -42,6 +42,8 @@ export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
+export const BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV =
+  "AGENT_NATIVE_BUILDER_SSO_SECRET";
 
 const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
 const BUILDER_RELAY_STATE_VERSION = 1;
@@ -584,6 +586,8 @@ export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
   "agentNativeConnectSource";
 export const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
 export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
+export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
+export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 
 const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
 
@@ -714,6 +718,7 @@ export interface BuilderBrowserStatus {
   configured: boolean;
   builderEnabled: boolean;
   branchProjectIdConfigured: boolean;
+  agentNativeProvisioningEnabled: boolean;
   branchProjectId?: string;
   /**
    * True when `BUILDER_PRIVATE_KEY` is set at the deployment level. This is a
@@ -1365,6 +1370,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
       process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
     ),
     builderEnabled: isBuilderBranchingEnabled(),
+    agentNativeProvisioningEnabled: isBuilderAccountProvisioningEnabled(),
     branchProjectIdConfigured: !!branchProjectId,
     branchProjectId: branchProjectId || undefined,
     envManaged,
@@ -2033,6 +2039,156 @@ async function readBuilderApiObject(
     );
   }
   return parsed as Record<string, unknown>;
+}
+
+export function isBuilderAccountProvisioningEnabled(): boolean {
+  const secret = readDeployCredentialEnv(
+    BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+  )?.trim();
+  return Boolean(secret && secret.length >= 32);
+}
+
+function builderAccountProvisioningSecret(): string {
+  const secret = readDeployCredentialEnv(
+    BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+  )?.trim();
+  if (!secret) {
+    throw new Error(
+      `${BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV} is required for Builder account provisioning.`,
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `${BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
+  return secret;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringField(
+  record: Record<string, unknown> | null,
+  key: string,
+): string | null {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function booleanField(
+  record: Record<string, unknown> | null,
+  key: string,
+): boolean | null {
+  const value = record?.[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+function parseBuilderAccountProvisioningResponse(
+  parsed: Record<string, unknown>,
+): BuilderRelayCredentials {
+  const envelope = isRecord(parsed.credentials) ? parsed.credentials : parsed;
+  const organization = isRecord(envelope.organization)
+    ? envelope.organization
+    : null;
+  const space = isRecord(envelope.space) ? envelope.space : null;
+  const user = isRecord(envelope.user) ? envelope.user : null;
+  const metadata = space ?? organization;
+  const privateKey =
+    stringField(envelope, "privateKey") ??
+    stringField(space, "privateKey") ??
+    stringField(organization, "privateKey");
+  const publicKey =
+    stringField(envelope, "publicKey") ??
+    stringField(space, "id") ??
+    stringField(organization, "id");
+  if (!privateKey || !publicKey) {
+    throw new Error(
+      "Builder account provisioning returned incomplete credentials.",
+    );
+  }
+
+  const subscription =
+    stringField(envelope, "subscription") ??
+    stringField(metadata, "subscription");
+  const subscriptionName =
+    stringField(envelope, "subscriptionName") ??
+    stringField(metadata, "subscriptionName") ??
+    (subscription?.includes(":level1") ? "free" : null);
+  return {
+    privateKey,
+    publicKey,
+    userId: stringField(envelope, "userId") ?? stringField(user, "id"),
+    orgName:
+      stringField(envelope, "orgName") ??
+      stringField(space, "name") ??
+      stringField(organization, "name"),
+    orgKind:
+      stringField(envelope, "orgKind") ??
+      stringField(space, "kind") ??
+      stringField(organization, "kind"),
+    subscription,
+    subscriptionLevel:
+      stringField(envelope, "subscriptionLevel") ??
+      stringField(metadata, "subscriptionLevel"),
+    subscriptionName,
+    isEnterprise:
+      booleanField(envelope, "isEnterprise") ??
+      (subscription?.includes("enterprise") ? true : null),
+    isFreeAccount:
+      booleanField(envelope, "isFreeAccount") ??
+      (subscriptionName === "free" ? true : null),
+  };
+}
+
+export async function provisionBuilderAccount(input: {
+  email: string;
+  name?: string;
+}): Promise<BuilderRelayCredentials> {
+  const email = input.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320) {
+    throw new Error("Builder account provisioning requires a valid email.");
+  }
+  const name =
+    input.name?.trim().slice(0, 120) || email.slice(0, email.indexOf("@"));
+  const timestamp = String(Date.now());
+  const requestId = randomBytes(32).toString("base64url");
+  const signaturePayload = [
+    "agent-native-account-v1",
+    timestamp,
+    requestId,
+    email,
+    name,
+  ].join("\n");
+  const signature = createHmac("sha256", builderAccountProvisioningSecret())
+    .update(signaturePayload)
+    .digest("base64url");
+  const response = await fetchBuilderApi(
+    new URL("/api/v1/accounts/agent-native", getBuilderApiHost()),
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-agent-native-account-version": "agent-native-account-v1",
+        "x-agent-native-account-timestamp": timestamp,
+        "x-agent-native-account-request-id": requestId,
+        "x-agent-native-account-signature": signature,
+      },
+      body: JSON.stringify({ email, name }),
+    },
+    "account provisioning",
+  );
+  const parsed = await readBuilderApiObject(response, "account provisioning");
+  if (!response.ok) {
+    throw new Error(
+      builderApiErrorMessage(
+        parsed,
+        `Builder account provisioning failed (${response.status})`,
+      ),
+    );
+  }
+  return parseBuilderAccountProvisioningResponse(parsed);
 }
 
 function builderApiErrorMessage(

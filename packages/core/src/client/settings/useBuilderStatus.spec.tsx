@@ -37,11 +37,17 @@ function setEmbeddedWindow(embedded: boolean) {
 function BuilderConnectProbe({
   enabled = true,
   popupUrl,
+  provisionAccount = false,
 }: {
   enabled?: boolean;
   popupUrl?: string;
+  provisionAccount?: boolean;
 }) {
-  const flow = useBuilderConnectFlow({ enabled, popupUrl });
+  const flow = useBuilderConnectFlow({
+    enabled,
+    popupUrl,
+    provisionAccount,
+  });
   return (
     <div>
       <button type="button" onClick={() => flow.start()}>
@@ -111,6 +117,12 @@ function expectedConnectUrl(url: string): string {
     source: "builder_connect_flow",
     flow: "connect_llm",
   });
+}
+
+function expectedProvisionedConnectUrl(url: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("_an_mode", "agent-native");
+  return expectedConnectUrl(parsed.toString());
 }
 
 describe("useBuilderStatus", () => {
@@ -253,6 +265,58 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("marks the first-run popup for account provisioning", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(
+      expectedProvisionedConnectUrl(signedConnectUrl),
+    );
+  });
+
+  it("keeps account provisioning dormant when the server does not advertise it", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
   });
 
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {

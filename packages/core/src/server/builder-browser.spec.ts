@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -39,6 +41,7 @@ import {
   appendBuilderConnectStateCookie,
   buildBuilderCliAuthUrl,
   buildBuilderAgentUserPrompt,
+  BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
   BUILDER_AGENT_NATIVE_APP_PARAM,
   BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
   BUILDER_AGENT_NATIVE_FLOW_PARAM,
@@ -62,6 +65,7 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  isBuilderAccountProvisioningEnabled,
   isBuilderBranchingEnabled,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
@@ -74,6 +78,7 @@ import {
   resolveBuilderBranchProjectId,
   runBuilderAgent,
   removeBuilderConnectStateCookie,
+  provisionBuilderAccount,
   signBuilderConnectToken,
   signBuilderCallbackState,
   signBuilderPreviewRelayState,
@@ -84,6 +89,82 @@ import {
   verifyBuilderRelayRequest,
   type BuilderRelayCredentials,
 } from "./builder-browser.js";
+
+describe("Builder account provisioning", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("sends a signed server-to-server request and parses the returned credentials", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            credentials: {
+              privateKey: "bpk-test-provisioned",
+              publicKey: "space-test-provisioned",
+              userId: "user-test-provisioned",
+              orgName: "Agent-Native Workspace",
+              orgKind: "vcp",
+              subscription: "vcp:v3:level1",
+            },
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const credentials = await provisionBuilderAccount({
+      email: "Owner@Example.com",
+      name: "Owner",
+    });
+
+    expect(credentials).toMatchObject({
+      privateKey: "bpk-test-provisioned",
+      publicKey: "space-test-provisioned",
+      isFreeAccount: true,
+    });
+    const [requestUrl, requestInit] = fetchSpy.mock.calls[0]!;
+    expect(String(requestUrl)).toBe(
+      "https://api.builder.io/api/v1/accounts/agent-native",
+    );
+    const headers = requestInit?.headers as Record<string, string>;
+    const timestamp = headers["x-agent-native-account-timestamp"];
+    const requestId = headers["x-agent-native-account-request-id"];
+    const expectedSignature = createHmac("sha256", secret)
+      .update(
+        [
+          "agent-native-account-v1",
+          timestamp,
+          requestId,
+          "owner@example.com",
+          "Owner",
+        ].join("\n"),
+      )
+      .digest("base64url");
+    expect(headers["x-agent-native-account-signature"]).toBe(expectedSignature);
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      email: "owner@example.com",
+      name: "Owner",
+    });
+  });
+
+  it("only advertises account provisioning for a valid deploy secret", () => {
+    expect(isBuilderAccountProvisioningEnabled()).toBe(false);
+
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, "too-short");
+    expect(isBuilderAccountProvisioningEnabled()).toBe(false);
+
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    expect(isBuilderAccountProvisioningEnabled()).toBe(true);
+  });
+});
 
 function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
   const requestHeaders = new Headers(headers);
