@@ -52,7 +52,7 @@ export function FeaturesActions() {
         />
         <BuilderImage
           className="theme-img-light absolute inset-0 h-full w-full border-x border-solid border-[var(--b-border-subtle)]"
-          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc95a9b87994647dea864d262117b3dfb"
+          src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F95c51363178042528f8f36185d250047"
           alt={diagramAlt}
           crossOrigin="anonymous"
           sizes="(max-width: 1300px) 100vw, 1300px"
