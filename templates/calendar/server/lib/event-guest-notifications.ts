@@ -1,8 +1,11 @@
 import {
+  buildDeepLink,
   emailStrong,
+  getAppProductionUrl,
   isEmailConfigured,
   renderEmail,
   sendEmail,
+  toAbsoluteOpenUrl,
 } from "@agent-native/core/server";
 
 import type { CalendarEvent, DeleteEventScope } from "../../shared/api.js";
@@ -107,7 +110,7 @@ export function renderEventGuestNote({
   when,
   kind,
   appliesTo,
-  htmlLink,
+  calendarLink,
 }: {
   title: string;
   organizer: string;
@@ -115,7 +118,7 @@ export function renderEventGuestNote({
   when: string;
   kind: GuestNotificationKind;
   appliesTo?: string;
-  htmlLink?: string | null;
+  calendarLink?: string | null;
 }) {
   const heading =
     kind === "cancellation" ? "Event cancellation note" : "Event update note";
@@ -138,8 +141,8 @@ export function renderEventGuestNote({
       heading,
       paragraphs,
       cta:
-        kind === "update" && htmlLink
-          ? { label: "Open in AN Calendar", url: htmlLink }
+        kind === "update" && calendarLink
+          ? { label: "Open in AN Calendar", url: calendarLink }
           : undefined,
       footer:
         "Google Calendar sends the calendar update separately. This message carries the organizer note.",
@@ -189,6 +192,18 @@ export async function sendEventGuestNotificationNote({
     };
   }
 
+  const calendarLink = toAbsoluteOpenUrl(
+    buildDeepLink({
+      app: "calendar",
+      view: "calendar",
+      params: {
+        eventId: event.id,
+        date: event.start ? event.start.slice(0, 10) : undefined,
+      },
+    }),
+    getAppProductionUrl(),
+  );
+
   const rendered = renderEventGuestNote({
     title: stripCrlf(event.title) || "Calendar event",
     organizer: stripCrlf(event.organizer?.displayName) || organizerEmail,
@@ -196,7 +211,7 @@ export async function sendEventGuestNotificationNote({
     when: formatWhen(event),
     kind,
     appliesTo: scopeLabel(scope),
-    htmlLink: event.htmlLink,
+    calendarLink,
   });
 
   let sentCount = 0;
