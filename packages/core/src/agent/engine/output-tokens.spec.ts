@@ -60,6 +60,24 @@ describe("agent output-token policy", () => {
     expect(defaultMaxOutputTokensForEngine("anthropic")).toBe(12_000);
   });
 
+  it("never lets a configured retry cap fall below the first-attempt cap", () => {
+    // The two fields are configured independently, so this pair is reachable —
+    // and a retry that lowers the ceiling is a downgrade of the recovery path.
+    setAppConfigLayer("app", {
+      agent: {
+        mainChatMaxOutputTokens: 64_000,
+        emptyResponseRetryMaxOutputTokens: 8_192,
+      },
+    });
+
+    expect(resolveEmptyResponseRetryMaxOutputTokens("claude-sonnet-5")).toBe(
+      64_000,
+    );
+    expect(
+      resolveEmptyResponseRetryMaxOutputTokens("claude-sonnet-5"),
+    ).toBeGreaterThanOrEqual(resolveMainChatMaxOutputTokens("claude-sonnet-5"));
+  });
+
   it("declares AGENT_MAX_OUTPUT_TOKENS as an alias of agent.maxOutputTokens", () => {
     vi.stubEnv("AGENT_MAX_OUTPUT_TOKENS", "20000");
 

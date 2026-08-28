@@ -5803,6 +5803,11 @@ export async function runAgentLoop(opts: {
         truncatedToolCallRetries += 1;
         effectiveMaxOutputTokens =
           resolveEmptyResponseRetryMaxOutputTokens(model);
+      } else {
+        // Retries spent. The raised ceiling was lent to those attempts, not to
+        // the rest of the run — leaving it in place kept every later request
+        // above the configured cap.
+        effectiveMaxOutputTokens = opts.maxOutputTokens;
       }
     } else {
       truncatedToolCallRetries = 0;

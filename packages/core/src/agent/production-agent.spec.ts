@@ -8083,6 +8083,72 @@ describe("runAgentLoop", () => {
     expect(seenMaxOutputTokens[1]).toBe(128_000);
   });
 
+  it("drops back to the configured ceiling once truncated-call retries are spent", async () => {
+    let streamCalls = 0;
+    const seenMaxOutputTokens: (number | undefined)[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMaxOutputTokens.push(opts.maxOutputTokens);
+        // Three consecutive truncated tool calls: one more than the retry
+        // limit. Distinct payloads so the identical-error breaker is not what
+        // ends the run.
+        if (streamCalls <= 3) {
+          yield {
+            type: "tool-call-error",
+            id: `cut-off-${streamCalls}`,
+            name: "add-slide",
+            input: { deckId: `deck-${streamCalls}`, content: "<div>the long" },
+            error: `input must have required property 'position' (${streamCalls})`,
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "Done." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => "should not execute"),
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    // Raised for the two allowed retries, then back to the engine's own
+    // ceiling — the elevated cap belonged to those retries, not to the run.
+    expect(seenMaxOutputTokens.slice(0, 4)).toEqual([
+      8192, 128_000, 128_000, 8192,
+    ]);
+  });
+
   it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

@@ -62,13 +62,20 @@ export function resolveMainChatMaxOutputTokens(modelId?: string): number {
 /**
  * Resolve the max_output_tokens to use when retrying a turn after an empty
  * final response: min(model ceiling, configured retry cap).
+ *
+ * The retry cap is floored at the first-attempt cap. The two fields are
+ * configured independently, so a deployment can set a retry cap BELOW the
+ * chat cap — which would make the retry a downgrade, quietly weakening the
+ * exact path that exists to recover a truncated answer.
  */
 export function resolveEmptyResponseRetryMaxOutputTokens(
   modelId?: string,
 ): number {
+  const { mainChatMaxOutputTokens, emptyResponseRetryMaxOutputTokens } =
+    getAppConfig().agent;
   return Math.min(
     getMaxOutputTokensForModel(modelId),
-    getAppConfig().agent.emptyResponseRetryMaxOutputTokens,
+    Math.max(emptyResponseRetryMaxOutputTokens, mainChatMaxOutputTokens),
   );
 }
 

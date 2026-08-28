@@ -532,6 +532,24 @@ describe("sendToAgentChat", () => {
     );
   });
 
+  it("uses the wrapper relay when an MCP App send carries a usage label", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({
+      message: "enrich this record",
+      submit: true,
+      usageLabel: "crm:enrich-record",
+    });
+
+    // The host follow-up API has no field for the label, so taking that path
+    // would record the run as an ordinary chat turn.
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(payload.data.usageLabel).toBe("crm:enrich-record");
+  });
+
   it("can force MCP App embeds to use the local app chat", () => {
     vi.useFakeTimers();
     window.location.search =
