@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getAppConfig,
+  resetAppConfigForTests,
+} from "../../app-config/index.js";
+import { setAppConfigLayer } from "../../app-config/store.js";
+import {
   ANTHROPIC_MIN_THINKING_BUDGET_TOKENS,
   clampThinkingBudgetTokens,
   DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS,
@@ -19,6 +24,7 @@ import {
 describe("agent output-token policy", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    resetAppConfigForTests();
   });
 
   it("uses provider-specific defaults", () => {
@@ -36,8 +42,52 @@ describe("agent output-token policy", () => {
     );
   });
 
-  it("OpenRouter default is 8192 (not truncation-prone 1024)", () => {
+  it("uses one uniform per-engine floor, with no engine left at 4096", () => {
+    // 4096 was small enough that a single tool call carrying several long
+    // fields could not be emitted at all, and small enough that
+    // clampThinkingBudgetTokens left ~3K of visible budget behind a
+    // 1024-token thinking floor.
     expect(DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS).toBe(8192);
+    expect(DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS).toBe(8192);
+    expect(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS).toBe(8192);
+    expect(DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS).toBe(8192);
+  });
+
+  it("reads the global cap from app config, not process.env directly", () => {
+    setAppConfigLayer("app", { agent: { maxOutputTokens: 12_000 } });
+
+    expect(defaultMaxOutputTokensForEngine("ai-sdk:openai")).toBe(12_000);
+    expect(defaultMaxOutputTokensForEngine("anthropic")).toBe(12_000);
+  });
+
+  it("declares AGENT_MAX_OUTPUT_TOKENS as an alias of agent.maxOutputTokens", () => {
+    vi.stubEnv("AGENT_MAX_OUTPUT_TOKENS", "20000");
+
+    expect(getAppConfig().agent.maxOutputTokens).toBe(20_000);
+    expect(defaultMaxOutputTokensForEngine("ai-sdk:openai")).toBe(20_000);
+  });
+
+  it("pins the chat caps to the declared app-config defaults", () => {
+    expect(getAppConfig().agent.mainChatMaxOutputTokens).toBe(
+      MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP,
+    );
+    expect(getAppConfig().agent.emptyResponseRetryMaxOutputTokens).toBe(
+      EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP,
+    );
+  });
+
+  it("lets an app lower the interactive chat caps through config", () => {
+    setAppConfigLayer("app", {
+      agent: {
+        mainChatMaxOutputTokens: 8_000,
+        emptyResponseRetryMaxOutputTokens: 16_000,
+      },
+    });
+
+    expect(resolveMainChatMaxOutputTokens("claude-sonnet-5")).toBe(8_000);
+    expect(resolveEmptyResponseRetryMaxOutputTokens("claude-sonnet-5")).toBe(
+      16_000,
+    );
   });
 
   it("lets provider-specific env overrides beat the global override", () => {
@@ -99,18 +149,17 @@ describe("agent output-token policy", () => {
   });
 
   describe("interactive chat path max_output_tokens floor", () => {
-    it("resolves to min(modelCeiling, 32K) — far above the flat per-engine defaults", () => {
-      expect(MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP).toBe(32_000);
-      // 128K-ceiling models (Claude flagships, GPT-5.x) still cap at 32K for
-      // the first attempt.
-      expect(resolveMainChatMaxOutputTokens("claude-sonnet-5")).toBe(32_000);
-      expect(resolveMainChatMaxOutputTokens("claude-opus-4-8")).toBe(32_000);
-      expect(resolveMainChatMaxOutputTokens("gpt-5.5")).toBe(32_000);
-      // 64K-ceiling and unknown models stay under their ceiling, but still
-      // land well above the flat per-engine defaults below.
-      expect(resolveMainChatMaxOutputTokens("claude-haiku-4-5")).toBe(32_000);
-      expect(resolveMainChatMaxOutputTokens("some-unknown-model")).toBe(32_000);
-      expect(resolveMainChatMaxOutputTokens(undefined)).toBe(32_000);
+    it("resolves to min(modelCeiling, 64K) — at or above the flat per-engine defaults", () => {
+      expect(MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP).toBe(64_000);
+      // 128K-ceiling models (Claude flagships, GPT-5.x) cap at 64K for the
+      // first attempt.
+      expect(resolveMainChatMaxOutputTokens("claude-sonnet-5")).toBe(64_000);
+      expect(resolveMainChatMaxOutputTokens("claude-opus-4-8")).toBe(64_000);
+      expect(resolveMainChatMaxOutputTokens("gpt-5.5")).toBe(64_000);
+      // 64K-ceiling and unknown models land exactly on their own ceiling.
+      expect(resolveMainChatMaxOutputTokens("claude-haiku-4-5")).toBe(64_000);
+      expect(resolveMainChatMaxOutputTokens("some-unknown-model")).toBe(64_000);
+      expect(resolveMainChatMaxOutputTokens(undefined)).toBe(64_000);
 
       // Never below the flat per-engine defaults this replaces.
       expect(resolveMainChatMaxOutputTokens(undefined)).toBeGreaterThan(
@@ -124,11 +173,12 @@ describe("agent output-token policy", () => {
       );
     });
 
-    it("empty-response retry ceiling (64K) is higher than the first-attempt chat cap", () => {
-      expect(EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP).toBe(64_000);
+    it("empty-response retry ceiling (128K) is higher than the first-attempt chat cap", () => {
+      expect(EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP).toBe(128_000);
       expect(resolveEmptyResponseRetryMaxOutputTokens("claude-sonnet-5")).toBe(
-        64_000,
+        128_000,
       );
+      // Clamped down to the model's own documented ceiling, never above it.
       expect(resolveEmptyResponseRetryMaxOutputTokens("claude-haiku-4-5")).toBe(
         64_000,
       );

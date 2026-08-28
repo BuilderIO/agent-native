@@ -8007,6 +8007,82 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("names the output-token cap when a tool call is cut off mid-arguments, and raises the ceiling for the retry", async () => {
+    let streamCalls = 0;
+    const seenMaxOutputTokens: (number | undefined)[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMaxOutputTokens.push(opts.maxOutputTokens);
+        if (streamCalls === 1) {
+          // What a truncated call looks like on the wire: a tool-call part is
+          // present (so the `toolCallParts.length === 0` truncation branch
+          // never sees it) and the arguments stop mid-object.
+          yield {
+            type: "tool-call-error",
+            id: "cut-off",
+            name: "add-slide",
+            input: { deckId: "deck-1", content: "<div>the long pro" },
+            error: "input must have required property 'position'",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "Split across two calls." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Split across two calls." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => "should not execute"),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "add-slide",
+    );
+    expect(toolDone?.result).toContain("output-token cap");
+    expect(toolDone?.result).toContain("truncated, not wrong");
+    // Telling the model to match the schema is what made it re-send the same
+    // oversized payload until the identical-error breaker fired.
+    expect(toolDone?.result).not.toContain(
+      "retry with arguments that match the tool schema",
+    );
+
+    expect(streamCalls).toBe(2);
+    expect(seenMaxOutputTokens[0]).toBe(8192);
+    expect(seenMaxOutputTokens[1]).toBe(128_000);
+  });
+
   it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

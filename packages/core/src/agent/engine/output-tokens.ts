@@ -1,3 +1,4 @@
+import { getAppConfig } from "../../app-config/index.js";
 import { getMaxOutputTokensForModel } from "../model-config.js";
 
 const MIN_MAX_OUTPUT_TOKENS = 256;
@@ -8,15 +9,20 @@ const MIN_MAX_OUTPUT_TOKENS = 256;
 // available the conservative 64K ceiling applies.
 
 // OpenRouter default raised from 1024 (truncation-prone) to 8192.
+// These are ceilings, not budgets: an unused ceiling costs nothing, while one
+// below what the turn needs truncates the answer. They are the floor for a
+// caller that passes nothing AND configures nothing — every path that runs a
+// real turn now passes one (see resolveMainChatMaxOutputTokens below), and a
+// deployment raises the rest at once through `agent.maxOutputTokens`.
 export const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 8192;
-export const DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS = 4096;
+export const DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 8192;
 
 // ---------------------------------------------------------------------------
 // Main interactive chat path
 //
-// The per-engine defaults above (4096-8192) exist for internal/eval/
+// The per-engine defaults above (8192) exist for internal/eval/
 // observational-memory callers that intentionally want a small explicit cap.
 // The main interactive chat turn (the one the end user is staring at) needs
 // real headroom: on long-context or reasoning-heavy turns, a tiny completion
@@ -26,37 +32,43 @@ export const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 8192;
 // under each model's documented ceiling — they never lower the ceiling.
 // ---------------------------------------------------------------------------
 
+// These two constants are the values declared as defaults on
+// `agent.mainChatMaxOutputTokens` and `agent.emptyResponseRetryMaxOutputTokens`
+// in app-config/agent.ts. They exist here so the reasoning above sits next to
+// the number; output-tokens.spec.ts fails if the pair diverges.
+
 /** Cap for the first attempt of an interactive chat turn. */
-export const MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP = 32_000;
+export const MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP = 64_000;
 /**
  * Cap used only when retrying a turn that came back with an empty final
  * response (see production-agent.ts's empty-final-response retry). Higher
  * than the first-attempt cap so the retry meaningfully raises the ceiling.
  */
-export const EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP = 64_000;
+export const EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP = 128_000;
 
 /**
  * Resolve the max_output_tokens floor for the first attempt of an
- * interactive chat turn: min(model ceiling, 32K). Always at or above the
- * flat per-engine defaults above, regardless of whether the model is known.
+ * interactive chat turn: min(model ceiling, configured chat cap). Always at
+ * or above the flat per-engine defaults above, regardless of whether the
+ * model is known.
  */
 export function resolveMainChatMaxOutputTokens(modelId?: string): number {
   return Math.min(
     getMaxOutputTokensForModel(modelId),
-    MAIN_CHAT_MAX_OUTPUT_TOKENS_CAP,
+    getAppConfig().agent.mainChatMaxOutputTokens,
   );
 }
 
 /**
  * Resolve the max_output_tokens to use when retrying a turn after an empty
- * final response: min(model ceiling, 64K).
+ * final response: min(model ceiling, configured retry cap).
  */
 export function resolveEmptyResponseRetryMaxOutputTokens(
   modelId?: string,
 ): number {
   return Math.min(
     getMaxOutputTokensForModel(modelId),
-    EMPTY_RESPONSE_RETRY_MAX_OUTPUT_TOKENS_CAP,
+    getAppConfig().agent.emptyResponseRetryMaxOutputTokens,
   );
 }
 
@@ -132,7 +144,15 @@ export function normalizeMaxOutputTokens(
   );
 }
 
-function envOverrideForEngine(
+/**
+ * Per-provider override, e.g. `AGENT_OPENROUTER_MAX_OUTPUT_TOKENS`.
+ *
+ * This one key namespace stays a direct environment read: the provider half of
+ * the name is derived from the engine at call time, so there is no leaf field a
+ * `.meta({ env })` alias could hang off. The global key it used to sit above is
+ * now the declared `agent.maxOutputTokens` field, read below.
+ */
+function providerEnvOverride(
   engineName: string,
   modelId?: string,
 ): number | null {
@@ -142,19 +162,22 @@ function envOverrideForEngine(
   const providerEnvKey = `AGENT_${provider
     .replace(/[^a-z0-9]+/gi, "_")
     .toUpperCase()}_MAX_OUTPUT_TOKENS`;
-  return (
-    // guard:allow-env-credential — output-token cap config, not a credential
-    normalizeMaxOutputTokens(process.env[providerEnvKey], modelId) ??
-    normalizeMaxOutputTokens(process.env.AGENT_MAX_OUTPUT_TOKENS, modelId)
-  );
+  // guard:allow-env-credential — output-token cap config, not a credential
+  return normalizeMaxOutputTokens(process.env[providerEnvKey], modelId);
 }
 
 export function defaultMaxOutputTokensForEngine(
   engineName: string,
   modelId?: string,
 ): number {
-  const override = envOverrideForEngine(engineName, modelId);
-  if (override != null) return override;
+  const providerOverride = providerEnvOverride(engineName, modelId);
+  if (providerOverride != null) return providerOverride;
+
+  const configured = normalizeMaxOutputTokens(
+    getAppConfig().agent.maxOutputTokens,
+    modelId,
+  );
+  if (configured != null) return configured;
 
   if (engineName === "builder") return DEFAULT_BUILDER_MAX_OUTPUT_TOKENS;
   if (engineName === "anthropic" || engineName === "ai-sdk:anthropic") {

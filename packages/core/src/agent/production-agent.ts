@@ -1534,6 +1534,10 @@ const FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS = 25_000;
 // ceiling and steps effort down a tier) instead of re-issuing the
 // exact same doomed request twice.
 const EMPTY_FINAL_RESPONSE_RETRY_LIMIT = 2;
+// A `max_tokens` stop with tool-call parts present is a tool call cut off
+// mid-arguments. Same escalation shape as the empty-final retry: each attempt
+// raises the ceiling, so re-issuing is not re-issuing the same doomed request.
+const TRUNCATED_TOOL_CALL_RETRY_LIMIT = 2;
 const MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT = 6;
 const RUN_BUDGET_EXHAUSTED_ERROR_CODE = "run_budget_exhausted";
 const RUN_BUDGET_EXHAUSTED_MESSAGE =
@@ -4244,6 +4248,12 @@ function toolInputSchemaErrorResult(
   input: unknown,
   error: string,
   parameters?: ActionTool["parameters"],
+  /**
+   * The model response carrying this call stopped at the output-token cap, so
+   * the arguments are truncated rather than wrong. Telling the model to match
+   * the schema here is what makes it re-send the same oversized payload.
+   */
+  outputCapTruncated = false,
 ): string {
   const signature = describeToolParameterSignature(
     parameters,
@@ -4255,7 +4265,9 @@ function toolInputSchemaErrorResult(
     (signature
       ? `Expected: ${signature} (where * = required, ? = optional). `
       : "") +
-    "The tool was not executed; retry with arguments that match the tool schema."
+    (outputCapTruncated
+      ? "The tool was not executed: the response hit the model output-token cap before these arguments finished, so they are truncated, not wrong. Retry with a smaller payload — split the work across several calls, or shorten the longest field."
+      : "The tool was not executed; retry with arguments that match the tool schema.")
   );
 }
 
@@ -4934,6 +4946,7 @@ export async function runAgentLoop(opts: {
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
+  let truncatedToolCallRetries = 0;
   let iterations = 0;
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
@@ -5759,6 +5772,31 @@ export async function runAgentLoop(opts: {
     finalGuardRetries = 0;
     emptyFinalResponseRetries = 0;
 
+    // A `max_tokens` stop is only recognised as truncation in the
+    // `toolCallParts.length === 0` branch above. A tool call cut off
+    // mid-arguments still arrives AS a tool-call part, so without this the
+    // turn reads as a normal one: the partial arguments fail schema
+    // validation, the model is told to "retry with arguments that match the
+    // tool schema", and it re-issues the same oversized payload against the
+    // same ceiling until the identical-error stop fires. The tool never runs
+    // and nothing in the transcript says the response was truncated.
+    //
+    // The tool calls still execute — the assistant turn carrying them is
+    // already in `messages`, and every tool_use needs its tool_result — but
+    // the retry gets a raised ceiling and the error text below names the real
+    // cause.
+    const toolCallTruncatedByOutputCap = terminalStopReason === "max_tokens";
+    if (toolCallTruncatedByOutputCap) {
+      if (truncatedToolCallRetries < TRUNCATED_TOOL_CALL_RETRY_LIMIT) {
+        truncatedToolCallRetries += 1;
+        effectiveMaxOutputTokens =
+          resolveEmptyResponseRetryMaxOutputTokens(model);
+      }
+    } else {
+      truncatedToolCallRetries = 0;
+      effectiveMaxOutputTokens = opts.maxOutputTokens;
+    }
+
     flushUnstreamedAssistantText();
 
     let requestedActionStop: TerminalActionStop | null = null;
@@ -6375,6 +6413,7 @@ export async function runAgentLoop(opts: {
               toolCallSchemaError.input,
               toolCallSchemaError.error,
               actionEntry?.tool.parameters,
+              toolCallTruncatedByOutputCap,
             ),
           );
           emitToolDone({
@@ -6408,6 +6447,7 @@ export async function runAgentLoop(opts: {
               toolCall.input,
               rawToolInputError,
               actionEntry.tool.parameters,
+              toolCallTruncatedByOutputCap,
             ),
           );
           emitToolDone({
