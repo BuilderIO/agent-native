@@ -31,10 +31,7 @@ import {
   screenToCanvasPoint,
   type ArrowNudgeKey,
 } from "@shared/canvas-math";
-import {
-  resolveLayoutGridSnapStep,
-  type LayoutGridById,
-} from "@shared/layout-grid";
+import { resolveLayoutGridSnapStep } from "@shared/layout-grid";
 import {
   appendPenNode,
   clonePenPath,
@@ -3062,6 +3059,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     boardFrameGeometry,
     boardSurfaceRenderGeometry,
     getFrameEntryAtPoint,
+    getFrameViewportSize,
     getCanvasPoint,
     getResolvedMetadata,
     onCrossScreenElementDrop,
@@ -5037,6 +5035,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       installDragListeners,
       onActiveToolChange,
       onCreateScreenFrame,
+      resolveBoardSnapStepForFrame,
       toolProps,
     ],
   );
@@ -5364,6 +5363,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -5585,6 +5586,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateDraftPrimitivesRefOnly,
       updateSelectedDraftIds,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -6171,6 +6174,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updatePrimitiveDropTarget,
       updateSelectedDraftIds,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 
@@ -6556,6 +6561,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateFrameGeometry,
       updateFrameGeometryRefOnly,
       updateSelectedIds,
+      frameGeometryCenter,
+      resolveSnapStepForTargets,
     ],
   );
 

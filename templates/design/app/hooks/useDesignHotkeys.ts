@@ -784,10 +784,9 @@ export function handleDesignHotkey(
     return run(props.onToggleComments);
   }
 
-  // Figma's "Show/hide layout grids" is one of the few shortcuts whose Mac and
-  // Windows forms differ outright: Control G on Mac, Ctrl Shift 4 on Windows.
-  // Literal Control on both, so never the remapped `primary` flag. Digit4 is
-  // matched by physical code because Shift+4 is "$" on US layouts.
+  // Figma's Mac and Windows forms differ outright here: Control G vs Ctrl
+  // Shift 4. Literal Control on both, never the remapped `primary` flag, and
+  // Digit4 by physical code because Shift+4 is "$" on US layouts.
   if (event.ctrlKey && !event.metaKey && !event.altKey) {
     if (!event.shiftKey && key === "g") {
       return run(props.onToggleLayoutGrids);

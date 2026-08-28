@@ -8813,6 +8813,7 @@ function DesignEditor() {
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
+      layoutGrids,
       selectedStateId,
       isSignedIn,
     ],

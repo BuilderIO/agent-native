@@ -610,10 +610,9 @@ export function getNudgeDelta(
   };
 }
 
-/** Nearest multiple of `step`, defaulting to the whole-pixel floor. A fractional
- *  canvas origin is `clientDelta / zoom` leaking into the document, never a
- *  position a gesture asked for. Non-finite input passes through unrounded so an
- *  upstream NaN stays visible instead of reading as a real coordinate. */
+/** Nearest multiple of `step`, defaulting to the whole-pixel floor. Non-finite
+ *  input passes through unrounded so an upstream NaN stays visible rather than
+ *  reading as a real coordinate. */
 export function quantizeToStep(
   value: number,
   step: number = WHOLE_PIXEL_SNAP_STEP,
@@ -1902,10 +1901,9 @@ export function computeResizeSnap(
   };
 }
 
-/** Quantized resize result, skipping any axis an alignment guide claimed:
- *  rounding that axis would pull the edge off the line the user is looking at.
- *  An aspect-locked resize quantizes only its origin — rounding both sizes is
- *  what visibly breaks the ratio it was told to hold. */
+/** Skips any axis an alignment guide claimed, which would pull the edge off the
+ *  line the user is looking at. An aspect-locked resize quantizes only its
+ *  origin: rounding both sizes is what breaks the ratio it must hold. */
 function applyResizeSnapStep(
   frame: FrameGeometry,
   guides: readonly AlignmentGuide[],
