@@ -710,7 +710,7 @@ export function PanelSection({
     <section className="design-sidebar-section shrink-0">
       <div className="px-2">
         <InspectorGrid
-          className="min-h-8 items-center"
+          className="min-h-[var(--design-section-height)] items-center"
           layout={actions ? "header-actions" : "columns"}
         >
           <InspectorGridCell span={actions ? 20 : 28}>
