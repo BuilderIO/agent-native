@@ -35,6 +35,7 @@ import {
   IconSquare,
   IconTextSize,
   IconTransitionRight,
+  IconLayersSubtract,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import {
@@ -122,6 +123,10 @@ interface EditorToolbarProps {
   animationsOpen?: boolean;
   /** Toggle the selected-element transitions panel */
   onToggleAnimations?: () => void;
+  /** Whether the slide layers panel is open */
+  layersOpen?: boolean;
+  /** Toggle the slide layers panel */
+  onToggleLayers?: () => void;
   /** Whether the tweaks panel is open */
   tweaksOpen?: boolean;
   /** Toggle the tweaks panel */
@@ -198,6 +203,8 @@ export default function EditorToolbar({
   currentUserEmail,
   animationsOpen,
   onToggleAnimations,
+  layersOpen,
+  onToggleLayers,
   tweaksOpen,
   onToggleTweaks,
   drawMode,
@@ -445,6 +452,17 @@ export default function EditorToolbar({
           run: onToggleAnimations,
         });
       }
+      if (currentSlide && onToggleLayers) {
+        commands.push({
+          id: "layers",
+          group: "slideTools",
+          label: t("editorToolbar.layers"),
+          keywords: ["layers", "hierarchy", "stack"],
+          icon: IconLayersSubtract,
+          active: layersOpen,
+          run: onToggleLayers,
+        });
+      }
       if (onToggleTweaks) {
         commands.push({
           id: "slide-tweaks",
@@ -586,6 +604,7 @@ export default function EditorToolbar({
     activeSlideTransition,
     addSlideGenerating,
     animationsOpen,
+    layersOpen,
     canComment,
     canEdit,
     commentsOpen,
@@ -603,6 +622,7 @@ export default function EditorToolbar({
     onSelectShape,
     onChangeSlideTransition,
     onToggleAnimations,
+    onToggleLayers,
     onToggleComments,
     onToggleDrawMode,
     onTogglePinMode,
@@ -763,7 +783,10 @@ export default function EditorToolbar({
             className="max-h-[90vh] w-64 overflow-y-auto"
           >
             {((canEdit &&
-              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (onToggleAnimations ||
+                onToggleLayers ||
+                onToggleTweaks ||
+                onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
               <>
                 <DropdownMenuSeparator />
@@ -782,6 +805,19 @@ export default function EditorToolbar({
                     >
                       <IconTransitionRight className="size-4" />
                       {t("editorToolbar.elementAnimations")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && currentSlide && onToggleLayers && (
+                    <DropdownMenuItem
+                      onSelect={onToggleLayers}
+                      className={
+                        layersOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconLayersSubtract className="size-4" />
+                      {t("editorToolbar.layers")}
                     </DropdownMenuItem>
                   )}
                   {canEdit && onToggleTweaks && (

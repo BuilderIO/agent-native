@@ -223,12 +223,31 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(
-    useCallback(() => setCmdkOpen(true), []),
-    {
-      allowContentEditable: true,
-    },
-  );
+  const handleCommandMenuShortcut = useCallback(() => {
+    const editor = document.querySelector<HTMLElement>(
+      "[data-slides-editor-root]",
+    );
+    const active = document.activeElement;
+    const contentEditable =
+      active instanceof HTMLElement &&
+      (active.isContentEditable ||
+        Boolean(active.closest("[contenteditable='true']")));
+    const formControl =
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement ||
+      Boolean(active?.closest("[role='textbox']"));
+    if (formControl && !contentEditable) return;
+    if (editor?.dataset.slidesEditorEditable === "true" && !contentEditable) {
+      window.dispatchEvent(new CustomEvent("slides:toggle-layers"));
+      setCmdkOpen(false);
+      return;
+    }
+    setCmdkOpen(true);
+  }, []);
+  useCommandMenuShortcut(handleCommandMenuShortcut, {
+    allowContentEditable: true,
+  });
   const location = useLocation();
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{

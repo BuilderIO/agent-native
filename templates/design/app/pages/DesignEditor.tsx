@@ -5166,6 +5166,10 @@ function DesignEditor() {
   // edits) — so the reconcile/observe doesn't treat our own echo as external.
   const lastLocalContentRef = useRef<string | null>(null);
   const latestActiveContentRef = useRef<string | null>(null);
+  const livePreviewContentRef = useRef<{
+    fileId: string;
+    content: string;
+  } | null>(null);
   // Freshest known DB `updatedAt` for the active file, kept in a ref so the
   // Yjs observe handler can advance the reconcile watermark without re-subscribing.
   const documentFileUpdatedAtRef = useRef<string | null>(null);
@@ -5214,6 +5218,7 @@ function DesignEditor() {
   useEffect(() => {
     if (viewMode === "overview") {
       prevActiveFileIdRef.current = activeFileId;
+      livePreviewContentRef.current = null;
       setCollabContent(null);
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
@@ -5224,6 +5229,7 @@ function DesignEditor() {
     }
     if (activeFileId !== prevActiveFileIdRef.current) {
       prevActiveFileIdRef.current = activeFileId;
+      livePreviewContentRef.current = null;
       setCollabContent(null);
       setCollabContentFileId(null);
       lastAppliedFileUpdatedAtRef.current = null;
@@ -7272,18 +7278,28 @@ function DesignEditor() {
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return "unavailable";
-      return replaceContent(
+      const replaced = replaceContent(
         nextContent,
         selector ?? selectedCanvasSelector,
         selectedCanvasSelectorCandidates,
         {
           forceFullDocument: options.forceFullDocument === true,
         },
-      )
-        ? "applied"
-        : "unavailable";
+      );
+      if (replaced && activeFile?.id) {
+        livePreviewContentRef.current = {
+          fileId: activeFile.id,
+          content: nextContent,
+        };
+      }
+      return replaced ? "applied" : "unavailable";
     },
-    [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
+    [
+      activeFile?.id,
+      selectedCanvasSelector,
+      selectedCanvasSelectorCandidates,
+      selectedElement,
+    ],
   );
 
   // BUG-UNDO-LIVE-SNAPSHOT: undo/redo replay for a live-snapshot
@@ -9623,6 +9639,13 @@ function DesignEditor() {
       }),
     [activeContent],
   );
+  const getFreshActivePreviewContent = useCallback(
+    () =>
+      livePreviewContentRef.current?.fileId === activeFile?.id
+        ? livePreviewContentRef.current.content
+        : null,
+    [activeFile?.id],
+  );
 
   // Item 14 — `meta.breakpointReset` contract (see StyleChangeMeta's doc
   // comment): clear property's override AT maxWidthPx instead of writing a
@@ -10784,10 +10807,12 @@ function DesignEditor() {
           canvasContainerRef,
           canvasFrameGeometryById,
           getFreshActiveContent,
+          getFreshActivePreviewContent,
           getScreenContent,
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          replacePreviewContent,
           selectInsertedLayers,
           t,
           uploadImageFileForHtml,
@@ -10804,9 +10829,11 @@ function DesignEditor() {
       canEditDesign,
       canvasFrameGeometryById,
       getFreshActiveContent,
+      getFreshActivePreviewContent,
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
+      replacePreviewContent,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
@@ -10848,10 +10875,12 @@ function DesignEditor() {
           canvasContainerRef,
           canvasFrameGeometryById,
           getFreshActiveContent,
+          getFreshActivePreviewContent,
           getScreenContent,
           overviewScreens,
           overviewSelectedScreenIds,
           pasteCascadeRef,
+          replacePreviewContent,
           selectInsertedLayers,
           t,
           uploadImageFileForHtml,
@@ -10870,9 +10899,11 @@ function DesignEditor() {
       canvasContainerRef,
       canvasFrameGeometryById,
       getFreshActiveContent,
+      getFreshActivePreviewContent,
       getScreenContent,
       overviewScreens,
       overviewSelectedScreenIds,
+      replacePreviewContent,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
