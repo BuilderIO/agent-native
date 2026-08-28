@@ -468,6 +468,9 @@ function AttendeeRow({
                     title={attendee.email}
                   >
                     {attendee.displayName || attendee.email}
+                    {attendee.displayName && (
+                      <span className="sr-only">{attendee.email}</span>
+                    )}
                   </span>
                 </div>
                 {subLabel ? (
