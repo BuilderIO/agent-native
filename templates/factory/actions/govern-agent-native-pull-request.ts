@@ -282,6 +282,8 @@ export default defineAction({
               `${FACTORY_APPROVAL_BODY_MARKER}${decisionId};`,
             ),
         );
+        const attributedApprovalUrl =
+          attributedApproval?.htmlUrl ?? pullRequest.htmlUrl;
         if (attributedApproval) {
           const recovered = await getDb()
             .update(triageDecisions)
@@ -313,8 +315,7 @@ export default defineAction({
           }
           const metadata = parseTriageMetadata(latestItem.metadataJson);
           metadata.autoApprovedAt = new Date().toISOString();
-          metadata.autoApprovalUrl =
-            attributedApproval.htmlUrl ?? pullRequest.htmlUrl;
+          metadata.autoApprovalUrl = attributedApprovalUrl;
           metadata.autoApprovalHeadSha = snapshot.headSha;
           await getDb()
             .update(triageItems)
@@ -535,6 +536,12 @@ export default defineAction({
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
+        const decisionId = stableId(
+          "pr-governance",
+          orgId,
+          itemId,
+          snapshot.headSha,
+        );
         let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
         try {
           approval = await github.approvePullRequest(
