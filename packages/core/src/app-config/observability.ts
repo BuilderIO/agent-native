@@ -54,7 +54,7 @@ export const observabilityConfig = z.object({
     .default(true)
     .meta({
       env: ["MCP_ANALYTICS"],
-      doc: "Emit $mcp_* analytics events for the MCP server the app exposes.",
+      doc: "Emit `$mcp_*` analytics events for the MCP server the app exposes.",
     }),
   mcpCaptureParameters: z
     .boolean()

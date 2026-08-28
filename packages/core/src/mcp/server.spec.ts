@@ -4241,9 +4241,8 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
   beforeEach(async () => {
     process.env.ACCESS_TOKEN = "test-access-token";
     events.length = 0;
-    const { registerTrackingProvider } = await import(
-      "../tracking/registry.js"
-    );
+    const { registerTrackingProvider } =
+      await import("../tracking/registry.js");
     registerTrackingProvider({
       name: "spec-collector",
       track: (event) => {
@@ -4254,9 +4253,8 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
 
   afterEach(async () => {
     delete process.env.ACCESS_TOKEN;
-    const { unregisterTrackingProvider } = await import(
-      "../tracking/registry.js"
-    );
+    const { unregisterTrackingProvider } =
+      await import("../tracking/registry.js");
     unregisterTrackingProvider("spec-collector");
   });
 
