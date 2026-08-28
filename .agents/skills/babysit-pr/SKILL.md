@@ -74,7 +74,8 @@ can change within minutes, so re-check before every actionable push.
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
 2. If `CONFLICTING`: bring `main` in and resolve. **Publish any intentional
-   actionable fix first (Step 0)**, then prefer a **merge** over a rebase —
+   actionable fix first (Step 0)**, after verifying the dirty paths all belong
+   to that fix; then prefer a **merge** over a rebase —
    `git fetch origin main && git merge --no-edit
    origin/main` — because this branch is shared with concurrent agents and a
    rebase would rewrite history and require a force-push that can clobber their
@@ -82,7 +83,10 @@ can change within minutes, so re-check before every actionable push.
    with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm
    install --lockfile-only` against the merged `package.json`), complete the
    merge commit, and push (a normal push, never `--force`). This resets the soak
-   timer. Do not merge `origin/main` again while the PR remains conflict-free.
+   timer. If unrelated or incomplete concurrent work keeps the worktree dirty,
+   preserve it and wait for its owner instead of stashing, restoring, or
+   forcing the merge. Do not merge `origin/main` again while the PR remains
+   conflict-free.
    Only rebase if the user explicitly asks for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 

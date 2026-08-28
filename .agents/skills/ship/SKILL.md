@@ -28,9 +28,12 @@ same branch snapshot. The checkpoint helper excludes `learnings.md`,
 
 `/ship` ships the complete nonignored branch snapshot, not a hand-selected
 subset of dirty paths. At the start of the flow, record the status and publish
-all current local changes with the checkpoint helper. If another session adds a
-path during the flow, include it in the next coherent snapshot; never revert,
-stash, or overwrite it.
+the requested initial work with the checkpoint helper. Before any later
+actionable push, verify that every dirty or unpushed path belongs to that same
+fix; the helper stages the whole nonignored tree, so do not run it when the
+checkout mixes unrelated or incomplete concurrent work. Preserve those paths
+for their owner and report them instead. Never revert, stash, or overwrite
+concurrent work.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
@@ -247,7 +250,11 @@ branch, stay on it.
    Keep the branch head stable so its checks remain meaningful. Update from
    current `origin/main` only when GitHub reports `CONFLICTING` (or a local
    merge proves a real conflict blocks shipment). In that case, merge
-   `origin/main` once, resolve it, push, and wait for the new checks. Do not
+   `origin/main` once, resolve it, push, and wait for the new checks. Before
+   that merge, the worktree must be clean. If dirty paths are all part of the
+   same actionable fix, publish them first; if any unrelated or incomplete
+   concurrent work overlaps the checkout, preserve it and wait for its owner
+   to clear it rather than stashing, restoring, or forcing the merge. Do not
    repeat the merge while the PR is mergeable or checks are merely pending. A
    behind count alone never justifies a merge commit.
 
@@ -262,7 +269,8 @@ branch, stay on it.
    `corepack pnpm ship:push` to stage, commit, and push all nonignored
    current-branch work. For later snapshots, run it only for an actionable fix
    required by failing CI, PR feedback, a real merge conflict, or an explicit
-   user request. Never add `Co-Authored-By` or other agent attribution.
+   user request, after verifying that all dirty paths belong to that fix.
+   Never add `Co-Authored-By` or other agent attribution.
 
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or

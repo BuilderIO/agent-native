@@ -71,10 +71,11 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
-const SHIPPING_CHURN_RE = /\b(?:don['’]?t|do not|only|stop)\b[\s\S]{0,220}\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|only|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
+const SHIPPING_CHURN_RE = /\b(?:don['’]?t|do not|only|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|only|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
 
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
+  [true, "Stop merging main unless there is a real conflict."],
   [true, "only push up commits if there are clear CI errors or PR feedback."],
   [true, "Do not create or push a routine chore: publish branch work commit."],
   [true, "I don't want those chore commits unless absolutely necessary."],
@@ -98,7 +99,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Feedback regex self-test passed (${FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
