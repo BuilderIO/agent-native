@@ -20,10 +20,34 @@ function callerTimezone(): string {
   return isCalendarTimezone(timezone) ? timezone : DEFAULT_SETTINGS.timezone;
 }
 
-export async function readCalendarSettings(email: string): Promise<Settings> {
-  return normalizeCalendarSettings(await getUserSetting(email, SETTINGS_KEY), {
+/**
+ * `persistDetected` saves the browser-detected time zone the first time this
+ * user has no stored settings, so peers who overlay this user's calendar (and
+ * the public booking page) can resolve their zone without them ever opening
+ * Settings. Only call this from the actual settings-read surfaces (the
+ * `get-settings` action and its route handler) — internal callers like
+ * `getCalendarTimezone` must stay side-effect-free since they run on every
+ * event read for any request-context email, not only the signed-in owner.
+ */
+export async function readCalendarSettings(
+  email: string,
+  options?: { persistDetected?: boolean },
+): Promise<Settings> {
+  const raw = await getUserSetting(email, SETTINGS_KEY);
+  const settings = normalizeCalendarSettings(raw, {
     timezone: callerTimezone(),
   });
+  if (options?.persistDetected && !raw) {
+    const detected = getRequestTimezone();
+    if (isCalendarTimezone(detected)) {
+      const record = settings as unknown as Record<string, unknown>;
+      await Promise.all([
+        putUserSetting(email, SETTINGS_KEY, record),
+        putSetting(SETTINGS_KEY, record),
+      ]);
+    }
+  }
+  return settings;
 }
 
 /**

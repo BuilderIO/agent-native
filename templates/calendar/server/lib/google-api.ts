@@ -385,6 +385,13 @@ export function calendarListEvents(
   );
 }
 
+export function calendarGetCalendar(accessToken: string, calendarId: string) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}`,
+    accessToken,
+  );
+}
+
 export function calendarFreeBusy(
   accessToken: string,
   body: {

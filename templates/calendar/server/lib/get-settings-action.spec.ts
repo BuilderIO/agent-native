@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getRequestTimezoneMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
+const putUserSettingMock = vi.hoisted(() => vi.fn());
+const putSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: <T>(action: T) => action,
@@ -13,6 +15,8 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
+  putUserSetting: putUserSettingMock,
+  putSetting: putSettingMock,
 }));
 
 import action from "../../actions/get-settings";

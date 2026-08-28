@@ -53,6 +53,42 @@ describe("readCalendarSettings", () => {
       timezone: "Pacific/Auckland",
     });
   });
+
+  it("does not persist by default even when nothing is saved", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL);
+    expect(putUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).not.toHaveBeenCalled();
+  });
+
+  it("persists the detected zone once when asked and nothing is saved", async () => {
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(putUserSettingMock).toHaveBeenCalledWith(
+      EMAIL,
+      "calendar-settings",
+      expect.objectContaining({ timezone: "Pacific/Auckland" }),
+    );
+    expect(putSettingMock).toHaveBeenCalledWith(
+      "calendar-settings",
+      expect.objectContaining({ timezone: "Pacific/Auckland" }),
+    );
+  });
+
+  it("never overwrites an existing saved record even when asked to persist", async () => {
+    getUserSettingMock.mockResolvedValue({ timezone: "Europe/Warsaw" });
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(putUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).not.toHaveBeenCalled();
+  });
+
+  it("does not persist a fallback default zone when nothing was actually detected", async () => {
+    getRequestTimezoneMock.mockReturnValue(undefined);
+    getUserSettingMock.mockResolvedValue(null);
+    await readCalendarSettings(EMAIL, { persistDetected: true });
+    expect(putUserSettingMock).not.toHaveBeenCalled();
+    expect(putSettingMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("readPublicCalendarSettings", () => {

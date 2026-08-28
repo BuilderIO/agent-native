@@ -20,11 +20,13 @@ import type {
   UpdateEventScope,
 } from "../../shared/api.js";
 import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+import { isCalendarTimezone } from "../../shared/timezone.js";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
   calendarFreeBusy,
+  calendarGetCalendar,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
@@ -614,6 +616,26 @@ export async function getClient(
     email,
   );
   return { accessToken };
+}
+
+/**
+ * Resolve a connected Google account's own reported primary-calendar time
+ * zone. Used as a fallback when a peer has never saved an app-level time
+ * zone — this reads real provider data rather than guessing, so it is safe
+ * to use anywhere a peer's app-level zone would otherwise be treated as
+ * "unknown".
+ */
+export async function getGoogleAccountTimezone(
+  email: string | undefined,
+): Promise<string | null> {
+  const client = await getClient(email);
+  if (!client) return null;
+  try {
+    const calendar = await calendarGetCalendar(client.accessToken, "primary");
+    return isCalendarTimezone(calendar?.timeZone) ? calendar.timeZone : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface GoogleAccountSelection {

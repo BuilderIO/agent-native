@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getUserSettingMock = vi.hoisted(() => vi.fn());
+const getGoogleAccountTimezoneMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: getUserSettingMock,
+}));
+vi.mock("./google-calendar.js", () => ({
+  getGoogleAccountTimezone: getGoogleAccountTimezoneMock,
 }));
 
 import type { BookingLink } from "../../shared/api";
@@ -25,6 +29,7 @@ const WEEKLY_SCHEDULE = {
 describe("getEligibleHostAvailability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getGoogleAccountTimezoneMock.mockResolvedValue(null);
   });
 
   it("returns nothing when the owner has no overlay people", async () => {
@@ -85,7 +90,7 @@ describe("getEligibleHostAvailability", () => {
     ]);
   });
 
-  it("falls back to free/busy-only for an overlaid host with no saved schedule", async () => {
+  it("falls back to free/busy-only for an overlaid host with no saved schedule or Google time zone", async () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {
         if (
@@ -130,6 +135,30 @@ describe("getEligibleHostAvailability", () => {
     ).resolves.toEqual([
       { email: "peer@example.com", timezone: "Europe/Berlin" },
     ]);
+  });
+
+  it("falls back to the peer's connected Google account time zone when nothing is saved", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        return null;
+      },
+    );
+    getGoogleAccountTimezoneMock.mockResolvedValue("America/Chicago");
+
+    await expect(
+      getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      { email: "peer@example.com", timezone: "America/Chicago" },
+    ]);
+    expect(getGoogleAccountTimezoneMock).toHaveBeenCalledWith(
+      "peer@example.com",
+    );
   });
 
   it("prefers calendar-availability.timezone over calendar-settings.timezone", async () => {

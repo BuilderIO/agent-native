@@ -6,6 +6,7 @@ import type {
   OverlayPerson,
 } from "../../shared/api.js";
 import { safeBookingTimeZone } from "./booking-timezone.js";
+import { getGoogleAccountTimezone } from "./google-calendar.js";
 
 export interface EligibleHostAvailability {
   email: string;
@@ -13,10 +14,11 @@ export interface EligibleHostAvailability {
   /** Present only when the host has saved a working-hours schedule. */
   weeklySchedule?: AvailabilityConfig["weeklySchedule"];
   /**
-   * Resolved from calendar-availability.timezone, falling back to
-   * calendar-settings.timezone. Present only when one of those is a
-   * resolvable IANA time zone — never defaulted, since guessing a peer's
-   * zone would be misleading.
+   * Resolved from calendar-availability.timezone, then calendar-settings.
+   * timezone, then the peer's connected Google account's own reported time
+   * zone. Present only when one of those is a resolvable IANA time zone —
+   * never defaulted, since guessing a peer's zone would be misleading (the
+   * Google fallback is real provider data, not a guess).
    */
   timezone?: string;
 }
@@ -65,7 +67,9 @@ export async function getEligibleHostAvailability(
       ]);
       const timezone =
         safeBookingTimeZone(config?.timezone) ||
-        safeBookingTimeZone(calendarSettings?.timezone);
+        safeBookingTimeZone(calendarSettings?.timezone) ||
+        (await getGoogleAccountTimezone(email)) ||
+        undefined;
 
       if (!config?.weeklySchedule) {
         return { email, timezone };
