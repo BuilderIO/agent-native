@@ -1369,15 +1369,20 @@ function getAgentNativeAnalyticsClientConfigScript() {
 
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
-  // server/sentry-config.ts (worker bundles a string copy; it can't import it).
-  // Fail closed: require BOTH hosted transport AND an explicit gateway URL — no
-  // production default, since this ships into the CDN-cached shell.
+  // server/sentry-config.ts and hostedRealtimeTransportEnabled in
+  // server/poll.ts (worker bundles a string copy; it can't import them).
+  // One gate — the transport var. The gateway URL is derived, so a
+  // self-registering app needs one env var instead of three; an app with no
+  // channel still fails closed one layer down, at the token mint.
   const env = globalThis.process?.env || {};
   if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
     return null;
   }
-  const gatewayBaseUrl = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
-  if (!gatewayBaseUrl) return null;
+  const explicit = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  const builderGateway = firstNonEmpty(env.BUILDER_GATEWAY_BASE_URL);
+  const gatewayBaseUrl =
+    explicit ||
+    \`\${(builderGateway || "https://api.builder.io/agent-native/gateway/v1").replace(/\\/+$/, "")}/realtime\`;
   const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
   return (
     '<script data-agent-native-realtime-config>' +

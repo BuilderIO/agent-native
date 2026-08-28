@@ -605,6 +605,78 @@ plug-in :
 | Seuil de compactage                         | Blob stocké > 4 fois un nouvel encodage déclenche un compactage de pierre tombale                 |
 | Lectures de base de données par écriture    | 1 (version CAS lue dans `persistMergedState` uniquement)                                          |
 
+## Passerelle de synchronisation temps réel hébergée {#hosted-gateway}
+
+Par défaut, les applications utilisent le transport poll/SSE décrit ci-dessus.
+Toute application peut choisir la passerelle de synchronisation temps réel
+hébergée, qui diffuse les événements de synchronisation vers plusieurs instances
+sans serveur au lieu que chaque instance maintienne ses propres connexions
+longue durée.
+
+- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` est la seule variable à définir, et
+  la définir constitue le consentement explicite : rien de tout cela ne se
+  produit sur un déploiement qui ne l'a pas définie.
+  `AGENT_NATIVE_REALTIME_GATEWAY_URL` remplace le point de terminaison de la
+  passerelle pour la préproduction ; si elle n'est pas définie, elle est dérivée
+  de `BUILDER_GATEWAY_BASE_URL`.
+- Sur une application hébergée par Builder, l'identifiant de canal et le secret
+  de signature (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) sont des variables
+  d'environnement réservées injectées par le chemin de provisionnement de
+  Builder : le pipeline a déjà provisionné la base de données que lit la
+  passerelle.
+- **Partout ailleurs, l'application s'enregistre elle-même, ce qui signifie
+  envoyer à Builder l'URL de votre base de données.** Avec la variable de
+  transport définie, un déploiement adossé à Postgres disposant d'une
+  `BUILDER_PRIVATE_KEY` envoie une fois sa chaîne de connexion et son origine
+  publique à la passerelle, et reçoit en retour un identifiant de canal et un
+  secret de signature. Builder conserve cette chaîne de connexion et se connecte
+  à votre base de données pour suivre `sync_events` ; la connexion n'est pas en
+  lecture seule, car l'allocation des versions et la détection des changements
+  hors bande écrivent toutes deux. Si vous ne le souhaitez pas, laissez la
+  variable de transport non définie : c'est toute la décision, et aucune autre
+  voie ne partage cet identifiant. L'enregistrement se relance lorsque l'URL de
+  la base de données ou l'origine de l'application change, de sorte qu'une
+  rotation d'identifiants est prise en compte sans redéployer quoi que ce soit
+  d'autre.
+- L'organisation doit également être activée pour la passerelle. Tant qu'elle ne
+  l'est pas, l'enregistrement est refusé et l'application reste en interrogation
+  locale.
+- Seuls les déploiements de production s'enregistrent. Une préversion de
+  déploiement conserve la synchronisation locale, si bien que son identifiant de
+  base de données jetable ne quitte jamais la machine et qu'aucun canal n'est
+  créé par pull request.
+- **L'organisation est la frontière de confiance.** Tout identifiant capable de
+  s'enregistrer peut aussi réenregistrer une origine existante, ce qui renvoie
+  le secret de signature de ce canal et réoriente sa base de données. Détenir ce
+  secret permet d'émettre un jeton d'abonnement pour n'importe quel utilisateur
+  de l'application, exposant son *flux de changements* — quels enregistrements
+  ont changé, et quand — mais pas les enregistrements eux-mêmes, puisque les
+  clients relisent le contenu depuis l'application avec leur propre session.
+  Traitez un identifiant d'enregistrement comme valant pour toute
+  l'organisation.
+- `GET /_agent-native/realtime-token` émet un jeton d'abonnement de courte durée
+  (10 minutes), limité à la session, que le navigateur utilise pour ouvrir la
+  connexion à la passerelle. Il n'accepte que la même origine et renvoie 401 en
+  l'absence de session active.
+- `GET /_agent-native/can-see` est le contrôle de visibilité par événement de la
+  passerelle : il vérifie un jeton d'accès signé, puis réexécute le
+  `resolveAccess` propre à l'application, afin que la passerelle ne puisse jamais
+  transmettre un événement à une personne ayant perdu l'accès depuis. Les types
+  de ressources inconnus ou les échecs de recherche échouent en mode fermé
+  (`{ allowed: false }`).
+- Sur Postgres, les applications hébergées allouent les versions de
+  synchronisation depuis la base de données (`dbAssignedVersions`) plutôt que
+  depuis un compteur en mémoire, car les instances de la passerelle et les
+  instances sans serveur de l'application partagent une base de données et
+  doivent s'accorder sur l'ordre d'écriture.
+
+Ici, chaque échec est silencieux par conception : pas de variable de transport,
+pas de clé Builder, une base de données non-Postgres, une organisation pas encore
+activée ou une passerelle injoignable laissent l'application en interrogation
+locale plutôt que de produire une erreur. Si le temps réel hébergé n'est pas
+actif alors que vous l'attendez, vérifiez ces points dans cet ordre : un 404 sur
+`GET /_agent-native/realtime-token` signifie qu'aucun canal n'a été résolu.
+
 ## Sécurité {#security}
 
 ### Choisir explicitement le modèle d'accès

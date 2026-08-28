@@ -600,17 +600,42 @@ plugin:
 
 ## Hosted Realtime Sync Gateway {#hosted-gateway}
 
-Self-hosted apps always use the poll/SSE transport described above — nothing
-in this section changes for them. Builder-hosted apps can additionally be
-provisioned onto a hosted Realtime Sync Gateway that fans sync events out
-across multiple serverless instances instead of each instance holding its own
+Apps default to the poll/SSE transport described above. Any app can opt in to
+the hosted Realtime Sync Gateway instead, which fans sync events out across
+multiple serverless instances rather than each instance holding its own
 long-lived connections.
 
-- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` plus `AGENT_NATIVE_REALTIME_GATEWAY_URL`
-  switch the client onto the gateway transport. Both fail closed — if either
-  is unset, the client silently stays on the local poll/SSE path. The signing
-  secret (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) is a reserved env var injected
-  by Builder's provisioning path, not something you set by hand.
+- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` is the only variable you set, and
+  setting it is the opt-in — nothing here happens on a deployment that has not
+  set it. `AGENT_NATIVE_REALTIME_GATEWAY_URL` overrides the gateway endpoint
+  for staging; unset, it derives from `BUILDER_GATEWAY_BASE_URL`.
+- On a Builder-hosted app, the channel id and signing secret
+  (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) are reserved env vars injected by
+  Builder's provisioning path — the pipeline already provisioned the database
+  the gateway reads.
+- **Anywhere else, the app registers itself, and that means sending Builder
+  your database URL.** With the transport variable set, a Postgres-backed
+  deployment that has a `BUILDER_PRIVATE_KEY` posts its connection string and
+  public origin to the gateway once, and gets back a channel id and signing
+  secret. Builder stores that connection string and connects to your database
+  to tail `sync_events`; the connection is not read-only, since version
+  allocation and out-of-band change detection both write. If you do not want
+  that, leave the transport variable unset — that is the whole decision, and
+  there is no other path that shares the credential. Registration re-runs when
+  the database URL or app origin changes, so credential rotation carries over
+  without a redeploy of anything else.
+- The organization also has to be enabled for the gateway. Until it is,
+  registration is refused and the app stays on local polling.
+- Only production deploys register. A deploy preview keeps local sync, so its
+  throwaway database credential never leaves the machine and one channel is not
+  minted per pull request.
+- **The organization is the trust boundary.** Any credential that can register
+  can also re-register an existing origin, which returns that channel's signing
+  secret and repoints its database. Holding that secret allows minting a
+  subscribe token for any user in the app, which exposes their *change stream*
+  — which records changed, and when — but not the records themselves, since
+  clients re-read content from the app with their own session. Treat a
+  registration credential as org-wide.
 - `GET /_agent-native/realtime-token` mints a short-lived (10 minute),
   session-scoped subscribe token the browser uses to open the gateway
   connection. It's same-origin only and 401s without an active session.
@@ -624,10 +649,11 @@ long-lived connections.
   instances and the app's own serverless instances share one database and
   must agree on write ordering.
 
-This is an internal hosted-infrastructure detail — most apps never set these
-env vars directly. If you're debugging why hosted realtime isn't active for a
-Builder-hosted app, confirm both the transport env var and the gateway URL are
-set; either being absent falls back to local polling rather than erroring.
+Every failure here is silent by design: no transport variable, no Builder key,
+a non-Postgres database, an organization not yet enabled, or an unreachable
+gateway all leave the app on local polling rather than erroring. If hosted
+realtime is not active when you expect it, check those in that order —
+`GET /_agent-native/realtime-token` returning 404 means no channel resolved.
 
 ## Security {#security}
 

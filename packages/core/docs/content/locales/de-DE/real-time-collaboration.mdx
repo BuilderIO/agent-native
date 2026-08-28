@@ -602,6 +602,70 @@ Plugin:
 | Verdichtungsschwellenwert           | Gespeicherter Blob > 4× neue Codierung löst Tombstone Compact aus      |
 | DB-Lesevorgänge pro Schreibvorgang  | 1 (CAS-Version, die nur in `persistMergedState` gelesen wird)          |
 
+## Gehostetes Realtime-Sync-Gateway {#hosted-gateway}
+
+Apps verwenden standardmäßig den oben beschriebenen Poll/SSE-Transport. Jede App
+kann sich stattdessen für das gehostete Realtime-Sync-Gateway entscheiden, das
+Sync-Ereignisse über mehrere serverlose Instanzen verteilt, statt dass jede
+Instanz eigene langlebige Verbindungen offen hält.
+
+- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` ist die einzige Variable, die du
+  setzt, und sie zu setzen ist die ausdrückliche Zustimmung – auf einem
+  Deployment, das sie nicht gesetzt hat, passiert hiervon nichts.
+  `AGENT_NATIVE_REALTIME_GATEWAY_URL` überschreibt den Gateway-Endpunkt für
+  Staging; ohne Wert wird er aus `BUILDER_GATEWAY_BASE_URL` abgeleitet.
+- Bei einer von Builder gehosteten App sind die Kanal-ID und das Signaturgeheimnis
+  (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) reservierte Umgebungsvariablen, die der
+  Bereitstellungspfad von Builder injiziert – die Pipeline hat die Datenbank, die
+  das Gateway liest, bereits bereitgestellt.
+- **Überall sonst registriert sich die App selbst, und das bedeutet, dass du
+  Builder deine Datenbank-URL sendest.** Mit gesetzter Transportvariable sendet
+  ein Postgres-gestütztes Deployment mit `BUILDER_PRIVATE_KEY` einmalig seinen
+  Verbindungsstring und seinen öffentlichen Origin an das Gateway und erhält eine
+  Kanal-ID und ein Signaturgeheimnis zurück. Builder speichert diesen
+  Verbindungsstring und verbindet sich mit deiner Datenbank, um `sync_events` zu
+  verfolgen; die Verbindung ist nicht schreibgeschützt, da sowohl die
+  Versionszuweisung als auch die Erkennung externer Änderungen schreiben. Wenn du
+  das nicht willst, lass die Transportvariable ungesetzt – das ist die gesamte
+  Entscheidung, und es gibt keinen anderen Weg, der die Zugangsdaten teilt. Die
+  Registrierung läuft erneut, wenn sich die Datenbank-URL oder der App-Origin
+  ändert, sodass eine Rotation der Zugangsdaten ohne weiteres Deployment
+  übernommen wird.
+- Die Organisation muss außerdem für das Gateway freigeschaltet sein. Bis dahin
+  wird die Registrierung abgelehnt und die App bleibt beim lokalen Polling.
+- Nur Produktions-Deployments registrieren sich. Ein Deploy-Preview bleibt bei
+  lokaler Synchronisierung, sodass sein kurzlebiger Datenbank-Zugang die
+  Maschine nie verlässt und nicht pro Pull Request ein Kanal entsteht.
+- **Die Organisation ist die Vertrauensgrenze.** Jede Anmeldeinformation, die
+  registrieren darf, kann auch einen vorhandenen Origin erneut registrieren —
+  das liefert das Signaturgeheimnis dieses Kanals zurück und richtet seine
+  Datenbank neu aus. Mit diesem Geheimnis lässt sich ein Subscribe-Token für
+  jeden Benutzer der App ausstellen, was dessen *Änderungsstrom* offenlegt —
+  welche Datensätze sich wann geändert haben — aber nicht die Datensätze selbst,
+  da Clients Inhalte mit ihrer eigenen Sitzung erneut aus der App lesen. Behandle
+  eine Registrierungs-Anmeldeinformation als organisationsweit.
+- `GET /_agent-native/realtime-token` stellt ein kurzlebiges (10 Minuten),
+  sitzungsgebundenes Subscribe-Token aus, mit dem der Browser die
+  Gateway-Verbindung öffnet. Es akzeptiert nur denselben Origin und antwortet
+  ohne aktive Sitzung mit 401.
+- `GET /_agent-native/can-see` ist die Sichtbarkeitsprüfung des Gateways pro
+  Ereignis: Es prüft ein signiertes Gateway-Zugriffstoken und führt dann das
+  eigene `resolveAccess` der App erneut aus, sodass das Gateway ein Ereignis
+  niemals an jemanden weiterleiten kann, der den Zugriff inzwischen verloren hat.
+  Unbekannte Ressourcentypen oder fehlgeschlagene Lookups schlagen sicher fehl
+  (`{ allowed: false }`).
+- Auf Postgres vergeben gehostete Apps Sync-Versionen aus der Datenbank
+  (`dbAssignedVersions`) statt aus einem prozessinternen Zähler, weil
+  Gateway-Instanzen und die serverlosen Instanzen der App sich eine Datenbank
+  teilen und sich über die Schreibreihenfolge einig sein müssen.
+
+Jeder Fehler ist hier bewusst still: keine Transportvariable, kein
+Builder-Schlüssel, eine Datenbank ohne Postgres, eine noch nicht freigeschaltete
+Organisation oder ein nicht erreichbares Gateway lassen die App beim lokalen
+Polling, statt einen Fehler auszulösen. Wenn gehostetes Realtime nicht aktiv ist,
+obwohl du es erwartest, prüfe diese Punkte in dieser Reihenfolge – ein 404 von
+`GET /_agent-native/realtime-token` bedeutet, dass kein Kanal aufgelöst wurde.
+
 ## Sicherheit {#security}
 
 ### Zugriffsmodell ausdrücklich wählen

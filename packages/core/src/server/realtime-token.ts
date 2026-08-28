@@ -25,6 +25,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import { resolveBuilderBranchProjectId } from "./builder-browser.js";
+import { resolveRegisteredRealtimeChannel } from "./realtime-registration.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
 import { signRealtimeSubscribeToken } from "./short-lived-token.js";
@@ -85,8 +86,30 @@ export function createRealtimeTokenHandler() {
       // Async resolver so hosted apps whose project id lives in a
       // request-scoped app/org/workspace secret (not an env var) also work —
       // the sync env-only lookup would 404 them and silently drop the gateway.
-      const projectId = await resolveBuilderBranchProjectId();
-      const secret = getRealtimeSigningSecret();
+      let projectId = await resolveBuilderBranchProjectId();
+      let secret = getRealtimeSigningSecret();
+      // Self-register only when NEITHER half is present. Either one alone means
+      // the hosting pipeline owns this app and already gave the gateway its
+      // database, so the fix for the missing half is a redeploy, not a second
+      // `rt_` channel tailing a database Builder already holds. Gating on the
+      // project id alone was not enough: `resolveBuilderBranchProjectId()`
+      // returns "" for an UNREADABLE settings row as well as an absent one
+      // (builder-browser.ts), so one Neon blip on a cold isolate would have
+      // registered a genuine pipeline app's database.
+      if (!projectId && !secret) {
+        // Not a pipeline app. Fall back to the channel it registered for
+        // itself, which exists only if someone set the hosted transport env var
+        // on this deployment. `.catch` keeps the module's promise: every
+        // failure here is a 404 the client reads as "stay local", never a 500
+        // it would classify as transient and retry into.
+        const registered = await resolveRegisteredRealtimeChannel().catch(
+          () => null,
+        );
+        if (registered) {
+          projectId = registered.channelId;
+          secret = registered.hmacSecret;
+        }
+      }
       if (!projectId || !secret) {
         // Hosted realtime isn't provisioned for this app. 404 lets the client
         // fall back to the app's own /_agent-native/poll without treating it

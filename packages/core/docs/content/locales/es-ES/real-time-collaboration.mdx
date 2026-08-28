@@ -606,6 +606,73 @@ complemento:
 | Umbral de compactación                          | Blob almacenado > 4× codificación nueva activa el compacto de desecho               |
 | Lecturas de base de datos por escritura         | 1 (versión CAS leída dentro de `persistMergedState` únicamente)                     |
 
+## Puerta de enlace de sincronización en tiempo real alojada {#hosted-gateway}
+
+Las aplicaciones usan de forma predeterminada el transporte poll/SSE descrito
+arriba. Cualquier aplicación puede optar por la puerta de enlace de
+sincronización en tiempo real alojada, que distribuye los eventos de
+sincronización entre varias instancias sin servidor en lugar de que cada
+instancia mantenga sus propias conexiones de larga duración.
+
+- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` es la única variable que defines, y
+  definirla es la aceptación explícita: nada de esto ocurre en un despliegue
+  que no la haya definido. `AGENT_NATIVE_REALTIME_GATEWAY_URL` sobrescribe el
+  extremo de la puerta de enlace para entornos de prueba; si no se define, se
+  deriva de `BUILDER_GATEWAY_BASE_URL`.
+- En una aplicación alojada por Builder, el id de canal y el secreto de firma
+  (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) son variables de entorno reservadas que
+  inyecta la ruta de aprovisionamiento de Builder: la canalización ya
+  aprovisionó la base de datos que lee la puerta de enlace.
+- **En cualquier otro lugar, la aplicación se registra sola, y eso significa
+  enviar a Builder la URL de tu base de datos.** Con la variable de transporte
+  definida, un despliegue respaldado por Postgres que tenga
+  `BUILDER_PRIVATE_KEY` envía una vez su cadena de conexión y su origen público
+  a la puerta de enlace, y recibe un id de canal y un secreto de firma. Builder
+  almacena esa cadena de conexión y se conecta a tu base de datos para seguir
+  `sync_events`; la conexión no es de solo lectura, ya que tanto la asignación
+  de versiones como la detección de cambios externos escriben. Si no quieres
+  eso, deja la variable de transporte sin definir: esa es toda la decisión, y
+  no hay ninguna otra vía que comparta la credencial. El registro se repite
+  cuando cambia la URL de la base de datos o el origen de la aplicación, de modo
+  que la rotación de credenciales se propaga sin volver a desplegar nada más.
+- La organización también debe estar habilitada para la puerta de enlace. Hasta
+  que lo esté, el registro se rechaza y la aplicación sigue con el sondeo local.
+- Solo se registran los despliegues de producción. Una vista previa de
+  despliegue mantiene la sincronización local, de modo que su credencial de base
+  de datos desechable nunca sale de la máquina y no se crea un canal por cada
+  pull request.
+- **La organización es el límite de confianza.** Cualquier credencial que pueda
+  registrar también puede volver a registrar un origen existente, lo que
+  devuelve el secreto de firma de ese canal y reapunta su base de datos. Tener
+  ese secreto permite emitir un token de suscripción para cualquier usuario de
+  la aplicación, lo que expone su *flujo de cambios* —qué registros cambiaron y
+  cuándo— pero no los registros en sí, ya que los clientes releen el contenido
+  desde la aplicación con su propia sesión. Trata una credencial de registro
+  como si abarcara toda la organización.
+- `GET /_agent-native/realtime-token` emite un token de suscripción de corta
+  duración (10 minutos) y con ámbito de sesión que el navegador usa para abrir
+  la conexión con la puerta de enlace. Solo acepta el mismo origen y responde
+  401 sin una sesión activa.
+- `GET /_agent-native/can-see` es la comprobación de visibilidad por evento de
+  la puerta de enlace: verifica un token de acceso firmado y luego vuelve a
+  ejecutar el propio `resolveAccess` de la aplicación, de modo que la puerta de
+  enlace nunca pueda reenviar un evento a alguien que ya perdió el acceso. Los
+  tipos de recurso desconocidos o los fallos de búsqueda fallan de forma segura
+  (`{ allowed: false }`).
+- En Postgres, las aplicaciones alojadas asignan las versiones de sincronización
+  desde la base de datos (`dbAssignedVersions`) en lugar de un contador en
+  proceso, porque las instancias de la puerta de enlace y las instancias sin
+  servidor de la propia aplicación comparten una base de datos y deben coincidir
+  en el orden de escritura.
+
+Todos los fallos aquí son silenciosos por diseño: sin variable de transporte,
+sin clave de Builder, con una base de datos que no sea Postgres, con una
+organización aún no habilitada o con una puerta de enlace inalcanzable, la
+aplicación se queda con el sondeo local en lugar de dar error. Si la
+sincronización alojada no está activa cuando lo esperas, revisa esos puntos en
+ese orden: que `GET /_agent-native/realtime-token` devuelva 404 significa que no
+se resolvió ningún canal.
+
 ## Seguridad {#security}
 
 ### Elija explícitamente el modelo de acceso

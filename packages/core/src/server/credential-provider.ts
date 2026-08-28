@@ -263,7 +263,7 @@ function isBuilderCredentialKey(key: string): boolean {
   return (BUILDER_CREDENTIAL_KEYS as readonly string[]).includes(key);
 }
 
-function isHostedWorkspaceRuntime(): boolean {
+export function isHostedWorkspaceRuntime(): boolean {
   const hasFusionPreview = Boolean(
     process.env.FUSION_ENVIRONMENT ||
     process.env.FUSION_ENV_ORIGIN ||

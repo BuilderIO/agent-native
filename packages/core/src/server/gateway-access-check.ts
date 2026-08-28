@@ -16,6 +16,7 @@ import {
 
 import { resolveAccess } from "../sharing/access.js";
 import { getBuilderBranchProjectId } from "./builder-browser.js";
+import { resolveRegisteredRealtimeChannel } from "./realtime-registration.js";
 import { getRealtimeSigningSecret } from "./realtime-token.js";
 import { runWithRequestContext } from "./request-context.js";
 import { verifyGatewayAccessToken } from "./short-lived-token.js";
@@ -29,16 +30,34 @@ export function createGatewayAccessCheckHandler() {
       return { error: "Method not allowed" };
     }
 
-    const secret = getRealtimeSigningSecret();
+    let secret = getRealtimeSigningSecret();
+    // Sync, env-only: binds the token's channel when this app's project id is
+    // known, and no-ops (undefined) for scoped-secret apps where it isn't.
+    let expectedProjectId = getBuilderBranchProjectId() || undefined;
+
+    // Neither injected: a self-registered app. Resolve its own channel, or the
+    // gateway's every sharee check 404s and shared-resource events are dropped
+    // for exactly the deployments self-registration exists to serve. Must use
+    // the SAME discriminator as the token mint (`realtime-token.ts`) — with
+    // either half injected this is a pipeline app and the env pair governs.
+    if (!secret && !expectedProjectId) {
+      const registered = await resolveRegisteredRealtimeChannel().catch(
+        () => null,
+      );
+      if (registered) {
+        secret = registered.hmacSecret;
+        // Bind the channel: a self-registered app knows its own id, so an
+        // access token minted for a different channel must not verify here.
+        expectedProjectId = registered.channelId;
+      }
+    }
+
     if (!secret) {
       setResponseStatus(event, 404);
       return { error: "Realtime gateway not configured" };
     }
 
     const token = getQuery(event).token;
-    // Sync, env-only: binds the token's channel when this app's project id is
-    // known, and no-ops (undefined) for scoped-secret apps where it isn't.
-    const expectedProjectId = getBuilderBranchProjectId() || undefined;
     const verified =
       typeof token === "string"
         ? verifyGatewayAccessToken(token, secret, expectedProjectId)
