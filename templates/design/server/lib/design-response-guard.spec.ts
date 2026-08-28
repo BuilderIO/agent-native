@@ -215,6 +215,7 @@ describe("Design final response guard", () => {
           designId: "design-1",
           timelineId: "timeline-1",
           persisted: true,
+          contentPatched: true,
         }),
       ],
       [toolResult("apply-a11y-fix", { designId: "design-1", applied: true })],
@@ -312,6 +313,14 @@ describe("Design final response guard", () => {
           id: "design-1",
           updated: true,
           stale: true,
+        }),
+      ],
+      [
+        toolResult("apply-motion-edit", {
+          designId: "design-1",
+          timelineId: "timeline-1",
+          persisted: true,
+          contentPatched: false,
         }),
       ],
     ]) {

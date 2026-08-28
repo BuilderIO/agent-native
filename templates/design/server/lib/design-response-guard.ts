@@ -157,7 +157,8 @@ function hasSuccessfulMutation(
       return (
         parsed.persisted === true &&
         typeof parsed.designId === "string" &&
-        typeof parsed.timelineId === "string"
+        typeof parsed.timelineId === "string" &&
+        parsed.contentPatched === true
       );
     }
 
