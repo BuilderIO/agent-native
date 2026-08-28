@@ -278,14 +278,14 @@ function headersWithSignupAttribution(
 
 export interface AuthSession {
   email: string;
-  /** Better Auth's email-ownership state, when the provider exposes it. */
-  emailVerified?: boolean;
   userId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
   name?: string;
   /** Profile image from the auth provider, when available. */
   image?: string;
+  /** Whether the auth provider has verified this session's email address. */
+  emailVerified?: boolean;
   /** Active organization ID (resolved by getOrgContext from the framework's org_members table + the user's active-org-id setting; NOT the Better Auth organization plugin, which is intentionally not registered) */
   orgId?: string;
   /** User's role in the active organization (owner/admin/member) */
@@ -3813,6 +3813,9 @@ function mapBetterAuthSession(baSession: {
     userId: baSession.user.id,
     name: baSession.user.name,
     ...(baSession.user.image ? { image: baSession.user.image } : {}),
+    ...(typeof baSession.user.emailVerified === "boolean"
+      ? { emailVerified: baSession.user.emailVerified }
+      : {}),
     token: baSession.session?.token,
   };
 }
