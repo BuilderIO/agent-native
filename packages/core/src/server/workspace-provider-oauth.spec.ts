@@ -21,6 +21,7 @@ import {
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
   resolveSalesforceOAuthLoginUrl,
+  shouldUseRootGoogleOAuthCallback,
   salesforceOAuthEndpoint,
   scopedOAuthAccountId,
   type WorkspaceProviderOAuthFlow,
@@ -28,6 +29,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   resolveSecretMock.mockReset();
 });
 
@@ -48,6 +50,27 @@ describe("workspace provider OAuth", () => {
     expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
+  });
+
+  it("uses the root Google callback for every standalone managed provider", () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+
+    for (const provider of [
+      "gmail",
+      "google_calendar",
+      "google_docs",
+      "google_drive",
+      "google_sheets",
+      "google_slides",
+    ] as const) {
+      expect(shouldUseRootGoogleOAuthCallback(provider)).toBe(true);
+    }
+    expect(shouldUseRootGoogleOAuthCallback("figma")).toBe(false);
   });
 
   it("requires both managed OAuth client credentials", async () => {
