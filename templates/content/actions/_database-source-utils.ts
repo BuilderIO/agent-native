@@ -1778,6 +1778,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       entry: BuilderCmsSourceEntry;
       bodyHydrationStatus: string | null;
       bodyHydrationVersion: string | null;
+      bodyHydrationReason: string | null;
       bodyHydrationRetryable: number | null;
       documentContent: string | null;
     }
@@ -1793,6 +1794,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
           schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
         bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
         bodyHydrationVersion: schema.contentDatabaseItems.bodyHydrationVersion,
+        bodyHydrationReason: schema.contentDatabaseItems.bodyHydrationReason,
         bodyHydrationRetryable:
           schema.contentDatabaseItems.bodyHydrationRetryable,
         documentContent: schema.documents.content,
@@ -1826,6 +1828,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
           entry,
           bodyHydrationStatus: row.bodyHydrationStatus,
           bodyHydrationVersion: row.bodyHydrationVersion,
+          bodyHydrationReason: row.bodyHydrationReason,
           bodyHydrationRetryable: row.bodyHydrationRetryable,
           documentContent: row.documentContent,
         });
@@ -1845,6 +1848,8 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
     const bodyHydrationRetryable =
       persistedState?.bodyHydrationRetryable ??
       (item.bodyHydration?.retryable === false ? 0 : null);
+    const bodyHydrationReason =
+      persistedState?.bodyHydrationReason ?? item.bodyHydration?.reason;
     const documentContent =
       persistedState?.documentContent ?? item.document.content;
     const expectedVersion =
@@ -1856,8 +1861,9 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
       (bodyHydrationStatus === "unavailable" ||
         (bodyHydrationStatus === "error" && bodyHydrationRetryable === 0) ||
         (bodyHydrationStatus === "hydrated" &&
-          !isEffectivelyEmptyDocumentContent(documentContent) &&
-          !builderBodyIsRawPlaceholderOnly(documentContent))) &&
+          (bodyHydrationReason === "empty_body" ||
+            (!isEffectivelyEmptyDocumentContent(documentContent) &&
+              !builderBodyIsRawPlaceholderOnly(documentContent))))) &&
       bodyHydrationVersion === expectedVersion
     ) {
       continue;
@@ -2762,6 +2768,17 @@ async function persistPristineBuilderBodyHydrationsInBulk(
                 value: row.bodyHydrationVersion,
               })),
             ),
+            bodyHydrationReason: null,
+            bodyHydrationProviderStatus: "http_200",
+            bodyHydrationAttemptCount: hydrationCaseSql(
+              schema.contentDatabaseItems.id,
+              schema.contentDatabaseItems.bodyHydrationAttemptCount,
+              batch.map((row) => ({
+                id: row.job.databaseItemId,
+                value: row.job.attempts,
+              })),
+            ),
+            bodyHydrationRetryable: 0,
             updatedAt: now,
           })
           .where(
@@ -3275,6 +3292,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   const [remaining] = await db
     .select({
       count: sql<number>`COUNT(*)`,
+      ready: sql<number>`SUM(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL AND (${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} IS NULL OR ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} <= ${now}) THEN 1 ELSE 0 END)`,
       nextAttemptAt: sql<
         string | null
       >`MIN(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL THEN ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} END)`,
@@ -3289,6 +3307,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
+    ready: Number(remaining?.ready ?? 0),
     nextAttemptAt: remaining?.nextAttemptAt ?? null,
   };
 }

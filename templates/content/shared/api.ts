@@ -1504,5 +1504,6 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
+  ready: number;
   nextAttemptAt: string | null;
 }

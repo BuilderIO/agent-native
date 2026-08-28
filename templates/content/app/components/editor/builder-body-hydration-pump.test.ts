@@ -93,6 +93,7 @@ describe("Builder body hydration pump", () => {
         succeeded: 0,
         failed: 8,
         remaining: 6,
+        ready: 0,
         nextAttemptAt: null,
       }),
     ).toBe(false);
@@ -106,6 +107,7 @@ describe("Builder body hydration pump", () => {
         succeeded: 1,
         failed: 7,
         remaining: 6,
+        ready: 5,
         nextAttemptAt: null,
       }),
     ).toBe(true);
@@ -116,6 +118,7 @@ describe("Builder body hydration pump", () => {
         succeeded: 0,
         failed: 6,
         remaining: 0,
+        ready: 0,
         nextAttemptAt: null,
       }),
     ).toBe(true);
@@ -128,6 +131,7 @@ describe("Builder body hydration pump", () => {
       succeeded: 0,
       failed: 1,
       remaining: 1,
+      ready: 0,
       nextAttemptAt: "2026-08-28T18:00:30.000Z",
     };
     expect(builderBodyHydrationMutationMadeProgress(result)).toBe(true);

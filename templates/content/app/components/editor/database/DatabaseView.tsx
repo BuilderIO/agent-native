@@ -1375,6 +1375,10 @@ function DatabaseTable({
             onError: options.onError,
             onSettled: () => {
               if (!request.documentId && result && result.remaining > 0) {
+                if (result.ready > 0) {
+                  pump();
+                  return;
+                }
                 const retryDelayMs = builderBodyHydrationRetryDelayMs(result);
                 if (retryDelayMs !== null) {
                   const existingTimer =

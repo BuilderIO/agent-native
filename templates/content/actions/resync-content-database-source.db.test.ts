@@ -3228,13 +3228,16 @@ it("continues a 597-row snapshot past offset 500 without pruning or restarting",
       source,
       now: `2026-07-10T12:0${page}:00.000Z`,
     });
-    for (let drain = 0; drain < 7; drain += 1) {
+    for (let drain = 0; drain < 20; drain += 1) {
       const queuedBodies = await db
         .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
         .from(schema.contentDatabaseBodyHydrationQueue)
         .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
       if (queuedBodies.length === 0) break;
-      await hydrateQueuedBodies({ sourceId, limit: 50 });
+      const result = await hydrateQueuedBodies({ sourceId, limit: 600 });
+      if (result.processed === 0 && result.remaining > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
     }
     const rows = await db
       .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
@@ -5173,6 +5176,7 @@ it("explicitly retries a terminal retryable Builder hydration while preserving e
     succeeded: 1,
     failed: 0,
     remaining: 0,
+    ready: 0,
     nextAttemptAt: null,
   });
   expect(after.content).toContain("Live opened row body from Builder.");
