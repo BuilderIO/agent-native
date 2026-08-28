@@ -490,7 +490,7 @@ const messages = {
     },
     showcase: {
       title: "你能用 Agent-Native 打造什麼？",
-      body: "從聊天、專注的內部工具，到完整的面向客戶產品，任何形態都能從這裡開始。每個應用都為使用者提供 UI，也為 agent 提供完成相同工作的工具。",
+      body: "能理解你的工作、採取行動並與你協作的智慧代理應用。打造自己的應用，或試用其中一個開源應用。",
       browseApps: "瀏覽應用",
       scrollLeft: "向左捲動應用",
       scrollRight: "向右捲動應用",
@@ -506,7 +506,7 @@ const messages = {
       community: "社群",
       legal: "法律",
       docs: "文件",
-      actions: "行動",
+      download: "下載",
       apps: "應用",
       privacyPolicy: "隱私權政策",
       saasTerms: "SaaS 條款",
@@ -572,8 +572,7 @@ const messages = {
   templates: {
     clips: {
       replaces: "替代或增強 Loom、Granola 和 Wisprflow",
-      description:
-        "帶有瀏覽器偵錯捕獲、行事曆同步會議紀錄和 Fn-hold 語音聽寫的螢幕錄製 — 所有這些都經過轉錄、總結和搜尋，代理可以編輯其中任何內容。",
+      description: "錄製螢幕、會議和語音筆記，讓代理了解發生了什麼並採取行動。",
     },
     plan: {
       replaces: "面向 Codex、Claude Code 和編碼代理的視覺化計畫模式",
@@ -583,27 +582,27 @@ const messages = {
     design: {
       replaces: "替代或增強設計原型工具",
       description:
-        "Agent-Native HTML 原型工作室。生成互動式 Alpine/Tailwind 設計，比較變體，即時微調控制項，並匯出結果。",
+        "將提示轉化為符合你的設計系統的互動式設計，同時由代理根據回饋完善每個畫面。",
     },
     content: {
       replaces: "替換或增強 Obsidian 為 MDX、Notion、Google Docs",
       description:
-        "編輯本機 Markdown/MDX 檔案（如 Obsidian），生成豐富的互動式自訂塊，並使用 AI 代理來起草、重寫和發布。",
+        "處理你的文件，同時由代理以你的語氣草擬內容、建立互動式內容並發布到你的網站。",
     },
     slides: {
       replaces: "替換或增強 Google Slides、Pitch",
       description:
-        "根據提示產生完整的簡報。視覺或對話方式編輯。 AI 圖片生成、8 種布局和內建簡報模式。",
+        "根據提示或現有投影片建立符合品牌且可編輯的簡報，代理可以建立、編輯和完善。",
     },
     analytics: {
       replaces: "Amplitude 和 FullStory 的開放原始碼替代品",
       description:
-        "連線任何資料來源、提示任何圖表、建置可重用的儀表板。代理編寫 SQL、生成視覺化並改進應用程式。",
+        "連接你的資料，讓代理以淺白語言回答問題，並將結果轉化為圖表和儀表板。",
     },
     mail: {
       replaces: "替換或增強 Superhuman、Gmail",
       description:
-        "Superhuman 風格的電子郵件用戶端，具有鍵盤快速鍵、AI 分類、多帳戶支援和電子郵件自動化。擁有您的收件箱工作流程。",
+        "一個鍵盤優先的收件匣，代理可以排列郵件優先順序、草擬回覆、摘要對話串並持續跟進。",
     },
     forms: {
       replaces: "替換或增強 Typeform、Google Forms",
@@ -613,12 +612,12 @@ const messages = {
     assets: {
       replaces: "替換或增強 DAMs、品牌資產庫和 AI 媒體生成器",
       description:
-        "用於上傳、品牌庫、可搜尋參考和品牌圖片/影片產生的數位資產管理器，其他應用程式可以透過 A2A 呼叫或嵌入為選取器。",
+        "為代理提供共用的品牌指南、圖片和影片庫，以便在各個應用程式中建立和選擇符合品牌的媒體。",
     },
     calendar: {
       replaces: "替換或增強 Google Calendar、Calendly",
       description:
-        "具有 Google 同步、可用性管理和公開預訂頁面的完整行事曆。該代理會尋找空閒時段、建立活動並管理您的日程安排。",
+        "整合你的多個 Google 日曆，讓代理尋找空檔、安排或重新安排活動，並管理預約。",
     },
     dispatch: {
       replaces: "Agent-Native 應用程式的工作控制",
@@ -1594,7 +1593,7 @@ const messages = {
   },
   downloadPage: {
     title: "下載 Agent-Native",
-    body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
+    body: "試用適用於會議、設計、簡報、資料、排程、郵件等場景的智能體應用程式，全部整合在一個桌面應用程式中。",
     openDesktop: "開啟 Agent-Native",
     downloadInstaller: "下載安裝程式",
     downloadStarted: "已開始下載",
@@ -1603,27 +1602,33 @@ const messages = {
     checkingRelease: "正在檢查最新桌面版...",
     retry: "重試",
     unavailable: "此平台沒有可用的安裝程式",
+    allPlatforms: "所有平台",
     stable: "穩定版",
     nightly: "Nightly",
-    switchToNightly: "切換至 Nightly 建置",
-    switchToStable: "切換至穩定版建置",
-    runFromSource: "或從來源碼執行",
+    runFromSource: "自行建置",
     runFromSourceBody:
-      "還沒有適用於你平台的安裝程式，或更喜歡 CLI？使用 npm 建立新應用並在本機執行；支援 macOS、Windows 和 Linux。",
+      "透過命令列建立一個 Agent-Native 應用程式，並在 macOS、Windows 或 Linux 上本機執行。",
     platforms: {
       mac: {
         primary: "下載 Apple Silicon 版本",
         alternative: "Intel Mac 版本",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "下載 Windows 版本",
         alternative: "ARM64",
+        gridPrimary: "x64 安裝程式",
+        gridAlternative: "Arm64 安裝程式",
         note: "Windows 10 或更高版本。",
       },
       linux: {
         primary: "下載 Linux 封存包",
         appImage: "下載 AppImage",
         deb: "下載 .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "通用",
+        gridDeb: "Debian / Ubuntu",
         note: "封存包無需 FUSE 即可使用。某些發行版上的 AppImage 可能需要 FUSE 2。",
       },
     },
@@ -2104,8 +2109,9 @@ const messages = {
     dispatchDevelopers: "開發者指南",
     forms: "表單",
     formsOverview: "總覽",
-    formsBuildingPublishing: "建置與發布",
-    formsResponses: "回應與洞察",
+    formsFeatures: "功能",
+    formsAgent: "與 Agent 對話",
+    formsIntegrations: "跨應用使用",
     docsComponents: "Docs Components",
     formsDevelopers: "開發者指南",
   },

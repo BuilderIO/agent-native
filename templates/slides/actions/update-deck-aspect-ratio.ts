@@ -8,6 +8,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 export default defineAction({
   description:
@@ -26,23 +31,26 @@ export default defineAction({
       .where(eq(schema.decks.id, deckId))
       .limit(1);
     if (!rows.length) throw new Error(`Deck not found: ${deckId}`);
-    await createDeckVersionSnapshot(
-      {
-        id: rows[0].id,
-        title: rows[0].title,
-        data: rows[0].data,
-        ownerEmail: rows[0].ownerEmail,
-      },
-      { label: "Before aspect ratio change" },
-    );
     const data = JSON.parse(rows[0].data);
     data.aspectRatio = aspectRatio;
-    const now = new Date().toISOString();
+    const now = nextDeckRevision(rows[0].updatedAt);
     data.updatedAt = now;
-    await db
-      .update(schema.decks)
-      .set({ data: JSON.stringify(data), updatedAt: now })
-      .where(eq(schema.decks.id, deckId));
+    await db.transaction(async (tx: any) => {
+      await createDeckVersionSnapshot(
+        {
+          id: rows[0].id,
+          title: rows[0].title,
+          data: rows[0].data,
+          ownerEmail: rows[0].ownerEmail,
+        },
+        { label: "Before aspect ratio change", db: tx },
+      );
+      const updateResult = await tx
+        .update(schema.decks)
+        .set({ data: JSON.stringify(data), updatedAt: now })
+        .where(deckRevisionWhere(schema.decks, deckId, rows[0].updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "aspect ratio change");
+    });
     notifyClients(deckId);
     await writeAppState("refresh-signal", {
       ts: now,

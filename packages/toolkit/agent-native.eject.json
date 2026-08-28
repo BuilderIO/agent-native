@@ -270,6 +270,7 @@
       "dependencies": [
         "@radix-ui/react-label",
         "@radix-ui/react-popover",
+        "@radix-ui/react-select",
         "@radix-ui/react-tooltip",
         "@tabler/icons-react",
         "class-variance-authority",

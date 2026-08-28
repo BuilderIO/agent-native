@@ -418,6 +418,24 @@ describe("SlideInner autofit", () => {
     });
   });
 
+  it("keeps a converted leading Markdown image in the Markdown layout path", () => {
+    const slide: Slide = {
+      id: "markdown-image-layout",
+      layout: "two-column",
+      notes: "",
+      content:
+        '<img data-markdown-image="true" src="https://cdn.example.com/chart.png" alt="Chart" style="display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;">\n\n---\n\nRight column',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const canvas = document.querySelector<HTMLElement>(
+      `[data-slide-canvas="${slide.id}"]`,
+    );
+    expect(canvas?.className).toContain("px-16");
+    expect(canvas?.querySelectorAll(".slide-content")).toHaveLength(2);
+  });
+
   it("keeps the current fit transform stable while a raw slide text block is edited", async () => {
     const slide: Slide = {
       id: "raw-editing",
@@ -617,6 +635,12 @@ describe("imported deck webfonts", () => {
     );
   });
 
+  it("serves the shared picker's JetBrains Mono family", () => {
+    expect(resolveImportedFont("JetBrains Mono")?.href).toBe(
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    );
+  });
+
   it("maps a PPTX weight-suffixed typeface onto its base family", () => {
     expect(resolveImportedFont("Work Sans Medium")?.family).toBe("Work Sans");
     expect(resolveImportedFont("Open Sans SemiBold")?.family).toBe("Open Sans");
@@ -649,6 +673,17 @@ describe("imported deck webfonts", () => {
     expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
     expect(hrefs).toEqual([
       "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    ]);
+  });
+
+  it("rewrites CSSOM-serialized double-quoted picker values", () => {
+    const { html, hrefs } = prepareImportedFonts(
+      `<span style='font-family: "Playfair Display", serif;'>a</span>`,
+    );
+
+    expect(html).toContain('font-family: "Playfair Display", serif');
+    expect(hrefs).toEqual([
+      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap",
     ]);
   });
 

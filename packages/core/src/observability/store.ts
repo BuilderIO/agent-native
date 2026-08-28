@@ -124,6 +124,7 @@ export async function ensureObservabilityTables(): Promise<void> {
           message_seq ${intType()},
           feedback_type TEXT NOT NULL,
           value TEXT NOT NULL DEFAULT '',
+          idempotency_key TEXT,
           user_id TEXT,
           created_at ${intType()} NOT NULL
         )
@@ -243,6 +244,11 @@ export async function ensureObservabilityTables(): Promise<void> {
             `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS user_id TEXT`,
           );
         }
+        await ensureColumnExists(
+          "agent_feedback",
+          "idempotency_key",
+          `ALTER TABLE agent_feedback ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
         await ensureIndexExists(
           "idx_trace_spans_run",
           `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
@@ -286,6 +292,10 @@ export async function ensureObservabilityTables(): Promise<void> {
         await ensureIndexExists(
           "idx_feedback_type_created",
           `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_feedback_idempotency",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_idempotency ON agent_feedback (user_id, idempotency_key)`,
         );
         await ensureIndexExists(
           "idx_satisfaction_thread",
@@ -360,6 +370,13 @@ export async function ensureObservabilityTables(): Promise<void> {
           throw err;
         }
       }
+      try {
+        await client.execute(
+          `ALTER TABLE agent_feedback ADD COLUMN idempotency_key TEXT`,
+        );
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
+      }
 
       // Indexes for common query patterns
       const indexes = [
@@ -374,6 +391,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_type_created ON agent_feedback (feedback_type, created_at)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_idempotency ON agent_feedback (user_id, idempotency_key)`,
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
         `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
@@ -624,13 +642,14 @@ export async function getLatestTraceSummaryForThread(
 
 // ─── Feedback CRUD ───────────────────────────────────────────────────
 
-export async function insertFeedback(entry: FeedbackEntry): Promise<void> {
+export async function insertFeedback(entry: FeedbackEntry): Promise<boolean> {
   await ensureObservabilityTables();
   const client = getDbExec();
-  await client.execute({
+  const result = await client.execute({
     sql: `INSERT INTO agent_feedback
-      (id, run_id, thread_id, message_seq, feedback_type, value, user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, run_id, thread_id, message_seq, feedback_type, value, idempotency_key, user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT DO NOTHING`,
     args: [
       entry.id,
       entry.runId,
@@ -638,10 +657,12 @@ export async function insertFeedback(entry: FeedbackEntry): Promise<void> {
       entry.messageSeq,
       entry.feedbackType,
       entry.value,
+      entry.idempotencyKey,
       entry.userId,
       entry.createdAt,
     ],
   });
+  return result.rowsAffected > 0;
 }
 
 export async function getFeedback(opts: {
@@ -1272,6 +1293,7 @@ function rowToFeedback(row: Record<string, any>): FeedbackEntry {
     messageSeq: row.message_seq != null ? Number(row.message_seq) : null,
     feedbackType: row.feedback_type as FeedbackEntry["feedbackType"],
     value: String(row.value ?? ""),
+    idempotencyKey: row.idempotency_key ? String(row.idempotency_key) : null,
     userId: row.user_id ? String(row.user_id) : null,
     createdAt: Number(row.created_at),
   };
