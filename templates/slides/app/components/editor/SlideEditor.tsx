@@ -371,26 +371,28 @@ function getBuilderSelector(el: HTMLElement): string | null {
 /** Block tags that can hold rich multi-paragraph content */
 const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
 
-/** Insert a soft line break without creating a new layout block. */
+/** Insert a soft line break inside one text leaf through native edit history. */
 function insertLineBreak(editable: HTMLElement) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount !== 1) return false;
   const range = selection.getRangeAt(0);
-  if (
-    !editable.contains(range.startContainer) ||
-    !editable.contains(range.endContainer)
-  ) {
+
+  const textLeafFor = (node: Node) => {
+    let element = node instanceof HTMLElement ? node : node.parentElement;
+    while (element && element !== editable) {
+      if (isTextLeaf(element)) return element;
+      element = element.parentElement;
+    }
+    return isTextLeaf(editable) ? editable : null;
+  };
+
+  const startLeaf = textLeafFor(range.startContainer);
+  const endLeaf = textLeafFor(range.endContainer);
+  if (!startLeaf || startLeaf !== endLeaf) {
     return false;
   }
 
-  range.deleteContents();
-  const lineBreak = document.createElement("br");
-  range.insertNode(lineBreak);
-  range.setStartAfter(lineBreak);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  return true;
+  return document.execCommand("insertLineBreak");
 }
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
