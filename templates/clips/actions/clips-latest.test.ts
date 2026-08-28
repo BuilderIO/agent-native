@@ -151,17 +151,64 @@ describe("Clips release manifest cache", () => {
           resolveRefresh = resolve;
         }),
       );
+    const backgroundRefreshes: Promise<unknown>[] = [];
 
-    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
-      version: "1.0.0",
-    });
+    await expect(
+      __clipsLatestTest.getManifest("production", (promise) =>
+        backgroundRefreshes.push(promise),
+      ),
+    ).resolves.toMatchObject({ version: "1.0.0" });
+    expect(backgroundRefreshes).toHaveLength(1);
     await Promise.resolve();
     resolveRefresh(jsonResponse([release("clips-v1.1.0")]));
     for (let i = 0; i < 10; i++) await Promise.resolve();
+    await backgroundRefreshes[0];
 
     await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
       version: "1.1.0",
     });
+  });
+
+  it("backs off repeated stale refreshes after an upstream failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-28T00:00:00Z"));
+    const release = (tag_name: string) => ({
+      tag_name,
+      name: tag_name,
+      published_at: "2026-08-28T00:00:00Z",
+      draft: false,
+      prerelease: false,
+      assets: [
+        {
+          name: "Clips_universal.dmg",
+          browser_download_url: `https://downloads.example.com/${tag_name}.dmg`,
+          size: 1,
+        },
+      ],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("pointer unavailable"))
+      .mockResolvedValueOnce(jsonResponse([release("clips-v1.0.0")]))
+      .mockRejectedValueOnce(new Error("pointer unavailable"))
+      .mockRejectedValueOnce(new Error("releases unavailable"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+    });
+
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+    });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const attemptsAfterFailure = fetchMock.mock.calls.length;
+
+    await expect(__clipsLatestTest.getManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(attemptsAfterFailure);
   });
 
   it("exposes durable stale-while-revalidate headers", () => {

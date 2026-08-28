@@ -47,6 +47,7 @@ const PER_PAGE = 100;
 // by then, something else is wrong and the 404 is correct.
 const MAX_PAGES = 10;
 const CACHE_TTL_MS = 5 * 60_000;
+const CACHE_RETRY_BACKOFF_MS = 60_000;
 
 export const CLIPS_RELEASE_CACHE_HEADERS = {
   "cache-control":
@@ -210,6 +211,9 @@ const cache = new Map<
   { data: DownloadManifest; ts: number }
 >();
 const inFlight = new Map<ClipsReleaseChannel, Promise<DownloadManifest>>();
+const retryAfter = new Map<ClipsReleaseChannel, number>();
+
+type WaitUntil = (promise: Promise<unknown>) => void;
 
 class UpstreamError extends Error {
   statusCode: number;
@@ -362,9 +366,15 @@ function refreshManifest(
   const pending = inFlight.get(channel);
   if (pending) return pending;
   const request = (async () => {
-    const data = await buildManifest(channel);
-    cache.set(channel, { data, ts: Date.now() });
-    return data;
+    try {
+      const data = await buildManifest(channel);
+      cache.set(channel, { data, ts: Date.now() });
+      retryAfter.delete(channel);
+      return data;
+    } catch (error) {
+      retryAfter.set(channel, Date.now() + CACHE_RETRY_BACKOFF_MS);
+      throw error;
+    }
   })();
   inFlight.set(
     channel,
@@ -375,14 +385,30 @@ function refreshManifest(
   return inFlight.get(channel)!;
 }
 
+function refreshInBackground(
+  channel: ClipsReleaseChannel,
+  waitUntil?: WaitUntil,
+): void {
+  const refresh = refreshManifest(channel).catch(() => undefined);
+  if (waitUntil) {
+    waitUntil(refresh);
+  } else {
+    void refresh;
+  }
+}
+
 async function getManifest(
   channel: ClipsReleaseChannel = "production",
+  waitUntil?: WaitUntil,
 ): Promise<DownloadManifest> {
   const now = Date.now();
   const cached = cache.get(channel);
   if (cached) {
-    if (now - cached.ts >= CACHE_TTL_MS) {
-      void refreshManifest(channel).catch(() => undefined);
+    if (
+      now - cached.ts >= CACHE_TTL_MS &&
+      now >= (retryAfter.get(channel) ?? 0)
+    ) {
+      refreshInBackground(channel, waitUntil);
     }
     return cached.data;
   }
@@ -394,6 +420,7 @@ export const __clipsLatestTest = {
   reset() {
     cache.clear();
     inFlight.clear();
+    retryAfter.clear();
   },
 };
 
@@ -407,7 +434,11 @@ export default defineEventHandler(async (event) => {
   const channel = normalizeClipsReleaseChannel(getQuery(event).channel);
   let manifest: DownloadManifest;
   try {
-    manifest = await getManifest(channel);
+    const waitUntil =
+      typeof event.waitUntil === "function"
+        ? (promise: Promise<unknown>) => event.waitUntil(promise)
+        : undefined;
+    manifest = await getManifest(channel, waitUntil);
   } catch (err) {
     const e = err as {
       statusCode?: number;

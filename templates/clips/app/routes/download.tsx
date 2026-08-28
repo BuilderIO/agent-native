@@ -4,6 +4,7 @@ import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
+  IconCheck,
   IconExternalLink,
   IconTerminal2,
 } from "@tabler/icons-react";
@@ -86,6 +87,11 @@ interface Manifest {
   }[];
 }
 
+interface ConfirmedDownload {
+  asset: Manifest["assets"][number];
+  label: string;
+}
+
 function manifestStorageKey(channel: DownloadReleaseChannel): string {
   return `${MANIFEST_STORAGE_KEY}-${channel}`;
 }
@@ -152,11 +158,11 @@ function detectPlatform(): PlatformId | null {
 function pickAsset(
   manifest: Manifest | null,
   variant: PlatformVariant,
-): { url: string; name: string } | null {
+): Manifest["assets"][number] | null {
   if (!manifest) return null;
   for (const kind of variant.assetKinds) {
     const asset = manifest.assets.find((a) => a.kind === kind);
-    if (asset) return { url: asset.url, name: asset.name };
+    if (asset) return asset;
   }
   return null;
 }
@@ -168,6 +174,9 @@ function primaryDownloadButton(
   downloadLabel: string,
   retryLabel: string,
   onRetry: () => void,
+  downloadStarted: boolean,
+  downloadStartedLabel: string,
+  onDownload: (asset: Manifest["assets"][number]) => void,
 ) {
   const asset = pickAsset(manifest, variant);
   const Icon = variant.icon;
@@ -178,9 +187,13 @@ function primaryDownloadButton(
         size="lg"
         className="h-12 min-w-[252px] gap-2 px-6 text-base"
       >
-        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
-          <Icon className="h-5 w-5" />
-          {downloadLabel}
+        <a href={asset.url} download onClick={() => onDownload(asset)}>
+          {downloadStarted ? (
+            <IconCheck className="h-5 w-5" />
+          ) : (
+            <Icon className="h-5 w-5" />
+          )}
+          {downloadStarted ? downloadStartedLabel : downloadLabel}
         </a>
       </Button>
     );
@@ -223,6 +236,8 @@ export default function DownloadPage() {
   const [manifestError, setManifestError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
   const [manifestRequest, setManifestRequest] = useState(0);
+  const [confirmedDownload, setConfirmedDownload] =
+    useState<ConfirmedDownload | null>(null);
 
   useEffect(() => {
     setDetected(detectPlatform());
@@ -263,6 +278,7 @@ export default function DownloadPage() {
   }, [channel, hostResolved, manifestRequest]);
 
   const retryManifest = () => {
+    setConfirmedDownload(null);
     setManifestRequest((request) => request + 1);
   };
 
@@ -271,13 +287,27 @@ export default function DownloadPage() {
 
     setManifest(null);
     setManifestError(false);
+    setConfirmedDownload(null);
     setChannel(nextChannel);
   };
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
+  const primaryAsset = pickAsset(manifest, primary);
+  const downloadLabel = t("downloadRoute.downloadFor", {
+    platform: primary.label,
+  });
+  const downloadStartedLabel = t("downloadRoute.downloadStarted");
+  const primaryDownloadStarted =
+    confirmedDownload?.asset.url === primaryAsset?.url;
+
+  const handleDownload = (asset: Manifest["assets"][number], label: string) => {
+    markDesktopAppDownloaded();
+    setConfirmedDownload({ asset, label });
+  };
 
   const handlePlatformChange = (nextPlatform: PlatformId) => {
     if (nextPlatform === detected) return;
+    setConfirmedDownload(null);
     setDetected(nextPlatform);
   };
 
@@ -358,9 +388,35 @@ export default function DownloadPage() {
                 primary,
                 manifest,
                 manifestError,
-                t("downloadRoute.downloadFor", { platform: primary.label }),
+                downloadLabel,
                 t("downloadRoute.retry"),
                 retryManifest,
+                primaryDownloadStarted,
+                downloadStartedLabel,
+                (asset) => handleDownload(asset, downloadLabel),
+              )}
+
+              {primaryDownloadStarted && confirmedDownload && (
+                <p
+                  aria-live="polite"
+                  className="mt-3 text-xs text-muted-foreground"
+                >
+                  <span className="sr-only">{downloadStartedLabel}</span>
+                  <a
+                    href={confirmedDownload.asset.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() =>
+                      handleDownload(
+                        confirmedDownload.asset,
+                        confirmedDownload.label,
+                      )
+                    }
+                    className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  >
+                    {t("downloadRoute.downloadAgain")}
+                  </a>
+                </p>
               )}
 
               <div className="mt-5 flex justify-center">
