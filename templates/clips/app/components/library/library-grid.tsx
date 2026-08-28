@@ -433,12 +433,9 @@ export function LibraryGrid({
             </h1>
           )}
         </div>
-        <SearchBar
-          side="bottom"
-          className="hidden min-w-52 max-w-xl flex-1 md:block"
-        />
         <div className="ms-auto flex shrink-0 items-center gap-2">
           {extraActions}
+          <SearchBar side="bottom" className="hidden w-64 md:block" />
           <SortMenu value={sort} onChange={setSort} />
         </div>
       </PageHeader>
