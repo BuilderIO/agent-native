@@ -874,6 +874,15 @@ function extractSessionTokenFromSetCookies(
   return undefined;
 }
 
+function extractSessionTokenFromAuthResponse(
+  response: Response,
+): string | undefined {
+  return (
+    extractSessionTokenFromSetCookies(response) ??
+    (response.headers.get("set-auth-token")?.trim() || undefined)
+  );
+}
+
 function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
   if (!result || typeof result !== "object") return;
   const headers = (result as { headers?: Headers }).headers;
@@ -4103,6 +4112,49 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
+function betterAuthSessionCookieName(event: H3Event): string {
+  const name = `${BETTER_AUTH_COOKIE_PREFIX}.session_token`;
+  return isHttpsRequest(event) ? `__Secure-${name}` : name;
+}
+
+function setBetterAuthSessionCookie(event: H3Event, token: string): void {
+  setCookie(event, betterAuthSessionCookieName(event), token, {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
+    path: "/",
+    maxAge: sessionMaxAge,
+  });
+}
+
+/**
+ * Magic-link verify is a top-level document navigation. Better Auth's bearer
+ * plugin exposes the new session as `set-auth-token`, which browsers ignore on
+ * 302s. When that 302 also omits Set-Cookie, the user lands logged out even
+ * though the one-time token was consumed.
+ *
+ * Do not wrap the Better Auth response in `new Headers(response.headers)` —
+ * that collapses multiple Set-Cookie values. Stage cookies on the event, then
+ * emit them on a fresh redirect via `redirectWithStagedCookies`.
+ */
+function attachMissingMagicLinkSessionCookies(
+  event: H3Event,
+  response: Response,
+): Response {
+  if (response.status < 300 || response.status >= 400) return response;
+  const location = response.headers.get("location");
+  if (!location) return response;
+  if (extractSessionTokenFromSetCookies(response)) return response;
+
+  const token = response.headers.get("set-auth-token")?.trim();
+  if (!token) return response;
+
+  forwardBetterAuthSetCookies(event, response);
+  setBetterAuthSessionCookie(event, token);
+  setFrameworkSessionCookie(event, token);
+  return redirectWithStagedCookies(event, location, response.status);
+}
+
 function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
@@ -5306,16 +5358,21 @@ async function mountBetterAuthRoutes(
         );
         if (
           (response as Response).status >= 200 &&
-          (response as Response).status < 400 &&
-          extractSessionTokenFromSetCookies(response as Response)
+          (response as Response).status < 400
         ) {
-          // Existing users do not run Better Auth's user-create hook when
-          // magic-link verification flips emailVerified, so reconcile their
-          // pending organization invitations here as well.
-          await ensureEmailVerifiedForRedirect(
-            authRequest,
+          response = attachMissingMagicLinkSessionCookies(
+            event,
             response as Response,
           );
+          if (extractSessionTokenFromAuthResponse(response as Response)) {
+            // Existing users do not run Better Auth's user-create hook when
+            // magic-link verification flips emailVerified, so reconcile their
+            // pending organization invitations here as well.
+            await ensureEmailVerifiedForRedirect(
+              authRequest,
+              response as Response,
+            );
+          }
         }
       }
 
