@@ -5088,6 +5088,7 @@ describe("server/auth", () => {
                 location: "/_agent-native/auth/magic-link/new-user?return=%2F",
                 "set-auth-token": "session_from_bearer",
                 "access-control-expose-headers": "set-auth-token",
+                "cache-control": "no-store",
               },
             }),
           api: {
@@ -5144,8 +5145,111 @@ describe("server/auth", () => {
       expect(response.headers.get("location")).toBe(
         "/_agent-native/auth/magic-link/new-user?return=%2F",
       );
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("set-auth-token")).toBe(
+        "session_from_bearer",
+      );
       expect(cookies).toContain("an.session_token=session_from_bearer");
       expect(cookies).toContain("an_session=session_from_bearer");
+    });
+
+    it("reconciles pending invitations for a bearer-only magic-link verify 302", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn(async (query: { sql: string }) => {
+        if (query.sql.includes('FROM "session"')) {
+          return { rows: [{ email: "Invited@Example.COM" }] };
+        }
+        if (query.sql.startsWith('UPDATE "user"')) {
+          return { rows: [] };
+        }
+        if (query.sql.includes('FROM "user"')) {
+          return { rows: [{ verified: 1 }] };
+        }
+        return { rows: [] };
+      });
+      const acceptPendingInvitationsForEmail = vi.fn(async () => ({
+        accepted: [{ invitationId: "invite-1", orgId: "org-1" }],
+        activeOrgId: "org-1",
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (err: unknown) => String(err),
+      }));
+      vi.doMock("../org/accept-pending.js", () => ({
+        acceptPendingInvitationsForEmail,
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () =>
+            new Response(null, {
+              status: 302,
+              headers: {
+                location: "/_agent-native/auth/magic-link/new-user?return=%2F",
+                "set-auth-token": "session_from_bearer",
+                "cache-control": "no-store",
+              },
+            }),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath =
+        "/_agent-native/auth/ba/magic-link/verify?token=opaque-magic-token&callbackURL=%2F";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "GET",
+      });
+      const event = {
+        req: request,
+        url: new URL(`http://localhost${fullPath}`),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "GET" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: fullPath,
+      };
+
+      const response = await baHandler(event);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(mockExecute).toHaveBeenCalledWith({
+        sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+        args: ["session_from_bearer"],
+      });
+      expect(acceptPendingInvitationsForEmail).toHaveBeenCalledWith(
+        "invited@example.com",
+      );
     });
 
     it("does not mint a session cookie when magic-link verify fails", async () => {

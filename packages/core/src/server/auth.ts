@@ -1121,7 +1121,7 @@ async function ensureEmailVerifiedForRedirect(
 async function emailFromVerificationResponseSession(
   response: Response,
 ): Promise<string | null> {
-  const sessionToken = extractSessionTokenFromSetCookies(response);
+  const sessionToken = extractSessionTokenFromAuthResponse(response);
   if (!sessionToken) return null;
   try {
     const db = getDbExec();
@@ -4127,23 +4127,30 @@ function setBetterAuthSessionCookie(event: H3Event, token: string): void {
   });
 }
 
+function copyHeadersExceptSetCookie(from: Headers, to: Headers): void {
+  for (const [name, value] of from.entries()) {
+    if (name.toLowerCase() === "set-cookie") continue;
+    to.set(name, value);
+  }
+}
+
 /**
  * Magic-link verify is a top-level document navigation. Better Auth's bearer
  * plugin exposes the new session as `set-auth-token`, which browsers ignore on
  * 302s. When that 302 also omits Set-Cookie, the user lands logged out even
  * though the one-time token was consumed.
  *
- * Do not wrap the Better Auth response in `new Headers(response.headers)` —
+ * Copy every non-cookie header from Better Auth (Location, Cache-Control,
+ * set-auth-token). Do not wrap `response.headers` in `new Headers(...)` —
  * that collapses multiple Set-Cookie values. Stage cookies on the event, then
- * emit them on a fresh redirect via `redirectWithStagedCookies`.
+ * append them onto a fresh redirect Response.
  */
 function attachMissingMagicLinkSessionCookies(
   event: H3Event,
   response: Response,
 ): Response {
   if (response.status < 300 || response.status >= 400) return response;
-  const location = response.headers.get("location");
-  if (!location) return response;
+  if (!response.headers.get("location")) return response;
   if (extractSessionTokenFromSetCookies(response)) return response;
 
   const token = response.headers.get("set-auth-token")?.trim();
@@ -4152,7 +4159,12 @@ function attachMissingMagicLinkSessionCookies(
   forwardBetterAuthSetCookies(event, response);
   setBetterAuthSessionCookie(event, token);
   setFrameworkSessionCookie(event, token);
-  return redirectWithStagedCookies(event, location, response.status);
+
+  const headers = new Headers();
+  copyHeadersExceptSetCookie(response.headers, headers);
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response("", { status: response.status, headers });
 }
 
 function isHttpsRequest(event: H3Event): boolean {
