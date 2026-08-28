@@ -1032,9 +1032,14 @@ export function SlideInner({
   // Slides with fmd-slide markup carry their layout in the raw HTML contract;
   // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
+  const trimmedContent = content.trimStart();
+  const isConvertedMarkdownImage =
+    /^<img\b\s+data-markdown-image(?:\s*=\s*(?:"true"|'true'|true))?(?:\s|>)/i.test(
+      trimmedContent,
+    );
   const isRawHtml =
     content.includes('class="fmd-slide"') ||
-    content.trimStart().startsWith("<") ||
+    (trimmedContent.startsWith("<") && !isConvertedMarkdownImage) ||
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
   if (!isRawHtml && slide.layout === "two-column") {

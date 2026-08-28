@@ -81,6 +81,7 @@ import {
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
+  imageOccurrenceInRenderedSlide,
   normalizeImageObjectPosition,
   type ImageObjectPosition,
   type SlideImageDropPosition,
@@ -2689,10 +2690,11 @@ export default function SlideEditor({
 
   const getPlaceholderTarget = useCallback(
     (placeholder: HTMLElement): string => {
-      const slideContent = getSlideContent();
-      const placeholders = slideContent
+      const placeholders = containerRef.current
         ? Array.from(
-            slideContent.querySelectorAll<HTMLElement>(".fmd-img-placeholder"),
+            containerRef.current.querySelectorAll<HTMLElement>(
+              ".slide-content .fmd-img-placeholder",
+            ),
           )
         : [];
       const index = Math.max(0, placeholders.indexOf(placeholder));
@@ -2701,7 +2703,7 @@ export default function SlideEditor({
         placeholder.textContent?.trim() || "image",
       );
     },
-    [getSlideContent],
+    [],
   );
 
   const getImageReplacementTarget = useCallback(
@@ -5121,13 +5123,9 @@ export default function SlideEditor({
         const position = normalizeImageObjectPosition(
           img.style.objectPosition || computedStyle.objectPosition,
         );
-        const imageOccurrence = Math.max(
-          0,
-          Array.from(
-            getSlideContent()?.querySelectorAll<HTMLImageElement>("img") ?? [],
-          )
-            .filter((candidate) => candidate.getAttribute("src") === src)
-            .indexOf(img),
+        const imageOccurrence = imageOccurrenceInRenderedSlide(
+          containerRef.current,
+          img,
         );
         setSelectedImg(img);
         setImageOverlay({
@@ -5157,7 +5155,7 @@ export default function SlideEditor({
         publishImageSelection(placeholder);
       }
     },
-    [getPlaceholderTarget, getSlideContent, publishImageSelection],
+    [getPlaceholderTarget, publishImageSelection],
   );
 
   // Browsers put the dragged element's outerHTML on the "text/html" data

@@ -83,4 +83,25 @@ describe("<ImageOverlay>", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fit: Cover" }));
     expect(onToggleObjectFit).toHaveBeenCalledTimes(1);
   });
+
+  it("hides crop controls for placeholders that have no persisted image style", () => {
+    render(
+      <ImageOverlay
+        anchorRect={new DOMRect(200, 80, 300, 200)}
+        src="placeholder:0:Hero%20image"
+        objectFit="cover"
+        objectPosition="center center"
+        onGenerate={vi.fn()}
+        onLibrary={vi.fn()}
+        onUpload={vi.fn()}
+        onDownload={vi.fn()}
+        onToggleObjectFit={vi.fn()}
+        onChangeObjectPosition={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Fit: Cover" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Position" })).toBeNull();
+  });
 });

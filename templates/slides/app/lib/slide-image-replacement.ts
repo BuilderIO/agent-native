@@ -313,6 +313,28 @@ function imageSourceTokens(content: string): ImageSourceToken[] {
   return tokens.sort((a, b) => a.start - b.start);
 }
 
+export function imageOccurrenceInRenderedSlide(
+  root: ParentNode | null,
+  image: HTMLImageElement,
+): number {
+  const src = image.getAttribute("src");
+  if (!root || !src) return 0;
+
+  return Math.max(
+    0,
+    Array.from(root.querySelectorAll<HTMLImageElement>(".slide-content img"))
+      .filter((candidate) => candidate.getAttribute("src") === src)
+      .indexOf(image),
+  );
+}
+
+function markdownImageStyleDeclarations(updates: ImageStyleUpdates): string {
+  const imageStyle = imageStyleDeclarations(updates);
+  return ["display: block", "width: 100%", "aspect-ratio: 16 / 9", imageStyle]
+    .filter(Boolean)
+    .join("; ");
+}
+
 function updateMarkdownImageAt(
   content: string,
   src: string,
@@ -337,12 +359,12 @@ function updateMarkdownImageAt(
       }
 
       const markdownSrc = decodeMarkdownImageDestination(rawSrc);
-      const style = imageStyleDeclarations(updates);
+      const style = markdownImageStyleDeclarations(updates);
       const title = rawTitle
         ? ` title="${escapeHtmlAttribute(rawTitle.slice(1, -1))}"`
         : "";
       updated = true;
-      return `<img src="${escapeHtmlAttribute(markdownSrc)}" alt="${escapeHtmlAttribute(alt)}"${title} style="${style};">`;
+      return `<img data-markdown-image="true" src="${escapeHtmlAttribute(markdownSrc)}" alt="${escapeHtmlAttribute(alt)}"${title} style="${style};">`;
     },
   );
   return updated ? nextContent : content;

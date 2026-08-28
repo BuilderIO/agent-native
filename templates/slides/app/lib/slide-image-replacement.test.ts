@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPlaceholderImageTarget,
+  imageOccurrenceInRenderedSlide,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
   normalizeImageObjectPosition,
@@ -102,8 +103,22 @@ describe("slide image replacement", () => {
 
     expect(img?.getAttribute("src")).toBe(src);
     expect(img?.getAttribute("alt")).toBe("Chart");
+    expect(img?.getAttribute("data-markdown-image")).toBe("true");
+    expect(img?.style.display).toBe("block");
+    expect(img?.style.width).toBe("100%");
+    expect(img?.style.aspectRatio).toBe("16 / 9");
     expect(img?.style.objectFit).toBe("cover");
     expect(img?.style.objectPosition).toBe("right bottom");
+  });
+
+  it("counts duplicate rendered images across both two-column panes", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="slide-content"><img src="/shared.png"></div>' +
+      '<div class="slide-content"><img src="/shared.png"></div>';
+    const secondImage = root.querySelectorAll<HTMLImageElement>("img")[1];
+
+    expect(imageOccurrenceInRenderedSlide(root, secondImage!)).toBe(1);
   });
 
   it("adds cover when only a Markdown image crop position changes", () => {
@@ -176,8 +191,9 @@ describe("slide image replacement", () => {
     );
     expect(updatedRaw).toContain(`![Third](${src})`);
     expect(updatedMarkdown).toContain(
-      `<img src="${src}" alt="Third" style="object-fit: cover;">`,
+      `<img data-markdown-image="true" src="${src}" alt="Third"`,
     );
+    expect(updatedMarkdown).toContain("aspect-ratio: 16 / 9");
   });
 
   it.each([

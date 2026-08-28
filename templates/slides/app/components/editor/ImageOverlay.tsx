@@ -45,6 +45,7 @@ export default function ImageOverlay({
   const t = useT();
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuHeight, setMenuHeight] = useState(0);
+  const isPlaceholder = src.startsWith("placeholder:");
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -66,7 +67,7 @@ export default function ImageOverlay({
   useLayoutEffect(() => {
     const height = menuRef.current?.getBoundingClientRect().height;
     if (height && height !== menuHeight) setMenuHeight(height);
-  }, [anchorRect, menuHeight, objectFit]);
+  }, [anchorRect, isPlaceholder, menuHeight, objectFit]);
 
   const menuWidth = 180;
   const vw = window.innerWidth;
@@ -132,55 +133,63 @@ export default function ImageOverlay({
         <IconDownload className="w-3.5 h-3.5 text-muted-foreground" />
         Download
       </button>
-      <div className="mx-1.5 border-t border-border" />
-      <button onClick={onToggleObjectFit} className="image-overlay-btn">
-        {objectFit === "cover" ? (
-          <IconMinimize className="w-3.5 h-3.5 text-muted-foreground" />
-        ) : (
-          <IconMaximize className="w-3.5 h-3.5 text-muted-foreground" />
-        )}
-        Fit: {objectFit === "cover" ? "Cover" : "Contain"}
-      </button>
-      {objectFit === "cover" && (
-        <label className="image-overlay-position">
-          <span>{t("styleInspector.position")}</span>
-          <select
-            aria-label={t("styleInspector.position")}
-            value={objectPosition}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              if (
-                IMAGE_OBJECT_POSITION_VALUES.includes(
-                  value as ImageObjectPosition,
-                )
-              ) {
-                onChangeObjectPosition(value as ImageObjectPosition);
-              }
-            }}
-          >
-            <option value="left top">
-              {t("styleInspector.top")} {t("styleInspector.left")}
-            </option>
-            <option value="center top">
-              {t("styleInspector.top")} {t("styleInspector.center")}
-            </option>
-            <option value="right top">
-              {t("styleInspector.top")} {t("styleInspector.right")}
-            </option>
-            <option value="left center">{t("styleInspector.left")}</option>
-            <option value="center center">{t("styleInspector.center")}</option>
-            <option value="right center">{t("styleInspector.right")}</option>
-            <option value="left bottom">
-              {t("styleInspector.bottom")} {t("styleInspector.left")}
-            </option>
-            <option value="center bottom">
-              {t("styleInspector.bottom")} {t("styleInspector.center")}
-            </option>
-            <option value="right bottom">
-              {t("styleInspector.bottom")} {t("styleInspector.right")}
-            </option>
-          </select>
-        </label>
+      {!isPlaceholder && (
+        <>
+          <div className="mx-1.5 border-t border-border" />
+          <button onClick={onToggleObjectFit} className="image-overlay-btn">
+            {objectFit === "cover" ? (
+              <IconMinimize className="w-3.5 h-3.5 text-muted-foreground" />
+            ) : (
+              <IconMaximize className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+            Fit: {objectFit === "cover" ? "Cover" : "Contain"}
+          </button>
+          {objectFit === "cover" && (
+            <label className="image-overlay-position">
+              <span>{t("styleInspector.position")}</span>
+              <select
+                aria-label={t("styleInspector.position")}
+                value={objectPosition}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (
+                    IMAGE_OBJECT_POSITION_VALUES.includes(
+                      value as ImageObjectPosition,
+                    )
+                  ) {
+                    onChangeObjectPosition(value as ImageObjectPosition);
+                  }
+                }}
+              >
+                <option value="left top">
+                  {t("styleInspector.top")} {t("styleInspector.left")}
+                </option>
+                <option value="center top">
+                  {t("styleInspector.top")} {t("styleInspector.center")}
+                </option>
+                <option value="right top">
+                  {t("styleInspector.top")} {t("styleInspector.right")}
+                </option>
+                <option value="left center">{t("styleInspector.left")}</option>
+                <option value="center center">
+                  {t("styleInspector.center")}
+                </option>
+                <option value="right center">
+                  {t("styleInspector.right")}
+                </option>
+                <option value="left bottom">
+                  {t("styleInspector.bottom")} {t("styleInspector.left")}
+                </option>
+                <option value="center bottom">
+                  {t("styleInspector.bottom")} {t("styleInspector.center")}
+                </option>
+                <option value="right bottom">
+                  {t("styleInspector.bottom")} {t("styleInspector.right")}
+                </option>
+              </select>
+            </label>
+          )}
+        </>
       )}
     </div>,
     document.body,
