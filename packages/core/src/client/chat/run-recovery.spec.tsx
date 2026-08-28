@@ -174,6 +174,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
 
 import { AgentNativeI18nProvider } from "../i18n.js";
 import {
+  BuilderSetupCard,
   BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
@@ -218,8 +219,7 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message:
-                "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+              message: "The agent connection was interrupted.",
               errorCode: "connection_error",
               runId: "run-123",
               details: "attempted_runs: run-1, run-2",
@@ -235,9 +235,6 @@ describe("run recovery surfaces", () => {
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Debug-Informationen kopieren");
-      expect(container.textContent).toContain(
-        "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
-      );
     });
     const copyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Debug-Informationen kopieren"),
@@ -372,6 +369,32 @@ describe("run recovery surfaces", () => {
     ).toBeNull();
   });
 
+  it("keeps Builder credential failures in reconnect recovery", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Invalid token",
+              errorCode: "authentication_error",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Reconnect Builder.io");
+    expect(container.textContent).not.toContain("Connect AI");
+    expect(container.textContent).not.toContain("Custom keys");
+  });
+
   it("shows the searchable provider setup while disclosing API keys", async () => {
     await act(async () => {
       root.render(
@@ -433,6 +456,60 @@ describe("run recovery surfaces", () => {
     expect(actions?.className).not.toContain("flex-col");
   });
 
+  it("keeps retry available on the shared provider setup card", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard onRetry={onRetry} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton?.click();
+      retryButton?.click();
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps provider setup dismissible when requested", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard onDismiss={onDismiss} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const dismissButton = container.querySelector(
+      'button[aria-label="Dismiss"]',
+    );
+    expect(dismissButton).toBeTruthy();
+
+    await act(async () => {
+      dismissButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it("formats the step limit with the selected locale", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
@@ -464,9 +541,7 @@ describe("run recovery surfaces", () => {
   // once a 401 started fingerprinting and skipping that credential, so the
   // setup flow and a retry now ship together.
   //
-  // Asserted through `aria-label`: the retry control is an icon-only button, so
-  // the previous `textContent` check read "" and passed no matter what
-  // rendered.
+  // The setup state keeps the retry action available below the card.
   it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
     const onRetry = vi.fn();
     await act(async () => {
@@ -493,8 +568,8 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
 
-    const retryButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Retry"]',
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
     );
     expect(retryButton).toBeTruthy();
     await act(async () => {
@@ -650,7 +725,7 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 
-  it("keeps invalid provider keys on the authentication recovery path", async () => {
+  it("renders invalid provider keys as setup without the warning", async () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -671,8 +746,9 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("The agent hit an error");
+    expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).not.toContain("The agent hit an error");
   });
 
   it("dismisses the recovery card after saving a provider key", async () => {
@@ -699,6 +775,9 @@ describe("run recovery surfaces", () => {
         </AgentNativeI18nProvider>,
       );
     });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain("The agent hit an error");
 
     const addKeysButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("Custom keys"),
