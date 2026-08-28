@@ -5,8 +5,13 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-08-27
 
+### Added
+
+- Outermost frames now show their name above them on the canvas, and clicking the name selects the frame.
+
 ### Improved
 
+- Grid auto layout now lays a frame's children out in its cells and draws the cell grid on canvas, with a Figma-style track picker and separate column and row gap fields.
 - Pasting a frame from Figma now matches what importing the same frame over the API produces — union shapes like speech bubbles keep their outline, and masked artwork is clipped to the right shape.
 - Figma import now matches Figma's own layout node for node on 23 of 26 real community designs, and a page's large images survive the export back to Figma instead of being dropped.
 
