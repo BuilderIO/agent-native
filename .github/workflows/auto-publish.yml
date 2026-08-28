@@ -66,7 +66,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Stable preparation and publication must not wait behind, or be replaced
+  # by, the ordinary push-driven nightly lane.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'stable-preparation' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') && 'stable-publication' || 'nightly') }}
   cancel-in-progress: false
 
 jobs:
