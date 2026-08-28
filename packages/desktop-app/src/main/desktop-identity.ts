@@ -3355,7 +3355,7 @@ export class DesktopIdentityBroker {
         signal,
       );
       this.assertCeremonyActive(generation, signal);
-    } while (true);
+    } while (cookies.length === 0 && Date.now() < deadline);
     if (cookies.length === 0) throw new Error("Missing app session cookie");
 
     const writtenCookieNames: string[] = [];

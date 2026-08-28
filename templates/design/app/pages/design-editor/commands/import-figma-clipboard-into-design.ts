@@ -113,7 +113,7 @@ export async function runImportFigmaClipboardIntoDesign(
         description: remainingWarnings[0],
       });
     }
-    navigate(`/design/${result?.designId ?? id}?view=overview`);
+    void navigate(`/design/${result?.designId ?? id}?view=overview`);
   } catch (error) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
       description:

@@ -23,7 +23,7 @@ Read the relevant skill before deeper work:
   resources; persist only URLs, ids, or handles.
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
   configuration and fake placeholders in examples.
-- For external integrations, inspect the workspace/provider connection catalog and reuse its scoped resolver.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for deck lifecycle, slide edits, imports, exports, images, design
   systems, and sharing. Do not write deck/slide rows directly. Read the action
   schema if a parameter is unclear.
@@ -31,52 +31,46 @@ Read the relevant skill before deeper work:
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
-- Import uploaded PPTX/PDF into the target deck first. `sourceImport` is
-  source-of-truth: preserve its slides, IDs, copy, notes, images, and objects;
-  verify with `get-deck`. Do not restyle imports with `fidelity: partial` or
-  `imagesSkipped`; report the exact warning.
-- Preserve freeform objects and `data-slide-object-id` values. They are
-  absolute `.fmd-slide` children; keep generated flex/grid in flow, mint IDs
-  only for duplicates, and use styled HTML, not inline SVG.
-- Freeform dragging snaps to guides; Cmd/Ctrl bypasses snapping. Align 2+
-  compatible selected objects in the toolbar; distribute only 3+.
+- New-deck attachments are reference context. Import into a deck only after an
+  explicit user request or Import control; explicit imports follow `sourceImport`,
+  preserve structure, and are verified with `get-deck`.
+- A source import with `fidelity: partial` or `imagesSkipped` is not safe to
+  restyle automatically. Report the exact warning rather than silently
+  replacing missing content.
+- Preserve freeform objects and their `data-slide-object-id` values. They are
+  absolutely positioned `.fmd-slide` children; keep generated flex/grid in
+  normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
+- Freeform dragging shows transient peer/canvas alignment guides and snaps
+  within tolerance; hold Cmd/Ctrl to bypass snapping. With 2+ compatible
+  selected objects, use the contextual toolbar to align to selection bounds;
+  distribute only when 3+ objects are selected.
 - Follow linked design-system tokens.
-- For exact Google Drive API needs, use `provider-api-catalog`,
-  `provider-api-docs`, and `provider-api-request` with the user's Google Docs
-  OAuth. Stage large scans with `stageAs` and `query-staged-dataset`.
-- `import-google-slides-reference` accepts Picker `fileId` or `presentationUrl`.
-  Pasted URLs may need one Google reconnect. Preserve PPTX timing metadata.
-- Per-click reveals use ordered 0-based targets and full-list patches; stale or
-  missing targets disable reveals.
+- Import/export actions are shortcuts, not capability limits. For exact Google
+  Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
+  large scans with `stageAs` and analyze them via `query-staged-dataset`.
+- `import-google-slides-reference` accepts a Picker `fileId` or `presentationUrl`;
+  pasted URLs may need a one-time Google reconnect for Drive export. Preserve
+  imported PPTX timing metadata, including by-paragraph reveals, on slide
+  records.
+- For per-click reveals, use ordered 0-based animation targets and patch the
+  complete animation list with content; stale or missing targets disable
+  reveals.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
-- Ask sibling agents with natural-language `call-agent` messages by default.
-  Invoke actions directly only for bounded reads with known schemas, never to
-  work around slow or failed A2A.
-- For data requests, read `analytics-data-for-decks` and delegate to Analytics
-  over A2A; do not write SQL or call providers.
-- Without a reference deck or design system, call `get-workspace-defaults`
-  before generating a deck.
-- Before generation, follow `creative-context`: explicit/current deck, then
-  pinned/current pack, then narrow library search. Respect `contextMode: "off"`.
-  Submit governed context through Context or `manage-context-membership`; reuse
-  only its opaque clone reference.
-
-## Action API
-
-- Public actions use `/_agent-native/actions/<action-name>`, their declared
-  HTTP method, and `Authorization: Bearer <token>`.
-- Names, parameter schemas, and response fields are versioned: do not silently
-  break them; record additions in the changelog.
-- `appUrl` is the canonical human-open deck link. Keep legacy `url` and
-  `deepLink` compatible; integrations map human links to `appUrl`.
-- `export-pptx` and `export-html` return exactly `downloadUrl`, `filename`,
-  and `expiresAt`. `export-google-slides` preserves its Google-import dialog
-  metadata while passing through the same signed download fields. `expiresAt`
-  is authoritative: fetch the binary promptly and do not forward the
-  short-lived `downloadUrl`.
-- The token-gated public binary route exists solely because action routes are
-  authenticated JSON-only; it changes neither sharing nor permissions.
+- Ask a sibling app's agent with a natural-language `call-agent` message by
+  default. Let that specialist use its own instructions, skills, sources, and
+  tools. Direct action invocation is only for an exact bounded read with a
+  fully known schema; never use it as a workaround for slow or failed A2A.
+- For data requests, read `analytics-data-for-decks` and delegate via Analytics
+  over A2A; do not write SQL or call providers directly.
+- When the user names no reference deck or design system, call
+  `get-workspace-defaults` first so a bare "make a deck about X" is still on
+  brand.
+- Before generation, follow `creative-context`: explicit request/current deck,
+  then pinned/current pack, then narrow library search. Respect
+  `contextMode: "off"`. Submit governed context through the Context tab or
+  `manage-context-membership`; reuse only its opaque clone reference.
 
 ## Persistence Model
 
@@ -86,27 +80,31 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 ## Application State
 
 - `navigation` exposes the current deck, slide, selection, and editor view.
-- `slides-selection` exposes selected elements and editing context. Use
-  `view-screen` before visual/style edits.
-- `navigate` moves the UI; actions return deck and slide data.
+- `slides-selection` exposes the active visual editing context: selected slide
+  element(s), tool mode, transient selectors, text/image hints, and compact
+  computed style data. Use `view-screen` before a visual/style edit so you can
+  act on the same object the user clicked.
+- `navigate` moves the UI to decks, slides, imports, and exports.
+- Use app actions for full deck/slide data instead of relying on ambient context.
 
 ## Export Behavior
 
-- Source-imported decks without browser-authored freeform objects use server
-  `export-pptx` to preserve source geometry as vectors. Other decks export from
-  rendered DOM; do not substitute full-slide images unless non-editable
-  snapshots are requested.
-- Browser-authored objects are `data-slide-object-id` without
-  `data-pptx-element-kind`, or `fmd-freeform-object`. `export-pptx` fails
-  loudly for them; never downgrade silently.
-- Google Slides export generates a PPTX for manual import. Native Slides files
-  require a separate Google Slides API `batchUpdate` path.
+- PowerPoint and Google Slides export share two paths. Source-imported decks
+  with no browser-authored freeform objects export through the server
+  `export-pptx`, which writes their source geometry as real vector shapes; the
+  browser exporter can only rasterize it. Every other deck exports from the
+  rendered slide DOM, the one place editor-authored geometry is measurable. Do
+  not substitute full-slide images unless the user asks for non-editable
+  snapshots.
+- Browser-authored means `data-slide-object-id` without
+  `data-pptx-element-kind`, or `fmd-freeform-object`. `export-pptx` cannot
+  measure those and fails loudly; show that failure instead of quietly
+  re-exporting at lower fidelity.
+- Google Slides export is a PPTX import workflow: generate that PPTX and have
+  the user import it into Google Slides. Creating a native Google Slides file
+  directly requires a separate Google Slides API batchUpdate path.
 
 ## Source Changes
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
 `customizing-agent-native` before adapting shared UI.
-
-## Outbound Webhooks
-
-- Slides owns `deck.created`, `deck.updated`, `deck.deleted`, `comment.added`, and `comment.updated` subscriptions and deliveries. Use the authenticated `/_agent-native/slides/webhooks` API; the create response is the only time its HMAC secret is returned. Read `docs/webhooks.md` before integrating a receiver.

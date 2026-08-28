@@ -1,24 +1,40 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowUpRight,
+  IconArtboard,
   IconChevronDown,
   IconChevronRight,
+  IconCircle,
   IconClipboard,
+  IconCode,
+  IconComponents,
   IconCopy,
   IconEye,
   IconEyeOff,
+  IconFile,
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconLayoutColumns,
   IconLayersSubtract,
   IconLayersUnion,
   IconLayoutGrid,
+  IconLayoutRows,
+  IconLine,
+  IconListTree,
   IconLock,
   IconLockOpen,
   IconPencil,
+  IconPhoto,
   IconPlus,
   IconSearch,
+  IconSquare,
   IconStackBack,
   IconStackFront,
+  IconStar,
+  IconTriangle,
+  IconTypography,
+  IconVectorBezier2,
 } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -295,15 +311,21 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
 
-const ROW_BASE_INDENT = 4;
-const ROW_INDENT_STEP = 28;
+// Every level is represented by a real flex child instead of arithmetic
+// padding. Keeping the hierarchy in the DOM makes the 16px indent and 8px
+// inter-indent gap inspectable and prevents node variants from drifting.
+export function layerRowIndentCount(depth: number): number {
+  return Math.max(1, depth + 1);
+}
 
-// No indent cap: deeply nested trees (Figma-style component instances easily
-// exceed 4 levels) must stay visually distinguishable by depth. A previous
-// 96px cap made every row at depth >= 4 render at the same indent, making
-// nested structure ambiguous in the panel.
-function rowIndent(depth: number): number {
-  return ROW_BASE_INDENT + depth * ROW_INDENT_STEP;
+export function layerSelectionBlockId(
+  row: Pick<FlatLayerRow, "node" | "ancestorIds">, // i18n-ignore -- TypeScript generic, not visible copy.
+  selectedIds: ReadonlySet<string>,
+): string | null {
+  if (selectedIds.has(row.node.id)) return row.node.id;
+  return (
+    [...row.ancestorIds].reverse().find((id) => selectedIds.has(id)) ?? null
+  );
 }
 
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
@@ -1032,6 +1054,11 @@ function LayersPanelImpl(
     [roots, selectedIdSet],
   );
 
+  const selectionBlockIds = useMemo(
+    () => visibleRows.map((row) => layerSelectionBlockId(row, selectedIdSet)),
+    [selectedIdSet, visibleRows],
+  );
+
   const selectableVisibleIds = useMemo(
     () =>
       visibleRows
@@ -1369,7 +1396,7 @@ function LayersPanelImpl(
       >
         {screenRows.length > 0 ? (
           <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-2">
-            <div className="flex h-10 items-center justify-between px-3">
+            <div className="flex h-[var(--design-section-height)] items-center justify-between px-3">
               <h2 className="truncate text-[12px] font-semibold text-foreground">
                 {labels.screens}
               </h2>
@@ -1378,14 +1405,14 @@ function LayersPanelImpl(
                   label={labels.searchPlaceholder}
                   onClick={focusSearch}
                 >
-                  <IconSearch className="size-4" />
+                  <IconSearch className="size-[var(--design-icon-size)]" />
                 </IconTooltipButton>
                 <IconTooltipButton
                   label={labels.addScreen}
                   disabled={!onAddScreen}
                   onClick={onAddScreen}
                 >
-                  <IconPlus className="size-4" />
+                  <IconPlus className="size-[var(--design-icon-size)]" />
                 </IconTooltipButton>
               </div>
             </div>
@@ -1393,7 +1420,7 @@ function LayersPanelImpl(
               <button
                 type="button"
                 className={cn(
-                  "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[5px] px-[var(--design-baseline-unit)] text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                   screenOverviewActive
                     ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                     : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
@@ -1402,7 +1429,7 @@ function LayersPanelImpl(
                 onClick={() => onScreenOverview?.()}
                 title={labels.allScreens}
               >
-                <IconLayoutGrid className="size-4 shrink-0" />
+                <IconLayoutGrid className="size-[var(--design-icon-size)] shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">
                   {labels.allScreens}
                 </span>
@@ -1418,7 +1445,7 @@ function LayersPanelImpl(
                     key={screen.id}
                     type="button"
                     className={cn(
-                      "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                      "flex h-[var(--design-row-height)] w-full cursor-default items-center gap-[var(--design-baseline-unit)] rounded-[5px] px-[var(--design-baseline-unit)] text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                       isActive
                         ? "bg-[var(--design-editor-active-row-color)] text-foreground"
                         : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
@@ -1443,7 +1470,7 @@ function LayersPanelImpl(
           </div>
         ) : null}
 
-        <div className="flex h-10 shrink-0 items-center justify-between px-3">
+        <div className="flex h-[var(--design-section-height)] shrink-0 items-center justify-between px-3">
           <div className="min-w-0">
             <h2 className="truncate text-[12px] font-semibold text-foreground">
               {labels.title}
@@ -1457,7 +1484,7 @@ function LayersPanelImpl(
               disabled={!collapseTargetId}
               onClick={collapseSelectedLayer}
             >
-              <LayerOptionsGlyph className="size-4" />
+              <IconListTree className="size-[var(--design-icon-size)]" />
             </button>
           </div>
         </div>
@@ -1495,7 +1522,7 @@ function LayersPanelImpl(
               role="tree"
               aria-label={labels.title}
             >
-              {visibleRows.map((row) => {
+              {visibleRows.map((row, index) => {
                 // Per-row primitives computed here (not inside LayerRow) so the
                 // row only receives booleans/strings it needs — no whole-tree
                 // arrays that would force a re-render every time any other
@@ -1503,6 +1530,15 @@ function LayersPanelImpl(
                 const isSelected = selectedIdSet.has(row.node.id);
                 const isInSelectedSubtree = row.ancestorIds.some((id) =>
                   selectedIdSet.has(id),
+                );
+                const selectionBlockId = selectionBlockIds[index];
+                const isSelectionBlockStart = Boolean(
+                  selectionBlockId &&
+                  selectionBlockIds[index - 1] !== selectionBlockId,
+                );
+                const isSelectionBlockEnd = Boolean(
+                  selectionBlockId &&
+                  selectionBlockIds[index + 1] !== selectionBlockId,
                 );
                 const isHovered =
                   hoveredLayerId != null && row.node.id === hoveredLayerId;
@@ -1524,6 +1560,8 @@ function LayersPanelImpl(
                     isExpanded={expandedIdSet.has(row.node.id)}
                     isSelected={isSelected}
                     isInSelectedSubtree={isInSelectedSubtree}
+                    isSelectionBlockStart={isSelectionBlockStart}
+                    isSelectionBlockEnd={isSelectionBlockEnd}
                     isActiveScreen={isActiveScreen}
                     isHovered={isHovered}
                     isRenaming={isRenaming}
@@ -1586,6 +1624,8 @@ interface LayerRowProps {
   isExpanded: boolean;
   isSelected: boolean;
   isInSelectedSubtree: boolean;
+  isSelectionBlockStart: boolean;
+  isSelectionBlockEnd: boolean;
   isActiveScreen: boolean;
   // Display-only hover highlight (e.g. mirroring canvas hover), distinct from
   // selection. Never drives scroll-into-view or focus — see hoveredLayerId on
@@ -1654,12 +1694,64 @@ interface LayerRowProps {
   onFlipVertical?: (ids: string[]) => void;
 }
 
+function LayerRowIndentSlots({
+  count,
+  control,
+}: {
+  count: number;
+  control?: ReactNode;
+}) {
+  return (
+    <span
+      data-layer-row-indents
+      className="flex h-full shrink-0"
+      aria-hidden={control ? undefined : true}
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <span
+          key={index}
+          data-layer-row-indent
+          className={cn(
+            "flex h-full w-[var(--design-icon-size)] shrink-0 items-center justify-center",
+            index > 0 && "mr-[var(--design-baseline-unit)]",
+          )}
+        >
+          {index === count - 1 ? control : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function LayerDropIndicator({
+  depth,
+  placement,
+}: {
+  depth: number;
+  placement: "before" | "after";
+}) {
+  return (
+    <span
+      data-layer-drop-indicator={placement}
+      className={cn(
+        "pointer-events-none absolute left-0 right-2 z-10 flex h-px",
+        placement === "before" ? "top-0" : "bottom-0",
+      )}
+    >
+      <LayerRowIndentSlots count={depth} />
+      <span className="h-px min-w-0 flex-1 bg-[var(--design-editor-accent-color)]" />
+    </span>
+  );
+}
+
 const LayerRow = memo(function LayerRow({
   row,
   labels,
   isExpanded,
   isSelected,
   isInSelectedSubtree,
+  isSelectionBlockStart,
+  isSelectionBlockEnd,
   isActiveScreen,
   isHovered,
   isRenaming,
@@ -2093,25 +2185,34 @@ const LayerRow = memo(function LayerRow({
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
-            <span
-              data-layer-drop-indicator="before"
-              className="pointer-events-none absolute right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]"
-              style={{ left: rowIndent(depth) }}
-            />
+            <LayerDropIndicator depth={depth} placement="before" />
           ) : null}
           {activeDrop === "after" ? (
-            <span
-              data-layer-drop-indicator="after"
-              className="pointer-events-none absolute bottom-0 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]"
-              style={{ left: rowIndent(depth) }}
-            />
+            <LayerDropIndicator depth={depth} placement="after" />
           ) : null}
           <div
+            data-layer-row-content
+            data-layer-depth={depth}
+            data-layer-selection={
+              isSelected
+                ? "primary"
+                : isInSelectedSubtree
+                  ? "descendant"
+                  : undefined
+            }
             data-layer-drop-indicator={
               activeDrop === "inside" ? "inside" : undefined
             }
             className={cn(
-              "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
+              "group flex h-[var(--design-row-height)] w-max min-w-full items-center pr-[var(--design-baseline-half)] text-[12px] bg-[var(--design-editor-panel-bg)]",
+              !isSelected && !isInSelectedSubtree && "rounded-[5px]",
+              isSelectionBlockStart && isSelectionBlockEnd && "rounded-[5px]",
+              isSelectionBlockStart &&
+                !isSelectionBlockEnd &&
+                "rounded-t-[5px]",
+              !isSelectionBlockStart &&
+                isSelectionBlockEnd &&
+                "rounded-b-[5px]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2141,35 +2242,37 @@ const LayerRow = memo(function LayerRow({
                 "bg-[var(--design-editor-layer-hover-color)] text-foreground",
               node.hidden && "text-muted-foreground",
             )}
-            style={{ paddingLeft: rowIndent(depth) }}
           >
-            {hasChildren ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                aria-label={isExpanded ? labels.collapse : labels.expand}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  // Alt-click (Figma behavior): expand/collapse this node AND
-                  // all of its descendants in one batched update.
-                  onToggleExpanded(
-                    node.id,
-                    !isExpanded,
-                    event.altKey ? node : undefined,
-                  );
-                }}
-              >
-                {isExpanded ? (
-                  <IconChevronDown className="size-4" />
-                ) : (
-                  <IconChevronRight className="size-4 rtl:-scale-x-100" />
-                )}
-              </Button>
-            ) : (
-              <span className="size-4 shrink-0" />
-            )}
+            <LayerRowIndentSlots
+              count={layerRowIndentCount(depth)}
+              control={
+                hasChildren ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-4 shrink-0 rounded-sm p-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                    aria-label={isExpanded ? labels.collapse : labels.expand}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      // Alt-click (Figma behavior): expand/collapse this node AND
+                      // all of its descendants in one batched update.
+                      onToggleExpanded(
+                        node.id,
+                        !isExpanded,
+                        event.altKey ? node : undefined,
+                      );
+                    }}
+                  >
+                    {isExpanded ? (
+                      <IconChevronDown className="size-4" />
+                    ) : (
+                      <IconChevronRight className="size-4 rtl:-scale-x-100" />
+                    )}
+                  </Button>
+                ) : undefined
+              }
+            />
 
             <button
               type="button"
@@ -2177,7 +2280,7 @@ const LayerRow = memo(function LayerRow({
               data-layer-row-button
               data-layer-node-id={node.id}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "flex min-w-0 flex-1 items-center gap-[var(--design-baseline-unit)] rounded-sm py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
                 selectable ? "cursor-default" : "cursor-default opacity-80",
               )}
               onClick={handlePointerSelect}
@@ -2186,10 +2289,10 @@ const LayerRow = memo(function LayerRow({
             >
               <span
                 className={cn(
-                  "shrink-0 text-muted-foreground",
+                  "flex size-[var(--design-icon-size)] shrink-0 items-center justify-center text-muted-foreground",
                   isComponentLayer
                     ? "text-[var(--design-editor-component-color)]"
-                    : (isSelected || isInSelectedSubtree) && "text-foreground",
+                    : undefined,
                 )}
               >
                 {node.icon ?? <LayerGlyph node={node} />}
@@ -2235,9 +2338,8 @@ const LayerRow = memo(function LayerRow({
               ) : (
                 <span
                   className={cn(
-                    "min-w-0 flex-1 truncate font-medium leading-none",
-                    isComponentLayer &&
-                      "text-[var(--design-editor-component-color)]",
+                    "min-w-0 flex-1 truncate font-normal leading-4",
+                    node.hidden ? "text-muted-foreground" : "text-foreground",
                   )}
                   title={node.name}
                 >
@@ -2257,10 +2359,10 @@ const LayerRow = memo(function LayerRow({
             {(lockable || hideable) && (
               <div
                 className={cn(
-                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit",
+                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center bg-inherit",
                   node.locked || node.hidden
-                    ? "w-auto overflow-visible pl-2 pr-1"
-                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1 focus-within:w-auto focus-within:overflow-visible focus-within:pl-2 focus-within:pr-1",
+                    ? "w-auto overflow-visible"
+                    : "w-0 overflow-hidden group-hover:w-auto group-hover:overflow-visible focus-within:w-auto focus-within:overflow-visible",
                 )}
               >
                 <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
@@ -2273,7 +2375,7 @@ const LayerRow = memo(function LayerRow({
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
                           node.locked && "opacity-100",
                           isSelected && "text-foreground",
                         )}
@@ -2304,7 +2406,7 @@ const LayerRow = memo(function LayerRow({
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
                           node.hidden && "opacity-100",
                           isSelected && "text-foreground",
                         )}
@@ -2570,15 +2672,15 @@ function LayerGlyph({
 }: {
   node: Pick<LayersPanelNode, "type" | "layout" | "tagName" | "detail">;
 }) {
-  const common = "size-4";
+  const common = "size-[var(--design-icon-size)]";
   const componentColor = "text-[var(--design-editor-component-color)]";
   if (layerNodeUsesImageGlyph(node)) {
-    return <ImageLayerGlyph className={common} />;
+    return <IconPhoto className={common} />;
   }
   switch (node.type) {
     case "file":
     case "screen":
-      return <PageLayerGlyph className={common} />;
+      return <IconFile className={common} />;
     case "frame":
       return <LayoutLayerGlyph node={node} className={common} />;
     case "group":
@@ -2586,40 +2688,40 @@ function LayerGlyph({
       return <LayoutLayerGlyph node={node} className={common} />;
     case "component":
     case "instance":
-      return <ComponentLayerGlyph className={cn(common, componentColor)} />;
+      return <IconComponents className={cn(common, componentColor)} />;
     case "ellipse":
-      return <EllipseLayerGlyph className={common} />;
+      return <IconCircle className={common} />;
     case "board-element":
     case "shape":
     case "rectangle":
       return shapeLayerUsesLayoutGlyph(node) ? (
         <LayoutLayerGlyph node={node} className={common} />
       ) : (
-        <RectangleLayerGlyph className={common} />
+        <IconSquare className={common} />
       );
     case "vector":
-      return <VectorLayerGlyph className={common} />;
+      return <IconVectorBezier2 className={common} />;
     case "line":
-      return <LineLayerGlyph className={common} />;
+      return <IconLine className={common} />;
     case "arrow":
-      return <ArrowLayerGlyph className={common} />;
+      return <IconArrowUpRight className={common} />;
     case "polygon":
-      return <PolygonLayerGlyph className={common} />;
+      return <IconTriangle className={common} />;
     case "star":
-      return <StarLayerGlyph className={common} />;
+      return <IconStar className={common} />;
     case "text":
-      return <TextLayerGlyph className={common} />;
+      return <IconTypography className={common} />;
     case "image":
-      return <ImageLayerGlyph className={common} />;
+      return <IconPhoto className={common} />;
     case "code":
     case "element":
       return node.layout?.isFlexContainer || node.layout?.isGridContainer ? (
         <LayoutLayerGlyph node={node} className={common} />
       ) : (
-        <ElementLayerGlyph className={common} />
+        <IconCode className={common} />
       );
     default:
-      return <FrameLayerGlyph className={common} />;
+      return <IconArtboard className={common} />;
   }
 }
 
@@ -2658,65 +2760,6 @@ function layerNodeIsComponent(node: Pick<LayersPanelNode, "type">): boolean {
   return node.type === "component" || node.type === "instance";
 }
 
-function LayerOptionsGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3 4h6" />
-      <path d="M3 8h8" />
-      <path d="M3 12h5" />
-      <path d="M12.5 4.5l1 1 1-1" />
-      <path d="M12.5 11.5l1-1 1 1" />
-    </svg>
-  );
-}
-
-function PageLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4.5 2.5h5.1l2 2V13a.8.8 0 0 1-.8.8H4.5a.8.8 0 0 1-.8-.8V3.3a.8.8 0 0 1 .8-.8Z" />
-      <path d="M9.6 2.6v2.1h2.1" />
-    </svg>
-  );
-}
-
-function FrameLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3.5 4.5h9" />
-      <path d="M3.5 11.5h9" />
-      <path d="M5.5 6.5h5" />
-      <path d="M5.5 9.5h5" />
-    </svg>
-  );
-}
-
 function LayoutLayerGlyph({
   node,
   className,
@@ -2725,322 +2768,17 @@ function LayoutLayerGlyph({
   className?: string;
 }) {
   if (node.layout?.isGridContainer) {
-    return (
-      <svg
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        className={className}
-        aria-hidden="true"
-      >
-        <rect x="3" y="3" width="3.2" height="3.2" rx=".5" />
-        <rect x="9.8" y="3" width="3.2" height="3.2" rx=".5" />
-        <rect x="3" y="9.8" width="3.2" height="3.2" rx=".5" />
-        <rect x="9.8" y="9.8" width="3.2" height="3.2" rx=".5" />
-      </svg>
-    );
+    return <IconLayoutGrid className={className} />;
   }
   if (node.layout?.isFlexContainer) {
-    const isRow = node.layout.flexDirection?.startsWith("row");
-    const align = node.layout.alignItems ?? "stretch";
-    const justify = node.layout.justifyContent ?? "flex-start";
-    return isRow ? (
-      <HorizontalAutoLayoutGlyph
-        align={align}
-        justify={justify}
-        className={className}
-      />
+    return node.layout.flexDirection?.startsWith("row") ? (
+      <IconLayoutColumns className={className} />
     ) : (
-      <VerticalAutoLayoutGlyph
-        align={align}
-        justify={justify}
-        className={className}
-      />
+      <IconLayoutRows className={className} />
     );
   }
-  return <FrameLayerGlyph className={className} />;
+  return <IconArtboard className={className} />;
 }
-
-function normalizedAlignment(value: string | undefined) {
-  if (!value) return "start";
-  if (value === "center") return "center";
-  if (value === "flex-end" || value === "end") return "end";
-  if (value === "space-between") return "space-between";
-  if (value === "space-around" || value === "space-evenly")
-    return "space-around";
-  if (value === "stretch") return "stretch";
-  return "start";
-}
-
-function crossAxisOffset(align: string | undefined, axis: "x" | "y") {
-  const normalized = normalizedAlignment(align);
-  if (normalized === "center") return axis === "x" ? 5 : 5.5;
-  if (normalized === "end") return axis === "x" ? 7 : 8;
-  return axis === "x" ? 3 : 3;
-}
-
-function mainAxisPositions(justify: string | undefined, axis: "x" | "y") {
-  const normalized = normalizedAlignment(justify);
-  if (axis === "x") {
-    if (normalized === "center") return [3.6, 7.1, 10.6];
-    if (normalized === "end") return [4.4, 7.8, 11.2];
-    if (normalized === "space-between") return [2.6, 7.1, 11.6];
-    if (normalized === "space-around") return [3.1, 7.1, 11.1];
-    return [3, 6.6, 10.2];
-  }
-  if (normalized === "center") return [3.5, 7.1, 10.7];
-  if (normalized === "end") return [4.2, 7.8, 11.4];
-  if (normalized === "space-between") return [2.8, 7.1, 11.4];
-  if (normalized === "space-around") return [3.2, 7.1, 11];
-  return [3, 6.6, 10.2];
-}
-
-function VerticalAutoLayoutGlyph({
-  align,
-  justify,
-  className,
-}: {
-  align?: string;
-  justify?: string;
-  className?: string;
-}) {
-  const x = crossAxisOffset(align, "x");
-  const yPositions = mainAxisPositions(justify, "y");
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x={x} y={yPositions[0]} width="6" height="1.55" rx=".45" />
-      <rect x={x} y={yPositions[1]} width="6" height="1.55" rx=".45" />
-      <rect x={x} y={yPositions[2]} width="6" height="1.55" rx=".45" />
-    </svg>
-  );
-}
-
-function HorizontalAutoLayoutGlyph({
-  align,
-  justify,
-  className,
-}: {
-  align?: string;
-  justify?: string;
-  className?: string;
-}) {
-  const y = crossAxisOffset(align, "y");
-  const xPositions = mainAxisPositions(justify, "x");
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x={xPositions[0]} y={y} width="1.55" height="5" rx=".45" />
-      <rect x={xPositions[1]} y={y} width="1.55" height="5" rx=".45" />
-      <rect x={xPositions[2]} y={y} width="1.55" height="5" rx=".45" />
-    </svg>
-  );
-}
-
-function ComponentLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="m8 2.6 5.4 5.4L8 13.4 2.6 8 8 2.6Z" />
-    </svg>
-  );
-}
-
-function EllipseLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      className={className}
-      aria-hidden="true"
-    >
-      <ellipse cx="8" cy="8" rx="4.8" ry="4" />
-    </svg>
-  );
-}
-
-function RectangleLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3.2" y="4" width="9.6" height="8" rx="1" />
-    </svg>
-  );
-}
-
-function VectorLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4 11.5C5.5 6.5 9 5 12 4.5" />
-      <rect x="2.6" y="10.1" width="2.8" height="2.8" rx=".5" />
-      <rect x="10.6" y="3.1" width="2.8" height="2.8" rx=".5" />
-    </svg>
-  );
-}
-
-function LineLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4.6 11.4 11.4 4.6" />
-      <circle cx="3.6" cy="12.4" r="1.1" fill="currentColor" stroke="none" />
-      <circle cx="12.4" cy="3.6" r="1.1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function ArrowLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3.6 12.4 11.6 4.4" />
-      <path d="M7.4 4.2h4.4v4.4" />
-    </svg>
-  );
-}
-
-function PolygonLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M8 2.8 13.2 12.2H2.8L8 2.8Z" />
-    </svg>
-  );
-}
-
-function StarLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M8 2.6 9.65 6.1l3.85.5-2.8 2.7.68 3.8L8 11.9l-3.38 1.9.68-3.8-2.8-2.7 3.85-.5L8 2.6Z" />
-    </svg>
-  );
-}
-
-function TextLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M3.2 4h9.6" />
-      <path d="M8 4v8.4" />
-    </svg>
-  );
-}
-
-function ImageLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.35"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="10" height="10" rx="1.2" />
-      <circle cx="6" cy="6" r="1" />
-      <path d="m4.2 12 3.2-3.3 1.8 1.8 1.3-1.4 1.3 1.4" />
-    </svg>
-  );
-}
-
-function ElementLayerGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.45"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="m6.4 4.2-3.2 3.8 3.2 3.8" />
-      <path d="m9.6 4.2 3.2 3.8-3.2 3.8" />
-    </svg>
-  );
-}
-
 function layerCanDropInside(
   node: LayersPanelNode,
   hasChildren: boolean,

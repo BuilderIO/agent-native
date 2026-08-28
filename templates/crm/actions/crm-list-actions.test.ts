@@ -649,10 +649,11 @@ describe("seeding a list from its parent object", () => {
     const wonColumn = columns.find(
       (column: any) => column.key === "closed-won",
     );
-    expect(wonColumn.cards.map((card: any) => card.title).sort()).toEqual([
-      "Hooli Renewal",
-      "Initech Expansion",
-    ]);
+    expect(
+      wonColumn.cards
+        .map((card: any) => card.title)
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["Hooli Renewal", "Initech Expansion"]);
     // Defect 2 and 3: per-card values, and a column total that is a number.
     expect(page.entries[0].values.close_date).toBe("2026-09-30");
     expect(boardColumnTotals(wonColumn.cards)).toMatchObject({

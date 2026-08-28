@@ -182,7 +182,11 @@ export async function recordCalendarFetchError(
   options: { needsReauth?: boolean } = {},
 ): Promise<CalendarFetchError> {
   const message =
-    error instanceof Error ? error.message : String(error || "Calendar failed");
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error || "Calendar failed"
+        : "Calendar failed";
   const needsReauth = options.needsReauth ?? shouldMarkNeedsReauth(message);
   if (!account.ownerEmail) {
     return { accountId: account.id, error: message, needsReauth };
@@ -251,7 +255,7 @@ export function calendarEventParticipants(event: CalendarEvent) {
 export function calendarEventToMeetingView(args: {
   account: CalendarAccountForEvents;
   event: CalendarEvent;
-  meeting?: any | null;
+  meeting?: any;
 }) {
   const startIso = eventStartIso(args.event);
   const endIso = eventEndIso(args.event);

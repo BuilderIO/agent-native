@@ -17,12 +17,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
-import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-} from "./_await-fit-check.js";
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -92,12 +91,13 @@ function deckCreativeContext(value: unknown): DeckCreativeContext | null {
 
 export default defineAction({
   description:
-    "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
+    "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
+    "Build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
     "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
-    "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity that can be checked later with get-layout-overflows.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -298,6 +298,7 @@ export default defineAction({
       const newSlide: any = {
         id: newSlideId,
         content: normalizeSlidePadding(content),
+        layoutFitRevision: createLayoutFitRevision(),
         creativeContextReuseLabels: slideReuseLabels,
       };
       if (layout) newSlide.layout = layout;
@@ -363,11 +364,6 @@ export default defineAction({
         );
       });
 
-      // Start the freshness window immediately after the SQL write and before
-      // notifying the editor. A render can happen during presence/navigation;
-      // capturing the timestamp later can discard that valid measurement.
-      const fitSince = Date.now();
-
       // Best-effort agent presence: light the agent up on the newly-added slide
       // in open editors and drop a lingering "AI edited" highlight for it. Uses
       // the NEW slide's id. Never blocks or fails the write.
@@ -381,18 +377,6 @@ export default defineAction({
       // Include the new slideId + agent actor (backwards-compatible payload).
       notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
 
-      // Wait briefly for the editor to render the new slide and report its
-      // measured fit. If we get an "overflows" signal, append the auto-fix
-      // hint so the agent can make one bounded structural repair. Timeout = no
-      // editor measurement available
-      // (e.g. headless server) — return success without a fit hint.
-      const fit = await awaitLayoutFitCheck(
-        newSlideId,
-        fitSince,
-        5000,
-        hashSlideContent(newSlide.content),
-      );
-
       const base = {
         deckId,
         slideId: newSlideId,
@@ -403,22 +387,13 @@ export default defineAction({
         contextMode,
         contextPackId: recordedPackId,
         reuseLabels: slideReuseLabels,
+        layoutFit: {
+          status: "pending" as const,
+          slideId: newSlideId,
+          contentHash: hashSlideContent(newSlide.content),
+          layoutFitRevision: newSlide.layoutFitRevision,
+        },
       };
-
-      if (fit.status === "overflows") {
-        return {
-          ...base,
-          layoutOverflow: {
-            verticalOverflow: fit.measurement.verticalOverflow,
-            horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
-            contentWidth: fit.measurement.contentWidth,
-            contentHeight: fit.measurement.contentHeight,
-            viewportWidth: fit.measurement.viewportWidth,
-            viewportHeight: fit.measurement.viewportHeight,
-          },
-          message: formatOverflowForTool(deckId, fit.measurement),
-        };
-      }
 
       return base;
     }),

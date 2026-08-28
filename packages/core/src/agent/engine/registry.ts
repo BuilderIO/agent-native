@@ -95,6 +95,19 @@ export function registerAgentEngine(entry: AgentEngineEntry): void {
   _registry.set(entry.name, entry);
 }
 
+/**
+ * Remove a registered engine.
+ *
+ * Exists for `registerBuiltinEngines()`, which has to reconcile rather than
+ * only add: `agent.builtInEngines` can be set by a config plugin that loads
+ * after something already touched the registry, and leaving the unselected
+ * built-ins behind would mean the deployment silently keeps engines it opted
+ * out of.
+ */
+export function unregisterAgentEngine(name: string): void {
+  _registry.delete(name);
+}
+
 /** Get a registered engine entry by name, or undefined if not found */
 export function getAgentEngineEntry(
   name: string,

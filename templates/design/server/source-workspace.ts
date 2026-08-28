@@ -352,13 +352,7 @@ export async function writeInlineSourceFile(args: {
       };
     }
 
-    if (
-      currentFile.fileType === "html" ||
-      currentFile.fileType === "jsx" ||
-      current.content.includes("data-agent-native-locked")
-    ) {
-      assertLockedLayersPreserved(current.content, args.content);
-    }
+    assertLockedLayersPreserved(current.content, args.content);
     assertDesignHtmlEditIntegrity({
       previousContent: current.content,
       nextContent: args.content,

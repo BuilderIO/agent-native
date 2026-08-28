@@ -1,0 +1,65 @@
+---
+title: "Forms: Conversar com o Agent"
+description: "O que o agente vê quando você está no Forms, e prompts organizados por tarefa."
+---
+
+# Conversar com o Agent
+
+Tudo no Forms está disponível para o agente através das mesmas actions que a interface usa, então qualquer coisa que você pode clicar, você também pode pedir em linguagem natural. Esta página cobre como o agente vê sua tela e prompts úteis por tarefa. Veja [Forms](/docs/template-forms) para a visão geral.
+
+## Como o agente vê sua tela
+
+O agente sempre sabe qual formulário ou visualização você tem aberto, até o nível da aba do navegador. Se você tem um formulário aberto em uma aba e a lista de respostas aberta em outra, o agente as mantém separadas. É por isso que você pode perguntar "adicione uma pergunta de NPS obrigatória a este formulário" ou "quantas respostas isso tem" sem nomear o formulário. O agente já sabe a qual você está se referindo. Quando você está olhando as respostas de um formulário, o agente também pode ver uma prévia dessas respostas, com base no que você tem permissão para ver.
+
+## Prompts úteis por tarefa
+
+Cada prompt abaixo se torna uma action real sobre o seu formulário real, o mesmo que a interface lê e escreve. Aqui está um exemplo prático.
+
+<Comparison>
+
+### :blue: Você pergunta
+
+"Crie um formulário de inscrição beta com função, tamanho da equipe e caso de uso prioritário."
+
+### :green: O que acontece
+
+Isso cria algo novo. O agente constrói o formulário com esses campos já no lugar, e ele aparece na sua lista de formulários imediatamente, pronto para ajustar ou publicar. Nada precisa de atualização de página. O novo formulário simplesmente está lá.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Criar
+
+- **"Crie um formulário de inscrição beta com função, tamanho da equipe e caso de uso prioritário."** O novo formulário aparece na sua lista de formulários imediatamente, pronto para ajustar.
+- **"Adicione uma pergunta de NPS obrigatória e um acompanhamento em texto livre."** Os campos aparecem no formulário imediatamente.
+- **"Torne este formulário mais curto sem perder os campos que precisamos para o encaminhamento."** O agente enxuga o formulário mantendo os campos dos quais seus destinos dependem.
+
+### Publicar e proteger
+
+- **"Publique isso e me dê o link."** O formulário fica no ar e você recebe sua URL pública imediatamente.
+- **"Crie um formulário anônimo de feedback do cliente e me dê o link público."** O formulário é publicado anônimo desde o início, então nenhuma informação do remetente é capturada.
+- **"Só permita que este formulário seja enviado de https://example.com."** O formulário passa a rejeitar envios de qualquer outro lugar. Isso só está disponível pedindo ao agente hoje. Não existe um controle para isso no construtor.
+
+### Respostas e insights
+
+- "Quantas respostas o formulário de inscrição beta tem?"
+- "Quem enviou hoje?"
+- "Resuma os envios desta semana e agrupe-os por segmento de cliente."
+- "Crie um gráfico de envios por dia."
+- "Como estão as tendências de envios em todos os meus formulários este mês?"
+- "Exporte isso para CSV."
+
+### Encaminhamento
+
+- **"Poste toda nova resposta no canal do Slack do produto."** As novas respostas começam a aparecer no Slack assim que chegam, uma vez que um destino esteja conectado.
+- "Qual é a configuração do meu formulário de inscrição beta?"
+
+</Cards>
+
+## Próximos passos
+
+- [**Forms**](/docs/template-forms) — a visão geral e o que ele substitui
+- [**Funcionalidades**](/docs/template-forms-features) — todas as áreas de funcionalidades, com passos de configuração para cada uma
+- [**Forms em um workspace com múltiplos apps**](/docs/template-forms-integrations) — delegação e o endpoint público de envio que outros aplicativos usam
+- [**Guia do desenvolvedor**](/docs/template-forms-developers) — todas as actions e o modelo de dados por trás dessas funcionalidades

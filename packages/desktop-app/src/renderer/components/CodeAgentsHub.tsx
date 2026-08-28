@@ -1407,8 +1407,12 @@ export default function CodeAgentsHub({
 
   useEffect(() => {
     if (window.electronAPI?.platform !== "darwin") return;
-    const setNativeTrafficLightsVisible =
-      window.electronAPI.windowControls?.setNativeTrafficLightsVisible;
+    const setNativeTrafficLightsVisible = window.electronAPI.windowControls
+      ? (visible: boolean) =>
+          window.electronAPI.windowControls!.setNativeTrafficLightsVisible(
+            visible,
+          )
+      : undefined;
     if (!setNativeTrafficLightsVisible) return;
     setNativeTrafficLightsVisible(!chatFirstRailCollapsed);
   }, [chatFirstRailCollapsed]);

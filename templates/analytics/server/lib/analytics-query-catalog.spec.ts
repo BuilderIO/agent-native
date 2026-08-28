@@ -22,14 +22,18 @@ describe("analytics query catalog", () => {
       ],
     });
 
-    expect(results[0]).toMatchObject({
+    const signupResult = results.find(
+      (result) =>
+        result.kind === "dashboard-panel" && result.panelId === "total-signups",
+    );
+    expect(signupResult).toMatchObject({
       kind: "dashboard-panel",
       origin: "dashboard-template",
       dashboardId: "agent-native-templates-first-party",
       panelId: "total-signups",
       source: "first-party",
     });
-    expect(results[0]).toHaveProperty(
+    expect(signupResult).toHaveProperty(
       "query",
       expect.stringContaining("analytics_events"),
     );

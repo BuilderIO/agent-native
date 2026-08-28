@@ -33,7 +33,7 @@ export default function SharedPresentation({
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deck?.title]);
+  }, [deck]);
 
   useEffect(() => {
     if (!token) return;
@@ -66,7 +66,7 @@ export default function SharedPresentation({
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center p-8">
-        <div className="w-full max-w-5xl aspect-video rounded-xl bg-white/[0.04] animate-pulse" />
+        <div className="skeleton-shimmer w-full max-w-5xl aspect-video rounded-xl bg-foreground/[0.04]" />
       </div>
     );
   }

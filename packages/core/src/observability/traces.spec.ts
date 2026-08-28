@@ -3464,4 +3464,168 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("careful assistant");
     expect(events[0]?.properties?.["$ai_stream"]).toBe(true);
   });
+
+  // PostHog reads `$ai_http_status` to separate a provider rejection from a
+  // client-side failure. It is only meaningful if an unknown status stays
+  // absent — a defaulted 200 would report every transport drop as a healthy
+  // call, and a defaulted 500 would invent a rejection the provider never made.
+  it("reports the provider HTTP status on a generation", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+      }),
+      loopOpts,
+      runId: "run-http-status-ok",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    const rateLimited = Object.assign(new Error("rate limited"), {
+      statusCode: 429,
+    });
+    await instrumentAgentLoop({
+      runAgentLoop: async () => {
+        throw rateLimited;
+      },
+      loopOpts: { ...loopOpts },
+      runId: "run-http-status-429",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => {
+        throw new Error("socket hang up");
+      },
+      loopOpts: { ...loopOpts },
+      runId: "run-http-status-unknown",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const byRun = new Map(
+      events.map((event) => [event.properties?.run_id, event]),
+    );
+    expect(
+      byRun.get("run-http-status-ok")?.properties?.["$ai_http_status"],
+    ).toBe(200);
+    expect(
+      byRun.get("run-http-status-429")?.properties?.["$ai_http_status"],
+    ).toBe(429);
+    // A status the engine never reported is omitted, not guessed.
+    expect(byRun.get("run-http-status-unknown")?.properties).not.toHaveProperty(
+      "$ai_http_status",
+    );
+  });
+
+  // A provider SDK (Anthropic, OpenAI) names the field `status`, not
+  // `statusCode`; reading only the engine's spelling dropped the status on
+  // every failure that reached the loop as a raw SDK error.
+  it("reads a provider SDK error's `status` as the HTTP status", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => {
+        throw Object.assign(new Error("overloaded"), { status: 529 });
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-sdk-status",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events[0]?.properties?.["$ai_http_status"]).toBe(529);
+  });
+
+  // Only the call the run died in can claim the thrown error's status. An
+  // earlier round-trip that streamed to completion answered 200, and stamping
+  // the failure's 429 across the whole run would make one rejection look like
+  // several.
+  it("keeps the failing call's status off the calls that succeeded", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "error" });
+        throw Object.assign(new Error("rate limited"), { statusCode: 429 });
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-http-status-mixed",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.properties?.["$ai_http_status"]).toBe(200);
+    expect(events[1]?.properties?.["$ai_http_status"]).toBe(429);
+  });
 });

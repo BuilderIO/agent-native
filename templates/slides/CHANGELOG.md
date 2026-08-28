@@ -3,6 +3,21 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-27
+
+### Added
+
+- Slides let you place persistent comments on the canvas with C, hover previews, and click-to-open threads.
+
+### Improved
+
+- AI editing presence now sits with the editor's right-side sharing controls.
+
+### Fixed
+
+- Copying a slide in Slides now makes it available to paste into another deck.
+- PowerPoint exports now embed the deck's own fonts and pin every text box, so a deck opened in PowerPoint or moved into Google Slides keeps the type and layout it had in the editor.
+
 ## 2026-08-26
 
 ### Added

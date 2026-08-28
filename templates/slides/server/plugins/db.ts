@@ -271,7 +271,7 @@ export const runSlidesMigrations = runMigrations(
       // survivors deterministic, and lower the retained principal so the
       // repaired row is canonical as well as uniquely indexed.
       sql: `DELETE FROM deck_shares
-	WHERE principal_type = 'user'
+WHERE principal_type = 'user'
   AND id NOT IN (
     SELECT id
     FROM (
@@ -304,41 +304,22 @@ WHERE principal_type = 'user'`,
     },
     {
       version: 25,
-      name: "slides-export-artifacts-table",
-      sql: `CREATE TABLE IF NOT EXISTS export_artifacts (
+      name: "slides-comment-canvas-anchors",
+      sql: `CREATE TABLE IF NOT EXISTS slide_comments (
     id TEXT PRIMARY KEY,
-    blob_handle TEXT NOT NULL,
-    filename TEXT NOT NULL,
-    mime_type TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE INDEX IF NOT EXISTS export_artifacts_expires_at_idx ON export_artifacts (expires_at)`,
-    },
-    {
-      version: 26,
-      name: "slides-outbound-webhooks",
-      sql: `CREATE TABLE IF NOT EXISTS webhook_subscriptions (
-    id TEXT PRIMARY KEY, url TEXT NOT NULL, events TEXT NOT NULL, secret TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1, consecutive_failures INTEGER NOT NULL DEFAULT 0,
-    disabled_reason TEXT, owner_email TEXT NOT NULL, org_id TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS webhook_deliveries (
-    id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, event TEXT NOT NULL, payload TEXT NOT NULL,
-    status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT,
-    last_error TEXT, delivered_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    deck_id TEXT NOT NULL,
+    slide_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    parent_id TEXT,
+    content TEXT NOT NULL,
+    quoted_text TEXT,
+    author_email TEXT NOT NULL,
+    author_name TEXT,
+    resolved INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  CREATE INDEX IF NOT EXISTS webhook_subscriptions_owner_org_idx ON webhook_subscriptions (owner_email, org_id);
-  CREATE INDEX IF NOT EXISTS webhook_deliveries_status_due_idx ON webhook_deliveries (status, next_attempt_at)`,
-    },
-    {
-      version: 27,
-      name: "slides-webhook-delivery-claim-leases",
-      sql: `ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS claimed_at TEXT;
-  ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS claim_expires_at TEXT;
-  CREATE INDEX IF NOT EXISTS webhook_deliveries_processing_lease_idx ON webhook_deliveries (status, claim_expires_at)`,
+  ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
     },
   ],
   { table: "slides_migrations" },

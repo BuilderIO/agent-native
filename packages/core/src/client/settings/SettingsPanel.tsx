@@ -82,9 +82,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useT } from "../i18n.js";
+import { useOptionalLocale, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { TeamPage } from "../org/TeamPage.js";
+import { McpAccessSettings } from "../resources/McpAccessSettings.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
@@ -98,7 +99,6 @@ import {
   type SettingsSectionId,
 } from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
-import { ApiTokensSettings } from "./ApiTokensSettings.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
@@ -1450,7 +1450,7 @@ function LLMSectionInner({
                             if (e.target.value.trim()) setClearBaseUrl(false);
                           }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSave();
+                            if (e.key === "Enter") void handleSave();
                           }}
                           placeholder={
                             baseUrlConfigured
@@ -1522,7 +1522,7 @@ function LLMSectionInner({
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleSave();
+                        if (e.key === "Enter") void handleSave();
                       }}
                       placeholder={PROVIDER_ENV_PLACEHOLDERS[envVar] ?? "..."}
                       className={cn(textInputClass(isPage), "flex-1")}
@@ -2295,7 +2295,7 @@ function EmailSectionInner({
       vars.push({ key: "RESEND_API_KEY", value: resendKey.trim() });
     if (fromAddr.trim())
       vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
-    if (vars.length) save(vars);
+    if (vars.length) void save(vars);
   };
 
   const saveSendgrid = () => {
@@ -2304,7 +2304,7 @@ function EmailSectionInner({
       vars.push({ key: "SENDGRID_API_KEY", value: sendgridKey.trim() });
     if (fromAddr.trim())
       vars.push({ key: "EMAIL_FROM", value: fromAddr.trim() });
-    if (vars.length) save(vars);
+    if (vars.length) void save(vars);
   };
 
   return (
@@ -2896,6 +2896,8 @@ export interface SettingsPanelProps {
 }
 
 export interface AgentSettingsTabsOptions {
+  /** Human-readable app name used in MCP connection instructions. */
+  appName?: string;
   /**
    * Include the shared Extensions management tab. Extensions are an optional
    * app capability and stay hidden unless the host opts in.
@@ -3846,9 +3848,11 @@ export function useAgentSettingsTabs(
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const { data: org } = useOrg();
+  const locale = useOptionalLocale()?.locale ?? "en-US";
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
+  const appName = options.appName;
   const agentAdditionalContent = options.agentAdditionalContent;
   const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const usageAppId = options.usageAppId ?? null;
@@ -3877,9 +3881,15 @@ export function useAgentSettingsTabs(
   );
 
   return useMemo<SettingsTabItem[]>(() => {
-    const searchTabs = getAgentSettingsSearchTabs();
+    const searchTabs = getAgentSettingsSearchTabs(locale);
     const searchTab = (
-      id: "agent" | "integrations" | "usage" | "organization" | "workspace",
+      id:
+        | "agent"
+        | "integrations"
+        | "mcp"
+        | "usage"
+        | "organization"
+        | "workspace",
     ) => {
       const tab = searchTabs.find((candidate) => candidate.id === id);
       if (!tab) throw new Error(`Missing agent workspace tab: ${id}`);
@@ -3887,6 +3897,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const mcp = searchTab("mcp");
     const usage = searchTab("usage");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
@@ -3966,22 +3977,10 @@ export function useAgentSettingsTabs(
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
-        id: "api-tokens",
-        label: "API Tokens",
-        icon: IconKey,
+        ...mcp,
+        icon: IconPlugConnected,
         group: "integrations",
-        keywords:
-          "api tokens bearer token personal service n8n make zapier http",
-        searchEntries: [
-          {
-            id: "api-tokens",
-            label: "API Tokens",
-            keywords: "bearer token personal service n8n make zapier http",
-            tabId: "api-tokens",
-            icon: IconKey,
-          },
-        ],
-        content: <ApiTokensSettings />,
+        content: <McpAccessSettings appName={appName} />,
       },
       {
         ...usage,
@@ -4108,8 +4107,10 @@ export function useAgentSettingsTabs(
   }, [
     agentAdditionalContent,
     additionalTabs,
+    appName,
     baseProps,
     extensionToolsEnabled,
+    locale,
     organizationContent,
     usageAppId,
     usageViewAllHref,

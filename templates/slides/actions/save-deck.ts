@@ -28,6 +28,11 @@ import {
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
 import {
+  createLayoutFitRevision,
+  deckFitRenderFieldsChanged,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
+import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
@@ -49,7 +54,7 @@ function comparableDeckData(raw: unknown): string {
     delete clone.updatedAt;
     return JSON.stringify(clone);
   } catch {
-    return String(raw ?? "");
+    return typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
   }
 }
 
@@ -107,6 +112,7 @@ export default defineAction({
       // effective role in one pass, so we never run an unscoped existence
       // SELECT that would leak "this id exists" to non-owners.
       const access = await resolveAccess("deck", deckId);
+      stampChangedSlideRevisions(access?.resource.data, deck);
 
       if (!access) {
         // Either the deck does not exist OR the caller cannot see it. In both
@@ -199,4 +205,39 @@ function firstSlideContent(deck: DeckPayload): string | null {
   const slides = Array.isArray(deck.slides) ? deck.slides : [];
   const content = slides[0] && (slides[0] as Record<string, unknown>).content;
   return typeof content === "string" ? content : null;
+}
+
+export function stampChangedSlideRevisions(
+  previousData: string | null | undefined,
+  nextDeck: DeckPayload,
+): void {
+  const previous = previousData
+    ? (JSON.parse(previousData) as {
+        aspectRatio?: unknown;
+        designSystemId?: unknown;
+        slides?: unknown;
+      })
+    : {};
+  const deckFitFieldsChanged = deckFitRenderFieldsChanged(previous, nextDeck);
+  const previousSlides = (
+    Array.isArray(previous.slides) ? previous.slides : []
+  ) as Array<Record<string, unknown>>;
+  const nextSlides = Array.isArray(nextDeck.slides)
+    ? (nextDeck.slides as Array<Record<string, unknown>>)
+    : [];
+
+  for (const slide of nextSlides) {
+    const prior = previousSlides.find((candidate) => candidate.id === slide.id);
+    if (
+      deckFitFieldsChanged ||
+      !prior ||
+      slideFitRenderFieldsChanged(prior, slide)
+    ) {
+      slide.layoutFitRevision = createLayoutFitRevision();
+    } else if (typeof prior.layoutFitRevision === "string") {
+      slide.layoutFitRevision = prior.layoutFitRevision;
+    } else {
+      delete slide.layoutFitRevision;
+    }
+  }
 }

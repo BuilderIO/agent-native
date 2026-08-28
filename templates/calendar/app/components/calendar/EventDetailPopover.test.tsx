@@ -273,6 +273,9 @@ describe("EventDetailPopover characterization", () => {
     );
     expect(content).toBeTruthy();
     expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain(
+      "text-[11px] font-medium uppercase tracking-wider",
+    );
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
@@ -662,8 +665,8 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
@@ -714,8 +717,8 @@ describe("EventDetailPopover characterization", () => {
     const endTimeTrigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="eventForm.end"]',
     );
-    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
-    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
+    expect(startTimeTrigger?.textContent).toBe("12 PM");
+    expect(endTimeTrigger?.textContent).toBe("1 PM");
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {

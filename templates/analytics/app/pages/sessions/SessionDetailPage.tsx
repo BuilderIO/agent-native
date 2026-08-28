@@ -2,6 +2,7 @@ import {
   AgentToggleButton,
   useSendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
@@ -344,7 +345,17 @@ function CopySessionForAgentButton({ recordingId }: { recordingId: string }) {
       recordingId,
     })) as { url?: string };
     if (!result?.url) return;
-    await navigator.clipboard.writeText(result.url).catch(() => {});
+    try {
+      await navigator.clipboard.writeText(result.url);
+    } catch {
+      setCopied(false);
+      return;
+    }
+    trackEvent("share_link_copied", {
+      resource_type: "recording",
+      resource_id: recordingId,
+      link_type: "agent_context",
+    });
     setCopied(true);
     setTimeout(() => setCopied(false), 1400);
   }
@@ -2553,7 +2564,15 @@ function markerFields(
 ): Array<{ label: string; value: string }> | undefined {
   const fields = entries.flatMap(([label, value]) => {
     if (value === undefined || value === null || value === "") return [];
-    return [{ label, value: String(value) }];
+    const text =
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      typeof value === "bigint" ||
+      typeof value === "symbol"
+        ? String(value)
+        : (JSON.stringify(value) ?? "");
+    return text ? [{ label, value: text }] : [];
   });
   return fields.length ? fields : undefined;
 }

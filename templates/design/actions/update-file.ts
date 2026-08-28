@@ -269,12 +269,10 @@ export default defineAction({
               fileType ?? persistedFile.fileType ?? file.fileType ?? "html",
           });
         }
-        if (
-          content !== undefined &&
-          context?.caller !== "frontend" &&
-          (fileType === "html" ||
-            liveContent.includes("data-agent-native-locked"))
-        ) {
+        // Applicability belongs to the guard, which cheaply short-circuits
+        // when neither side carries a lock. Gating on the REQUEST's fileType
+        // let a content-only save add a lock the live document never had.
+        if (content !== undefined && context?.caller !== "frontend") {
           assertLockedLayersPreserved(liveContent, content);
         }
         const hasVersionedContentOperation =

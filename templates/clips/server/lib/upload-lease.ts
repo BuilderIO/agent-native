@@ -243,9 +243,12 @@ export async function reapExpiredUploads(
     (probe.rows as Array<Record<string, unknown>>) ?? []
   ).map((row) => ({
     id: String(row.id),
-    ownerEmail: String(row.owner_email ?? ""),
-    status: String(row.status ?? ""),
-    leaseExpiresAt: String(row.upload_lease_expires_at ?? ""),
+    ownerEmail: typeof row.owner_email === "string" ? row.owner_email : "",
+    status: typeof row.status === "string" ? row.status : "",
+    leaseExpiresAt:
+      typeof row.upload_lease_expires_at === "string"
+        ? row.upload_lease_expires_at
+        : "",
     uploadGenerationId:
       typeof row.upload_generation_id === "string"
         ? row.upload_generation_id

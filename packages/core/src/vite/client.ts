@@ -1806,7 +1806,7 @@ function fullReloadOnOptimizeDep504(): Plugin {
       let lastReloadAt: number | null = null;
       let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
-        const originalEnd = res.end;
+        const originalEnd = res.end.bind(res);
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
           ...endArgs: unknown[]
         ) => {
@@ -2867,7 +2867,7 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
 type NitroModuleNode = {
   id: string | null;
   ssrError?: Error | null;
-  transformResult: unknown | null;
+  transformResult: unknown;
 };
 
 type NitroModuleGraph = {
@@ -3784,6 +3784,16 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+          "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+        process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+          "",
       ),
       // The release migration owner is configured at build time. Netlify's
       // netlify.toml environment is available to the build but not injected

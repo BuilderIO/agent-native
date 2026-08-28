@@ -359,6 +359,6 @@ Options:
       console.log();
     }
   } finally {
-    client.close();
+    void client.close();
   }
 }

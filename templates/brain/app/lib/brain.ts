@@ -75,7 +75,7 @@ export interface KnowledgeRow {
     timestampMs?: number | null;
   }>;
   publishedResourcePath?: string | null;
-  publishTier?: "private" | "team" | "company" | string;
+  publishTier?: "private" | "team" | "company" | (string & {});
   updatedAt?: string | null;
   owner?: string | null;
 }
@@ -192,7 +192,11 @@ export interface KnowledgeResponse {
   };
 }
 
-export type SearchResultType = "knowledge" | "capture" | "source" | string;
+export type SearchResultType =
+  | "knowledge"
+  | "capture"
+  | "source"
+  | (string & {});
 
 export interface SearchEverythingResult {
   id: string;
@@ -221,7 +225,7 @@ export interface SearchEverythingResult {
   confidence?: number | null;
   updatedAt?: string | null;
   score?: number | null;
-  matchLane?: "semantic" | "keyword" | "hybrid" | string | null;
+  matchLane?: "semantic" | "keyword" | "hybrid" | (string & {}) | null;
   retrievalReason?: string | null;
 }
 
@@ -309,7 +313,7 @@ export interface BrainHealthResponse {
       lastError?: string | null;
       latestRun?: {
         id: string;
-        status: "running" | "success" | "error" | string;
+        status: "running" | "success" | "error" | (string & {});
         startedAt?: string | null;
         completedAt?: string | null;
         error?: string | null;
@@ -411,7 +415,7 @@ export interface BrainHealthResponse {
   };
   retrieval: {
     lastEval?: {
-      mode: "product-demo" | "retrieval" | string;
+      mode: "product-demo" | "retrieval" | (string & {});
       seedId?: string;
       dataset?: string;
       dataMode?: string;
@@ -701,7 +705,7 @@ export interface EnqueueCapturesDistillationResult {
     | "already-distilled"
     | "already-ignored"
     | "queue-failed"
-    | string;
+    | (string & {});
   error?: string;
 }
 
@@ -868,7 +872,7 @@ export interface BrainPilotReport {
   latestSyncRun: {
     id: string;
     provider: string;
-    status: "running" | "success" | "error" | string;
+    status: "running" | "success" | "error" | (string & {});
     stats?: Record<string, unknown>;
     error?: string | null;
     startedAt?: string | null;
@@ -929,7 +933,7 @@ export interface BrainPilotReport {
       captureId?: string | null;
       title: string;
       proposedAction?: string | null;
-      status: "pending" | "approved" | "rejected" | string;
+      status: "pending" | "approved" | "rejected" | (string & {});
       rationale?: string | null;
       sourceUrl?: string | null;
       reviewerNotes?: string | null;

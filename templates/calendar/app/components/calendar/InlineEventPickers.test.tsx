@@ -50,13 +50,13 @@ describe("TimePickerPopover", () => {
     const trigger = document.querySelector<HTMLButtonElement>(
       'button[aria-label="End"]',
     );
-    expect(trigger?.textContent).toBe("10:00 PM");
+    expect(trigger?.textContent).toBe("10 PM");
 
     const optionButtons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
     ).filter((button) => button !== trigger);
     const selected = optionButtons.find((button) =>
-      button.textContent?.includes("10:00 PM"),
+      button.textContent?.includes("10 PM"),
     );
     const unselected = optionButtons.find((button) =>
       button.textContent?.includes("10:15 PM"),

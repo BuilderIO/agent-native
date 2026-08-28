@@ -8,6 +8,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
+import {
+  sourceImportCoverage,
+  sourceImportForDeck,
+} from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
@@ -143,7 +147,7 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. For any continuation or follow-up, call this first and use generationContext as the canonical original brief, references, theme, and target slide count. For source-preserving work, the compact result includes sourceCoverage; do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
@@ -208,6 +212,11 @@ export default defineAction({
       (args.compact === undefined &&
         ctx?.caller === "tool" &&
         selectedSlideIndex < 0);
+    const sourceImport = sourceImportForDeck(data?.sourceImport);
+    const sourceCoverage = sourceImportCoverage(
+      sourceImport,
+      slides.map((slide: any) => slide.id),
+    );
 
     if (compact) {
       return {
@@ -215,6 +224,7 @@ export default defineAction({
         title: row.title || data?.title,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        generationContext: data?.generationContext ?? null,
         sourceImport: data?.sourceImport
           ? {
               mode: data.sourceImport.mode,
@@ -227,6 +237,7 @@ export default defineAction({
                 : {}),
             }
           : null,
+        sourceCoverage,
         slideCount: slides.length,
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
@@ -276,6 +287,7 @@ export default defineAction({
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       designSystemId: row.designSystemId ?? null,
+      sourceCoverage,
       slideCount: slides.length,
       slideNumbering:
         'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',

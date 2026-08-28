@@ -1123,7 +1123,7 @@ function AgentPanelInner({
         requestKey: prev.requestKey + 1,
       }));
       if (!allowSettingsMode) {
-        navigate({
+        void navigate({
           pathname: "/settings",
           hash: settingsRouteHashForSection(section),
         });
@@ -2667,8 +2667,8 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }).catch(() => {});
-    write(appStateKey("__url__"));
-    if (normalizedBrowserTabId) write("__url__");
+    void write(appStateKey("__url__"));
+    if (normalizedBrowserTabId) void write("__url__");
   }, [
     appStateKey,
     location.pathname,
@@ -2829,7 +2829,7 @@ function ScreenRefreshBoundary({ children }: { children: React.ReactNode }) {
     // Mark every cached query stale without kicking off a refetch. The
     // subtree-level refetches happen naturally when the new tree mounts
     // below and child components re-subscribe.
-    queryClient.invalidateQueries({ refetchType: "none" });
+    void queryClient.invalidateQueries({ refetchType: "none" });
   }
   return <React.Fragment key={key}>{children}</React.Fragment>;
 }

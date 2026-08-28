@@ -25,7 +25,8 @@ decisions, feedback, agent runs, and provider audit records.
   messages or `@handles`. GitHub/Sentry use the Builder run API. Read
   `review-latest-feedback` for thread evidence and disposition rules.
 - PR governance follows `review-prs`: verify membership and evidence; skip
-  drafts and external authors; keep ultra-scary risks manual; never auto-merge.
+  drafts and external authors; apply the verified `liamdebeasi` exception for
+  ordinary gates; keep ultra-scary risks manual; never auto-merge.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
   a person reviews and publishes through the same action surface.
 - Provider credentials belong to Dispatch/shared workspace integrations, never

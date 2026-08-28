@@ -660,7 +660,7 @@ export function runCommitVisualStyles(
     // tracked in the global file-content stack so all screens share one order.
     if (ydoc && isSynced) {
       const ytext = ydoc.getText("content");
-      if (ytext.toString() !== resolvedNextContent) {
+      if (ytext.toJSON() !== resolvedNextContent) {
         if (!yjsHistoryAvailable) {
           // Untracked write (overview mode with a still-live
           // single-mode UndoManager, or history-suppressed replay) —

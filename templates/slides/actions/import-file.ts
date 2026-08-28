@@ -1,6 +1,7 @@
 import path from "path";
 
 import { defineAction } from "@agent-native/core/action";
+import { MAX_TOOL_RESULT_IMAGE_BASE64_CHARS } from "@agent-native/core/agent/tool-result-images";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
@@ -33,6 +34,7 @@ import {
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
 import {
+  DEFAULT_IMPORTED_DECK_TITLE,
   isOpaqueDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
@@ -42,9 +44,27 @@ import { withDeckLock } from "./patch-deck.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
+function rasterImageMediaType(
+  filename: string,
+): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  switch (path.extname(filename).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    case ".gif":
+      return "image/gif";
+    case ".webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
 export default defineAction({
   description:
-    "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
+    "Import a file (PPTX, DOCX, PDF, FIG, or raster image) and extract content for creating slides or slide design systems. " +
     "For PPTX files, returns parsed slides with text and layout info ready for conversion, or writes positioned source-preserving slides when importIntoDeck is true. " +
     "For DOCX files, returns structured sections extracted from the document. " +
     "For PDF files, returns extracted text organized by page, or editable slides when importIntoDeck is true — a PDF this app exported restores its original slides, and any other PDF is rebuilt as positioned text boxes and images. " +
@@ -55,7 +75,7 @@ export default defineAction({
       .string()
       .describe("Uploaded file path or opaque hosted upload reference"),
     format: z
-      .enum(["pptx", "docx", "pdf", "fig", "auto"])
+      .enum(["pptx", "docx", "pdf", "fig", "image", "auto"])
       .optional()
       .default("auto")
       .describe("File format — auto-detected from extension if not specified"),
@@ -94,11 +114,46 @@ export default defineAction({
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
       else if (ext === ".fig") detectedFormat = "fig";
+      else if (rasterImageMediaType(filename)) detectedFormat = "image";
       else {
         throw new Error(
-          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig`,
+          `Cannot detect format from extension "${ext}". Supported: .pptx, .docx, .pdf, .fig, .jpg, .png, .gif, .webp`,
         );
       }
+    }
+
+    if (detectedFormat === "image") {
+      if (importIntoDeck) {
+        throw new Error(
+          "Raster image imports are visual references, not slide imports. Use update-slide or add-slide to place the image after inspecting it.",
+        );
+      }
+      const mediaType = rasterImageMediaType(filename);
+      if (!mediaType) {
+        throw new Error(
+          "Vision image imports support only JPEG, PNG, GIF, and WebP files.",
+        );
+      }
+      const imageData = fileBuffer.toString("base64");
+      if (imageData.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
+        throw new Error(
+          `Raster image "${filename}" exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-character vision tool limit. Upload a smaller image and retry.`,
+        );
+      }
+      return {
+        format: "image",
+        filename,
+        contentType: mediaType,
+        byteLength: fileBuffer.length,
+        deckId,
+        _agentImages: [
+          {
+            data: imageData,
+            mediaType,
+            label: filename,
+          },
+        ],
+      };
     }
 
     if (detectedFormat === "fig") {
@@ -146,7 +201,8 @@ export default defineAction({
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
       const presentation = await parsePptx(fileBuffer);
-      const title = presentation.title || titleFromPath(filename);
+      const fallbackTitle = titleFromPath(filename);
+      const title = presentation.title || "";
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -204,6 +260,7 @@ export default defineAction({
           aspectRatio,
           sourceImport,
           pptxResults[0]?.sourceText,
+          fallbackTitle,
           presentation.theme,
         );
         return {
@@ -220,7 +277,11 @@ export default defineAction({
 
       return {
         format: "pptx",
-        title,
+        title: resolveImportedDeckTitle(
+          title,
+          presentation.slides[0]?.texts.map((text) => text.content).join("\n"),
+          fallbackTitle,
+        ),
         slideCount: presentation.slides.length,
         slides: presentation.slides.map((slide, i) => ({
           index: i,
@@ -245,7 +306,8 @@ export default defineAction({
         await import("../server/handlers/import/html-converter.js");
       const doc = await parseDocx(fileBuffer);
       const slideHtmlArray = convertSectionsToSlides(doc.sections);
-      const title = doc.title || titleFromPath(filename);
+      const fallbackTitle = titleFromPath(filename);
+      const title = doc.title || "";
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -266,6 +328,7 @@ export default defineAction({
           undefined,
           undefined,
           doc.text,
+          fallbackTitle,
         );
         return {
           format: "docx",
@@ -280,7 +343,7 @@ export default defineAction({
 
       return {
         format: "docx",
-        title,
+        title: resolveImportedDeckTitle(title, doc.text, fallbackTitle),
         sectionCount: doc.sections.length,
         text: truncateText(doc.text, sourceLimit).text,
         sections: summarizeSections(doc.sections),
@@ -309,10 +372,11 @@ export default defineAction({
         if (!deckId) throw new Error("deckId is required to import into deck");
         return importPdfPagesWithFidelity({
           fileBuffer,
-          title,
+          title: "",
           deckId,
           PDFParse,
           canvasFactory,
+          fallbackTitle: title,
         });
       }
 
@@ -351,7 +415,9 @@ export default defineAction({
       };
     }
 
-    throw new Error(`Unsupported format: ${detectedFormat}`);
+    throw new Error(
+      `Unsupported format: ${typeof detectedFormat === "string" ? detectedFormat : (JSON.stringify(detectedFormat) ?? "unknown")}`,
+    );
   },
 });
 
@@ -404,10 +470,13 @@ async function importPdfFromSidecar(args: {
 
   const importedTitle = await appendDeckSlides(
     deckId,
-    sidecar.title?.trim() || fallbackTitle,
+    sidecar.title?.trim() || "",
     slides,
     "import-file:pdf-sidecar",
     aspectRatio,
+    undefined,
+    undefined,
+    fallbackTitle,
   );
 
   return {
@@ -426,10 +495,12 @@ async function importPdfPagesWithFidelity(args: {
   fileBuffer: Buffer;
   title: string;
   deckId: string;
+  fallbackTitle: string;
   PDFParse: Awaited<ReturnType<typeof setupPdfParse>>["PDFParse"];
   canvasFactory: object | undefined;
 }) {
-  const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
+  const { fileBuffer, title, deckId, fallbackTitle, PDFParse, canvasFactory } =
+    args;
   const { convertToSlideHtml, convertSectionsToSlides } =
     await import("../server/handlers/import/html-converter.js");
   const { parsePdfFidelity } =
@@ -472,7 +543,7 @@ async function importPdfPagesWithFidelity(args: {
     if (sidecar.status === "found") {
       return await importPdfFromSidecar({
         sidecar: sidecar.sidecar,
-        fallbackTitle: title,
+        fallbackTitle,
         deckId,
       });
     }
@@ -634,6 +705,7 @@ async function importPdfPagesWithFidelity(args: {
     aspectRatio,
     sourceImport,
     imported[0]?.snapshot.text,
+    fallbackTitle,
   );
 
   return {
@@ -696,7 +768,7 @@ async function buildPptxSlide(
 
 function titleFromPath(filePath: string): string {
   const base = path.basename(filePath, path.extname(filePath)).trim();
-  return base && !isOpaqueDeckTitle(base) ? base : "Imported File";
+  return base && !isOpaqueDeckTitle(base) ? base : DEFAULT_IMPORTED_DECK_TITLE;
 }
 
 function normalizePdfPages(result: unknown): { num: number; text: string }[] {
@@ -784,6 +856,7 @@ async function appendDeckSlides(
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
   titleSource?: unknown,
+  fallbackTitle?: unknown,
   theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
 ): Promise<string> {
   await assertAccess("deck", deckId, "editor");
@@ -819,8 +892,16 @@ async function appendDeckSlides(
     // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
     const nextTitle = hadExistingSlides
-      ? (existing[0].title ?? title)
-      : resolveImportedDeckTitle(title, titleSource ?? slides[0]?.content);
+      ? resolveImportedDeckTitle(
+          existing[0].title ?? title,
+          titleSource ?? slides[0]?.content,
+          fallbackTitle ?? title,
+        )
+      : resolveImportedDeckTitle(
+          title,
+          titleSource ?? slides[0]?.content,
+          fallbackTitle,
+        );
     resolvedTitle = nextTitle;
     const nextSourceImport = sourceImport
       ? mergeSourceImportMetadata(
