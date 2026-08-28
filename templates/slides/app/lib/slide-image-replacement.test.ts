@@ -286,6 +286,33 @@ describe("slide image replacement", () => {
     expect(img?.style.objectFit).toBe("cover");
   });
 
+  it("ignores image syntax in code and HTML attributes when counting duplicates", () => {
+    const src = "https://cdn.example.com/shared.png";
+    const html = [
+      "```markdown",
+      `![Fenced example](${src})`,
+      "```",
+      `\`![Inline example](${src})\``,
+      `<span data-example="![Attribute example](${src})">Text</span>`,
+      `![Rendered image](${src})`,
+    ].join("\n");
+    const updated = updateImageFitInSlideHtml(
+      html,
+      src,
+      { objectFit: "cover", objectPosition: "right bottom" },
+      0,
+    );
+
+    expect(updated).toContain(`![Fenced example](${src})`);
+    expect(updated).toContain(`\`![Inline example](${src})\``);
+    expect(updated).toContain(
+      `<span data-example="![Attribute example](${src})">Text</span>`,
+    );
+    expect(updated).toContain(
+      `<img data-markdown-image="true" src="${src}" alt="Rendered image"`,
+    );
+  });
+
   it("keeps Markdown and HTML duplicate occurrences in rendered order", () => {
     const src = "https://cdn.example.com/shared.png";
     const html = `![First](${src})<img src="${src}" alt="Raw" style="object-fit: contain;">![Third](${src})`;

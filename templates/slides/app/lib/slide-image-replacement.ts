@@ -257,8 +257,6 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-const HTML_IMAGE_START_PATTERN = /<img\b/gi;
-
 interface ImageSourceToken {
   alt?: string;
   end: number;
@@ -419,12 +417,26 @@ function markdownReferenceDefinitions(
   content: string,
 ): Map<string, MarkdownReferenceDefinition> {
   const definitions = new Map<string, MarkdownReferenceDefinition>();
+  const nonRenderedRanges = markdownNonRenderedRanges(content);
+  let rangeIndex = 0;
   let lineStart = 0;
 
   while (lineStart < content.length) {
+    while (
+      rangeIndex < nonRenderedRanges.length &&
+      lineStart >= nonRenderedRanges[rangeIndex].end
+    ) {
+      rangeIndex += 1;
+    }
     const newline = content.indexOf("\n", lineStart);
     const lineEnd = newline === -1 ? content.length : newline;
     const line = content.slice(lineStart, lineEnd).replace(/\r$/, "");
+    const range = nonRenderedRanges[rangeIndex];
+    if (range && lineStart >= range.start && lineStart < range.end) {
+      if (newline === -1) break;
+      lineStart = newline + 1;
+      continue;
+    }
     let cursor = 0;
     while (cursor < 3 && line[cursor] === " ") cursor += 1;
 
@@ -528,10 +540,128 @@ function markdownImageTokenAt(
   );
 }
 
+interface SourceRange {
+  end: number;
+  start: number;
+}
+
+function markdownFenceEndAt(content: string, start: number): number | null {
+  if (start > 0 && content[start - 1] !== "\n") return null;
+
+  const openingLineEnd = content.indexOf("\n", start);
+  const openingLine = content
+    .slice(start, openingLineEnd === -1 ? content.length : openingLineEnd)
+    .replace(/\r$/, "");
+  const opener = openingLine.match(/^ {0,3}(`{3,}|~{3,})/);
+  if (!opener) return null;
+
+  const marker = opener[1][0];
+  const markerLength = opener[1].length;
+  const closingFence = new RegExp(`^ {0,3}${marker}{${markerLength},}[ \\t]*$`);
+  let lineStart = openingLineEnd === -1 ? content.length : openingLineEnd + 1;
+
+  while (lineStart < content.length) {
+    const lineEnd = content.indexOf("\n", lineStart);
+    const line = content
+      .slice(lineStart, lineEnd === -1 ? content.length : lineEnd)
+      .replace(/\r$/, "");
+    if (closingFence.test(line)) {
+      return lineEnd === -1 ? content.length : lineEnd + 1;
+    }
+    if (lineEnd === -1) break;
+    lineStart = lineEnd + 1;
+  }
+
+  return content.length;
+}
+
+function markdownInlineCodeEndAt(
+  content: string,
+  start: number,
+): number | null {
+  if (content[start] !== "`" || isMarkdownCharacterEscaped(content, start)) {
+    return null;
+  }
+
+  let delimiterLength = 1;
+  while (content[start + delimiterLength] === "`") delimiterLength += 1;
+  const delimiter = "`".repeat(delimiterLength);
+  for (let end = start + delimiterLength; end < content.length; end += 1) {
+    if (!content.startsWith(delimiter, end)) continue;
+    if (content[end - 1] === "`" || content[end + delimiterLength] === "`") {
+      continue;
+    }
+    return end + delimiterLength;
+  }
+
+  return null;
+}
+
+function findHtmlTagEnd(content: string, start: number): number | null {
+  let quote: '"' | "'" | null = null;
+  for (let end = start + 1; end < content.length; end += 1) {
+    const character = content[end];
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return end + 1;
+    }
+  }
+  return null;
+}
+
+function htmlTagEndAt(content: string, start: number): number | null {
+  if (content[start] !== "<" || isMarkdownCharacterEscaped(content, start)) {
+    return null;
+  }
+
+  const next = content[start + 1];
+  if (!next || (!/[A-Za-z]/.test(next) && !["/", "!", "?"].includes(next))) {
+    return null;
+  }
+
+  if (content.startsWith("<!--", start)) {
+    const commentEnd = content.indexOf("-->", start + 4);
+    return commentEnd === -1 ? content.length : commentEnd + 3;
+  }
+
+  return findHtmlTagEnd(content, start);
+}
+
+function markdownNonRenderedRanges(content: string): SourceRange[] {
+  const ranges: SourceRange[] = [];
+  let start = 0;
+  while (start < content.length) {
+    const end =
+      markdownFenceEndAt(content, start) ??
+      markdownInlineCodeEndAt(content, start) ??
+      htmlTagEndAt(content, start);
+    if (end === null || end <= start) {
+      start += 1;
+      continue;
+    }
+    ranges.push({ end, start });
+    start = end;
+  }
+  return ranges;
+}
+
 function markdownImageSourceTokens(content: string): ImageSourceToken[] {
   const definitions = markdownReferenceDefinitions(content);
+  const nonRenderedRanges = markdownNonRenderedRanges(content);
   const tokens: ImageSourceToken[] = [];
+  let rangeIndex = 0;
   for (let start = 0; start < content.length - 1; start += 1) {
+    const range = nonRenderedRanges[rangeIndex];
+    if (range && start >= range.start) {
+      if (start < range.end) {
+        start = range.end - 1;
+        continue;
+      }
+      rangeIndex += 1;
+    }
     if (
       content[start] !== "!" ||
       content[start + 1] !== "[" ||
@@ -550,36 +680,30 @@ function markdownImageSourceTokens(content: string): ImageSourceToken[] {
 
 function htmlImageSourceTokens(content: string): ImageSourceToken[] {
   const tokens: ImageSourceToken[] = [];
-  for (const match of content.matchAll(HTML_IMAGE_START_PATTERN)) {
-    const start = match.index ?? 0;
-    let quote: '"' | "'" | null = null;
-    let end = start + match[0].length;
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf("<", cursor);
+    if (start === -1) break;
+    const end = htmlTagEndAt(content, start);
+    if (end === null) {
+      cursor = start + 1;
+      continue;
+    }
 
-    for (; end < content.length; end += 1) {
-      const character = content[end];
-      if (quote) {
-        if (character === quote) quote = null;
-      } else if (character === '"' || character === "'") {
-        quote = character;
-      } else if (character === ">") {
-        end += 1;
-        break;
+    const rawTag = content.slice(start, end);
+    if (/^<img\b/i.test(rawTag)) {
+      const image = parseFragment(rawTag).body.querySelector("img");
+      const source = image?.getAttribute("src");
+      if (source) {
+        tokens.push({
+          end,
+          kind: "html",
+          source,
+          start,
+        });
       }
     }
-
-    if (content[end - 1] !== ">") continue;
-
-    const rawImage = content.slice(start, end);
-    const image = parseFragment(rawImage).body.querySelector("img");
-    const source = image?.getAttribute("src");
-    if (source) {
-      tokens.push({
-        end,
-        kind: "html",
-        source,
-        start,
-      });
-    }
+    cursor = end;
   }
   return tokens;
 }
