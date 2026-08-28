@@ -3400,7 +3400,9 @@ export function App({
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
     if (
-      (recorder || recordingFlowGateRef.current) &&
+      (recorder ||
+        recordingFlowGateRef.current ||
+        recordingStopFinalizingRef.current) &&
       !options?.ignoreActiveRecorder
     ) {
       console.warn(
@@ -4602,15 +4604,20 @@ export function App({
           <button
             className="primary start"
             disabled={
-              localRecordingMode === "off" && videoStorageStatus === "checking"
+              recordingStopFinalizing ||
+              (localRecordingMode === "off" &&
+                videoStorageStatus === "checking")
             }
             onClick={() => beginRecording()}
           >
-            {localRecordingMode === "off" && videoStorageStatus === "checking"
-              ? "Checking storage..."
-              : localRecordingMode === "off"
-                ? "Start recording"
-                : "Start local recording"}
+            {recordingStopFinalizing
+              ? "Finishing last recording..."
+              : localRecordingMode === "off" &&
+                  videoStorageStatus === "checking"
+                ? "Checking storage..."
+                : localRecordingMode === "off"
+                  ? "Start recording"
+                  : "Start local recording"}
           </button>
         ) : null}
 

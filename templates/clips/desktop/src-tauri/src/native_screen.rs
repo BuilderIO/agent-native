@@ -399,7 +399,11 @@ pub(crate) enum NativeFullscreenBackend {
     },
     #[cfg(target_os = "macos")]
     ScreenCaptureKit {
-        stream: SCStream,
+        /// Behind `Arc<Mutex>` so the stop path can bound `stop_capture()` on
+        /// a detached thread instead of blocking the caller when the SCStream
+        /// connection is interrupted and the synchronous call never returns.
+        /// See `CustomScreenCaptureKit::stream` for the same reasoning.
+        stream: Arc<Mutex<SCStream>>,
         recording: SCRecordingOutput,
         finish: Arc<RecordingFinish>,
         /// Set true once the first microphone sample buffer is delivered.
@@ -1750,6 +1754,8 @@ pub async fn native_fullscreen_recording_begin(
                 stream, recording, ..
             }) => {
                 stream
+                    .lock()
+                    .map_err(|e| format!("ScreenCaptureKit stream lock poisoned: {e}"))?
                     .add_recording_output(recording)
                     .map_err(|e| format!("add recording output failed: {e:?}"))?;
             }
@@ -3356,7 +3362,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
-            stream,
+            stream: Arc::new(Mutex::new(stream)),
             recording,
             finish,
             mic_ready,
@@ -5448,10 +5454,13 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `SCStream::stop_capture()` occasionally stops the underlying capture but
 /// never returns from ScreenCaptureKit's synchronous completion wait. Keep
-/// teardown bounded so the writer can still close its inputs, flush the final
-/// fragment, and let the upload path validate the playable file on disk.
+/// teardown bounded — for the custom backend so the writer can still close
+/// its inputs, flush the final fragment, and let the upload path validate the
+/// playable file on disk; for the plain backend so a stuck `stop_capture()`
+/// can't leave the OS-level capture session half-torn-down and stall the
+/// *next* recording's `start_capture()` for the rest of its own hang.
 #[cfg(target_os = "macos")]
-const CUSTOM_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "macos")]
 pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
@@ -5544,7 +5553,7 @@ pub(crate) fn stop_native_recording(
                                 .map_err(|e| format!("custom ScreenCaptureKit stop failed: {e:?}"))
                         })
                 },
-                CUSTOM_SCK_STOP_TIMEOUT,
+                SCK_STOP_TIMEOUT,
             );
             if let Err(err) = &stop_result {
                 eprintln!("[clips-tray] custom capture stop_capture error: {err}");
@@ -5564,12 +5573,28 @@ pub(crate) fn stop_native_recording(
             // `remove_recording_output()` looks like the clean stop path, but
             // on real machines it can block synchronously forever when the
             // underlying SCStream connection is interrupted. `stop_capture()`
-            // returns control to us, then the delegate callback is bounded by
-            // `SCK_FINALIZE_TIMEOUT`; the moov/audio guards below decide
-            // whether the resulting file is uploadable or recoverable.
-            let stop_result = stream
-                .stop_capture()
-                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+            // itself is not guaranteed to return either, so it runs on a
+            // detached thread bounded by `SCK_STOP_TIMEOUT`: an unbounded
+            // hang here doesn't just delay this stop, it leaves the OS-level
+            // capture session half-torn-down and stalls the *next*
+            // recording's `start_capture()`. The delegate callback below is
+            // separately bounded by `SCK_FINALIZE_TIMEOUT`; the moov/audio
+            // guards then decide whether the resulting file is uploadable or
+            // recoverable.
+            let stream_for_stop = Arc::clone(stream);
+            let stop_result = run_bounded_capture_stop(
+                move || {
+                    stream_for_stop
+                        .lock()
+                        .map_err(|e| format!("ScreenCaptureKit stop lock poisoned: {e}"))
+                        .and_then(|guard| {
+                            guard
+                                .stop_capture()
+                                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"))
+                        })
+                },
+                SCK_STOP_TIMEOUT,
+            );
             let mut waited_for_finalize = false;
             let finalize_outcome = if wait_for_finalize {
                 waited_for_finalize = true;
