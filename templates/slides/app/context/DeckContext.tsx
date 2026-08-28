@@ -262,6 +262,7 @@ interface DeckContextType {
     deckId: string,
     activeSlideId: string,
     overSlideId: string,
+    selectedSlideIds?: string[],
   ) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -869,19 +870,30 @@ type PatchDeckFields = Extract<
 >["fields"];
 
 /** Reorders the current slide list by stable IDs, or returns null for a no-op. */
-function reorderSlidesById(
+export function reorderSlidesById(
   slides: Slide[],
   activeSlideId: string,
   overSlideId: string,
+  selectedSlideIds?: readonly string[],
 ): Slide[] | null {
   const oldIndex = slides.findIndex((slide) => slide.id === activeSlideId);
   const newIndex = slides.findIndex((slide) => slide.id === overSlideId);
   if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return null;
 
-  const reordered = [...slides];
-  const [moved] = reordered.splice(oldIndex, 1);
-  if (!moved) return null;
-  reordered.splice(newIndex, 0, moved);
+  const movingIds = new Set(
+    selectedSlideIds?.includes(activeSlideId)
+      ? selectedSlideIds
+      : [activeSlideId],
+  );
+  if (movingIds.has(overSlideId)) return null;
+
+  const moving = slides.filter((slide) => movingIds.has(slide.id));
+  const remaining = slides.filter((slide) => !movingIds.has(slide.id));
+  const targetIndex = remaining.findIndex((slide) => slide.id === overSlideId);
+  if (moving.length === 0 || targetIndex === -1) return null;
+
+  remaining.splice(targetIndex + (oldIndex < newIndex ? 1 : 0), 0, ...moving);
+  const reordered = remaining;
   return reordered;
 }
 
@@ -2964,21 +2976,23 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       if (before?.slides.some((slide) => slide.id === slideId)) {
         markSlideDeleteTombstone(deckId, slideId);
       }
-      setDecksLocal((prev) =>
-        prev.map((d) => {
-          if (d.id !== deckId) return d;
-          const slides = d.slides.filter((s) => s.id !== slideId);
-          if (slides.length === 0) {
-            slides.push({
-              id: nanoid(8),
-              content: defaultSlideContent.blank,
-              notes: "",
-              layout: "blank",
-            });
-          }
-          return { ...d, slides, updatedAt: new Date().toISOString() };
-        }),
-      );
+      const removeSlide = (d: Deck) => {
+        if (d.id !== deckId) return d;
+        const slides = d.slides.filter((s) => s.id !== slideId);
+        if (slides.length === 0) {
+          slides.push({
+            id: nanoid(8),
+            content: defaultSlideContent.blank,
+            notes: "",
+            layout: "blank",
+          });
+        }
+        return { ...d, slides, updatedAt: new Date().toISOString() };
+      };
+      // Keep same-event bulk deletes' undo snapshots anchored to the result of
+      // the previous delete, before React applies the queued state updater.
+      decksRef.current = decksRef.current.map(removeSlide);
+      setDecksLocal((prev) => prev.map(removeSlide));
       // Granular op — server deletes only this slide from the blob.
       const op: PatchDeckOp = { op: "delete-slide", slideId };
       enqueueDeckOp(deckId, op);
@@ -3057,7 +3071,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const reorderSlides = useCallback(
-    (deckId: string, activeSlideId: string, overSlideId: string) => {
+    (
+      deckId: string,
+      activeSlideId: string,
+      overSlideId: string,
+      selectedSlideIds?: string[],
+    ) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       if (!before) return;
 
@@ -3068,6 +3087,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         currentSlides,
         activeSlideId,
         overSlideId,
+        selectedSlideIds,
       );
       if (!orderedSlides) return;
       const orderedIds = orderedSlides.map((slide) => slide.id);
@@ -3086,6 +3106,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ),
             activeSlideId,
             overSlideId,
+            selectedSlideIds,
           );
           return slides ? { ...d, slides, updatedAt } : d;
         }),

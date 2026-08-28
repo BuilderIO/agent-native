@@ -542,6 +542,7 @@ const messages = {
     duplicateSlide: "Duplicar diapositiva",
     duplicate: "Duplicar",
     deleteSlide: "Eliminar diapositiva",
+    slideDeleted: "Slide excluído",
     delete: "Eliminar",
     generatingSlide: "Generando diapositiva",
     uploadFailed: "Error al subir",

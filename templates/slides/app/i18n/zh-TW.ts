@@ -518,6 +518,7 @@ const messages = {
     duplicateSlide: "複製幻燈片",
     duplicate: "複製",
     deleteSlide: "刪除幻燈片",
+    slideDeleted: "投影片已刪除",
     delete: "刪除",
     generatingSlide: "正在生成幻燈片",
     uploadFailed: "上傳失敗",

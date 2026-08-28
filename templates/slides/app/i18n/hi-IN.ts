@@ -530,6 +530,7 @@ const messages = {
     duplicateSlide: "स्लाइड डुप्लिकेट करें",
     duplicate: "डुप्लिकेट",
     deleteSlide: "स्लाइड हटाएं",
+    slideDeleted: "स्लाइड हटाई गई",
     delete: "हटाएं",
     generatingSlide: "स्लाइड जनरेट हो रही है",
     uploadFailed: "अपलोड विफल",
