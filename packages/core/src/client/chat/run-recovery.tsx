@@ -428,6 +428,7 @@ export function BuilderSetupContent({
 
 export function BuilderSetupCard({
   onConnected,
+  onDismiss,
   onRetry,
   bouncePulse,
   attached = false,
@@ -435,6 +436,7 @@ export function BuilderSetupCard({
   layout = "default",
 }: {
   onConnected?: () => void;
+  onDismiss?: () => void;
   onRetry?: () => void;
   bouncePulse?: number;
   attached?: boolean;
@@ -443,6 +445,15 @@ export function BuilderSetupCard({
 }) {
   const sidebarLayout = layout === "sidebar";
   const t = useT();
+  const retryRequestedRef = useRef(false);
+  const [retryRequested, setRetryRequested] = useState(false);
+
+  const handleRetry = useCallback(() => {
+    if (!onRetry || retryRequestedRef.current) return;
+    retryRequestedRef.current = true;
+    setRetryRequested(true);
+    onRetry();
+  }, [onRetry]);
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Replay the bounce keyframe each time bouncePulse increments. Toggling the
@@ -477,14 +488,31 @@ export function BuilderSetupCard({
           sidebarLayout ? "p-2.5" : "p-3",
         )}
       >
-        <BuilderSetupContent onConnected={onConnected} layout={layout} />
+        {onDismiss ? (
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <BuilderSetupContent onConnected={onConnected} layout={layout} />
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label={t("agentChat.common.dismiss")}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconX size={14} />
+            </button>
+          </div>
+        ) : (
+          <BuilderSetupContent onConnected={onConnected} layout={layout} />
+        )}
       </div>
       {onRetry ? (
         <div className="flex justify-center px-3 pt-1">
           <button
             type="button"
-            onClick={onRetry}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            onClick={handleRetry}
+            disabled={retryRequested}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
           >
             <IconRefresh size={13} />
             {t("agentChat.common.retry")}

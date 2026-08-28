@@ -5867,6 +5867,12 @@ const AssistantChatInner = forwardRef<
     );
   const showMissingKeySetup =
     (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupDismiss = useCallback(() => {
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [providerAuthErrorKey]);
   const handleProviderSetupConnected = useCallback(() => {
     handleBuilderConnected();
     if (providerAuthErrorKey === null) return;
@@ -6611,10 +6617,16 @@ const AssistantChatInner = forwardRef<
                             )}
                             {showMissingKeySetup ? (
                               <BuilderSetupCard
+                                key={providerAuthErrorKey ?? "missing-provider"}
                                 fullWidth
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
+                                onDismiss={
+                                  providerAuthErrorKey !== null
+                                    ? handleProviderSetupDismiss
+                                    : undefined
+                                }
                                 onConnected={handleProviderSetupConnected}
                                 onRetry={
                                   providerAuthErrorKey !== null

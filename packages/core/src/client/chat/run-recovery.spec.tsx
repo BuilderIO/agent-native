@@ -438,8 +438,36 @@ describe("run recovery surfaces", () => {
 
     await act(async () => {
       retryButton?.click();
+      retryButton?.click();
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("keeps provider setup dismissible when requested", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard onDismiss={onDismiss} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const dismissButton = container.querySelector(
+      'button[aria-label="Dismiss"]',
+    );
+    expect(dismissButton).toBeTruthy();
+
+    await act(async () => {
+      dismissButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it("formats the step limit with the selected locale", async () => {
