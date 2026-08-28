@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Agent trace capture.
+ * Agent trace capture, plus the MCP server's own instrumentation switches.
  *
  * These were an `observability-config` settings row, which nothing in core ever
  * wrote — the only "UI" was a snippet in the docs telling app authors to write
@@ -45,6 +45,30 @@ export const observabilityConfig = z.object({
     .meta({
       env: ["AGENT_NATIVE_OBSERVABILITY_CAPTURE_TOOL_RESULTS"],
       doc: "Include tool results and error text on tool spans.",
+    }),
+  // MCP server instrumentation. These gate the `$mcp_*` events every tracking
+  // provider receives, so they live here with the other capture switches rather
+  // than beside one provider's key in `analytics`.
+  mcpEvents: z
+    .boolean()
+    .default(true)
+    .meta({
+      env: ["MCP_ANALYTICS"],
+      doc: "Emit $mcp_* analytics events for the MCP server the app exposes.",
+    }),
+  mcpCaptureParameters: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["MCP_ANALYTICS_PARAMETERS"],
+      doc: "Include redacted MCP tool-call arguments as $mcp_parameters. Off by default: arguments carry user content.",
+    }),
+  mcpDebugInitialize: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["MCP_DEBUG_INIT"],
+      doc: "Log the clientInfo and capabilities of every MCP initialize handshake. Off by default: a handshake can carry client-specific metadata.",
     }),
   captureLlmSpans: z
     .boolean()
