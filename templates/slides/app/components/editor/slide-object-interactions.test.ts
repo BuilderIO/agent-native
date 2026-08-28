@@ -8,6 +8,7 @@ import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   buildPastedSlideObjects,
+  canDropSlideLayerInside,
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
@@ -22,6 +23,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  resolveSlideClipboardElement,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
   isDeletableSlideElement,
@@ -51,6 +53,11 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  it("rejects nesting into void layer targets while keeping containers valid", () => {
+    expect(canDropSlideLayerInside(document.createElement("img"))).toBe(false);
+    expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
+  });
+
   it("resizes multi-selection members proportionally from the southeast", () => {
     const result = resizeSlideObjectMembers(
       [
@@ -1152,5 +1159,28 @@ describe("findPersistedImageObject", () => {
       'data-slide-object-id="shape-1"><img src="a.png" /></div>';
     const img = root.querySelector("img") as HTMLElement;
     expect(findPersistedImageObject(img, root)).toBeNull();
+  });
+});
+
+describe("resolveSlideClipboardElement", () => {
+  it("uses the persisted image owner for a single overlay selection", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="image-owner">' +
+      '<img src="image.png" />' +
+      "</div>";
+    const img = root.querySelector("img") as HTMLImageElement;
+    const staleSelection = document.createElement("div");
+
+    expect(resolveSlideClipboardElement(staleSelection, img, root)).toBe(
+      root.firstElementChild,
+    );
+  });
+
+  it("keeps the normal selected element when no image overlay is active", () => {
+    const root = document.createElement("div");
+    const selected = document.createElement("div");
+
+    expect(resolveSlideClipboardElement(selected, null, root)).toBe(selected);
   });
 });

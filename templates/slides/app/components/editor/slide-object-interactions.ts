@@ -6,6 +6,27 @@ import {
 
 export const MIN_SLIDE_OBJECT_SIZE = 24;
 
+const SLIDE_LAYER_VOID_ELEMENTS = new Set([
+  "AREA",
+  "BASE",
+  "BR",
+  "COL",
+  "EMBED",
+  "HR",
+  "IMG",
+  "INPUT",
+  "LINK",
+  "META",
+  "PARAM",
+  "SOURCE",
+  "TRACK",
+  "WBR",
+]);
+
+export function canDropSlideLayerInside(target: Element): boolean {
+  return !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName);
+}
+
 export type ResizeHandle = CanvasResizeHandle;
 
 export interface SlideObjectGeometry {
@@ -666,6 +687,17 @@ export function findPersistedImageObject(
     current = current.parentElement;
   }
   return null;
+}
+
+export function resolveSlideClipboardElement(
+  selectedElement: HTMLElement | null,
+  selectedImg: HTMLImageElement | null,
+  slideContent: HTMLElement,
+): HTMLElement | null {
+  if (selectedImg) {
+    return findPersistedImageObject(selectedImg, slideContent) ?? selectedImg;
+  }
+  return selectedElement;
 }
 
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */

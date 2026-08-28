@@ -138,6 +138,7 @@ import {
   alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   buildPastedSlideObjects,
+  canDropSlideLayerInside,
   clientPointToSlideCoordinates,
   cloneSlideObject,
   collectMovableSlideObjects,
@@ -160,6 +161,7 @@ import {
   preserveSlideObjectLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
+  resolveSlideClipboardElement,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -2692,6 +2694,7 @@ export default function SlideEditor({
         `[data-builder-id="${targetId}"]`,
       );
       if (!source || !target || source.contains(target)) return;
+      if (placement === "inside" && !canDropSlideLayerInside(target)) return;
 
       const originalParent = source.parentElement;
       const originalRect = source.getBoundingClientRect();
@@ -2998,7 +3001,11 @@ export default function SlideEditor({
       }
       clearMultiSelection();
     } else {
-      const element = resolveSelectedElement();
+      const element = resolveSlideClipboardElement(
+        resolveSelectedElement(),
+        selectedImg,
+        slideContent,
+      );
       if (!element) return false;
       if (!isDeletableSlideElement(element)) {
         return false;
@@ -3034,6 +3041,7 @@ export default function SlideEditor({
     multiSelection,
     readCurrentSlideContentHtml,
     resolveSelectedElement,
+    selectedImg,
   ]);
 
   const commitTableMutation = useCallback(() => {
@@ -3454,12 +3462,11 @@ export default function SlideEditor({
             )
             .filter((element): element is HTMLElement => element !== null)
         : (() => {
-            const element =
-              resolveSelectedElement() ??
-              (selectedImg
-                ? (findPersistedImageObject(selectedImg, slideContent) ??
-                  selectedImg)
-                : null);
+            const element = resolveSlideClipboardElement(
+              resolveSelectedElement(),
+              selectedImg,
+              slideContent,
+            );
             return element ? [element] : [];
           })();
     const roots = selectedElements.filter(
