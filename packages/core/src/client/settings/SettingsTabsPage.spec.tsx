@@ -6,6 +6,7 @@ import { BrowserRouter, MemoryRouter, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
+import { useSettingsPanelController } from "./useSettingsPanelController.js";
 
 function stubMobileViewport(isMobile: boolean) {
   vi.stubGlobal(
@@ -660,6 +661,56 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("Agent voice settings");
     expect(container.textContent).not.toContain("General content");
+  });
+
+  it("opens the inner section after BrowserRouter canonicalizes a hash", async () => {
+    window.history.replaceState(null, "", "/settings#uploads");
+
+    function SectionProbe() {
+      const { openSection } = useSettingsPanelController({
+        sections: ["voice", "uploads"],
+      });
+      return <span data-testid="open-section">{openSection}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <BrowserRouter>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            extraTabs={[
+              {
+                id: "agent",
+                label: "Agent",
+                content: <SectionProbe />,
+                searchEntries: [
+                  { id: "section:voice", label: "Voice", hash: "voice" },
+                  {
+                    id: "section:uploads",
+                    label: "Uploads",
+                    hash: "uploads",
+                  },
+                ],
+              },
+            ]}
+          />
+        </BrowserRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-testid=open-section]")?.textContent,
+    ).toBe("uploads");
+
+    await act(async () => {
+      window.history.pushState(null, "", "/settings#voice");
+      window.dispatchEvent(new Event("popstate"));
+    });
+
+    expect(window.location.pathname).toBe("/settings/agent/voice");
+    expect(
+      container.querySelector("[data-testid=open-section]")?.textContent,
+    ).toBe("voice");
   });
 
   it("selects the deepest matching tab for nested agent deep links", () => {
