@@ -137,9 +137,9 @@ describe("Desktop identity lazy child synchronization", () => {
     ).toBe(false);
   });
 
-  it("does not demote a verified workspace session when child sync fails", () => {
+  it("reports a failed child sync to the shell-owned identity surface", () => {
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
-      "signed-in",
+      "failed",
     );
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
       "signed-in",

@@ -50,6 +50,35 @@ describe("desktop passive-access regressions", () => {
     expect(signedInFastPath).toBeGreaterThan(signOutGuard);
   });
 
+  it("starts native sign-in from the Dispatch authority, not the active app", () => {
+    const main = source("./index.ts");
+    const signIn = between(
+      main,
+      "ipcMain.handle(IPC.IDENTITY_SIGN_IN",
+      "ipcMain.handle(IPC.IDENTITY_AUTHENTICATE",
+    );
+
+    expect(signIn).toContain("resolveDesktopIdentityAuthority()");
+    expect(signIn).not.toContain("resolveDesktopIdentityApp(activeAppId)");
+
+    const resolver = between(
+      main,
+      "function resolveDesktopIdentityApp(",
+      "function listDesktopIdentityApps(",
+    );
+    expect(resolver).toContain(
+      'allowDisabled: appId === "dispatch" && isCanonical',
+    );
+    expect(resolver).toContain("allowDisabled?: boolean");
+    expect(main).toContain(
+      'return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });',
+    );
+    expect(main).not.toContain(
+      'refreshStatus(resolveDesktopIdentityApp("dispatch"))',
+    );
+    expect(main).toContain("retryAppSessionFanout()");
+  });
+
   it("keeps remembered Content folder discovery metadata-only", () => {
     const main = source("./index.ts");
     const normalization = between(

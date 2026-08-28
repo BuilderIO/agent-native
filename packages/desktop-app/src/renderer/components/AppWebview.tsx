@@ -319,9 +319,6 @@ export function resolveDesktopIdentityLazySyncStatus(
   status: DesktopIdentityStatus,
   synchronized: boolean,
 ): DesktopIdentityStatus {
-  // Lazy child fan-out is best-effort. It must not demote a verified
-  // workspace session; the child app owns its fallback login surface.
-  if (status === "signed-in") return "signed-in";
   return synchronized ? status : "failed";
 }
 
@@ -418,6 +415,8 @@ interface AppWebviewProps {
    * hiding, so the host has to say so or the page keeps polling underneath.
    */
   surfaceHidden?: boolean;
+  /** When false, the shell owns the single native identity sign-in surface. */
+  showDesktopIdentityGate?: boolean;
   /** Resolved shell theme to apply inside the guest document. */
   theme: RendererTheme;
   /** Only same-origin app surfaces should inherit the shell theme. */
@@ -698,6 +697,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       appConfig,
       isActive,
       surfaceHidden = false,
+      showDesktopIdentityGate = true,
       theme,
       syncTheme = true,
       sourceUrl,
@@ -773,11 +773,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return false;
       }
     }, [app.id, updateDesktopIdentitySessionReady]);
-    const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
-      eligible: desktopIdentityGateEligible,
-      active: isActive,
-      enabled: desktopIdentityEnabled,
-    });
+    const desktopIdentityGateActive =
+      showDesktopIdentityGate &&
+      shouldUseDesktopIdentityGate({
+        eligible: desktopIdentityGateEligible,
+        active: isActive,
+        enabled: desktopIdentityEnabled,
+      });
     const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
     const repairDesktopIdentitySession = useCallback(() => {
       if (
@@ -1042,7 +1044,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             // authoritative sign-out status or the next activation rechecks.
             invalidateRememberedDesktopIdentityStatus();
           }
-          updateDesktopIdentitySessionReady(true);
+          updateDesktopIdentitySessionReady(
+            preserveLoadedSession || synchronized === true,
+          );
           setDesktopIdentityStatus(
             resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
           );
