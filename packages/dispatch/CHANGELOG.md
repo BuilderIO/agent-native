@@ -1,5 +1,21 @@
 # @agent-native/dispatch
 
+## 0.31.27
+
+### Patch Changes
+
+- 4ef1d8c: Route one-pager integration requests to Content or inline responses instead of Plan.
+- Release all public npm packages with a patch version bump.
+- 3e18636: Fix transactional email previews to render the canonical Agent-Native logo.
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+- dd834e7: Prevent vault actions and the Dispatch UI from exposing stored secret values.
+- Updated dependencies [ac1ecfc]
+- Updated dependencies
+- Updated dependencies [5a12f71]
+- Updated dependencies [d2b314b]
+- Updated dependencies [5c96078]
+  - @agent-native/toolkit@0.17.5
+
 ## 0.31.26
 
 ### Patch Changes
@@ -821,12 +837,5 @@
   config merges it in.
 - Updated dependencies [f499dff]
   - @agent-native/toolkit@0.12.2
-
-## 0.16.6
-
-### Patch Changes
-
-- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
-- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

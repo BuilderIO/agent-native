@@ -1,5 +1,15 @@
 # @agent-native/toolkit
 
+## 0.17.5
+
+### Patch Changes
+
+- ac1ecfc: Keep slash-prefixed prompts when no command handler is available.
+- Release all public npm packages with a patch version bump.
+- 5a12f71: Use opaque white and soft-gray checkerboards for transparency.
+- d2b314b: Keep uploaded files and pasted text visible in chat history without importing new-deck references.
+- 5c96078: Use soft-gray checkerboards for transparency in shared visual color controls.
+
 ## 0.17.4
 
 ### Patch Changes
