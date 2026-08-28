@@ -1114,6 +1114,7 @@ export default function DeckEditor() {
   // removed the original slide from the deck.
   const slideClipboardRef = useRef<Slide | null>(null);
   const slideClipboardScopeRef = useRef<string | null>(null);
+  const slideClipboardPersistenceFailedRef = useRef(false);
   // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
   // rail's right-click "Paste" menu item is an explicit click with no
   // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
@@ -1128,25 +1129,33 @@ export default function DeckEditor() {
     if (!slideClipboardStorageKey) {
       slideClipboardRef.current = null;
       slideClipboardScopeRef.current = null;
+      slideClipboardPersistenceFailedRef.current = false;
       slideClipboardArmedAtRef.current = null;
       setHasSlideClipboard(false);
       return null;
     }
     const result = readSlideClipboard(slideClipboardStorageKey);
+    const cachedSlide = slideClipboardRef.current;
+    const cachedCopiedAt = slideClipboardArmedAtRef.current;
     const slide = resolveSlideClipboardForPaste(
       result,
-      slideClipboardRef.current,
+      cachedSlide,
       slideClipboardScopeRef.current,
       slideClipboardStorageKey,
+      cachedCopiedAt,
+      slideClipboardPersistenceFailedRef.current,
     );
+    const usedCachedClipboard = slide !== null && slide === cachedSlide;
     slideClipboardRef.current = slide;
     slideClipboardScopeRef.current = slideClipboardStorageKey;
-    slideClipboardArmedAtRef.current =
-      result.status === "ready"
+    slideClipboardArmedAtRef.current = usedCachedClipboard
+      ? cachedCopiedAt
+      : result.status === "ready"
         ? result.copiedAt
-        : slide
-          ? slideClipboardArmedAtRef.current
-          : null;
+        : null;
+    if (!usedCachedClipboard) {
+      slideClipboardPersistenceFailedRef.current = false;
+    }
     setHasSlideClipboard(slide !== null);
     return slide;
   }, [slideClipboardStorageKey]);
@@ -1170,7 +1179,13 @@ export default function DeckEditor() {
       slideClipboardArmedAtRef.current = copiedAt;
       setHasSlideClipboard(true);
       if (slideClipboardStorageKey) {
-        writeSlideClipboard(slideClipboardStorageKey, snapshot, copiedAt);
+        slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+          slideClipboardStorageKey,
+          snapshot,
+          copiedAt,
+        );
+      } else {
+        slideClipboardPersistenceFailedRef.current = false;
       }
     },
     [slideClipboardStorageKey],

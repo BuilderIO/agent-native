@@ -185,4 +185,41 @@ describe("slide clipboard storage", () => {
       ),
     ).toEqual(latestSlide);
   });
+
+  it("keeps a fresh in-memory snapshot when persistence is rejected", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const cachedSlide = { ...slide, content: "Fresh cached copy" };
+    const olderSlide = { ...slide, content: "Older persisted copy" };
+    const rejectedStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("storage write rejected");
+      },
+    };
+
+    expect(
+      writeSlideClipboard(storageKey, cachedSlide, 4_000, rejectedStorage),
+    ).toBe(false);
+
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "ready", slide: olderSlide, copiedAt: 3_000 },
+        cachedSlide,
+        storageKey,
+        storageKey,
+        4_000,
+        true,
+      ),
+    ).toEqual(cachedSlide);
+    expect(
+      resolveSlideClipboardForPaste(
+        { status: "empty", slide: null, copiedAt: null },
+        cachedSlide,
+        storageKey,
+        storageKey,
+        4_000,
+        true,
+      ),
+    ).toEqual(cachedSlide);
+  });
 });

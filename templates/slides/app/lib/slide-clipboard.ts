@@ -50,9 +50,25 @@ export function resolveSlideClipboardForPaste(
   cachedSlide: Slide | null,
   cachedStorageKey: string | null,
   storageKey: string,
+  cachedCopiedAt: number | null = null,
+  cachedPersistenceFailed = false,
 ): Slide | null {
+  const isSameScope = cachedStorageKey === storageKey;
+  if (
+    result.status === "ready" &&
+    isSameScope &&
+    cachedPersistenceFailed &&
+    cachedSlide &&
+    cachedCopiedAt !== null &&
+    cachedCopiedAt > result.copiedAt
+  ) {
+    return cachedSlide;
+  }
   if (result.status === "ready") return result.slide;
-  if (result.status === "unavailable" && cachedStorageKey === storageKey) {
+  if (
+    isSameScope &&
+    (result.status === "unavailable" || cachedPersistenceFailed)
+  ) {
     return cachedSlide;
   }
   return null;
