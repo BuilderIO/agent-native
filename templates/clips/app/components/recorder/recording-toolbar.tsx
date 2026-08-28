@@ -3,6 +3,7 @@ import { LiveWaveform } from "@shared/live-waveform";
 import type {
   RecordingPlayheadConfirmChange,
   RecordingPlayheadIntent,
+  RecordingPlayheadLayout,
 } from "@shared/recording-playhead";
 import { RecordingPlayhead } from "@shared/recording-playhead";
 import { useEffect, useRef, useState } from "react";
@@ -25,9 +26,8 @@ export interface RecordingToolbarProps {
   onConfirmChange: (change: RecordingPlayheadConfirmChange) => void;
 }
 
-// The shared playhead's resting width is the desktop pill's measured width.
-// Keep the drag anchor the same size so the web pill opens from its left edge
-// instead of centering an expanded capsule inside an invisible old toolbar.
+// The shared playhead's resting width is the initial drag bound. The measured
+// layout below expands that bound before the playhead reveals controls.
 const TOOLBAR_WIDTH = 150;
 const TOOLBAR_HEIGHT = 56;
 // Drop the toolbar just below the centered "Recording your screen…" status
@@ -71,19 +71,50 @@ export function RecordingToolbar({
   );
   const [dragging, setDragging] = useState(false);
   const dragOffsetRef = useRef({ dx: 0, dy: 0 });
+  const [toolbarLayout, setToolbarLayout] = useState<RecordingPlayheadLayout>({
+    width: TOOLBAR_WIDTH,
+    height: TOOLBAR_HEIGHT,
+  });
+  const toolbarLayoutRef = useRef(toolbarLayout);
+  toolbarLayoutRef.current = toolbarLayout;
+
+  function handlePlayheadLayoutChange(layout: RecordingPlayheadLayout) {
+    const nextLayout = {
+      width: Math.max(TOOLBAR_WIDTH, Math.ceil(layout.width)),
+      height: Math.max(TOOLBAR_HEIGHT, Math.ceil(layout.height)),
+    };
+    toolbarLayoutRef.current = nextLayout;
+    setToolbarLayout((previous) =>
+      previous.width === nextLayout.width &&
+      previous.height === nextLayout.height
+        ? previous
+        : nextLayout,
+    );
+    setPos((previous) => {
+      const clamped = clampRectToViewport(
+        previous.left,
+        previous.top,
+        nextLayout,
+        {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+      );
+      if (clamped.left === previous.left && clamped.top === previous.top) {
+        return previous;
+      }
+      return { ...previous, left: clamped.left, top: clamped.top };
+    });
+  }
 
   useEffect(() => {
     function onResize() {
+      const layout = toolbarLayoutRef.current;
       setPos((p) => {
-        const clamped = clampRectToViewport(
-          p.left,
-          p.top,
-          { width: TOOLBAR_WIDTH, height: TOOLBAR_HEIGHT },
-          {
-            width: window.innerWidth,
-            height: window.innerHeight,
-          },
-        );
+        const clamped = clampRectToViewport(p.left, p.top, layout, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
         return {
           ...p,
           left: clamped.left,
@@ -112,10 +143,11 @@ export function RecordingToolbar({
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (!dragging) return;
     const { dx, dy } = dragOffsetRef.current;
+    const layout = toolbarLayoutRef.current;
     const clamped = clampRectToViewport(
       e.clientX - dx,
       e.clientY - dy,
-      { width: TOOLBAR_WIDTH, height: TOOLBAR_HEIGHT },
+      layout,
       { width: window.innerWidth, height: window.innerHeight },
     );
     setPos((prev) => ({ ...prev, left: clamped.left, top: clamped.top }));
@@ -142,8 +174,8 @@ export function RecordingToolbar({
       style={{
         left: pos.left,
         top: pos.top,
-        width: TOOLBAR_WIDTH,
-        minHeight: TOOLBAR_HEIGHT,
+        width: toolbarLayout.width,
+        minHeight: toolbarLayout.height,
         touchAction: "none",
       }}
     >
@@ -174,6 +206,7 @@ export function RecordingToolbar({
         onConfirmAction={onConfirmAction}
         onDeleteRequest={onCancel}
         onConfirmChange={onConfirmChange}
+        onLayoutChange={handlePlayheadLayoutChange}
         className={active ? undefined : "opacity-80"}
       />
     </div>

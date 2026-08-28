@@ -139,6 +139,7 @@ export function RecordingPlayhead({
   const onLayoutChangeRef = useRef(onLayoutChange);
   const onExpandedChangeRef = useRef(onExpandedChange);
   const settleBatchRef = useRef(0);
+  const layoutTransitionPendingRef = useRef(false);
   const pendingSegmentsRef = useRef<Set<Segment>>(new Set());
   const finishSettleRef = useRef<(() => void) | null>(null);
   const transitionSegmentsRef = useRef<
@@ -164,6 +165,7 @@ export function RecordingPlayhead({
   }, []);
 
   const reportLayout = useCallback(() => {
+    if (layoutTransitionPendingRef.current) return;
     const el = playheadRef.current;
     if (!el) return;
     onLayoutChangeRef.current?.({
@@ -234,6 +236,8 @@ export function RecordingPlayhead({
       0,
     );
     const settleMs = reducedMotionRef.current ? 16 : SEGMENT_MS + maxDelay + 40;
+    const batch = ++settleBatchRef.current;
+    layoutTransitionPendingRef.current = true;
 
     onLayoutChangeRef.current?.({
       // Give native desktop windows room before the animation starts. The
@@ -243,7 +247,6 @@ export function RecordingPlayhead({
     });
 
     if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-    const batch = ++settleBatchRef.current;
     pendingSegmentsRef.current.clear();
 
     for (const [segment, open, delay] of changes) {
@@ -259,6 +262,7 @@ export function RecordingPlayhead({
     const finishSettle = () => {
       if (settleBatchRef.current !== batch) return;
       pendingSegmentsRef.current.clear();
+      layoutTransitionPendingRef.current = false;
       reportLayout();
     };
     finishSettleRef.current = finishSettle;
@@ -381,8 +385,8 @@ export function RecordingPlayhead({
   useEffect(() => {
     if (enabled) return;
     updateExpanded(false);
-    if (confirmIntent) setConfirmIntent(null);
-  }, [confirmIntent, enabled, updateExpanded]);
+    if (confirmIntent) closeConfirm(false);
+  }, [closeConfirm, confirmIntent, enabled, updateExpanded]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
