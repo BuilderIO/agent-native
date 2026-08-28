@@ -341,7 +341,12 @@ interface PromptPopoverProps {
   draftScope?: string;
   initialText?: string;
   initialTextKey?: string | number;
-  onBeforeUpload?: (prompt: string, files: File[]) => boolean | void;
+  onBeforeUpload?: (
+    prompt: string,
+    files: File[],
+    context?: string,
+    attachments?: ReadonlyArray<PromptChatAttachment>,
+  ) => boolean | void;
   onImport?: (
     selection: PromptImportSelection,
   ) => Promise<boolean | void> | boolean | void;
@@ -466,7 +471,17 @@ export default function PromptPopover({
       _references: unknown[],
       options?: PromptComposerSubmitOptions,
     ) => {
-      if (files.length > 0 && onBeforeUpload?.(text, files) === false) {
+      const preUploadChatAttachments = options?.attachments?.length
+        ? await createPromptChatAttachments(options.attachments, [])
+        : [];
+      if (
+        onBeforeUpload?.(
+          text,
+          files,
+          googleDocContext || undefined,
+          preUploadChatAttachments,
+        ) === false
+      ) {
         return;
       }
       setSubmitting(true);

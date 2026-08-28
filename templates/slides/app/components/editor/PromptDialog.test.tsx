@@ -117,6 +117,41 @@ describe("createPromptChatAttachments", () => {
       },
     ]);
   });
+
+  it("can prepare attachment descriptors before uploads start", async () => {
+    await expect(
+      createPromptChatAttachments(
+        [
+          {
+            name: "reference.pdf",
+            contentType: "application/pdf",
+          },
+          {
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            file: new File(["outline"], "pasted-text-1.txt", {
+              type: "text/plain",
+            }),
+          },
+        ],
+        [],
+      ),
+    ).resolves.toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
 });
 
 describe("isInsidePortaledLayer", () => {
@@ -472,5 +507,38 @@ describe("PromptPopover import mode", () => {
       );
     });
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("hands off signed-out prompts before uploading files", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onBeforeUpload = vi.fn(() => false);
+    const onSubmit = vi.fn();
+
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={vi.fn()}
+        title="New presentation"
+        onSubmit={onSubmit}
+        onSkip={vi.fn()}
+        skipLabel="Skip prompt"
+        onBeforeUpload={onBeforeUpload}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+
+    await waitFor(() => {
+      expect(onBeforeUpload).toHaveBeenCalledWith(
+        "  make a deck  \n",
+        [expect.objectContaining({ name: "large.pdf" })],
+        undefined,
+        [],
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

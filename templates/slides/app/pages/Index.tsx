@@ -1649,9 +1649,13 @@ export default function Index() {
         onImport={handleDirectImport}
         importFromLabel={t("home.importFrom")}
         importingLabel={t("editorToolbar.importing")}
-        onBeforeUpload={(prompt, files) => {
+        onBeforeUpload={(prompt, files, context, attachments) => {
           if (session) return true;
-          preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });
+          preservePromptForSignIn(prompt, {
+            context,
+            attachments,
+            hadFiles: files.length > 0,
+          });
           return false;
         }}
         loading={generating}

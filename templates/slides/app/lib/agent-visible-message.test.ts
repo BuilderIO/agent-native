@@ -26,6 +26,8 @@ describe("visible Slides agent messages", () => {
   it("uses a fallback only when no prompt was entered", () => {
     expect(createDeckAgentMessage("")).toBe("new deck");
     expect(addSlideAgentMessage("")).toBe("a new slide");
+    expect(createDeckAgentMessage(" \n\t ")).toBe("new deck");
+    expect(addSlideAgentMessage(" \n\t ")).toBe("a new slide");
   });
 
   it("bounds oversized prompts without adding an action prefix", () => {
