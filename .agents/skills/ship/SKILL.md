@@ -235,6 +235,7 @@ branch, stay on it.
    fallback:
 
    ```bash
+   git fetch origin --quiet
    if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
      git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD
    else

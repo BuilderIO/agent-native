@@ -55,6 +55,7 @@ merging, except when the user explicitly invokes `/ship-now`.
 **Step 0 — always do this first, before anything else:**
 
 ```bash
+git fetch origin --quiet
 git status --short
 git diff --name-only
 if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
