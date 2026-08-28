@@ -173,6 +173,7 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
 
 import { AgentNativeI18nProvider } from "../i18n.js";
 import {
+  BuilderSetupCard,
   BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
@@ -328,6 +329,32 @@ describe("run recovery surfaces", () => {
     ).toBeNull();
   });
 
+  it("keeps Builder credential failures in reconnect recovery", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Invalid token",
+              errorCode: "authentication_error",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Reconnect Builder.io");
+    expect(container.textContent).not.toContain("Connect AI");
+    expect(container.textContent).not.toContain("Custom keys");
+  });
+
   it("shows the searchable provider setup while disclosing API keys", async () => {
     await act(async () => {
       root.render(
@@ -387,6 +414,32 @@ describe("run recovery surfaces", () => {
     expect(actions).not.toBeNull();
     expect(actions?.className).toContain("flex-row");
     expect(actions?.className).not.toContain("flex-col");
+  });
+
+  it("keeps retry available on the shared provider setup card", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard onRetry={onRetry} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    expect(retryButton).toBeTruthy();
+
+    await act(async () => {
+      retryButton?.click();
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("formats the step limit with the selected locale", async () => {

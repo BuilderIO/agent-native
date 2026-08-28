@@ -155,7 +155,7 @@ export function getRequestModeMetadata(
 
 // ─── Run error classifiers ────────────────────────────────────────────────────
 
-function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
+export function isBuilderReconnectRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const message = info.message.toLowerCase();
   const isAuthCode =
@@ -428,18 +428,21 @@ export function BuilderSetupContent({
 
 export function BuilderSetupCard({
   onConnected,
+  onRetry,
   bouncePulse,
   attached = false,
   fullWidth,
   layout = "default",
 }: {
   onConnected?: () => void;
+  onRetry?: () => void;
   bouncePulse?: number;
   attached?: boolean;
   fullWidth?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
   const sidebarLayout = layout === "sidebar";
+  const t = useT();
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Replay the bounce keyframe each time bouncePulse increments. Toggling the
@@ -476,6 +479,18 @@ export function BuilderSetupCard({
       >
         <BuilderSetupContent onConnected={onConnected} layout={layout} />
       </div>
+      {onRetry ? (
+        <div className="flex justify-center px-3 pt-1">
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconRefresh size={13} />
+            {t("agentChat.common.retry")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -518,7 +533,7 @@ export function RunErrorRecoveryCard({
   const shouldShowProviderSetup =
     isMissingLlmProviderRunError(info) ||
     isDesktopChatRelayRunError(info) ||
-    isProviderAuthError;
+    (isProviderAuthError && !shouldShowBuilderReconnect);
   // Blocked on something the reader goes and fixes elsewhere, then comes back
   // to. Recoverable runs and email verification keep a retry path; rejected
   // provider credentials use the setup flow below so the same bad key is not

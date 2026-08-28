@@ -143,6 +143,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  isBuilderReconnectRunError,
   runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
@@ -5840,6 +5841,7 @@ const AssistantChatInner = forwardRef<
     : null;
   const providerAuthErrorKey =
     visibleRunError &&
+    !isBuilderReconnectRunError(visibleRunError) &&
     isProviderAuthenticationError(
       [visibleRunError.message, visibleRunError.details]
         .filter(Boolean)
@@ -6614,6 +6616,11 @@ const AssistantChatInner = forwardRef<
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
                                 onConnected={handleProviderSetupConnected}
+                                onRetry={
+                                  providerAuthErrorKey !== null
+                                    ? retryAfterRunError
+                                    : undefined
+                                }
                               />
                             ) : null}
                             {/* Input area */}
