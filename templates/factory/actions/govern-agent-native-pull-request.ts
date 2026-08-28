@@ -902,7 +902,7 @@ export default defineAction({
                   {
                     action: "govern-agent-native-pull-request",
                     kind: "external_action",
-                    status: "failure",
+                    status: "error",
                     itemId,
                     source: "github",
                     sourceUrl: pullRequest.htmlUrl,
