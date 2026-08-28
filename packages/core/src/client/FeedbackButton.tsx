@@ -276,8 +276,22 @@ export async function submitFeedbackForm(
     },
   );
   if (!res.ok) {
-    const body = (await res.json()) as { error?: string };
-    throw new Error(body.error || `submit failed (${res.status})`);
+    const responseBody = await res.text();
+    let errorMessage: string | undefined;
+    try {
+      const body = JSON.parse(responseBody) as unknown;
+      if (
+        body !== null &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        errorMessage = body.error.trim() || undefined;
+      }
+    } catch {
+      throw new Error(`submit failed (${res.status})`);
+    }
+    throw new Error(errorMessage || `submit failed (${res.status})`);
   }
   return "submitted";
 }

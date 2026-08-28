@@ -7,6 +7,7 @@ import { useState, useCallback, useId, useRef } from "react";
 import { agentNativePath } from "../api-path.js";
 import { submitFeedbackForm } from "../FeedbackButton.js";
 import { useT } from "../i18n.js";
+import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 
 export interface ThumbsFeedbackProps {
@@ -25,11 +26,14 @@ export function ThumbsFeedback({
   className,
 }: ThumbsFeedbackProps) {
   const t = useT();
+  const { session } = useSession();
   const [selection, setSelection] = useState<Selection>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [textFeedback, setTextFeedback] = useState("");
+  const [textSubmitting, setTextSubmitting] = useState(false);
   const feedbackInputId = useId();
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
+  const textSubmissionInFlightRef = useRef(false);
 
   const sendFeedback = useCallback(
     async (
@@ -86,26 +90,48 @@ export function ThumbsFeedback({
 
   const handleTextFeedback = useCallback(() => {
     const value = textFeedback.trim();
-    if (!value) return;
-    void sendFeedback("text", value).then(async (submitted) => {
-      if (!submitted) return;
-      try {
-        await submitFeedbackForm({
-          value,
-          chatSessionId: threadId,
-          activeRunId: runId,
-        });
-      } catch (error) {
-        console.error(
-          "[ThumbsFeedback] shared feedback form submission failed",
-          error,
-        );
-        return;
-      }
-      setTextFeedback("");
-      setPopoverOpen(false);
-    });
-  }, [runId, sendFeedback, textFeedback, threadId]);
+    if (!value || textSubmissionInFlightRef.current) return;
+    textSubmissionInFlightRef.current = true;
+    setTextSubmitting(true);
+
+    void Promise.allSettled([
+      sendFeedback("text", value),
+      submitFeedbackForm({
+        value,
+        chatSessionId: threadId,
+        activeRunId: runId,
+        submitterEmail: session?.email,
+      }),
+    ])
+      .then(([observability, sharedForm]) => {
+        if (sharedForm.status === "rejected") {
+          console.error(
+            "[ThumbsFeedback] shared feedback form submission failed",
+            sharedForm.reason,
+          );
+        }
+
+        const observabilitySubmitted =
+          observability.status === "fulfilled" && observability.value;
+        const sharedFormSubmitted =
+          sharedForm.status === "fulfilled" && sharedForm.value === "submitted";
+        const sharedFormUnavailable =
+          sharedForm.status === "fulfilled" &&
+          sharedForm.value === "unconfigured";
+        if (
+          !sharedFormSubmitted &&
+          !(sharedFormUnavailable && observabilitySubmitted)
+        ) {
+          return;
+        }
+        setTextFeedback("");
+        setPopoverOpen(false);
+      })
+      .finally(() => {
+        textSubmissionInFlightRef.current = false;
+        setTextSubmitting(false);
+      });
+  }, [runId, sendFeedback, session?.email, textFeedback, threadId]);
 
   return (
     <div className={cn("inline-flex items-center gap-0.5", className)}>
@@ -206,7 +232,7 @@ export function ThumbsFeedback({
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={!textFeedback.trim()}
+                  disabled={textSubmitting || !textFeedback.trim()}
                   className="h-7 px-2.5 text-xs"
                 >
                   {t("agentChat.feedback.submit")}
