@@ -91,7 +91,7 @@ export function TimePickerPopover({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-auto rounded px-1.5 py-0.5 text-base font-normal text-foreground hover:bg-muted",
+            "h-auto rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-foreground hover:bg-muted",
             className,
           )}
           aria-label={label}
@@ -168,7 +168,7 @@ export function DatePickerPopover({
           variant="ghost"
           size="sm"
           className={cn(
-            "h-auto rounded px-1.5 py-0.5 text-base font-normal text-foreground hover:bg-muted",
+            "h-auto rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-foreground hover:bg-muted",
             className,
           )}
           aria-label={label}
@@ -222,7 +222,7 @@ export function TimezonePickerPopover({
           className={cn(
             compact
               ? "size-7 rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
-              : "h-auto justify-start rounded px-1.5 py-0.5 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+              : "h-auto justify-start rounded px-1.5 py-0.5 text-[13px] leading-[18px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
           aria-label={label}
           title={compact ? label : undefined}
@@ -338,7 +338,7 @@ export function RepeatPicker({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-auto w-full justify-start rounded-md px-1.5 py-1 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="h-auto w-full justify-start rounded-md px-1.5 py-1 text-[13px] leading-[18px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
           aria-label={t("eventForm.repeat")}
         >
           <IconRefresh className="mr-2 size-4 shrink-0" />

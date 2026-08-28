@@ -169,11 +169,12 @@ describe("EventAttendeesSection attendee controls", () => {
     const attendeeRows = Array.from(
       document.querySelectorAll('[data-testid="attendee-details"]'),
     );
+    // Rows show the display name, with the address on the name's title.
     const organizerRow = attendeeRows.find((row) =>
-      row.textContent?.includes("sami@example.com"),
+      row.textContent?.includes("Sami"),
     );
     const selfRow = attendeeRows.find((row) =>
-      row.textContent?.includes("saee@example.com"),
+      row.textContent?.includes("Saee"),
     );
 
     expect(organizerRow?.textContent).toContain(organizerLabel);
