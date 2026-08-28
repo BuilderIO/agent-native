@@ -105,6 +105,14 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).toContain("Visible");
   });
 
+  it("does not truncate on a tag name inside a stylesheet's own text", () => {
+    // A raw-text element's body is text, not markup: this is a CSS string.
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><style>.a::after{content:"<script>"}</style><h1>Visible</h1></div>',
+    );
+    expect(html).toContain("Visible");
+  });
+
   it("does not truncate on a tag name inside a comment", () => {
     const html = sanitizeSlideHtml(
       '<div class="fmd-slide"><!-- <script> --><h1>Visible</h1></div>',

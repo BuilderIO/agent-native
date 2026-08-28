@@ -318,6 +318,9 @@ function cleanNode(
  */
 const SWALLOWING_ELEMENTS = /^(script|style|textarea|iframe|object|svg|math)$/i;
 
+/** Elements whose children the HTML parser reads as text rather than markup. */
+const RAW_TEXT_ELEMENTS = /^(script|style|textarea|title)$/i;
+
 /**
  * Start-tag positions in `html`, skipping comments and anything inside a quoted
  * attribute value.
@@ -351,7 +354,25 @@ function startTagPositions(html: string): { name: string; index: number }[] {
       }
       cursor++;
     }
-    if (name) found.push({ name: name.toLowerCase(), index: i });
+    if (!name) {
+      i = cursor;
+      continue;
+    }
+    const lower = name.toLowerCase();
+    found.push({ name: lower, index: i });
+    if (RAW_TEXT_ELEMENTS.test(lower)) {
+      // A raw-text element's body is text, not markup — `content: "<script>"`
+      // inside a stylesheet is a CSS string, and reading it as a start tag
+      // truncated everything after it. Skip to the close tag; no close tag is
+      // the unclosed case the caller is looking for, and everything past it is
+      // swallowed anyway, so there is nothing further to find.
+      const closing = new RegExp(`</\\s*${lower}\\s*>`, "i").exec(
+        html.slice(cursor),
+      );
+      if (!closing) return found;
+      i = cursor + closing.index + closing[0].length - 1;
+      continue;
+    }
     i = cursor;
   }
   return found;
