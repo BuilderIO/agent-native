@@ -658,6 +658,17 @@ describe("imported deck webfonts", () => {
     ]);
   });
 
+  it("rewrites CSSOM-serialized double-quoted picker values", () => {
+    const { html, hrefs } = prepareImportedFonts(
+      `<span style='font-family: "Playfair Display", serif;'>a</span>`,
+    );
+
+    expect(html).toContain('font-family: "Playfair Display", serif');
+    expect(hrefs).toEqual([
+      "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    ]);
+  });
+
   it("loads the stylesheet for a rendered imported slide", async () => {
     const slide: Slide = {
       id: "imported-fonts",
