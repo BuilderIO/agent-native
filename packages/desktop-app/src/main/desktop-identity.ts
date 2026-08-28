@@ -199,14 +199,21 @@ export function isDesktopIdentityAppConfigEligible<
   },
 >(
   configured: T | null | undefined,
-  options?: { canonical?: boolean; forCleanup?: boolean },
+  options?: {
+    allowDisabled?: boolean;
+    canonical?: boolean;
+    forCleanup?: boolean;
+  },
 ): configured is T {
   if (!configured || !isDesktopIdentityAppIdEligible(configured.id)) {
     return false;
   }
   const productionMode =
     configured.mode === undefined || configured.mode === "prod";
-  const enabled = options?.forCleanup ? true : configured.enabled === true;
+  const enabled =
+    options?.forCleanup || options?.allowDisabled
+      ? true
+      : configured.enabled === true;
   return Boolean(
     productionMode &&
     enabled &&
@@ -785,6 +792,49 @@ export class DesktopIdentityBroker {
           preserveStatus: true,
         });
     return operation;
+  }
+
+  async retryAppSessionFanout(): Promise<boolean> {
+    if (this.status !== "signed-in" || this.signOutOperation) return false;
+    const authority = this.options.resolveApp("dispatch");
+    if (!authority) return false;
+
+    const appsById = new Map<string, DesktopIdentityApp>([
+      [authority.id, authority],
+    ]);
+    try {
+      for (const app of this.options.listApps?.() ?? []) {
+        if (app.identityAuthority === true || app.workspaceSso === true) {
+          appsById.set(app.id, app);
+        }
+      }
+    } catch (error) {
+      console.warn("[desktop identity] retry app snapshot failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    }
+
+    const generation = this.ceremonyGeneration;
+    let allSucceeded = true;
+    for (const app of appsById.values()) {
+      this.unsupportedAppIds.delete(app.id);
+      if (!this.isCeremonyCurrent(generation)) return false;
+      try {
+        if (!(await this.ensureAppSession(app.id))) allSucceeded = false;
+      } catch (error) {
+        allSucceeded = false;
+        console.warn("[desktop identity] retry app session failed", {
+          appId: app.id,
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+    }
+    return (
+      allSucceeded &&
+      this.isCeremonyCurrent(generation) &&
+      !this.signOutOperation
+    );
   }
 
   private ensureModernAppSessionDeduped(
