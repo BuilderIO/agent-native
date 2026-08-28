@@ -3,11 +3,22 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  desktopSettingsTabForSection,
   shouldAnimateDesktopAppChatSidebar,
   shouldShowDesktopAppChatSidebar,
 } from "./DesktopAppChatShell.js";
 
 describe("desktop app chat shell", () => {
+  it("routes chat settings requests to the native settings surface", () => {
+    expect(desktopSettingsTabForSection("llm")).toBe("providers");
+    expect(desktopSettingsTabForSection("secrets:OPENAI_API_KEY")).toBe(
+      "connections",
+    );
+    expect(desktopSettingsTabForSection("uploads")).toBe("workspace");
+    expect(desktopSettingsTabForSection("terminal")).toBe("terminal");
+    expect(desktopSettingsTabForSection("voice")).toBe("general");
+  });
+
   it("animates only the first active presentation of a cached app tab", () => {
     expect(
       shouldAnimateDesktopAppChatSidebar({

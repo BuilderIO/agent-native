@@ -672,7 +672,6 @@ export function App() {
                   onSnapTo75Percent={snapSidebarTo75Percent}
                   isWideDrawer={sidebarWideDrawer}
                   onExitWideDrawer={exitSidebarDrawer}
-                  devAppUrl={appUrl}
                   storageKey={appId}
                   scope={
                     appId

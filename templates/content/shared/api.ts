@@ -214,6 +214,8 @@ export interface DocumentProperty {
 export interface DocumentPropertiesResponse {
   documentId: string;
   databaseId: string | null;
+  canEditValues?: boolean;
+  canManageSchema?: boolean;
   properties: DocumentProperty[];
 }
 
@@ -423,10 +425,10 @@ export interface UpdateContentDatabasePersonalViewRequest {
 }
 
 export interface ContentDatabaseMembership {
-  databaseId: string;
-  databaseDocumentId: string;
-  databaseTitle: string;
-  position: number;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  databaseTitle: string | null;
+  position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
 }
