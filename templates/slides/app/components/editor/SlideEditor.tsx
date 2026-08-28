@@ -1433,7 +1433,7 @@ export default function SlideEditor({
     setOverflowInfo(null);
     setIsAskingAgentToFix(false);
     syncOverflowToAppState(null);
-  }, [slide.id, slide.content]);
+  }, [slide.id, slide.content, slide.layoutFitRevision]);
 
   // Clear the app-state overflow key when this editor unmounts, so a stale
   // measurement never leaks into a different deck/slide context.
@@ -1484,6 +1484,30 @@ export default function SlideEditor({
     },
     [slide.id, slide.content, slide.layoutFitRevision, deckId],
   );
+
+  useEffect(() => {
+    if (!slide.excalidrawData) return;
+    // Excalidraw is a fixed-size canvas rather than flow content, so it has no
+    // AutoFitContent measurement callback of its own. Publish its finite canvas
+    // geometry so changed drawings can complete the async fit check.
+    handleOverflowChange({
+      contentHeight: dims.height,
+      contentWidth: dims.width,
+      viewportHeight: dims.height,
+      viewportWidth: dims.width,
+      verticalOverflow: 0,
+      horizontalOverflow: 0,
+    });
+    handleAutofitSettled();
+  }, [
+    dims.height,
+    dims.width,
+    handleAutofitSettled,
+    handleOverflowChange,
+    slide.excalidrawData,
+    slide.id,
+    slide.layoutFitRevision,
+  ]);
 
   const handleAskAgentToFixLayout = useCallback(() => {
     if (

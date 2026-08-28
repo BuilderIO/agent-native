@@ -10,8 +10,10 @@ import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 import {
+  createLayoutFitRevision,
   deckFitRenderFieldsChanged,
   hashSlideContent,
+  slideFitRenderFieldsChanged,
 } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
 import {
@@ -1074,7 +1076,11 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       if (!prior || !hasChangedFields(prior, op.fields)) return deck;
       const slides = deck.slides.map((s) => {
         if (s.id !== op.slideId) return s;
-        return { ...s, ...op.fields };
+        const next = { ...s, ...op.fields };
+        if (slideFitRenderFieldsChanged(s, next)) {
+          next.layoutFitRevision = createLayoutFitRevision();
+        }
+        return next;
       });
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
@@ -1132,9 +1138,21 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
     }
     case "patch-deck-fields": {
       if (!hasChangedFields(deck, op.fields)) return deck;
+      const deckFitChanged = deckFitRenderFieldsChanged(deck, {
+        ...deck,
+        ...op.fields,
+      });
       return {
         ...deck,
         ...op.fields,
+        ...(deckFitChanged
+          ? {
+              slides: deck.slides.map((slide) => ({
+                ...slide,
+                layoutFitRevision: createLayoutFitRevision(),
+              })),
+            }
+          : {}),
         updatedAt: new Date().toISOString(),
       } as Deck;
     }
@@ -3042,6 +3060,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
       const before = decksRef.current.find((d) => d.id === id);
+      const optimisticDeckFitChange = before
+        ? deckFitRenderFieldsChanged(before, { ...before, ...updates })
+        : false;
       // Enqueue a granular patch-deck-fields op — only the changed fields are
       // sent to the server, so concurrent edits to slides are never clobbered.
       // Exclude internal/derived fields that live only in client state.
@@ -3071,7 +3092,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setDecks((prev) =>
         prev.map((d) =>
           d.id === id
-            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
+            ? {
+                ...d,
+                ...updates,
+                ...(optimisticDeckFitChange
+                  ? {
+                      slides: d.slides.map((slide) => ({
+                        ...slide,
+                        layoutFitRevision: createLayoutFitRevision(),
+                      })),
+                    }
+                  : {}),
+                updatedAt: new Date().toISOString(),
+              }
             : d,
         ),
       );
@@ -3171,6 +3204,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ? "Update content"
             : "Edit slide";
       const before = decksRef.current.find((d) => d.id === deckId);
+      const previousSlide = before?.slides.find(
+        (slide) => slide.id === slideId,
+      );
+      const optimisticSlideFitChange =
+        !options?.preserveLocalState &&
+        !options?.recordUndoOnly &&
+        previousSlide &&
+        slideFitRenderFieldsChanged(previousSlide, {
+          ...previousSlide,
+          ...normalizedUpdates,
+        });
+      const localUpdates = optimisticSlideFitChange
+        ? { ...normalizedUpdates, layoutFitRevision: createLayoutFitRevision() }
+        : normalizedUpdates;
       const op: PatchDeckOp = {
         op: "patch-slide",
         slideId,
@@ -3191,7 +3238,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               return {
                 ...d,
                 slides: d.slides.map((s) =>
-                  s.id === slideId ? { ...s, ...normalizedUpdates } : s,
+                  s.id === slideId ? { ...s, ...localUpdates } : s,
                 ),
                 updatedAt: new Date().toISOString(),
               };
@@ -3214,7 +3261,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             return {
               ...d,
               slides: d.slides.map((s) =>
-                s.id === slideId ? { ...s, ...normalizedUpdates } : s,
+                s.id === slideId ? { ...s, ...localUpdates } : s,
               ),
               updatedAt: new Date().toISOString(),
             };

@@ -999,11 +999,38 @@ export function SlideInner({
     overflowByTargetRef.current.clear();
   }, [slide.id, slide.content, slide.layoutFitRevision, aspectRatio]);
 
+  const parsedExcalidrawData = slide.excalidrawData
+    ? parseExcalidrawData(slide.excalidrawData)
+    : null;
+  const hasExcalidraw = Boolean(parsedExcalidrawData?.elements?.length);
+
+  // Excalidraw is a fixed-size canvas and intentionally bypasses AutoFitContent.
+  // Report that finite canvas geometry so a drawing does not remain unknown to
+  // get-layout-overflows forever after its revision changes.
+  useEffect(() => {
+    if (!hasExcalidraw) return;
+    onOverflowChange?.({
+      contentHeight: dims.height,
+      contentWidth: dims.width,
+      viewportHeight: dims.height,
+      viewportWidth: dims.width,
+      verticalOverflow: 0,
+      horizontalOverflow: 0,
+    });
+    onAutofitSettled?.();
+  }, [
+    dims.height,
+    dims.width,
+    hasExcalidraw,
+    onAutofitSettled,
+    onOverflowChange,
+    slide.excalidrawData,
+    slide.id,
+    slide.layoutFitRevision,
+  ]);
+
   // If slide has excalidraw data, render it as a static SVG thumbnail
-  if (
-    slide.excalidrawData &&
-    parseExcalidrawData(slide.excalidrawData)?.elements?.length
-  ) {
+  if (slide.excalidrawData && parsedExcalidrawData?.elements?.length) {
     return (
       <div
         className={`relative ${bgClass}`}

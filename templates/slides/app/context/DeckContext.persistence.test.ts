@@ -402,6 +402,7 @@ describe("DeckContext deck creation persistence", () => {
           content: "<h1>Before</h1>",
           notes: "",
           layout: "title",
+          layoutFitRevision: "initial-revision",
         },
       ],
     });
@@ -575,6 +576,9 @@ describe("DeckContext deck creation persistence", () => {
         { persistence: "immediate" },
       );
     });
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).not.toBe("initial-revision");
     await act(async () => {
       await result.current.flushDeckSave(initial.id);
     });
@@ -680,8 +684,20 @@ describe("DeckContext deck creation persistence", () => {
       updatedAt: "2026-05-12T00:00:00.000Z",
       designSystemId: "ds-old",
       slides: [
-        { id: "slide-1", content: "<h1>One</h1>", notes: "", layout: "title" },
-        { id: "slide-2", content: "<h1>Two</h1>", notes: "", layout: "title" },
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "initial-revision-1",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "initial-revision-2",
+        },
       ],
     };
     const { setAccessibleDeck } = setupFetch({
@@ -704,9 +720,17 @@ describe("DeckContext deck creation persistence", () => {
       await result.current.reloadDecks();
     });
 
+    const beforeAspectRevisions = result.current
+      .getDeck(initial.id)
+      ?.slides.map((slide) => slide.layoutFitRevision);
     act(() => {
       result.current.updateDeck(initial.id, { aspectRatio: "4:3" });
     });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).not.toEqual(beforeAspectRevisions);
     await act(async () => {
       await result.current.flushDeckSave(initial.id);
     });
@@ -716,9 +740,17 @@ describe("DeckContext deck creation persistence", () => {
         ?.slides.map((slide) => slide.layoutFitRevision),
     ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
 
+    const beforeDesignSystemRevisions = result.current
+      .getDeck(initial.id)
+      ?.slides.map((slide) => slide.layoutFitRevision);
     act(() => {
       result.current.updateDeck(initial.id, { designSystemId: "ds-new" });
     });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).not.toEqual(beforeDesignSystemRevisions);
     await act(async () => {
       await result.current.flushDeckSave(initial.id);
     });
