@@ -300,6 +300,8 @@ export interface AssistantChatSendOptions {
   attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
 }
 
 export function createUserMessageRunConfig(
@@ -316,6 +318,7 @@ export function createUserMessageRunConfig(
     effort?: ReasoningEffort;
   },
   turnId?: string,
+  usageLabel?: string,
 ) {
   const custom: {
     references?: Reference[];
@@ -327,6 +330,7 @@ export function createUserMessageRunConfig(
     engine?: string;
     effort?: ReasoningEffort;
     turnId?: string;
+    usageLabel?: string;
   } = {};
   if (modelSnapshot?.model) custom.model = modelSnapshot.model;
   if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
@@ -348,6 +352,9 @@ export function createUserMessageRunConfig(
   }
   if (turnId) {
     custom.turnId = turnId;
+  }
+  if (usageLabel) {
+    custom.usageLabel = usageLabel;
   }
   const options: {
     runConfig?: { custom: typeof custom };
@@ -1804,6 +1811,8 @@ type QueuedMessage = {
   approvedToolCalls?: string[];
   /** Preserve the logical turn when a hidden reconnect recovery is re-issued. */
   turnId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -4777,6 +4786,7 @@ const AssistantChatInner = forwardRef<
                     effort: currentNext.effort,
                   },
                   currentNext.turnId,
+                  currentNext.usageLabel,
                 ).runConfig ?? {},
             });
             applyLocalQueuedMessages((prev) =>
@@ -4817,6 +4827,7 @@ const AssistantChatInner = forwardRef<
                   effort: currentNext.effort,
                 },
                 currentNext.turnId,
+                currentNext.usageLabel,
               ),
             } as Parameters<typeof threadRuntime.append>[0]);
           }
@@ -5218,6 +5229,7 @@ const AssistantChatInner = forwardRef<
               effort: message.effort,
             },
             message.turnId,
+            message.usageLabel,
           ),
           startRun: false,
         } as Parameters<typeof threadRuntime.append>[0]);
@@ -5260,6 +5272,7 @@ const AssistantChatInner = forwardRef<
       submitMessageId?: string,
       approvedToolCalls?: string[],
       continuationTurnId?: string,
+      usageLabel?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
@@ -5440,6 +5453,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
             approvedToolCalls,
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(usageLabel ? { usageLabel } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5463,6 +5477,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
             approvedToolCalls,
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(usageLabel ? { usageLabel } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5485,6 +5500,7 @@ const AssistantChatInner = forwardRef<
               hideUserMessage,
               undefined,
               continuationTurnId,
+              usageLabel,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5612,6 +5628,9 @@ const AssistantChatInner = forwardRef<
           false,
           false,
           options?.submitMessageId,
+          undefined,
+          undefined,
+          options?.usageLabel,
         );
       },
       prefillMessage(text: string) {
