@@ -254,7 +254,7 @@ product-boundary-gates:
   bowerbird-product-boundary: not-applicable
 acceptance-state:
   status: pending
-  summary: Shape is complete; implementation and exact-artifact real-interface proof have not begun.
+  summary: Work implementation and exact-artifact local MCP plus Content UI acceptance pass; post-merge beta verification remains a Land delivery gate.
   blockers: []
   last-land-packet: null
 ledger-revision: content-comment-actions-mcp-shape-v1
@@ -350,11 +350,13 @@ Local external-client evidence (task-owned fixture only):
   unchanged.
 - A mismatched document/comment pair returned `Comment not found`; a separately
   signed caller without document access returned `No access to document`.
-- The Content UI authenticated successfully and its action read returned the
-  exact document with HTTP 200, but the local in-app editor remained at
-  `Connecting live editor. Showing a read-only snapshot.` Chrome disconnected
-  before the alternate visible-state read could begin. UI parity therefore
-  remains an explicit acceptance gap rather than a claimed pass.
+- A fresh in-app browser run loaded the exact document body and comment panel.
+  The first paragraph matched the MCP edit; the second paragraph remained
+  unchanged and was the only visible unresolved highlight (`shxrdq4n66`).
+- The full first thread showed root `rl75rqy8jjf` and reply `7yu5q2b2ecp` with
+  the expected reply text. After restoring its resolution, the panel showed
+  exactly `Resolved (1)` while the unrelated second thread remained active.
+  This closes local visible-state parity for the persisted MCP result.
 
 Verification commands:
 
@@ -365,8 +367,8 @@ Verification commands:
   local runtime.
 - `git diff --check` — passed.
 
-Acceptance state: code and direct external MCP behavior pass locally. Visible UI
-parity and post-merge beta monitoring remain open delivery gates; neither is
+Acceptance state: code, direct external MCP behavior, and Content UI parity pass
+locally. Post-merge beta monitoring remains the Land delivery gate and is not
 claimed by this Work record.
 
 Resource cleanup: the task browser tab and MCP/runtime session were closed, the
@@ -375,6 +377,13 @@ and `/tmp/content-comment-actions-mcp-20260827` was confirmed absent after being
 moved to `/Users/alicemoore/.Trash/content-comment-actions-mcp-20260827-20260827T1900Z`.
 The declared resource status is `cleaned`; the Trash copy is recoverable and is
 not an active runtime resource.
+
+IAB parity resource transition (2026-08-28): the recoverable task fixture was
+temporarily restored at `/tmp/content-comment-actions-mcp-20260828`, exercised
+only through the local Content runtime and IAB, then closed and stopped. TCP
+port 43127 was confirmed unbound, the original path was confirmed absent, and
+the fixture was moved back to the recoverable Trash path
+`/Users/alicemoore/.Trash/content-comment-actions-mcp-20260828-iab-parity`.
 
 Independent technical review:
 
@@ -398,7 +407,6 @@ Work handoff:
 - implementation commit: `8abc2cd910`
 - draft pull request: https://github.com/BuilderIO/agent-native/pull/3772
 - integration state: not merged; merge and deploy remain prohibited in Work
-- remaining acceptance gates: visible Content UI parity for the persisted
-  comment state, then post-merge beta deployment monitoring and bounded beta
-  discovery/read/write verification
-- natural next stage after the visible UI gate is closed: `/land`
+- remaining acceptance gate: post-merge beta deployment monitoring and bounded
+  beta discovery/read/write verification
+- natural next stage: `/land`
