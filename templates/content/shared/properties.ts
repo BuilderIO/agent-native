@@ -512,7 +512,14 @@ export function normalizePropertyValue(
   switch (type) {
     case "number": {
       const numberValue =
-        typeof value === "number" ? value : Number(String(value).trim());
+        typeof value === "number"
+          ? value
+          : Number(
+              (typeof value === "string"
+                ? value
+                : (JSON.stringify(value) ?? "")
+              ).trim(),
+            );
       return Number.isFinite(numberValue) ? numberValue : null;
     }
     case "checkbox": {
@@ -533,7 +540,7 @@ export function normalizePropertyValue(
             .filter((item): item is string => typeof item === "string")
             .map((item) => item.trim())
             .filter(Boolean)
-        : String(value)
+        : (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
             .split(/\r?\n/)
             .map((item) => item.trim())
             .filter(Boolean);
@@ -547,7 +554,7 @@ export function normalizePropertyValue(
     // A Blocks field's value is its markdown content — a plain string, same
     // shape as `documents.content`.
     case "blocks":
-      return String(value);
+      return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
     case "date":
       return normalizeDatePropertyValue(value);
   }
@@ -603,7 +610,10 @@ export function formulaValueText(value: DocumentPropertyValue): string {
     const end = value.end?.trim();
     return end ? `${start} - ${end}` : start;
   }
-  return String(value);
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  return JSON.stringify(value) ?? "";
 }
 
 export function evaluatePropertyFormula(

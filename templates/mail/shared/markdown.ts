@@ -76,7 +76,7 @@ function createInlineTokenStore(): InlineTokenStore {
 }
 
 function count(value: string, char: string): number {
-  return [...value].filter((c) => c === char).length;
+  return Array.from(value).filter((c) => c === char).length;
 }
 
 function trimBareUrl(rawUrl: string): { url: string; trailing: string } {

@@ -113,13 +113,13 @@ export function useBuilderStatus({
       return;
     }
     setLoading(true);
-    fetchStatus();
+    void fetchStatus();
 
     function onFocus() {
-      fetchStatus();
+      void fetchStatus();
     }
     function onVisibility() {
-      if (document.visibilityState === "visible") fetchStatus();
+      if (document.visibilityState === "visible") void fetchStatus();
     }
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
@@ -594,6 +594,7 @@ export function useBuilderConnectFlow(
   // gesture path (browser/editor embeds).
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
+  const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
   // Keep onConnected in a ref so start() doesn't need to re-create when the
@@ -725,9 +726,9 @@ export function useBuilderConnectFlow(
         setError(null);
       }
     };
-    refresh();
+    void refresh();
     const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") void refresh();
     };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisible);
@@ -749,6 +750,7 @@ export function useBuilderConnectFlow(
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
       connectStartedAtRef.current = started;
+      callbackSuccessStartedAtRef.current = null;
       activeTrackingRef.current = {
         source: clickTrackingSource,
         flow: clickTrackingFlow,
@@ -1008,26 +1010,30 @@ export function useBuilderConnectFlow(
       setError(`Couldn't save Builder credentials: ${message}.`);
     };
     const handleSuccess = async () => {
+      const started = connectStartedAtRef.current;
+      if (started == null || callbackSuccessStartedAtRef.current === started) {
+        return;
+      }
+      callbackSuccessStartedAtRef.current = started;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
       for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
         s = await fetchStatus();
-        if (!mountedRef.current) return;
-        if (
-          s?.configured ||
-          isCurrentConnectError(s?.connectError, connectStartedAtRef.current)
-        ) {
+        if (!mountedRef.current || connectStartedAtRef.current !== started) {
+          return;
+        }
+        if (s?.configured || isCurrentConnectError(s?.connectError, started)) {
           break;
         }
         if (i < CALLBACK_SUCCESS_STATUS_RETRIES - 1) {
           await delay(CALLBACK_SUCCESS_STATUS_RETRY_MS);
         }
       }
-      if (!mountedRef.current) return;
-      if (!s?.configured) {
-        const connectError = isCurrentConnectError(
-          s?.connectError,
-          connectStartedAtRef.current,
-        )
+      if (!mountedRef.current || connectStartedAtRef.current !== started) {
+        return;
+      }
+      if (!s) return;
+      if (!s.configured) {
+        const connectError = isCurrentConnectError(s?.connectError, started)
           ? s?.connectError
           : null;
         setHasFetchedStatus(true);

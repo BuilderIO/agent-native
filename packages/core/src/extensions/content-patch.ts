@@ -212,7 +212,7 @@ function applyEdit(
         edit as Extract<ExtensionContentEdit, { op: "regex-replace" }>,
       );
     default:
-      throw new Error(`Unsupported extension edit operation: ${op}`);
+      throw new Error(`Unsupported extension edit operation: ${String(op)}`);
   }
 }
 

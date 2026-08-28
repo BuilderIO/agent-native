@@ -236,6 +236,7 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const canArchive = canEdit || canManage;
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -264,7 +265,7 @@ export default function ExplorerDashboardPage() {
   const { session } = useSession();
   const currentUser: CollabUser | undefined = session?.email
     ? {
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
       }
@@ -288,7 +289,7 @@ export default function ExplorerDashboardPage() {
     if (!ydoc || !collabSynced) return;
     const ytext = ydoc.getText("content");
     const handler = () => {
-      const raw = ytext.toString();
+      const raw = ytext.toJSON();
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as ExplorerDashboardData;
@@ -406,17 +407,17 @@ export default function ExplorerDashboardPage() {
   }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
 
   const handleArchive = useCallback(async () => {
-    if (!dashboardId || !canEdit) return;
+    if (!dashboardId || !canArchive) return;
     if (archivedAt) return;
     try {
       await callAction("archive-dashboard", {
         id: dashboardId,
         archived: true,
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
       toast.success(
@@ -424,7 +425,7 @@ export default function ExplorerDashboardPage() {
           name: dashboard?.name ?? t("explorerDashboard.dashboardFallback"),
         }),
       );
-      navigate("/dashboards/explorer");
+      void navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -434,11 +435,12 @@ export default function ExplorerDashboardPage() {
     }
   }, [
     dashboardId,
-    canEdit,
+    canArchive,
     archivedAt,
     queryClient,
     navigate,
     dashboard?.name,
+    t,
   ]);
 
   const handleUnhide = useCallback(async () => {
@@ -447,13 +449,13 @@ export default function ExplorerDashboardPage() {
       await hideDashboardAction({ id: dashboardId, hidden: false });
       setHiddenAt(null);
       setHiddenBy(null);
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-sidebar"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["data", "explorer-dashboard", dashboardId],
       });
       toast.success(
@@ -486,11 +488,11 @@ export default function ExplorerDashboardPage() {
         { queryKey: ["data", "explorer-dashboard", dashboardId] },
         (prev) => (prev ? { ...prev, data: updated } : prev),
       );
-      saveDashboard(dashboardId, updated).then(() => {
-        queryClient.invalidateQueries({
+      void saveDashboard(dashboardId, updated).then(() => {
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-palette"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["explorer-dashboards-sidebar"],
         });
       });
@@ -735,10 +737,10 @@ export default function ExplorerDashboardPage() {
                     </DropdownMenuItem>
                   </>
                 ) : null}
-                {dashboardId && canEdit && !archivedAt ? (
+                {dashboardId && canArchive && !archivedAt ? (
                   <DropdownMenuSeparator />
                 ) : null}
-                {canEdit && !archivedAt ? (
+                {canArchive && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -747,10 +749,10 @@ export default function ExplorerDashboardPage() {
                     }}
                   >
                     <IconArchive className="mr-2 h-3.5 w-3.5" />
-                    Archive
+                    {t("sidebar.archive")}
                   </DropdownMenuItem>
                 ) : null}
-                {canEdit && !archivedAt && canManage ? (
+                {canArchive && !archivedAt && canManage ? (
                   <DropdownMenuSeparator />
                 ) : null}
                 {canManage ? (
@@ -801,14 +803,14 @@ export default function ExplorerDashboardPage() {
                         await callAction("delete-explorer-dashboard", {
                           id: dashboardId,
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-sidebar"],
                         });
-                        queryClient.invalidateQueries({
+                        void queryClient.invalidateQueries({
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/dashboards/explorer");
+                        void navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error

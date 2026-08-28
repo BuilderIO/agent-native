@@ -67,7 +67,7 @@ function sheetCell(value: unknown): string | number | boolean {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value);
+    return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
   }
 }
 

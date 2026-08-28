@@ -29,4 +29,21 @@ describe("Design app shell", () => {
       /\.agent-sidebar-main-surface[^{]*\{[^}]*border-inline/s,
     );
   });
+
+  it("defines one baseline contract for the editor shell and fixed action rail", () => {
+    const css = readFileSync(new URL("./global.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toContain("--design-baseline-unit: 8px");
+    expect(css).toContain(
+      "--design-action-slot-width: calc(var(--design-baseline-unit) * 4)",
+    );
+    expect(css).toContain(
+      "--design-chrome-rail-width: calc(var(--design-baseline-unit) * 8)",
+    );
+    expect(css).toMatch(
+      /grid-template-columns:\s*minmax\(0, 1fr\)\s*repeat\(\s*2,\s*var\(--design-action-slot-width\)/,
+    );
+  });
 });

@@ -4,7 +4,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { loadCoreMessagesForLocale } from "../../localization/core-messages.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { AgentNativeI18nProvider } from "../i18n.js";
 import { registerFirstRunOnboardingExtension } from "./first-run-registry.js";
 import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 
@@ -49,6 +51,7 @@ describe("FirstRunOnboarding", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
+    mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.createMcpServer.mockReset();
     mocks.testMcpServer.mockReset();
     mocks.useBuilderConnectFlow.mockReset();
@@ -334,7 +337,7 @@ describe("FirstRunOnboarding", () => {
     ).toBeTruthy();
   });
 
-  it("skips the generic integrations catalog when configured for a workflow app", () => {
+  it("skips the generic integrations catalog but still asks for a role", () => {
     act(() => {
       root.render(
         <TooltipProvider>
@@ -362,10 +365,113 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(
-      document.body.querySelector("[data-onboarding-screen='ready']"),
+      document.body.querySelector("[data-onboarding-screen='role']"),
     ).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "Let’s customize this for you.",
+    );
     expect(document.body.textContent).not.toContain("This app is an agent.");
     expect(document.body.textContent).not.toContain("Agent integrations");
+  });
+
+  it("routes the optional integrations skip through the role step", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='onboarding-tools-footer'] button")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-screen='role']"),
+    ).toBeTruthy();
+    expect(mocks.completeFirstRun).not.toHaveBeenCalled();
+  });
+
+  it("saves the selected role before completing first-run onboarding", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector(
+          "[data-testid='onboarding-tools-footer'] button.bg-primary",
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-screen='role']"),
+    ).toBeTruthy();
+    expect(document.body.textContent).toContain("Product");
+    expect(document.body.textContent).toContain("Individual");
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-developer'] input")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-onboarding-screen='role'] button.bg-primary")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/onboarding/first-run/role"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ role: "developer" }),
+      }),
+    );
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
   });
 
   it("keeps first-run integrations disabled until scope metadata is ready", () => {
@@ -585,8 +691,8 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
     act(() => {
-      document.body
-        .querySelector('[data-testid="first-run-open-app"]')
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Skip for now")
         ?.click();
     });
 
@@ -608,5 +714,45 @@ describe("FirstRunOnboarding", () => {
       "first-run completion failed: 500",
     );
     expect(document.body.textContent).toContain("Try again");
+  });
+
+  it("renders the role step from the non-English core catalog", async () => {
+    const spanishMessages = await loadCoreMessagesForLocale("es-ES");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="es-ES"
+          initialPreference="es-ES"
+          initialMessages={spanishMessages}
+          persistPreference={false}
+        >
+          <TooltipProvider>
+            <FirstRunOnboarding skipIntegrations />
+          </TooltipProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Personalicemos esto para ti.");
+    expect(document.body.textContent).toContain("Producto");
+    expect(document.body.textContent).toContain("Desarrollo");
+    expect(document.body.textContent).not.toMatch(/\bProduct\b/);
   });
 });

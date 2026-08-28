@@ -493,10 +493,18 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = source as Record<string, unknown>;
-      const provider = String(record.provider ?? "")
+      const provider = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
-      const via = String(record.via ?? "")
+      const via = (
+        typeof record.via === "string"
+          ? record.via
+          : (JSON.stringify(record.via) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (provider === "first-party" || via === "built-in") continue;
@@ -524,7 +532,11 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = provider as Record<string, unknown>;
-      const providerId = String(record.provider ?? "")
+      const providerId = (
+        typeof record.provider === "string"
+          ? record.provider
+          : (JSON.stringify(record.provider) ?? "")
+      )
         .trim()
         .toLowerCase();
       if (providerId === "first-party") continue;

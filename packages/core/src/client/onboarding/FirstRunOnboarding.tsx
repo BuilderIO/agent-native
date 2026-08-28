@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import {
   buildMcpOAuthStartUrl,
@@ -42,6 +43,7 @@ import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
+import { saveFirstRunOnboardingRole } from "./first-run-status.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -50,9 +52,24 @@ type FirstRunScreen =
   | "choice"
   | "manual"
   | "tools"
+  | "role"
   | "connecting"
   | "ready"
   | "extension";
+
+const FIRST_RUN_ROLE_OPTIONS = [
+  { value: "product", labelKey: "agentChat.onboarding.roleProduct" },
+  { value: "design", labelKey: "agentChat.onboarding.roleDesign" },
+  { value: "developer", labelKey: "agentChat.onboarding.roleDeveloper" },
+  { value: "marketing", labelKey: "agentChat.onboarding.roleMarketing" },
+  { value: "sales", labelKey: "agentChat.onboarding.roleSales" },
+  { value: "ops", labelKey: "agentChat.onboarding.roleOps" },
+  {
+    value: "individual",
+    labelKey: "agentChat.onboarding.roleIndividual",
+  },
+  { value: "other", labelKey: "agentChat.onboarding.roleOther" },
+] as const;
 
 const BUILDER_MORE_SERVICES = [
   "Voice input",
@@ -76,6 +93,7 @@ export function FirstRunOnboarding({
   skipIntegrations = shouldSkipFirstRunIntegrations(),
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
+  const t = useT();
   const previewMode = useOnboardingPreviewMode();
   const {
     firstRun,
@@ -94,6 +112,9 @@ export function FirstRunOnboarding({
   }, [completeFirstRun]);
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [savingRole, setSavingRole] = useState(false);
+  const [roleSaveError, setRoleSaveError] = useState<string | null>(null);
   const [integrationQuery, setIntegrationQuery] = useState("");
   const [integrationDialogId, setIntegrationDialogId] = useState<string | null>(
     null,
@@ -129,7 +150,8 @@ export function FirstRunOnboarding({
       mcpServersQuery.data?.role === "admin"),
   );
 
-  const showTools = () => setScreen(skipIntegrations ? "ready" : "tools");
+  const showTools = () => setScreen(skipIntegrations ? "role" : "tools");
+  const roleBackScreen = skipIntegrations ? "manual" : "tools";
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
     provisionAccount: true,
@@ -204,6 +226,24 @@ export function FirstRunOnboarding({
     }
     setExtensionIndex(0);
     setScreen("extension");
+  };
+
+  const handleRoleContinue = async () => {
+    if (!selectedRole || savingRole) return;
+    setSavingRole(true);
+    setRoleSaveError(null);
+    try {
+      if (!previewMode) await saveFirstRunOnboardingRole(selectedRole);
+      handleFinish();
+    } catch (error) {
+      setRoleSaveError(
+        error instanceof Error
+          ? error.message
+          : t("agentChat.onboarding.saveRoleError"),
+      );
+    } finally {
+      setSavingRole(false);
+    }
   };
 
   const returnUrl =
@@ -587,7 +627,7 @@ export function FirstRunOnboarding({
               <button
                 type="button"
                 className={secondaryButtonClass}
-                onClick={() => setScreen(skipIntegrations ? "ready" : "tools")}
+                onClick={() => setScreen(skipIntegrations ? "role" : "tools")}
               >
                 {skipIntegrations ? "Continue" : "Continue to tools"}
               </button>
@@ -611,16 +651,16 @@ export function FirstRunOnboarding({
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => setScreen("role")}
             >
-              Skip for now
+              {t("agentChat.onboarding.skipForNow")}
             </button>
             <button
               type="button"
               className={primaryButtonClass}
-              onClick={handleFinish}
+              onClick={() => setScreen("role")}
             >
-              Continue
+              {t("agentChat.common.continue")}
               <IconArrowRight size={15} />
             </button>
           </div>
@@ -724,6 +764,90 @@ export function FirstRunOnboarding({
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrg}
             onCreateMcpServer={createMcpServer.mutateAsync}
+          />
+        )}
+      </OnboardingShell>
+    );
+  }
+
+  if (screen === "role") {
+    return (
+      <OnboardingShell profile={profile} screen="role">
+        <div
+          className="mx-auto flex w-full max-w-md flex-col"
+          data-testid="first-run-role"
+        >
+          <button
+            type="button"
+            className="mb-5 self-start text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setScreen(roleBackScreen)}
+          >
+            {t("agentChat.onboarding.back")}
+          </button>
+          <h1 className="text-2xl font-semibold tracking-[-0.05em] sm:text-3xl">
+            {t("agentChat.onboarding.customizeRole")}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t("agentChat.onboarding.roleQuestion")}
+          </p>
+          <fieldset className="mt-7 grid gap-2">
+            <legend className="sr-only">
+              {t("agentChat.onboarding.chooseRole")}
+            </legend>
+            {FIRST_RUN_ROLE_OPTIONS.map(({ value, labelKey }) => (
+              <label
+                key={value}
+                data-testid={`first-run-role-${value}`}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
+                  selectedRole === value
+                    ? "bg-primary/[0.06] ring-1 ring-primary/30"
+                    : "bg-muted/35 hover:bg-muted/50",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="first-run-role"
+                  value={value}
+                  checked={selectedRole === value}
+                  onChange={() => setSelectedRole(value)}
+                  className="size-4 accent-primary"
+                />
+                <span>{t(labelKey)}</span>
+              </label>
+            ))}
+          </fieldset>
+          {roleSaveError && (
+            <p className="mt-4 text-xs leading-5 text-destructive" role="alert">
+              {roleSaveError}
+            </p>
+          )}
+          <div className="mt-6 flex justify-between gap-2">
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={handleFinish}
+              disabled={savingRole}
+            >
+              {t("agentChat.onboarding.skipForNow")}
+            </button>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              onClick={() => void handleRoleContinue()}
+              disabled={!selectedRole || savingRole}
+            >
+              {savingRole
+                ? t("agentChat.common.saving")
+                : t("agentChat.common.continue")}
+              {!savingRole && <IconArrowRight size={15} />}
+            </button>
+          </div>
+        </div>
+        {completeFirstRunError && (
+          <FirstRunCompletionError
+            message={completeFirstRunError}
+            onRetry={finishOnboarding}
           />
         )}
       </OnboardingShell>
@@ -857,7 +981,7 @@ function OnboardingShell({
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools" | "ready";
+  screen: "intro" | "choice" | "tools" | "role" | "ready";
   footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -879,7 +1003,7 @@ function OnboardingShell({
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools" || screen === "ready"
+                : screen === "tools" || screen === "role" || screen === "ready"
                   ? "100%"
                   : "66.66%",
           }}
@@ -1035,7 +1159,7 @@ function CapabilityInfoButton({
 }
 
 const primaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 /** Inline failure signal for a failed completeFirstRun() call — keeps the
  *  user on their current screen with a way forward, instead of swapping to
@@ -1063,7 +1187,7 @@ function FirstRunCompletionError({
 }
 
 const secondaryButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 function compareUrl(value: string): string {
   try {

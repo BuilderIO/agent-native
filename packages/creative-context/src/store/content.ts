@@ -180,8 +180,12 @@ function isUniqueConstraintError(error: unknown): boolean {
   for (let depth = 0; current && depth < 4; depth += 1) {
     if (typeof current !== "object") break;
     const candidate = current as Record<string, unknown>;
-    const code = String(candidate.code ?? candidate.errno ?? "").toUpperCase();
-    const message = String(candidate.message ?? "");
+    const codeValue = candidate.code ?? candidate.errno ?? "";
+    const code = String(codeValue as string | number | boolean).toUpperCase();
+    const message =
+      typeof candidate.message === "object"
+        ? JSON.stringify(candidate.message)
+        : String(candidate.message as string | number | boolean | undefined);
     if (
       code === "23505" ||
       code.includes("SQLITE_CONSTRAINT") ||

@@ -8682,6 +8682,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
+        var previewStyles = {
+          position: resizeEl.style.position,
+          left: resizeEl.style.left,
+          top: resizeEl.style.top
+        };
+        if (widthTouched) previewStyles.width = resizeEl.style.width;
+        if (heightTouched) previewStyles.height = resizeEl.style.height;
+        if (scaleToolEnabled && originBorderWidth > 0) {
+          previewStyles.borderWidth = resizeEl.style.borderWidth;
+        }
+        if (scaleToolEnabled && originFontSize > 0) {
+          previewStyles.fontSize = resizeEl.style.fontSize;
+        }
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: previewStyles,
+            payload: getElementInfo(resizeEl)
+          },
+          "*"
+        );
         refreshOverlays();
       }
       function cleanupResizeDrag() {
@@ -8707,6 +8730,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
+          var restoredComputed = window.getComputedStyle(resizeEl);
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              phase: "preview",
+              selector: getSelector(resizeEl),
+              styles: {
+                position: restoredComputed.position,
+                left: restoredComputed.left,
+                top: restoredComputed.top,
+                width: restoredComputed.width,
+                height: restoredComputed.height,
+                borderWidth: restoredComputed.borderWidth,
+                fontSize: restoredComputed.fontSize
+              },
+              payload: getElementInfo(resizeEl)
+            },
+            "*"
+          );
         }
         suppressNextShieldClickBriefly();
         refreshOverlays();
@@ -8745,6 +8787,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "visual-style-change",
+            phase: "commit",
             selector: getSelector(resizeEl),
             styles,
             originalStyles: originalInlineStylesForPatch(resizeEl, styles),

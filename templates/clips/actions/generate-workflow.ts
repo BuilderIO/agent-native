@@ -101,7 +101,9 @@ export default defineAction({
 
       const existing = await readAppState(stateKey);
       if (existing?.status === "generating") {
-        const requestedAt = Date.parse(String(existing.requestedAt ?? ""));
+        const requestedAt = Date.parse(
+          typeof existing.requestedAt === "string" ? existing.requestedAt : "",
+        );
         const isRecent =
           !Number.isFinite(requestedAt) ||
           Date.now() - requestedAt < 10 * 60_000;

@@ -469,7 +469,7 @@ export function AgentTerminal({
     }
 
     let cleanup: (() => void) | undefined;
-    init().then((fn) => {
+    void init().then((fn) => {
       cleanup = fn;
     });
 

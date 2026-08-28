@@ -47,6 +47,7 @@ export interface ShareButtonSharesResponse {
 export interface ShareButtonOrgMember {
   email: string;
   name?: string | null;
+  image?: string | null;
   role?: string | null;
   joinedAt?: number | null;
 }
@@ -158,7 +159,7 @@ export function useShareButtonController(
       if (nextOpen) {
         setActiveShareTab(shareTabDefaultValue);
         options.shareTabs?.onValueChange?.(shareTabDefaultValue);
-        if (visibilityOverride === null) sharesQuery.refetch();
+        if (visibilityOverride === null) void sharesQuery.refetch();
       }
     },
     [options, shareTabDefaultValue, sharesQuery, visibilityOverride],
@@ -305,7 +306,7 @@ export function useShareButtonController(
   }, []);
 
   useEffect(() => {
-    sharesQuery.refetch();
+    void sharesQuery.refetch();
     // The resource identity is intentionally stable for this controller.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -445,7 +446,7 @@ export function useShareButtonController(
       } as never,
       {
         onSuccess: () => {
-          sharesQuery.refetch().then(() => {
+          void sharesQuery.refetch().then(() => {
             setPendingAdds((previous) =>
               previous.filter((item) => item.id !== optimistic.id),
             );
@@ -470,7 +471,6 @@ export function useShareButtonController(
     addInFlight,
     canManage,
     clearInFlight,
-    inFlight,
     inviteEmail,
     notifyPeople,
     options.resourceId,
@@ -521,7 +521,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
-            sharesQuery.refetch().then(() => {
+            void sharesQuery.refetch().then(() => {
               setRoleOverrides((previous) => {
                 const { [key]: _removed, ...rest } = previous;
                 return rest;
@@ -545,7 +545,6 @@ export function useShareButtonController(
       addInFlight,
       canManage,
       clearInFlight,
-      inFlight,
       options.resourceId,
       options.resourceType,
       queryClient,
@@ -586,7 +585,7 @@ export function useShareButtonController(
         } as never,
         {
           onSuccess: () => {
-            sharesQuery.refetch().then(() => {
+            void sharesQuery.refetch().then(() => {
               setPendingRemoves((previous) => {
                 const next = new Set(previous);
                 next.delete(key);
@@ -612,7 +611,6 @@ export function useShareButtonController(
       addInFlight,
       canManage,
       clearInFlight,
-      inFlight,
       options.resourceId,
       options.resourceType,
       queryClient,

@@ -6,7 +6,7 @@ import {
 } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getHeader } from "h3";
+import { getHeader, getRequestIP } from "h3";
 
 import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
@@ -21,6 +21,7 @@ import {
   getOrigin,
   getOAuthStateSigningKey,
   isAllowedOAuthRedirectUri,
+  isConfiguredAppOrigin,
 } from "./google-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -171,7 +172,12 @@ export function isBuilderConnectCallbackUrlAllowed(
   candidate: string,
   event: H3Event,
 ): boolean {
-  if (!isAllowedOAuthRedirectUri(candidate, event)) return false;
+  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  if (
+    !callbackOrigin ||
+    !isAllowedOAuthRedirectUri(candidate, event, callbackOrigin)
+  )
+    return false;
   let url: URL;
   try {
     url = new URL(candidate);
@@ -205,11 +211,13 @@ export function resolveBuilderConnectCallbackUrl(
   state?: string,
 ): string | null {
   const stateSuffix = state ? `?state=${encodeURIComponent(state)}` : "";
-  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
+  const callbackOrigin = getBuilderConnectCallbackOrigin(event);
+  if (!callbackOrigin) return null;
+  const withBase = `${callbackOrigin}${getAppBasePath()}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
   // Match google-oauth default-redirect behavior when the request is not under
   // APP_BASE_PATH: fall back to the root `/_agent-native/...` callback.
-  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
+  const root = `${callbackOrigin}${BUILDER_CALLBACK_PATH}${stateSuffix}`;
   if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
     return root;
   }
@@ -1189,6 +1197,7 @@ export function buildBuilderCliAuthUrl(
     "preview_url",
     `${normalizedPreviewOrigin}${appBasePath}`,
   );
+  url.searchParams.set("cli", "true");
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
   applyBuilderUtmTrackingParams(url.searchParams, {
@@ -1238,6 +1247,46 @@ function readEventHeader(event: H3Event, name: string): string | undefined {
   }
 }
 
+function getBuilderRequestHost(event: H3Event): string | undefined {
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const forwardedHost = firstHeaderValue(
+    readEventHeader(event, "x-forwarded-host"),
+  );
+  // Only the local proxy boundary may replace the request host with a
+  // forwarded Builder preview host. Direct requests keep their own Host so a
+  // caller cannot steer OAuth redirects with an arbitrary forwarded header.
+  if (
+    forwardedHost &&
+    requestHost &&
+    isLoopbackBuilderRequestHost(requestHost)
+  ) {
+    return isLoopbackBuilderProxyPeer(event) ? forwardedHost : undefined;
+  }
+  if (
+    requestHost &&
+    isBuilderCloudRequestHost(requestHost) &&
+    !isConfiguredBuilderRequestHost(event, requestHost)
+  ) {
+    return undefined;
+  }
+  return requestHost;
+}
+
+function isLoopbackBuilderProxyPeer(event: H3Event): boolean {
+  try {
+    const ip = getRequestIP(event, { xForwardedFor: false });
+    return (
+      ip === "127.0.0.1" ||
+      ip === "::1" ||
+      ip === "::ffff:127.0.0.1" ||
+      ip?.startsWith("127.") === true
+    );
+    // coercion-ok: unavailable peer data is not trusted as a proxy.
+  } catch {
+    return false;
+  }
+}
+
 function isTrustedBuilderRequestHost(host: string | undefined): boolean {
   if (!host) return false;
   try {
@@ -1256,11 +1305,54 @@ function isTrustedBuilderRequestHost(host: string | undefined): boolean {
       hostname === "builder.io" ||
       hostname.endsWith(".builder.io") ||
       hostname === "builder.my" ||
-      hostname.endsWith(".builder.my")
+      hostname.endsWith(".builder.my") ||
+      hostname === "builder.cloud" ||
+      hostname.endsWith(".builder.cloud")
     );
   } catch {
     return false;
   }
+}
+
+function isBuilderCloudRequestHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
+    return hostname === "builder.cloud" || hostname.endsWith(".builder.cloud");
+  } catch {
+    // coercion-ok: malformed hosts cannot be trusted as Builder Cloud origins.
+    return false;
+  }
+}
+
+function isConfiguredBuilderRequestHost(event: H3Event, host: string): boolean {
+  const proto =
+    firstHeaderValue(readEventHeader(event, "x-forwarded-proto")) ||
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+  return isConfiguredAppOrigin(`${proto}://${host}`);
+}
+
+function getBuilderConnectCallbackOrigin(event: H3Event): string | null {
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const headerHost = getBuilderRequestHost(event);
+  if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
+    return getConfiguredBuilderFallbackOrigin(event);
+  }
+  return isBuilderCloudRequestHost(headerHost)
+    ? getBuilderBrowserOriginForEvent(event)
+    : getOrigin(event, { useForwardedHost: false });
+}
+
+function isRejectedDirectBuilderCloudHost(
+  requestHost: string | undefined,
+  resolvedHost: string | undefined,
+): boolean {
+  return isBuilderCloudRequestHost(requestHost) && requestHost !== resolvedHost;
+}
+
+function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
+  const origin = getOrigin(event, { useForwardedHost: false });
+  return isConfiguredAppOrigin(origin) ? origin : null;
 }
 
 function isLoopbackBuilderRequestHost(host: string | undefined): boolean {
@@ -1306,11 +1398,14 @@ function firstPublicBuilderPreviewOriginFromEnv(): string | null {
  * the same deployment that minted the signed connect token.
  */
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
-  const headerHost = firstHeaderValue(
-    readEventHeader(event, "x-forwarded-host") ||
-      readEventHeader(event, "host"),
-  );
-  if (!isTrustedBuilderRequestHost(headerHost)) return getOrigin(event);
+  const requestHost = firstHeaderValue(readEventHeader(event, "host"));
+  const headerHost = getBuilderRequestHost(event);
+  if (isRejectedDirectBuilderCloudHost(requestHost, headerHost)) {
+    return getConfiguredBuilderFallbackOrigin(event) ?? "";
+  }
+  if (!isTrustedBuilderRequestHost(headerHost)) {
+    return getOrigin(event, { useForwardedHost: false });
+  }
   if (isLoopbackBuilderRequestHost(headerHost)) {
     const publicPreviewOrigin = firstPublicBuilderPreviewOriginFromEnv();
     if (publicPreviewOrigin) return publicPreviewOrigin;
@@ -1377,7 +1472,7 @@ export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
     credentialSource: envManaged ? "env" : undefined,
     appHost: getBuilderAppHost(),
     apiHost: getBuilderApiHost(),
-    connectUrl: getBuilderBrowserConnectUrl(origin),
+    connectUrl: origin ? getBuilderBrowserConnectUrl(origin) : "",
     publicKeyConfigured: !!process.env.BUILDER_PUBLIC_KEY,
     privateKeyConfigured: !!process.env.BUILDER_PRIVATE_KEY,
     userId: process.env.BUILDER_USER_ID || undefined,

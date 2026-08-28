@@ -166,13 +166,17 @@ describe("Builder account provisioning", () => {
   });
 });
 
-function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
+function createBuilderBrowserEvent(
+  headers: Record<string, string>,
+  remoteAddress = "127.0.0.1",
+): H3Event {
   const requestHeaders = new Headers(headers);
   return {
     req: {
       method: "GET",
       url: "https://agent-workspace.builder.io/_agent-native/builder/status",
       headers: requestHeaders,
+      context: { clientAddress: remoteAddress },
     },
     url: new URL(
       "https://agent-workspace.builder.io/_agent-native/builder/status",
@@ -184,6 +188,7 @@ function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
     node: {
       req: {
         headers,
+        socket: { remoteAddress },
         url: "/_agent-native/builder/status",
         method: "GET",
       },
@@ -192,6 +197,32 @@ function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
     context: {},
     path: "/_agent-native/builder/status",
   } as unknown as H3Event;
+}
+
+const BUILDER_ORIGIN_ENV_KEYS = [
+  "WORKSPACE_OAUTH_ORIGIN",
+  "VITE_WORKSPACE_OAUTH_ORIGIN",
+  "APP_URL",
+  "VITE_APP_URL",
+  "BETTER_AUTH_URL",
+  "VITE_BETTER_AUTH_URL",
+  "URL",
+  "DEPLOY_URL",
+  "WORKSPACE_GATEWAY_URL",
+  "VITE_WORKSPACE_GATEWAY_URL",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+  "BUILDER_PREVIEW_URL",
+  "VITE_BUILDER_PREVIEW_URL",
+] as const;
+
+function clearBuilderOriginEnv(): void {
+  for (const key of BUILDER_ORIGIN_ENV_KEYS) delete process.env[key];
+}
+
+function setOnlyBuilderAppUrl(origin: string): void {
+  clearBuilderOriginEnv();
+  process.env.APP_URL = origin;
 }
 
 describe("Builder callback CSRF state", () => {
@@ -528,6 +559,151 @@ describe("Builder callback CSRF state", () => {
       );
     });
 
+    it("keeps Builder-hosted app connect callbacks on the active app origin", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
+      const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
+        "x-forwarded-host": "the-grand-tour.builder.cloud",
+        "x-forwarded-proto": "https",
+      });
+
+      const callbackUrl = resolveBuilderConnectCallbackUrl(
+        event,
+        "<STATE_EXAMPLE>",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://the-grand-tour.builder.cloud/_agent-native/builder/connect",
+      );
+      expect(callbackUrl).toBe(
+        "https://the-grand-tour.builder.cloud/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+      expect(isBuilderConnectCallbackUrlAllowed(callbackUrl!, event)).toBe(
+        true,
+      );
+      expect(
+        isBuilderConnectCallbackUrlAllowed(
+          "https://other.builder.cloud/_agent-native/builder/callback",
+          event,
+        ),
+      ).toBe(false);
+    });
+
+    it("ignores a spoofed Builder Cloud forwarded host from a direct request", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
+      const event = createBuilderBrowserEvent({
+        host: "app.example.com",
+        "x-forwarded-host": "attacker.builder.cloud",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+    });
+
+    it("ignores a forwarded Builder Cloud host without a proxy host", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "attacker.builder.cloud",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://default-template.netlify.app",
+      );
+    });
+
+    it("ignores a forwarded Builder Cloud host from an untrusted loopback host", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
+      const event = createBuilderBrowserEvent(
+        {
+          host: "127.0.0.1:8080",
+          "x-forwarded-host": "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://default-template.netlify.app",
+      );
+    });
+
+    it("ignores an unconfigured direct Builder Cloud host", () => {
+      process.env.NODE_ENV = "production";
+      setOnlyBuilderAppUrl("https://default-template.netlify.app");
+      const event = createBuilderBrowserEvent(
+        {
+          host: "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://default-template.netlify.app",
+      );
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        "https://default-template.netlify.app/_agent-native/builder/callback?state=%3CSTATE_EXAMPLE%3E",
+      );
+    });
+
+    it("fails closed for a direct Builder Cloud host without origin config", () => {
+      process.env.NODE_ENV = "production";
+      clearBuilderOriginEnv();
+      const event = createBuilderBrowserEvent(
+        {
+          host: "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserOriginForEvent(event)).toBe("");
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe("");
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe("");
+      expect(resolveBuilderConnectCallbackUrl(event, "<STATE_EXAMPLE>")).toBe(
+        null,
+      );
+    });
+
+    it("does not reuse a rejected forwarded host without a configured origin", () => {
+      process.env.NODE_ENV = "production";
+      clearBuilderOriginEnv();
+      const event = createBuilderBrowserEvent(
+        {
+          host: "127.0.0.1:8080",
+          "x-forwarded-host": "attacker.builder.cloud",
+          "x-forwarded-proto": "https",
+        },
+        "203.0.113.10",
+      );
+
+      expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+        "https://127.0.0.1:8080/_agent-native/builder/connect",
+      );
+      expect(getBuilderCliAuthCallbackOriginForEvent(event)).toBe(
+        "https://127.0.0.1:8080",
+      );
+    });
+
     it("recovers state from the callback cookie when Builder omits query state", () => {
       const state = createBuilderConnectState();
       const otherState = createBuilderConnectState();
@@ -585,6 +761,7 @@ describe("Builder callback CSRF state", () => {
       expect(redirectUrl).toBeTruthy();
       const parsedRedirect = new URL(redirectUrl!);
       expect(parsedRedirect.pathname).toBe(BUILDER_CALLBACK_PATH);
+      expect(parsed.searchParams.get("cli")).toBe("true");
       // No _an_state — Builder can safely append its own params.
       expect(parsedRedirect.searchParams.has(BUILDER_STATE_PARAM)).toBe(false);
     });
@@ -711,11 +888,12 @@ describe("Builder callback CSRF state", () => {
     it("uses a Builder-accepted gateway callback for preview-host cli-auth redirects", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
-      process.env.APP_URL = "https://agent-workspace.builder.io";
+      setOnlyBuilderAppUrl("https://agent-workspace.builder.io");
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
       process.env.APP_BASE_PATH = "/dispatch";
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host":
           "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
         "x-forwarded-proto": "https",
@@ -754,10 +932,12 @@ describe("Builder callback CSRF state", () => {
     it("keeps Builder preview connect URLs on the preview deployment in workspace mode", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
+      clearBuilderOriginEnv();
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
       process.env.APP_BASE_PATH = "/dispatch";
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host":
           "940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
         "x-forwarded-proto": "https",
@@ -771,12 +951,14 @@ describe("Builder callback CSRF state", () => {
     it("uses Fusion's public preview origin instead of a loopback gateway for Builder connect", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
+      clearBuilderOriginEnv();
       process.env.WORKSPACE_GATEWAY_URL = "http://127.0.0.1:8080";
       process.env.FUSION_ENV_ORIGIN =
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz";
       process.env.APP_BASE_PATH = "/dispatch";
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "127.0.0.1:8080",
         "x-forwarded-proto": "http",
       });
@@ -928,7 +1110,7 @@ describe("Builder callback CSRF state", () => {
     it("returns users to the preview opener after a gateway callback", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
-      process.env.APP_URL = "https://agent-workspace.builder.io";
+      setOnlyBuilderAppUrl("https://agent-workspace.builder.io");
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
       process.env.APP_BASE_PATH = "/dispatch";
 
@@ -952,6 +1134,7 @@ describe("Builder callback CSRF state", () => {
     it("falls back to the configured public origin for untrusted hosts", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";
+      clearBuilderOriginEnv();
       process.env.WORKSPACE_GATEWAY_URL = "https://agent-workspace.builder.io";
 
       const event = createBuilderBrowserEvent({
@@ -971,18 +1154,10 @@ describe("Builder callback CSRF state", () => {
       // Builder redirects to its own dead http://localhost:10110/auth.
       delete process.env.NODE_ENV;
       process.env.PORT = "8080";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
+      clearBuilderOriginEnv();
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "alice.builderio.xyz",
         "x-forwarded-proto": "https",
       });
@@ -995,18 +1170,10 @@ describe("Builder callback CSRF state", () => {
     it("does not use the localhost cli-auth fallback in production", () => {
       process.env.NODE_ENV = "production";
       process.env.PORT = "8080";
-      for (const key of [
-        "APP_URL",
-        "VITE_APP_URL",
-        "BETTER_AUTH_URL",
-        "VITE_BETTER_AUTH_URL",
-        "WORKSPACE_GATEWAY_URL",
-        "VITE_WORKSPACE_GATEWAY_URL",
-      ]) {
-        delete process.env[key];
-      }
+      clearBuilderOriginEnv();
 
       const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8080",
         "x-forwarded-host": "alice.builderio.xyz",
         "x-forwarded-proto": "https",
       });

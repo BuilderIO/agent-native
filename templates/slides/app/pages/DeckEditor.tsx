@@ -93,7 +93,10 @@ import {
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
-import { shouldSuppressSlidesItalicShortcut } from "@/lib/editor-shortcuts";
+import {
+  shouldActivateSlidesCommentShortcut,
+  shouldSuppressSlidesItalicShortcut,
+} from "@/lib/editor-shortcuts";
 import {
   exportDeckToGoogleSlides,
   fetchDeckPptxFromServer,
@@ -397,7 +400,7 @@ export default function DeckEditor() {
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deck?.title]);
+  }, [deck]);
 
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
@@ -447,6 +450,7 @@ export default function DeckEditor() {
       [
         "The user answered the pre-generation questions.",
         `Deck ID: ${id}`,
+        "Before generating, call get-deck for this deck and recover generationContext. Continue the original brief and target slide count; do not treat these answers as a new unrelated request.",
         "",
         "Answers:",
         formattedAnswers,
@@ -1006,6 +1010,36 @@ export default function DeckEditor() {
   }, [canEdit]);
 
   useEffect(() => {
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      const activeElement = document.activeElement;
+      if (
+        !shouldActivateSlidesCommentShortcut(event, {
+          canComment,
+          activeElement,
+          focusedCanvas:
+            activeElement?.closest("[data-slide-canvas-focus='true']") !== null,
+          blockingSurfaceOpen:
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox'], [data-slide-comment-popover], [data-pin-popover]",
+            ) !== null,
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      setDrawMode(false);
+      setTextBoxMode(false);
+      setPinMode(true);
+      setShapeType(null);
+    };
+
+    document.addEventListener("keydown", handleCommentShortcut);
+    return () => document.removeEventListener("keydown", handleCommentShortcut);
+  }, [canComment]);
+
+  useEffect(() => {
     const handleItalicShortcut = (event: KeyboardEvent) => {
       if (!shouldSuppressSlidesItalicShortcut(event)) return;
       event.preventDefault();
@@ -1398,7 +1432,7 @@ export default function DeckEditor() {
   const currentUser = session?.email
     ? {
         email: session.email,
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         color: emailToColor(session.email),
       }
     : undefined;
@@ -1528,7 +1562,7 @@ export default function DeckEditor() {
         return;
       }
       presentNavigationRef.current = true;
-      navigate(presentationUrl);
+      void navigate(presentationUrl);
     } catch (error) {
       if (presentAttemptRef.current !== attemptId) {
         if (target && !target.closed) target.close();
@@ -1678,11 +1712,11 @@ export default function DeckEditor() {
             // send them back instead of stranding them on a "Deck
             // unavailable" screen for a deck that no longer exists.
             if (deckIdFromPathname(window.location.pathname) === newId) {
-              navigate("/");
+              void navigate("/");
             }
             toast.error(t("home.duplicateFailed"));
           });
-          if (optimistic) navigate(`/deck/${optimistic.id}`);
+          if (optimistic) void navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
           try {
@@ -1870,6 +1904,8 @@ export default function DeckEditor() {
             deckId={id}
             flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
+            canComment={canComment}
+            comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
             contextToolbarLeading={
@@ -1944,15 +1980,6 @@ export default function DeckEditor() {
             onOpenAnimations={openAnimationsForTarget}
             onSelectedAnimationTargetChange={setAnimationTarget}
             slideId={currentSlide.id}
-            slideTitle={(() => {
-              const m = currentSlide.content?.match(
-                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-              );
-              return (
-                m?.[1]?.trim() ||
-                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-              );
-            })()}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}

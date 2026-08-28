@@ -56,7 +56,7 @@ export default function DesignSystems() {
   const handleSetDefault = async (id: string, isDefault: boolean) => {
     try {
       await callAction("set-default-design-system", { id, isDefault });
-      refetch();
+      void refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);
     }
@@ -72,7 +72,7 @@ export default function DesignSystems() {
           resourceId: ds.id,
           visibility: "org",
         });
-        refetch();
+        void refetch();
       }
       await callAction("set-workspace-defaults", { designSystemId: ds.id });
       await refetchWorkspaceDefaults();
@@ -120,7 +120,7 @@ export default function DesignSystems() {
   const handleComplete = () => {
     setShowSetup(false);
     setEditingId(null);
-    refetch();
+    void refetch();
   };
 
   const handleClose = () => {
@@ -175,7 +175,7 @@ export default function DesignSystems() {
           {t("designSystems.new")}
         </Button>
       ),
-      [],
+      [t],
     ),
   );
 

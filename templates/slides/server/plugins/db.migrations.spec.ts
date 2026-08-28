@@ -104,6 +104,13 @@ describe("Slides share migrations", () => {
 
     await runSlidesMigrations({});
 
+    const { rows: commentColumns } = await exec.execute(
+      "PRAGMA table_info(slide_comments)",
+    );
+    expect(commentColumns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "anchor" })]),
+    );
+
     const { rows } = await exec.execute(
       `SELECT id, resource_id, principal_type, principal_id, role
        FROM deck_shares

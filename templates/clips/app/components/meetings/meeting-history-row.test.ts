@@ -4,7 +4,10 @@ import { formatOwnerHint, formatParticipantNames } from "./meeting-history-row";
 
 const viewer = "dev@local.test";
 const fakeT = (key: string, options?: Record<string, unknown>) => {
-  if (key === "meetingDetail.recordedBy") return `Recorded by ${options?.name}`;
+  if (key === "meetingDetail.recordedBy") {
+    const name = options?.name;
+    return `Recorded by ${typeof name === "string" ? name : (JSON.stringify(name) ?? "")}`;
+  }
   if (key === "meetingDetail.me") return "Me";
   return key;
 };

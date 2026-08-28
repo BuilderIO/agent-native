@@ -109,7 +109,9 @@ describe("docs popover controls", () => {
       );
     await waitFor(() => expect(waitlistRequests()).toHaveLength(1));
     const request = waitlistRequests()[0]?.[1] as RequestInit;
-    expect(JSON.parse(String(request.body))).toMatchObject({
+    expect(
+      JSON.parse(typeof request.body === "string" ? request.body : "{}"),
+    ).toMatchObject({
       email: "reader@example.com",
       source: "docs_template_card",
       template: templates[0].slug,
