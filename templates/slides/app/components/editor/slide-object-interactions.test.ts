@@ -23,6 +23,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  isValidSlideClipboardRoot,
   resolveSlideClipboardElement,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
@@ -58,6 +59,12 @@ describe("slide object interactions", () => {
     expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("h2"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("div"))).toBe(true);
+  });
+
+  it("rejects structural children as direct clipboard roots", () => {
+    expect(isValidSlideClipboardRoot(document.createElement("li"))).toBe(false);
+    expect(isValidSlideClipboardRoot(document.createElement("td"))).toBe(false);
+    expect(isValidSlideClipboardRoot(document.createElement("div"))).toBe(true);
   });
 
   it("resizes multi-selection members proportionally from the southeast", () => {
@@ -1054,6 +1061,13 @@ describe("slide object interactions", () => {
     expect(pasted.id).not.toBe(copiedRoot.id);
     expect(input.id).not.toBe(copiedInput.id);
     expect(label.getAttribute("for")).toBe(input.id);
+  });
+
+  it("does not copy list or table children without their structural parent", () => {
+    const listItem = document.createElement("li");
+    listItem.dataset.slideObjectId = "list-item";
+
+    expect(copySlideObjects([listItem]).html).toEqual([]);
   });
 
   it("leaves position untouched when a copied object has no inline left/top", () => {

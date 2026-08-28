@@ -157,6 +157,7 @@ import {
   findPersistedImageObject,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  isValidSlideClipboardRoot,
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
   resolveSlideObjectContainingBlock,
@@ -2698,6 +2699,14 @@ export default function SlideEditor({
       if (placement === "inside" && !canDropSlideLayerInside(target)) return;
 
       const originalParent = source.parentElement;
+      const sourceWasFreeform = isPersistedFreeformObject(source);
+      const nextParent = placement === "inside" ? target : target.parentElement;
+      if (!sourceWasFreeform && nextParent !== originalParent) return;
+      const selectedSingleElement =
+        multiSelection.size === 0 ? resolveSelectedElement() : null;
+      const selectedSingleSelector = selectedSingleElement
+        ? (getBuilderSelector(selectedSingleElement) ?? selectedElementSelector)
+        : null;
       const originalRect = source.getBoundingClientRect();
       const absoluteDescendantRects = Array.from(
         source.querySelectorAll<HTMLElement>("*"),
@@ -2778,6 +2787,9 @@ export default function SlideEditor({
 
       const html = readCurrentSlideContentHtml();
       if (html === null) return;
+      if (selectedSingleElement?.isConnected && selectedSingleSelector) {
+        selectElementForStyling(selectedSingleElement, selectedSingleSelector);
+      }
       if (multiSelection.size > 0) {
         pendingMultiSelectionResyncRef.current = {
           objectIds: Array.from(multiSelection).map((id) => {
@@ -2796,10 +2808,14 @@ export default function SlideEditor({
     },
     [
       getSlideContent,
+      getBuilderSelector,
       multiSelection,
       readCurrentSlideContentHtml,
       readOnly,
+      resolveSelectedElement,
       refreshLayerNodes,
+      selectedElementSelector,
+      selectElementForStyling,
     ],
   );
 
@@ -3528,16 +3544,35 @@ export default function SlideEditor({
     );
     if (
       roots.length === 0 ||
-      roots.some((element) => !isDeletableSlideElement(element))
+      roots.some(
+        (element) =>
+          !isDeletableSlideElement(element) ||
+          !isValidSlideClipboardRoot(element),
+      )
     ) {
       return null;
     }
     const slideCanvas = roots[0].closest(".fmd-slide, [data-slide-canvas]");
-    return slideCanvas &&
-      roots.every(
+    if (
+      !slideCanvas ||
+      !roots.every(
         (element) =>
           element.closest(".fmd-slide, [data-slide-canvas]") === slideCanvas,
       )
+    ) {
+      return null;
+    }
+    const positioningLayer = resolveSlidePositioningLayer(roots[0]);
+    if (!positioningLayer) return null;
+    const containingBlock = resolveSlideObjectContainingBlock(
+      roots[0],
+      positioningLayer,
+    );
+    return roots.every(
+      (element) =>
+        resolveSlideObjectContainingBlock(element, positioningLayer) ===
+        containingBlock,
+    )
       ? roots
       : null;
   }, [getSlideContent, multiSelection, resolveSelectedElement, selectedImg]);
@@ -6252,16 +6287,14 @@ export default function SlideEditor({
           return;
         }
         let changed = false;
+        const listTargets = new Set<HTMLElement>();
         for (const target of targets) {
           const parentList =
             target.tagName === "LI" ? target.closest("ul, ol") : null;
-          changed =
-            Boolean(
-              toggleSlideList(
-                (parentList as HTMLElement | null) ?? target,
-                kind,
-              ),
-            ) || changed;
+          listTargets.add((parentList as HTMLElement | null) ?? target);
+        }
+        for (const target of listTargets) {
+          changed = Boolean(toggleSlideList(target, kind)) || changed;
         }
         if (!changed) return;
 

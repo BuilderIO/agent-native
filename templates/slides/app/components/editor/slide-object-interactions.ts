@@ -63,6 +63,21 @@ const SLIDE_LAYER_NON_CONTAINER_ELEMENTS = new Set([
   "VAR",
 ]);
 
+const SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN = new Set([
+  "CAPTION",
+  "COL",
+  "COLGROUP",
+  "DD",
+  "DT",
+  "LI",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+]);
+
 export function canDropSlideLayerInside(target: Element): boolean {
   return (
     !SLIDE_LAYER_VOID_ELEMENTS.has(target.tagName) &&
@@ -1011,6 +1026,10 @@ function normalizeSlideObjectRoots(elements: HTMLElement[]): HTMLElement[] {
   );
 }
 
+export function isValidSlideClipboardRoot(element: HTMLElement): boolean {
+  return !SLIDE_CLIPBOARD_STRUCTURAL_CHILDREN.has(element.tagName);
+}
+
 /**
  * Snapshot the movable members of a multi-selection, keyed by durable object id.
  * Elements that are not absolutely positioned cannot move and are excluded.
@@ -1276,10 +1295,12 @@ export interface CopiedSlideObjects {
 
 export function copySlideObjects(elements: HTMLElement[]): CopiedSlideObjects {
   return {
-    html: normalizeSlideObjectRoots(elements).map((element) => {
-      const clone = cloneSlideObject(element);
-      return clone.outerHTML;
-    }),
+    html: normalizeSlideObjectRoots(elements)
+      .filter(isValidSlideClipboardRoot)
+      .map((element) => {
+        const clone = cloneSlideObject(element);
+        return clone.outerHTML;
+      }),
   };
 }
 
