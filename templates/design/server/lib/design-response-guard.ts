@@ -36,7 +36,7 @@ const DESIGN_MUTATION_OBJECTS =
 const DESIGN_ADVISORY_WORDS =
   /\b(?:advise|advice|analy[sz]e|audit|critique|recommend(?:ation)?s?|review|suggest(?:ion)?s?)\b/i;
 const DESIGN_ADVISORY_SKILLS =
-  /\b(?:improve|learn|develop)\s+(?:my|your)\s+(?:(?:[\w-]+\s+){0,3})skills?\b(?!\s+(?:section|card|component|layout|panel|row|screen|page|button|text)\b)/i;
+  /\b(?:improve|learn|develop)\s+(?:my|your)\s+(?:[\w-]+\s+)*?skills?\b(?!\s+(?:section|card|component|layout|panel|row|screen|page|button|text)\b)/i;
 
 function normalizeToolName(name: unknown): string {
   return String(name ?? "")
@@ -198,7 +198,7 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
       advisoryMatch.index + advisoryMatch[0].length,
     );
     const followsAdvisory =
-      /(?:\b(?:(?:and|also|but)(?:\s+then)?|then)\s+|[.!?;:,]\s*)(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|polish|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
+      /(?:\b(?:(?:and|also|but)(?:\s+then)?|then)\s+|[.!?;:,]\s*)(?:(?:please|kindly)\s+|(?:(?:can|could|would)\s+you(?:\s+please)?\s+))?(?:add|adjust|align|apply|build|change|clean|create|decrease|delete|design|duplicate|edit|enhance|fix|generate|improve|import|increase|insert|make|modify|move|place|polish|reduce|refine|remove|replace|resize|restyle|rework|tune|update)\b/i.test(
         afterAdvisory,
       );
     if (!DESIGN_MUTATION_VERBS.test(beforeAdvisory) && !followsAdvisory) {
