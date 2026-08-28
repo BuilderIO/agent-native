@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": patch
+"@agent-native/core": major
 "@agent-native/dispatch": patch
 ---
 

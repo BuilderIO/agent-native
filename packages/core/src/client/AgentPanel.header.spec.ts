@@ -2,10 +2,14 @@
 
 import { readFileSync } from "node:fs";
 
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatSurface,
+  AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
   getAgentPanelShortcutHints,
@@ -22,6 +26,7 @@ import {
   shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
+  settingsRouteHashForSection,
 } from "./AgentPanel.js";
 
 describe("resolveAgentPanelChatSurface", () => {
@@ -158,6 +163,57 @@ describe("AgentPanel header tab visibility", () => {
     expect(normalizeAgentPanelModeForSurface("resources")).toBe("resources");
     expect(normalizeAgentPanelModeForSurface("resources", true)).toBe("chat");
     expect(normalizeAgentPanelModeForSurface("cli", true)).toBe("chat");
+  });
+
+  it("preserves secret-specific hashes for canonical settings navigation", () => {
+    expect(settingsRouteHashForSection("secrets:FIGMA_ACCESS_TOKEN")).toBe(
+      "#secrets:FIGMA_ACCESS_TOKEN",
+    );
+    expect(settingsRouteHashForSection("voice")).toBe("#voice");
+  });
+});
+
+describe("AgentPanel settings navigation", () => {
+  it("routes a mounted settings request to a secret-specific canonical hash", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let pathname = "";
+    let hash = "";
+
+    function LocationProbe() {
+      const location = useLocation();
+      pathname = location.pathname;
+      hash = location.hash;
+      return null;
+    }
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "secrets:FIGMA_ACCESS_TOKEN" },
+          }),
+        );
+      });
+
+      expect(pathname).toBe("/settings");
+      expect(hash).toBe("#secrets:FIGMA_ACCESS_TOKEN");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 });
 

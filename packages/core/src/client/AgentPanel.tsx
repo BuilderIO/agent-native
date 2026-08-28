@@ -179,9 +179,13 @@ function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   }
 }
 
-function settingsRouteHashForSection(section?: string | null): string {
-  const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
+export function settingsRouteHashForSection(section?: string | null): string {
+  const raw = section?.replace(/^#/, "").trim() ?? "";
+  const normalized = raw.toLowerCase();
   if (normalized === "voice") return "#voice";
+  if (normalized.startsWith("secrets:")) {
+    return `#secrets:${raw.slice("secrets:".length)}`;
+  }
   if (
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
@@ -207,6 +211,32 @@ function settingsRouteHashForSection(section?: string | null): string {
     return "#workspace";
   }
   return "#agent";
+}
+
+export function AgentPanelSettingsNavigation() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    function handleOpenSettings(event: Event) {
+      const section = (event as CustomEvent<{ section?: string }>).detail
+        ?.section;
+      void navigate({
+        pathname: "/settings",
+        hash: settingsRouteHashForSection(section),
+      });
+    }
+    window.addEventListener(
+      AGENT_PANEL_OPEN_SETTINGS_EVENT,
+      handleOpenSettings,
+    );
+    return () =>
+      window.removeEventListener(
+        AGENT_PANEL_OPEN_SETTINGS_EVENT,
+        handleOpenSettings,
+      );
+  }, [navigate]);
+
+  return null;
 }
 const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
@@ -943,7 +973,6 @@ function AgentPanelInner({
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
-  const navigate = useNavigate();
   const location = useLocation();
   const mounted = useClientOnly();
   const onboardingPreviewMode = useOnboardingPreviewMode();
@@ -1079,27 +1108,6 @@ function AgentPanelInner({
     return () =>
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
   }, [switchMode]);
-
-  // Open the canonical settings page when requested.
-  useEffect(() => {
-    function handleOpenSettings(event: Event) {
-      const section = (event as CustomEvent<{ section?: string }>).detail
-        ?.section;
-      void navigate({
-        pathname: "/settings",
-        hash: settingsRouteHashForSection(section),
-      });
-    }
-    window.addEventListener(
-      AGENT_PANEL_OPEN_SETTINGS_EVENT,
-      handleOpenSettings,
-    );
-    return () =>
-      window.removeEventListener(
-        AGENT_PANEL_OPEN_SETTINGS_EVENT,
-        handleOpenSettings,
-      );
-  }, [navigate]);
 
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -2189,6 +2197,7 @@ function AgentPanelInner({
 
   return (
     <ThinkingDisplayProvider value={assistantChatProps.thinkingDisplay}>
+      <AgentPanelSettingsNavigation />
       <div
         className={cn(
           "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
