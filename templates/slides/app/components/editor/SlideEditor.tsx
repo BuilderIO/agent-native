@@ -4091,7 +4091,7 @@ export default function SlideEditor({
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
         (type) =>
           type.startsWith("text/") &&
-          Boolean(e.clipboardData?.getData(type)?.trim()),
+          Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
       const clipboard = copiedObjectClipboardRef.current;

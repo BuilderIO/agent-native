@@ -148,7 +148,7 @@ describe("SlideEditor render-phase safety", () => {
     const pasteBody = source.slice(pasteStart, pasteEnd);
 
     expect(pasteBody).toContain('type.startsWith("text/")');
-    expect(pasteBody).toContain("e.clipboardData?.getData(type)?.trim()");
+    expect(pasteBody).toContain("e.clipboardData?.getData(type)?.length");
     expect(pasteBody).toContain("if (hasNativeText) return;");
   });
 
