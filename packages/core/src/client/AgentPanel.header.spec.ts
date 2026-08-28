@@ -186,13 +186,13 @@ describe("AgentPanel header tab visibility", () => {
       "limits",
       "app-models",
       "background",
-      "a2a",
       "email",
       "browser",
       "usage",
     ]) {
       expect(settingsRouteHashForSection(section)).toBe(`#${section}`);
     }
+    expect(settingsRouteHashForSection("a2a")).toBe("#agent:agents");
   });
 });
 

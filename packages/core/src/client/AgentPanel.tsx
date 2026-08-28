@@ -198,13 +198,13 @@ export function settingsRouteHashForSection(
       "email",
       "browser",
       "background",
-      "a2a",
       "usage",
     ].includes(normalized)
   ) {
     return `#${normalized}`;
   }
   if (normalized === "voice") return "#voice";
+  if (normalized === "a2a") return "#agent:agents";
   if (normalized.startsWith("secrets:")) {
     return `#secrets:${raw.slice("secrets:".length)}`;
   }
