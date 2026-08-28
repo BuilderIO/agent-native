@@ -12,6 +12,7 @@ import {
   cloneSlideObject,
   collectMovableSlideObjects,
   computeSlideObjectZOrder,
+  createSlideObjectPlacementGeometry,
   copySlideObjects,
   createSlidesSelectionState,
   ensureSlideObjectId,
@@ -49,6 +50,15 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  it("normalizes drag placement from either direction with a minimum size", () => {
+    expect(
+      createSlideObjectPlacementGeometry({ x: 160, y: 120 }, { x: 40, y: 30 }),
+    ).toEqual({ x: 40, y: 30, width: 120, height: 90 });
+    expect(
+      createSlideObjectPlacementGeometry({ x: 10, y: 20 }, { x: 10, y: 20 }),
+    ).toEqual({ x: 10, y: 20, width: 24, height: 24 });
+  });
+
   it("promotes a Markdown-rendered canvas so a new text box can persist as a freeform object", () => {
     const root = document.createElement("div");
     root.innerHTML = `
