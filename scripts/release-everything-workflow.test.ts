@@ -130,6 +130,49 @@ describe("release everything workflow", () => {
     assert.match(source, /Promise\.allSettled/);
   });
 
+  it("survives auto-publish pending-run replacement", () => {
+    const source = String((coordinator.with as Workflow).script);
+
+    assert.match(source, /async function listAutoPublishRuns\(\)/);
+    assert.match(source, /actions\.listWorkflowRuns\(\{/);
+    assert.match(source, /per_page: 25/);
+    assert.doesNotMatch(
+      source,
+      /github\.paginate\(github\.rest\.actions\.listWorkflowRuns/,
+    );
+    assert.match(source, /async function waitForAutoPublishIdle\(deadline\)/);
+    assert.match(source, /if \(activeRuns\.length === 0\) return true/);
+    assert.match(source, /listJobsForWorkflowRun/);
+    assert.match(source, /listJobsForWorkflowRun\(\{/);
+    assert.match(source, /per_page: 1/);
+    assert.doesNotMatch(
+      source,
+      /github\.paginate\(github\.rest\.actions\.listJobsForWorkflowRun/,
+    );
+    assert.match(source, /wasSupersededPendingRun/);
+    assert.match(source, /retryIfSupersededPending/);
+    assert.match(source, /candidate\.id !== run\.id/);
+    assert.match(source, /candidate\.event === "push"/);
+    assert.match(source, /candidateCreatedAt >= runCreatedAt/);
+    assert.match(source, /candidateCreatedAt <= runUpdatedAt/);
+    assert.match(source, /Number\.isFinite\(runCreatedAt\)/);
+    assert.match(source, /Math\.min\(pollIntervalMs, remaining\)/);
+    assert.match(
+      source,
+      /await waitForAutoPublishIdle\(packagePreparationDeadline\)/,
+    );
+    assert.match(source, /Date\.now\(\) >= packagePreparationDeadline/);
+    assert.match(source, /current\.conclusion === "cancelled"/);
+    assert.doesNotMatch(
+      source,
+      /Math\.max\(60_000, packagePreparationDeadline - Date\.now\(\)\)/,
+    );
+    assert.match(
+      source,
+      /Stable package release preparation dispatch exceeded the coordinator timeout/,
+    );
+  });
+
   it("checks out the coordinated release commit for desktop builds", () => {
     const desktopSource = JSON.stringify(desktopWorkflow);
     const clipsSource = JSON.stringify(clipsWorkflow);

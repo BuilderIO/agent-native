@@ -275,7 +275,7 @@ describe("delegated A2A final response guards", () => {
     expect(runner).toHaveBeenCalledWith(
       expect.objectContaining({
         finalResponseGuard: guard,
-        maxOutputTokens: 32_000,
+        maxOutputTokens: 64_000,
         reasoningEffort: "high",
         maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
         maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
