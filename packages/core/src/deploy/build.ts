@@ -995,6 +995,9 @@ ${["post", "put", "delete"]
   const pluginImports: string[] = [];
   const pluginCalls: string[] = [];
   const providedPluginStems = new Set<string>();
+  pluginImports.push(
+    `import { getAppConfig as getAgentNativeAppConfig } from "${EDGE_SERVER_ENTRYPOINT}";`,
+  );
 
   for (let i = 0; i < edgePlugins.length; i++) {
     const varName = `plugin_${i}`;
@@ -1330,9 +1333,16 @@ function getPostHogClientConfigScript() {
 
 function getAgentNativeAnalyticsClientConfigScript() {
   const env = globalThis.process?.env || {};
+  const configuredAnalytics = getAgentNativeAppConfig().analytics;
+  const configuredEndpoint =
+    configuredAnalytics.agentNativeEndpoint ===
+    "https://analytics.agent-native.com/track"
+      ? undefined
+      : configuredAnalytics.agentNativeEndpoint;
   const builtPublicKey = ${JSON.stringify(builtAnalyticsPublicKey)};
   const builtEndpoint = ${JSON.stringify(builtAnalyticsEndpoint)};
   const publicKey = firstNonEmpty(
+    configuredAnalytics.agentNativePublicKey,
     env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
     env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
     builtPublicKey,
@@ -1340,6 +1350,7 @@ function getAgentNativeAnalyticsClientConfigScript() {
   if (!publicKey) return null;
   const endpoint =
     firstNonEmpty(
+      configuredEndpoint,
       env.AGENT_NATIVE_ANALYTICS_ENDPOINT,
       env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT,
       builtEndpoint,
@@ -2116,21 +2127,6 @@ async function buildCloudflarePages() {
   const missingDefaults = await getMissingDefaultPlugins(cwd);
   const workspaceCore = await getWorkspaceCoreExports(cwd);
   const includeReactRouterSsr = false;
-  const buildMode =
-    process.env.NODE_ENV === "development" ? "development" : "production";
-  const agentNativeWorkspaceRoot = findAgentNativeWorkspaceRoot(cwd);
-  const buildEnvironment = {
-    ...(agentNativeWorkspaceRoot && agentNativeWorkspaceRoot !== cwd
-      ? loadEnv(buildMode, agentNativeWorkspaceRoot, "")
-      : {}),
-    ...loadEnv(buildMode, cwd, ""),
-    ...process.env,
-  };
-  const agentNativeConfig = await loadResolvedAgentNativeConfig(
-    cwd,
-    createAgentNativeConfigContext("build", buildMode),
-    { environment: buildEnvironment },
-  );
 
   const workspaceSlotCount = workspaceCore
     ? Object.keys(workspaceCore.plugins).length
@@ -2149,7 +2145,7 @@ async function buildCloudflarePages() {
     workspaceCore,
     immutableAssetPaths,
     normalizeConfiguredAppBasePath(),
-    { includeReactRouterSsr, analytics: agentNativeConfig.analytics },
+    { includeReactRouterSsr },
   );
 
   // Create _worker.js output directory

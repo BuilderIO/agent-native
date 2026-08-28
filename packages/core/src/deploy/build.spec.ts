@@ -1169,6 +1169,9 @@ export default (event) =>
     expect(html).toContain(
       '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/config-track"',
     );
+    expect(source).toContain(
+      "const configuredAnalytics = getAgentNativeAppConfig().analytics;",
+    );
   });
 
   it("normalizes explicit deployment environment in generated browser telemetry", async () => {

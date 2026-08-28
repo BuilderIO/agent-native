@@ -594,10 +594,7 @@
           "seriesKey": "period",
           "valueKey": "rate"
         },
-        "colors": [
-          "#10b981",
-          "#8b5cf6"
-        ],
+        "colors": ["#10b981", "#8b5cf6"],
         "description": "Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden."
       }
     },
@@ -1020,10 +1017,7 @@
           "valueKey": "responses"
         },
         "stacked": true,
-        "colors": [
-          "#10b981",
-          "#ef4444"
-        ],
+        "colors": ["#10b981", "#ef4444"],
         "description": "Explicit thumbs-up and thumbs-down responses grouped by the model that generated the rated response."
       }
     },
@@ -1038,11 +1032,7 @@
         "xKey": "sentiment",
         "yKey": "messages",
         "yFormatter": "number",
-        "colors": [
-          "#10b981",
-          "#94a3b8",
-          "#ef4444"
-        ],
+        "colors": ["#10b981", "#94a3b8", "#ef4444"],
         "description": "Optional LLM-inferred positive, neutral, and negative message classifications over the last 30 days. This is separate from explicit thumbs feedback."
       }
     }
