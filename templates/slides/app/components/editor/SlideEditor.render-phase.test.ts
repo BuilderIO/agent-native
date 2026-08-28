@@ -129,6 +129,12 @@ describe("SlideEditor render-phase safety", () => {
       'window.addEventListener("paste", onPaste, true)',
     );
     expect(pasteBody).toContain("text,\n        false,");
+    expect(pasteBody).toContain(
+      "const renderedHeight = Math.max(height, box.offsetHeight)",
+    );
+    expect(pasteBody).toContain(
+      "if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`",
+    );
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

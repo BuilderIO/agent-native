@@ -4212,6 +4212,13 @@ export default function SlideEditor({
       );
       if (!box) return false;
 
+      const renderedHeight = Math.max(height, box.offsetHeight);
+      const renderedMaxY = Math.max(
+        0,
+        positioningLayer.offsetHeight - renderedHeight,
+      );
+      if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`;
+
       const selector = getBuilderSelector(box);
       if (selector) selectElementForStyling(box, selector);
       const html = readCurrentSlideContentHtml();

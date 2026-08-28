@@ -1628,13 +1628,8 @@ export default function DeckEditor() {
   ]);
 
   useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
+    const handlePaste = () => {
       if (slidePasteFallbackRef.current === null) return;
-      const hasText = Boolean(e.clipboardData?.getData("text/plain")?.trim());
-      const hasImage = Array.from(e.clipboardData?.items ?? []).some(
-        (item) => item.kind === "file" && item.type.startsWith("image/"),
-      );
-      if (!e.defaultPrevented && !hasText && !hasImage) return;
       window.clearTimeout(slidePasteFallbackRef.current);
       slidePasteFallbackRef.current = null;
     };
