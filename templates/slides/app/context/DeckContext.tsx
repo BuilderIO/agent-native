@@ -1076,11 +1076,7 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       if (!prior || !hasChangedFields(prior, op.fields)) return deck;
       const slides = deck.slides.map((s) => {
         if (s.id !== op.slideId) return s;
-        const next = { ...s, ...op.fields };
-        if (slideFitRenderFieldsChanged(s, next)) {
-          next.layoutFitRevision = createLayoutFitRevision();
-        }
-        return next;
+        return { ...s, ...op.fields };
       });
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
@@ -1138,21 +1134,9 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
     }
     case "patch-deck-fields": {
       if (!hasChangedFields(deck, op.fields)) return deck;
-      const deckFitChanged = deckFitRenderFieldsChanged(deck, {
-        ...deck,
-        ...op.fields,
-      });
       return {
         ...deck,
         ...op.fields,
-        ...(deckFitChanged
-          ? {
-              slides: deck.slides.map((slide) => ({
-                ...slide,
-                layoutFitRevision: createLayoutFitRevision(),
-              })),
-            }
-          : {}),
         updatedAt: new Date().toISOString(),
       } as Deck;
     }

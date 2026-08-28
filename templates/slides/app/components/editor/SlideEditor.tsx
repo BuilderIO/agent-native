@@ -31,7 +31,10 @@ import {
 import { createPortal } from "react-dom";
 
 import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
-import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
+import {
+  ExcalidrawSlide,
+  parseExcalidrawData,
+} from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
@@ -1486,7 +1489,11 @@ export default function SlideEditor({
   );
 
   useEffect(() => {
-    if (!slide.excalidrawData) return;
+    const hasRenderedExcalidraw = Boolean(
+      slide.excalidrawData &&
+      parseExcalidrawData(slide.excalidrawData)?.elements?.length,
+    );
+    if (!hasRenderedExcalidraw) return;
     // Excalidraw is a fixed-size canvas rather than flow content, so it has no
     // AutoFitContent measurement callback of its own. Publish its finite canvas
     // geometry so changed drawings can complete the async fit check.
