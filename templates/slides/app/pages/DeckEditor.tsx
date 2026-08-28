@@ -180,6 +180,25 @@ export function isSlideClipboardStillArmed(
   return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
 }
 
+export function syncSlideContentSnapshots(
+  slides: ReadonlyArray<Pick<Slide, "id" | "content">>,
+  latestContent: Map<string, string>,
+  renderedContent: Map<string, string>,
+): void {
+  for (const slide of slides) {
+    const previousRenderedContent = renderedContent.get(slide.id);
+    const cachedContent = latestContent.get(slide.id);
+    if (
+      cachedContent === undefined ||
+      (previousRenderedContent !== undefined &&
+        slide.content !== previousRenderedContent)
+    ) {
+      latestContent.set(slide.id, slide.content);
+    }
+    renderedContent.set(slide.id, slide.content);
+  }
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -1960,20 +1979,11 @@ export default function DeckEditor() {
     deck.slides.find((s) => s.id === activeSlideId) || deck.slides[0];
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
-  if (currentSlide) {
-    const previousRenderedContent = renderedSlideContentRef.current.get(
-      currentSlide.id,
-    );
-    const latestContent = latestSlideContentRef.current.get(currentSlide.id);
-    if (
-      latestContent === undefined ||
-      (previousRenderedContent !== undefined &&
-        currentSlide.content !== previousRenderedContent)
-    ) {
-      latestSlideContentRef.current.set(currentSlide.id, currentSlide.content);
-    }
-    renderedSlideContentRef.current.set(currentSlide.id, currentSlide.content);
-  }
+  syncSlideContentSnapshots(
+    deck.slides,
+    latestSlideContentRef.current,
+    renderedSlideContentRef.current,
+  );
   const pendingForCurrentSlide = currentSlide
     ? pendingImagePreviews.filter(
         (preview) => preview.slideId === currentSlide.id,
