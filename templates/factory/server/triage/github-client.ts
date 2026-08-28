@@ -27,6 +27,7 @@ export interface GitHubPullRequest {
   state: string;
   draft: boolean;
   htmlUrl: string;
+  userId: number;
   userLogin: string;
   headSha: string;
   headRef: string;
@@ -145,6 +146,7 @@ function parsePullRequest(value: unknown): GitHubPullRequest {
     state: requiredString(item.state, "pull request state"),
     draft: requiredBoolean(item.draft, "pull request draft state"),
     htmlUrl: requiredString(item.html_url, "pull request URL"),
+    userId: requiredNumber(user.id, "pull request author ID"),
     userLogin: requiredString(user.login, "pull request author"),
     headSha: requiredString(head.sha, "pull request head SHA"),
     headRef: requiredString(head.ref, "pull request head branch"),

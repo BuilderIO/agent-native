@@ -286,6 +286,7 @@ export default defineAction({
     });
     const governance = decidePullRequestGovernance({
       author: pullRequest.userLogin,
+      authorId: pullRequest.userId,
       repository: repo,
       title: pullRequest.title,
       summary: pullRequest.body,

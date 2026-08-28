@@ -11,8 +11,11 @@ export type PullRequestOwnerException =
 
 export type PullRequestTrustException = "liamdebeasi";
 
+const LIAMDEBEASI_USER_ID = 2721089;
+
 export interface PullRequestGovernanceInput {
   author: string;
+  authorId: number;
   repository: string;
   title?: string;
   summary?: string | null;
@@ -83,6 +86,7 @@ export function decidePullRequestGovernance(
   const ultraScary = isUltraScaryChange(input.changedFiles);
   const liamException =
     input.author.trim().toLowerCase() === "liamdebeasi" &&
+    input.authorId === LIAMDEBEASI_USER_ID &&
     input.internalBuilderMember &&
     !ultraScary;
   const ownerException = detectPullRequestOwnerException(input);
@@ -245,6 +249,15 @@ export function hasCurrentPullRequestApproval(
       });
     }
   });
+  if (
+    [...latestByAuthor.values()].some(
+      (review) => review.state === "approved" && !review.commitSha,
+    )
+  ) {
+    throw new Error(
+      "Pull-request approval evidence is missing a commit SHA; reconciliation is required before approval.",
+    );
+  }
   return [...latestByAuthor.values()].some(
     (review) => review.state === "approved" && review.commitSha === headSha,
   );
@@ -278,9 +291,16 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
   return changedFiles.some((file) => {
     const normalized = normalizePath(file);
     return (
+      normalized === "agents.md" ||
+      normalized === "claude.md" ||
+      normalized.endsWith("/agents.md") ||
+      normalized.endsWith("/claude.md") ||
+      normalized.endsWith("/skill.md") ||
       normalized === ".agents/skills/review-prs/skill.md" ||
       normalized.includes("/review-skill-alignment.") ||
       normalized.endsWith("/govern-agent-native-pull-request.ts") ||
+      normalized.includes("/pr-policy.") ||
+      normalized.endsWith("/factory-scheduler-job.ts") ||
       normalized.startsWith(".github/workflows/") ||
       /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
         normalized,

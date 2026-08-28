@@ -5,10 +5,12 @@ import {
   detectOwnerOwnedArea,
   hasCurrentPullRequestApproval,
   isDocsOnly,
+  isUltraScaryChange,
 } from "./pr-policy.js";
 
 const cleanInternalBug = {
   author: "builder-engineer",
+  authorId: 1,
   repository: "BuilderIO/agent-native",
   changedFiles: ["packages/core/src/triage/fix.ts"],
   clearBug: true,
@@ -63,6 +65,7 @@ describe("pull-request governance", () => {
       decidePullRequestGovernance({
         ...cleanInternalBug,
         author: "liamdebeasi",
+        authorId: 2721089,
         changedFiles: ["templates/design/app/pages/DesignEditor.tsx"],
         clearBug: false,
         productUxImplications: true,
@@ -81,6 +84,7 @@ describe("pull-request governance", () => {
       decidePullRequestGovernance({
         ...cleanInternalBug,
         author: "liamdebeasi",
+        authorId: 2721089,
         changedFiles: ["templates/design/app/pages/DesignEditor.tsx"],
         clearBug: false,
         productUxImplications: true,
@@ -91,9 +95,24 @@ describe("pull-request governance", () => {
       decidePullRequestGovernance({
         ...cleanInternalBug,
         author: "liamdebeasi",
+        authorId: 2721089,
         changedFiles: [".agents/skills/review-prs/SKILL.md"],
       }).autoApprove,
     ).toBe(false);
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        authorId: 1,
+        clearBug: false,
+        productUxImplications: true,
+      }).autoApprove,
+    ).toBe(false);
+    expect(isUltraScaryChange(["nested/AGENTS.md"])).toBe(true);
+    expect(isUltraScaryChange([".agents/skills/other/SKILL.md"])).toBe(true);
+    expect(
+      isUltraScaryChange(["templates/factory/server/triage/pr-policy.ts"]),
+    ).toBe(true);
   });
 
   it("does not trust an owner username without verified membership", () => {
@@ -279,5 +298,17 @@ describe("pull-request governance", () => {
         "new-head",
       ),
     ).toBe(false);
+    expect(() =>
+      hasCurrentPullRequestApproval(
+        [
+          {
+            author: "reviewer",
+            state: "approved",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
+    ).toThrow("missing a commit SHA");
   });
 });
