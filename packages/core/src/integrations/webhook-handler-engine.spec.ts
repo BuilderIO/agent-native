@@ -701,7 +701,7 @@ describe("integration webhook handler engine resolution", () => {
         expect.objectContaining({
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
-          maxOutputTokens: 32_000,
+          maxOutputTokens: 64_000,
           reasoningEffort: "high",
           systemPrompt: expect.stringContaining("<runtime-context>"),
         }),

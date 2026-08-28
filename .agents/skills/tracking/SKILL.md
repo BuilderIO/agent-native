@@ -156,6 +156,53 @@ string copy and cannot import the module, so a one-sided edit drops the config
 silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
 together.
 
+## MCP Server Events
+
+The MCP server an app exposes reports its own usage. `packages/core/src/mcp/analytics.ts`
+emits one event per protocol request, and the emission points sit in the shared
+server builder (`build-server.ts`), so the HTTP mount and the stdio transport
+report identically.
+
+| Event                  | Fires on                                      |
+| ---------------------- | --------------------------------------------- |
+| `$mcp_initialize`      | the client/server handshake (HTTP mount only) |
+| `$mcp_tools_list`      | `tools/list`                                  |
+| `$mcp_tool_call`       | `tools/call`, success or failure              |
+| `$mcp_resources_list`  | `resources/list`                              |
+| `$mcp_resource_read`   | `resources/read`                              |
+
+Names come from PostHog's MCP analytics vocabulary
+(https://posthog.com/docs/mcp-analytics/events) on purpose, so PostHog's MCP
+dashboards read these events with no mapping layer — but they go through
+`track()` like every other event, so Mixpanel, Amplitude, a webhook, and
+Agent-Native Analytics receive the same ones.
+
+Shared properties: `$mcp_source` (`http` / `stdio`), `$mcp_server_name`,
+`$mcp_server_version`, `$mcp_app_id`, `$mcp_client_name`, `$mcp_client_version`,
+`$mcp_client_user_agent`, `$mcp_vendor_client`, `$mcp_protocol_version`. Per
+event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
+(`read` / `write`), `$mcp_listed_tool_names`, `$mcp_duration_ms`,
+`$mcp_is_error`, `$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
+`$mcp_resource_uri`.
+
+- **A client's own name is only on the wire at `initialize`.** The mount is
+  stateless — one server per request — so no later event can recover it.
+  `$mcp_initialize` carries the `clientInfo` from the handshake; every other
+  event falls back to the 2026-era per-request `_meta` and the HTTP user agent,
+  and `$mcp_vendor_client` buckets both spellings onto one row.
+- **A failed call is reported with its reason, not just `isError`.** The
+  `tools/call` handler renders "unknown tool", "forbidden scope", and a thrown
+  action error as the same shape of error result, so each sets `$mcp_error_type`
+  where it returns rather than having it guessed back out of the response text.
+- **Payloads stay out.** `$mcp_response` is never emitted. `$mcp_parameters` is
+  off by default and redacted when on — tool arguments carry user content.
+
+Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the
+events; `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`)
+opts into arguments. They sit in `observability` with the other capture
+switches, not in `analytics` — they gate every provider, not the first-party
+Agent-Native Analytics sender whose key lives there.
+
 ## Default Baseline Events
 
 Template roots call `configureTracking()` once during app startup. That installs default browser pageview tracking for hosted apps:
