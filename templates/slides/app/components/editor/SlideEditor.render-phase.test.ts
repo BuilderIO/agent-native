@@ -116,4 +116,42 @@ describe("SlideEditor render-phase safety", () => {
     );
     expect(deleteBody).toContain("e.stopPropagation()");
   });
+
+  it("ends native text editing before entering a multi-selection", () => {
+    const start = source.indexOf("const applyMultiSelection");
+    const end = source.indexOf("const clearMultiSelection", start);
+    const multiSelectionBody = source.slice(start, end);
+
+    expect(multiSelectionBody).toContain(
+      "if (ids.size > 0 && editingElRef.current) exitInlineEdit();",
+    );
+    expect(source).toContain("window.getSelection()?.removeAllRanges();");
+  });
+
+  it("lets additive canvas selection leave an active text edit", () => {
+    const start = source.indexOf("const handleSlidePointerDown");
+    const end = source.indexOf(
+      "// Keep these listeners stable while React re-renders the marquee overlay.",
+      start,
+    );
+    const pointerDownBody = source.slice(start, end);
+
+    expect(pointerDownBody).toContain("const additive =");
+    expect(pointerDownBody).toContain("const targetIsEditingBlock =");
+    expect(pointerDownBody).toContain("exitInlineEdit();");
+  });
+
+  it("re-measures portaled selection chrome after the editor layout moves", () => {
+    const start = source.indexOf("const refreshMultiSelectionRects");
+    const end = source.indexOf("// Keep cached rects fresh", start);
+    const layoutBody = source.slice(start, end);
+
+    expect(layoutBody).toContain("useLayoutEffect(() => {");
+    expect(layoutBody).toContain(
+      'scrollContainer.closest(".deck-editor-workspace")',
+    );
+    expect(layoutBody).toContain("new ResizeObserver(update)");
+    expect(layoutBody).toContain("new MutationObserver(update)");
+    expect(layoutBody).toContain("invalidateSelectionOverlayMeasurement();");
+  });
 });

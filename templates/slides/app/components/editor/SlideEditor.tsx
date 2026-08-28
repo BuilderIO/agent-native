@@ -2138,6 +2138,7 @@ export default function SlideEditor({
     richTextSelectionRef.current = null;
     el.contentEditable = "false";
     el.removeAttribute("data-editing-block");
+    window.getSelection()?.removeAllRanges();
 
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
@@ -2634,6 +2635,10 @@ export default function SlideEditor({
    */
   const applyMultiSelection = useCallback(
     (ids: Set<string>) => {
+      // A canvas selection supersedes native text selection. Keep every entry
+      // point (shift-click, marquee, layer panel, and restored selection) in
+      // the same object-selection mode.
+      if (ids.size > 0 && editingElRef.current) exitInlineEdit();
       const slideContent = getSlideContent();
       const rects = new Map<
         string,
@@ -2676,7 +2681,12 @@ export default function SlideEditor({
         items.length > 0 ? buildSelectionState("multi", items) : null,
       );
     },
-    [buildSelectionState, clearSelectedElement, getSlideContent],
+    [
+      buildSelectionState,
+      clearSelectedElement,
+      exitInlineEdit,
+      getSlideContent,
+    ],
   );
 
   const clearMultiSelection = useCallback(() => {
@@ -3083,6 +3093,72 @@ export default function SlideEditor({
     },
     [getSlideContent],
   );
+
+  // Portal selection chrome uses viewport coordinates, so a flex layout change
+  // can move the canvas without resizing the selected element. Re-measure the
+  // active selection when the editor layout changes, not only on canvas input.
+  useLayoutEffect(() => {
+    if (
+      !selectedImg &&
+      multiSelection.size === 0 &&
+      (!selectedElementPath || !selectedElementSelector)
+    ) {
+      return;
+    }
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const update = () => {
+      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+      if (selectedImg) setSelectionRect(selectedImg.getBoundingClientRect());
+      if (multiSelection.size > 0) {
+        refreshMultiSelectionRects(multiSelection);
+      }
+      if (selectedElementPath && selectedElementSelector) {
+        invalidateSelectionOverlayMeasurement();
+      }
+    };
+
+    update();
+    const layoutRoot = scrollContainer.closest(".deck-editor-workspace");
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    for (const element of [
+      layoutRoot,
+      scrollContainer,
+      canvasTrackRef.current,
+      containerRef.current,
+      slideCanvasRef.current,
+      selectedImg,
+    ]) {
+      if (element) resizeObserver?.observe(element);
+    }
+    const mutationObserver =
+      typeof MutationObserver === "undefined" || !layoutRoot
+        ? null
+        : new MutationObserver(update);
+    if (mutationObserver && layoutRoot) {
+      mutationObserver.observe(layoutRoot, { childList: true });
+    }
+    layoutRoot?.addEventListener("animationend", update);
+    layoutRoot?.addEventListener("transitionend", update);
+
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      layoutRoot?.removeEventListener("animationend", update);
+      layoutRoot?.removeEventListener("transitionend", update);
+    };
+  }, [
+    animationsOpen,
+    invalidateSelectionOverlayMeasurement,
+    layersOpen,
+    multiSelection,
+    refreshMultiSelectionRects,
+    selectedElementPath,
+    selectedElementSelector,
+    selectedImg,
+  ]);
 
   // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned.
   // Group drag calls the same helper every pointer move so its outlines do not
@@ -5639,7 +5715,15 @@ export default function SlideEditor({
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
-      if (
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      const targetIsEditingBlock =
+        editingEl?.contains(e.target as Node) ?? false;
+      if (editingEl) {
+        if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
+          return;
+        }
+        exitInlineEdit();
+      } else if (
         isSlideTextEditingTarget(e.target, document.activeElement, editingEl)
       ) {
         return;
