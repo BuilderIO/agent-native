@@ -2444,3 +2444,79 @@ describe("mountActionRoutes", () => {
     });
   });
 });
+
+describe("mountWebMcpActionRoutes", () => {
+  it("projects eligible actions, including http:false, through the shared dispatcher", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, context) => ({ caller: context.caller }));
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const resolveCaller = vi.fn(async () => ({
+      owner: "delegated@example.com",
+      anonymous: false,
+    }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        eligible: {
+          tool: { description: "Eligible", parameters: { type: "object" } },
+          run,
+          http: false,
+          readOnly: true,
+        } as any,
+        hidden: {
+          tool: { description: "Hidden", parameters: { type: "object" } },
+          run: vi.fn(),
+          agentTool: false,
+        } as any,
+        approval: {
+          tool: { description: "Approval", parameters: { type: "object" } },
+          run: vi.fn(),
+          needsApproval: true,
+        } as any,
+        "invalid name": {
+          tool: { description: "Invalid", parameters: { type: "object" } },
+          run: vi.fn(),
+        } as any,
+      },
+      { getOwnerFromEvent, actionRouteAuth: { resolveCaller } },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const invocationRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/actions/eligible",
+    );
+    await expect(
+      manifestRoute?.handler({ _method: "GET", _headers: {} }),
+    ).resolves.toEqual([
+      {
+        name: "eligible",
+        description: "Eligible",
+        inputSchema: { type: "object" },
+        readOnly: true,
+      },
+    ]);
+    expect(getOwnerFromEvent).toHaveBeenCalled();
+
+    await expect(
+      invocationRoute?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ caller: "webmcp" });
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ caller: "webmcp", actionName: "eligible" }),
+    );
+    expect(resolveCaller).not.toHaveBeenCalled();
+  });
+});
