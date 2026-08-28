@@ -417,7 +417,7 @@ function markdownReferenceDefinitions(
   content: string,
 ): Map<string, MarkdownReferenceDefinition> {
   const definitions = new Map<string, MarkdownReferenceDefinition>();
-  const nonRenderedRanges = markdownNonRenderedRanges(content);
+  const nonRenderedRanges = nonRenderedSourceRanges(content, true);
   let rangeIndex = 0;
   let lineStart = 0;
 
@@ -638,7 +638,7 @@ function htmlTagEndAt(content: string, start: number): number | null {
   return findHtmlTagEnd(content, start);
 }
 
-function htmlNonRenderedRangeEndAt(
+function htmlNonRenderedElementRangeEndAt(
   content: string,
   start: number,
 ): number | null {
@@ -652,7 +652,7 @@ function htmlNonRenderedRangeEndAt(
     !NON_RENDERED_HTML_ELEMENTS.has(element[1].toLowerCase()) ||
     /\/\s*>$/.test(rawTag)
   ) {
-    return tagEnd;
+    return null;
   }
 
   const closingTag = new RegExp(`</${element[1]}\\s*>`, "i").exec(
@@ -663,14 +663,18 @@ function htmlNonRenderedRangeEndAt(
     : content.length;
 }
 
-function markdownNonRenderedRanges(content: string): SourceRange[] {
+function nonRenderedSourceRanges(
+  content: string,
+  includeHtmlTags: boolean,
+): SourceRange[] {
   const ranges: SourceRange[] = [];
   let start = 0;
   while (start < content.length) {
     const end =
       markdownFenceEndAt(content, start) ??
       markdownInlineCodeEndAt(content, start) ??
-      htmlNonRenderedRangeEndAt(content, start);
+      htmlNonRenderedElementRangeEndAt(content, start) ??
+      (includeHtmlTags ? htmlTagEndAt(content, start) : null);
     if (end === null || end <= start) {
       start += 1;
       continue;
@@ -683,17 +687,20 @@ function markdownNonRenderedRanges(content: string): SourceRange[] {
 
 function markdownImageSourceTokens(content: string): ImageSourceToken[] {
   const definitions = markdownReferenceDefinitions(content);
-  const nonRenderedRanges = markdownNonRenderedRanges(content);
+  const nonRenderedRanges = nonRenderedSourceRanges(content, true);
   const tokens: ImageSourceToken[] = [];
   let rangeIndex = 0;
   for (let start = 0; start < content.length - 1; start += 1) {
-    const range = nonRenderedRanges[rangeIndex];
-    if (range && start >= range.start) {
-      if (start < range.end) {
-        start = range.end - 1;
-        continue;
-      }
+    while (
+      rangeIndex < nonRenderedRanges.length &&
+      start >= nonRenderedRanges[rangeIndex].end
+    ) {
       rangeIndex += 1;
+    }
+    const range = nonRenderedRanges[rangeIndex];
+    if (range && start >= range.start && start < range.end) {
+      start = range.end - 1;
+      continue;
     }
     if (
       content[start] !== "!" ||
@@ -713,10 +720,23 @@ function markdownImageSourceTokens(content: string): ImageSourceToken[] {
 
 function htmlImageSourceTokens(content: string): ImageSourceToken[] {
   const tokens: ImageSourceToken[] = [];
+  const nonRenderedRanges = nonRenderedSourceRanges(content, false);
+  let rangeIndex = 0;
   let cursor = 0;
   while (cursor < content.length) {
     const start = content.indexOf("<", cursor);
     if (start === -1) break;
+    while (
+      rangeIndex < nonRenderedRanges.length &&
+      start >= nonRenderedRanges[rangeIndex].end
+    ) {
+      rangeIndex += 1;
+    }
+    const range = nonRenderedRanges[rangeIndex];
+    if (range && start >= range.start && start < range.end) {
+      cursor = range.end;
+      continue;
+    }
     const end = htmlTagEndAt(content, start);
     if (end === null) {
       cursor = start + 1;

@@ -291,11 +291,12 @@ describe("slide image replacement", () => {
     const html = [
       "```markdown",
       `![Fenced example](${src})`,
+      `<img src="${src}" alt="Fenced example">`,
       "```",
-      `\`![Inline example](${src})\``,
-      `<span data-example="![Attribute example](${src})">Text</span>`,
-      `<code>![HTML code example](${src})</code>`,
-      `<pre>![HTML pre example](${src})</pre>`,
+      `\`![Inline example](${src}) <img src="${src}" alt="Inline example">\``,
+      `<span data-example="![Attribute example](${src}) <img src='${src}' alt='Attribute example'>">Text</span>`,
+      `<code>![HTML code example](${src}) <img src="${src}" alt="HTML code example"></code>`,
+      `<pre>![HTML pre example](${src}) <img src="${src}" alt="HTML pre example"></pre>`,
       `![Rendered image](${src})`,
     ].join("\n");
     const updated = updateImageFitInSlideHtml(
@@ -306,12 +307,20 @@ describe("slide image replacement", () => {
     );
 
     expect(updated).toContain(`![Fenced example](${src})`);
-    expect(updated).toContain(`\`![Inline example](${src})\``);
+    expect(updated).toContain(`<img src="${src}" alt="Fenced example">`);
     expect(updated).toContain(
-      `<span data-example="![Attribute example](${src})">Text</span>`,
+      `\`![Inline example](${src}) <img src="${src}" alt="Inline example">\``,
     );
-    expect(updated).toContain(`<code>![HTML code example](${src})</code>`);
-    expect(updated).toContain(`<pre>![HTML pre example](${src})</pre>`);
+    expect(updated).toContain(`<img src="${src}" alt="Inline example">`);
+    expect(updated).toContain(
+      `<span data-example="![Attribute example](${src}) <img src='${src}' alt='Attribute example'>">Text</span>`,
+    );
+    expect(updated).toContain(
+      `<code>![HTML code example](${src}) <img src="${src}" alt="HTML code example"></code>`,
+    );
+    expect(updated).toContain(
+      `<pre>![HTML pre example](${src}) <img src="${src}" alt="HTML pre example"></pre>`,
+    );
     expect(updated).toContain(
       `<img data-markdown-image="true" src="${src}" alt="Rendered image"`,
     );
