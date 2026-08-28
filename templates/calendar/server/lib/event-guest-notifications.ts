@@ -139,7 +139,7 @@ export function renderEventGuestNote({
       paragraphs,
       cta:
         kind === "update" && htmlLink
-          ? { label: "Open in Google Calendar", url: htmlLink }
+          ? { label: "Open in AN Calendar", url: htmlLink }
           : undefined,
       footer:
         "Google Calendar sends the calendar update separately. This message carries the organizer note.",

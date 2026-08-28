@@ -4,11 +4,12 @@ vi.mock("@agent-native/core/server", () => ({
   emailLink: (label: string, url: string) => `${label}: ${url}`,
   emailStrong: (value: string) => value,
   isEmailConfigured: () => false,
-  renderEmail: vi.fn(),
+  renderEmail: vi.fn((input: Record<string, unknown>) => input),
   sendEmail: vi.fn(),
 }));
 
 import { formatBookingWhen } from "./booking-emails";
+import { renderEventGuestNote } from "./event-guest-notifications";
 
 describe("booking email time formatting", () => {
   it("formats booking times in the provided booking-link timezone", () => {
@@ -25,5 +26,23 @@ describe("booking email time formatting", () => {
     expect(
       formatBookingWhen("2026-05-21T19:30:00.000Z", "2026-05-21T20:00:00.000Z"),
     ).toBe("Thursday, May 21, 2026, 3:30 PM EDT - 4:00 PM EDT");
+  });
+});
+
+describe("event guest note links", () => {
+  it("links update notes to Agent-Native Calendar", () => {
+    const rendered = renderEventGuestNote({
+      title: "Design review",
+      organizer: "Dana Hill",
+      message: "Moving this an hour later.",
+      when: "Thursday, May 21, 2026, 12:30 PM PDT - 1:00 PM PDT",
+      kind: "update",
+      htmlLink: "https://calendar.example.com/event/sample",
+    });
+
+    expect(rendered.cta).toEqual({
+      label: "Open in AN Calendar",
+      url: "https://calendar.example.com/event/sample",
+    });
   });
 });

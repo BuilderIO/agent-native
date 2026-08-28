@@ -989,9 +989,7 @@ export default function Index() {
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) =>
-              handleSubmitPrompt(prompt, [], {}, { skipQuestions: true })
-            }
+            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
           />
         ) : (
           <>
