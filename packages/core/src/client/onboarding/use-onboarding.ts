@@ -90,6 +90,7 @@ export function useOnboarding(
   const [completeFirstRunError, setCompleteFirstRunError] = useState<
     string | null
   >(null);
+  const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -122,6 +123,22 @@ export function useOnboarding(
         throw new Error(`steps: ${stepsRes.status}`);
       }
       const stepsData: OnboardingStepStatus[] = await stepsRes.json();
+      const previousSteps = stepsRef.current;
+      if (previousSteps.length > 0) {
+        for (const [stepIndex, step] of stepsData.entries()) {
+          const previousStep = previousSteps.find(
+            (previous) => previous.id === step.id,
+          );
+          if (step.complete && !previousStep?.complete) {
+            trackOnboardingEvent("onboarding_step_completed", {
+              flow: "checklist",
+              step_id: step.id,
+              step_index: stepIndex,
+            });
+          }
+        }
+      }
+      stepsRef.current = stepsData;
       setSteps(stepsData);
 
       if (!profileRes.ok) {

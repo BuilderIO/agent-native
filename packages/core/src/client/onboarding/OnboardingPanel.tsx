@@ -83,15 +83,18 @@ export function OnboardingPanel({
 
   useEffect(() => {
     if (!checklistVisible) return;
+    const activeStepIndex = steps.findIndex(
+      (step) => step.id === currentStepId,
+    );
+    const activeStep = steps[activeStepIndex];
     trackOnboardingEvent("onboarding_started", { flow: "checklist" });
-    for (const [stepIndex, step] of steps.entries()) {
-      trackOnboardingEvent("onboarding_step_viewed", {
-        flow: "checklist",
-        step_id: step.id,
-        step_index: stepIndex,
-      });
-    }
-  }, [checklistVisible, previewMode, steps]);
+    if (!activeStep) return;
+    trackOnboardingEvent("onboarding_step_viewed", {
+      flow: "checklist",
+      step_id: activeStep.id,
+      step_index: activeStepIndex,
+    });
+  }, [checklistVisible, currentStepId, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   // Preview mode (dev overlay) bypasses the auto-hide so template authors

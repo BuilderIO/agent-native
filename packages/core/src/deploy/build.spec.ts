@@ -1111,6 +1111,36 @@ export default (event) =>
     );
   });
 
+  it("bakes build-time Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", "anpk_build");
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/build-track",
+    );
+
+    const source = generateWorkerEntry([], []);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_build"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/build-track"',
+    );
+  });
+
   it("normalizes explicit deployment environment in generated browser telemetry", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " BETA ");
     vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");

@@ -1059,6 +1059,15 @@ ${["post", "put", "delete"]
     );
   }
 
+  const builtAnalyticsPublicKey =
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY?.trim();
+  const builtAnalyticsEndpoint =
+    process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT?.trim();
+
   return `
 // Auto-generated worker entry point for ${preset}
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
@@ -1315,17 +1324,19 @@ function getPostHogClientConfigScript() {
 
 function getAgentNativeAnalyticsClientConfigScript() {
   const env = globalThis.process?.env || {};
+  const builtPublicKey = ${JSON.stringify(builtAnalyticsPublicKey)};
+  const builtEndpoint = ${JSON.stringify(builtAnalyticsEndpoint)};
   const publicKey = firstNonEmpty(
     env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
     env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
-    env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY,
+    builtPublicKey,
   );
   if (!publicKey) return null;
   const endpoint =
     firstNonEmpty(
       env.AGENT_NATIVE_ANALYTICS_ENDPOINT,
       env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT,
-      env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT,
+      builtEndpoint,
     ) || "https://analytics.agent-native.com/track";
   const config = {
     agentNativeAnalyticsPublicKey: publicKey,
