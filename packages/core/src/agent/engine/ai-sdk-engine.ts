@@ -244,6 +244,7 @@ class AISDKEngine implements AgentEngine {
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.preserveCustomModels =
       provider === "ollama" ||
+      provider === "openrouter" ||
       (provider === "openai" && Boolean(config.baseUrl));
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
