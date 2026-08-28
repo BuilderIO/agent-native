@@ -298,6 +298,24 @@ jobs:
           set -euo pipefail
           hold="$RUNNER_TEMP/agent-native-pending-changesets"
           mkdir -p "$hold"
+          shopt -s nullglob
+          pending=()
+          for file in .changeset/*.md; do
+            if [[ "$file" != ".changeset/README.md" ]]; then
+              pending+=("$file")
+            fi
+          done
+          # `changeset status` exits 1 on "packages changed but no changesets",
+          # and it measures "changed" against the WORKING TREE — so any file an
+          # install regenerates makes it fail on a release commit, which has
+          # consumed every changeset by construction. Nothing pending means
+          # nothing to hold; never let a validation command decide whether an
+          # already-versioned release is allowed to publish.
+          if [ ${#pending[@]} -eq 0 ]; then
+            : > "$hold/eligible.txt"
+            echo "No pending changesets to hold."
+            exit 0
+          fi
           pnpm changeset status --output "$hold/status.json"
           jq -r '
             .changesets[]
@@ -312,11 +330,7 @@ jobs:
                 . == "@agent-native/toolkit"))
             | .id + ".md"
           ' "$hold/status.json" > "$hold/eligible.txt"
-          shopt -s nullglob
-          for file in .changeset/*.md; do
-            if [[ "$file" == ".changeset/README.md" ]]; then
-              continue
-            fi
+          for file in "${pending[@]}"; do
             mv "$file" "$hold/"
           done
 
