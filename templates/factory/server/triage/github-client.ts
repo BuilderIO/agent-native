@@ -303,6 +303,14 @@ export function createGitHubClient(options: GitHubClientOptions) {
       } satisfies GitHubPullRequestSummary;
     },
 
+    async getAuthenticatedUser() {
+      const item = record(await request<unknown>("/user"));
+      return {
+        login: requiredString(item.login, "authenticated GitHub user login"),
+        id: requiredNumber(item.id, "authenticated GitHub user id"),
+      };
+    },
+
     async checkMember(
       repository: GitHubRepositoryRef,
       username: string,

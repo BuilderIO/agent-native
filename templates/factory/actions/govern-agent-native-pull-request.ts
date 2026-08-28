@@ -38,6 +38,7 @@ import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
   currentPullRequestApproval,
+  FACTORY_APPROVAL_BODY_MARKER,
   hasCurrentBlockingPullRequestReview,
 } from "../server/triage/pr-policy.js";
 
@@ -245,28 +246,54 @@ export default defineAction({
         factoryId,
       );
       let recoveredApproval = false;
+      let previouslyFinalized = false;
       if (itemId) {
+        const existingItem = (
+          await getDb()
+            .select({
+              metadataJson: triageItems.metadataJson,
+              status: triageItems.status,
+            })
+            .from(triageItems)
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+            .limit(1)
+        )[0];
+        if (!existingItem) {
+          throw new Error("Factory item disappeared during approval recovery.");
+        }
+        const existingMetadata = parseTriageMetadata(existingItem.metadataJson);
+        previouslyFinalized =
+          existingItem.status === "auto_approved" &&
+          existingMetadata.autoApprovalHeadSha === snapshot.headSha &&
+          typeof existingMetadata.autoApprovalUrl === "string";
         const decisionId = stableId(
           "pr-governance",
           orgId,
           itemId,
           snapshot.headSha,
         );
-        const recovered = await getDb()
-          .update(triageDecisions)
-          .set({ outcome: "auto_approve" })
-          .where(
-            and(
-              eq(triageDecisions.id, decisionId),
-              eq(triageDecisions.itemId, itemId),
-              eq(triageDecisions.orgId, orgId),
-              eq(triageDecisions.factoryId, factoryId),
-              eq(triageDecisions.outcome, "auto_approval_claimed"),
-            ),
-          )
-          .returning({ id: triageDecisions.id });
-        if (recovered[0]) {
-          recoveredApproval = true;
+        const authenticatedUser = await github.getAuthenticatedUser();
+        const attributedApproval =
+          currentApproval.reviewerLogin ===
+            authenticatedUser.login.trim().toLowerCase() &&
+          currentApproval.body?.startsWith(FACTORY_APPROVAL_BODY_MARKER);
+        if (attributedApproval) {
+          const recovered = await getDb()
+            .update(triageDecisions)
+            .set({ outcome: "auto_approve" })
+            .where(
+              and(
+                eq(triageDecisions.id, decisionId),
+                eq(triageDecisions.itemId, itemId),
+                eq(triageDecisions.orgId, orgId),
+                eq(triageDecisions.factoryId, factoryId),
+                eq(triageDecisions.outcome, "auto_approval_claimed"),
+              ),
+            )
+            .returning({ id: triageDecisions.id });
+          recoveredApproval = Boolean(recovered[0]);
+        }
+        if (recoveredApproval) {
           const latestItem = (
             await getDb()
               .select({ metadataJson: triageItems.metadataJson })
@@ -294,7 +321,7 @@ export default defineAction({
             .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
         }
       }
-      if (itemId && !recoveredApproval) {
+      if (itemId && !recoveredApproval && !previouslyFinalized) {
         await getDb()
           .update(triageItems)
           .set({

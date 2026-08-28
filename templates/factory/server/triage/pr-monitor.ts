@@ -12,6 +12,7 @@ export interface PullRequestReviewObservation {
   state: PullRequestReviewState;
   commitSha?: string | null;
   htmlUrl?: string | null;
+  body?: string | null;
   observedAt: string;
 }
 

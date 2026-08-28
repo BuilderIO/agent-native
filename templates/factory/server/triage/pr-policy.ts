@@ -12,6 +12,7 @@ export type PullRequestOwnerException =
 export type PullRequestTrustException = "liamdebeasi";
 
 const LIAMDEBEASI_USER_ID = 2721089;
+export const FACTORY_APPROVAL_BODY_MARKER = "Factory auto-approved under";
 
 export interface PullRequestGovernanceInput {
   author: string;
@@ -231,6 +232,7 @@ export function hasCurrentPullRequestApproval(
     state: string;
     commitSha?: string | null;
     htmlUrl?: string | null;
+    body?: string | null;
     observedAt: string;
   }[],
   headSha: string,
@@ -244,15 +246,23 @@ export function currentPullRequestApproval(
     state: string;
     commitSha?: string | null;
     htmlUrl?: string | null;
+    body?: string | null;
     observedAt: string;
   }[],
   headSha: string,
-): { commitSha: string; htmlUrl?: string | null } | null {
+): {
+  commitSha: string;
+  htmlUrl?: string | null;
+  reviewerLogin: string;
+  body?: string | null;
+} | null {
   const approvalByAuthor = new Map<
     string,
     {
       commitSha?: string | null;
       htmlUrl?: string | null;
+      reviewerLogin: string;
+      body?: string | null;
     }
   >();
   reviews
@@ -269,6 +279,8 @@ export function currentPullRequestApproval(
         approvalByAuthor.set(author, {
           commitSha: review.commitSha,
           htmlUrl: review.htmlUrl,
+          reviewerLogin: author,
+          body: review.body,
         });
       } else if (
         review.state === "changes_requested" ||
@@ -284,8 +296,14 @@ export function currentPullRequestApproval(
     );
   }
   const approval = [...approvalByAuthor.values()].find(
-    (review): review is { commitSha: string; htmlUrl?: string | null } =>
-      review.commitSha === headSha,
+    (
+      review,
+    ): review is {
+      commitSha: string;
+      htmlUrl?: string | null;
+      reviewerLogin: string;
+      body?: string | null;
+    } => review.commitSha === headSha,
   );
   return approval ?? null;
 }
