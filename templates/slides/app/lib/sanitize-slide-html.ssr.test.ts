@@ -87,14 +87,38 @@ describe("sanitizeSlideHtml regex fallback, verified against the SSR path", () =
     expect(html).not.toContain("Swallowed");
   });
 
-  it("strips a handler written with a slash separator", () => {
-    // `<img/src=x/onerror=…>` is a valid img tag with a live handler. Anchoring
-    // the scrub on whitespace alone let it through verbatim.
+  it("keeps a slide containing a valid void <embed>", () => {
+    // `embed` is void, so it never has a closing tag. Requiring one truncated
+    // every slide that used it.
     const html = sanitizeSlideHtml(
-      '<div class="fmd-slide"><img/src=x/onerror=alert(1)><p>Body</p></div>',
+      '<div class="fmd-slide"><embed src="x"><h1>After</h1></div>',
     );
-    expect(html).not.toContain("onerror");
-    expect(html).toContain("Body");
+    expect(html).toContain("After");
+  });
+
+  it("does not truncate on a tag name that only appears inside an attribute", () => {
+    // Scanning the serialized string cannot tell a tag from text unless it
+    // skips quoted values: this reads as a <style> start tag otherwise.
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><p title="Use <style> in CSS">Visible</p></div>',
+    );
+    expect(html).toContain("Visible");
+  });
+
+  it("does not truncate on a tag name inside a comment", () => {
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><!-- <script> --><h1>Visible</h1></div>',
+    );
+    expect(html).toContain("Visible");
+  });
+
+  it("leaves a quoted URL that merely looks like a handler intact", () => {
+    // Widening the attribute scrubs to treat `/` as a separator corrupted this
+    // — the match ran straight into the middle of a legitimate value.
+    const html = sanitizeSlideHtml(
+      '<div class="fmd-slide"><img src="https://cdn.example/onerror=logo.png"></div>',
+    );
+    expect(html).toContain("onerror=logo.png");
   });
 
   it("leaves an ordinary styled slide alone", () => {

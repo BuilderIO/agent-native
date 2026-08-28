@@ -312,23 +312,66 @@ function cleanNode(
 }
 
 /**
- * Truncates at the first raw-text or embedding element that never closes.
+ * Elements whose unclosed start tag swallows the rest of the document in a real
+ * parser. `embed` is deliberately absent: it is void, so it never has a closing
+ * tag and requiring one would truncate every slide that contains a valid one.
+ */
+const SWALLOWING_ELEMENTS = /^(script|style|textarea|iframe|object|svg|math)$/i;
+
+/**
+ * Start-tag positions in `html`, skipping comments and anything inside a quoted
+ * attribute value.
  *
- * An unclosed `<script>` or `<style>` swallows the rest of the document in a
- * real parser, so the regex path has to drop the remainder to agree with
- * `cleanNode`. It must check for the closing tag to do that: the sweep used to
- * match any of these tags and cut to the end of the string unconditionally,
- * which ate the sanitized `<style>` block the pass above it had just emitted —
- * and every heading and paragraph after it. A deck with one stylesheet rendered
- * as an empty slide on the SSR'd share and present pages.
+ * Scanning the serialized string with a bare regex cannot tell a tag from text:
+ * `<p title="Use <style> here">` reads as a `<style>` start tag, and truncating
+ * there drops the rest of a perfectly valid slide.
+ */
+function startTagPositions(html: string): { name: string; index: number }[] {
+  const found: { name: string; index: number }[] = [];
+  for (let i = 0; i < html.length; i++) {
+    if (html[i] !== "<") continue;
+    if (html.startsWith("<!--", i)) {
+      const end = html.indexOf("-->", i + 4);
+      i = end === -1 ? html.length : end + 2;
+      continue;
+    }
+    const name = /^<([a-z][a-z0-9-]*)/i.exec(html.slice(i, i + 32))?.[1];
+    // Walk to this tag's `>`, stepping over quoted values so a `<` or `>`
+    // inside one is not read as markup.
+    let cursor = i + 1;
+    let quote = "";
+    while (cursor < html.length) {
+      const char = html[cursor];
+      if (quote) {
+        if (char === quote) quote = "";
+      } else if (char === '"' || char === "'") {
+        quote = char;
+      } else if (char === ">") {
+        break;
+      }
+      cursor++;
+    }
+    if (name) found.push({ name: name.toLowerCase(), index: i });
+    i = cursor;
+  }
+  return found;
+}
+
+/**
+ * Truncates at the first swallowing element that never closes.
+ *
+ * The regex path has to drop the remainder to agree with `cleanNode`. It must
+ * check for the closing tag to do that: the sweep used to match any of these
+ * tags and cut to the end of the string unconditionally, which ate the
+ * sanitized `<style>` block the pass above it had just emitted — and every
+ * heading and paragraph after it. A deck with one stylesheet rendered as an
+ * empty slide on the SSR'd share and present pages.
  */
 function dropFromFirstUnclosedRawText(html: string): string {
-  const openings = /<(script|style|textarea|iframe|object|embed|svg|math)\b/gi;
-  for (let match = openings.exec(html); match; match = openings.exec(html)) {
-    const tag = match[1].toLowerCase();
-    const closing = new RegExp(`</\\s*${tag}\\s*>`, "i");
-    if (!closing.test(html.slice(match.index)))
-      return html.slice(0, match.index);
+  for (const { name, index } of startTagPositions(html)) {
+    if (!SWALLOWING_ELEMENTS.test(name)) continue;
+    const closing = new RegExp(`</\\s*${name}\\s*>`, "i");
+    if (!closing.test(html.slice(index))) return html.slice(0, index);
   }
   return html;
 }
@@ -362,14 +405,11 @@ function sanitizeHtmlString(
         /<(script|iframe|object|embed|form|input|button|select|textarea|meta|base|link|svg|math)\b[^>]*\/?>/gi,
         "",
       )
-      // `/` is a legal attribute separator: `<img/src=x/onerror=alert(1)>` is a
-      // valid img tag with a live handler, and anchoring these scrubs on
-      // whitespace alone let it through untouched.
-      .replace(/[\s/]+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/[\s/]+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/[\s/]+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+on[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
       .replace(
-        /[\s/]+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        /\s+(href|src|xlink:href)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
         (match, attr, _raw, dq, sq, bare) => {
           const value = dq ?? sq ?? bare ?? "";
           const safe = sanitizeSlideUrl(
