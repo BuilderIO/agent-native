@@ -38,10 +38,12 @@ function BuilderConnectProbe({
   enabled = true,
   popupUrl,
   provisionAccount = false,
+  startProvisionAccount,
 }: {
   enabled?: boolean;
   popupUrl?: string;
   provisionAccount?: boolean;
+  startProvisionAccount?: boolean;
 }) {
   const flow = useBuilderConnectFlow({
     enabled,
@@ -50,7 +52,16 @@ function BuilderConnectProbe({
   });
   return (
     <div>
-      <button type="button" onClick={() => flow.start()}>
+      <button
+        type="button"
+        onClick={() =>
+          flow.start(
+            startProvisionAccount === undefined
+              ? undefined
+              : { provisionAccount: startProvisionAccount },
+          )
+        }
+      >
         Connect
       </button>
       <output data-testid="status">
@@ -354,6 +365,39 @@ describe("useBuilderConnectFlow", () => {
 
     await act(async () => {
       root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+  });
+
+  it("allows an existing-account click to bypass provisioning mode", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe provisionAccount startProvisionAccount={false} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
     });
