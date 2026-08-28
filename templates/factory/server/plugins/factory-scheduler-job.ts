@@ -319,7 +319,7 @@ pending, skipped, unknown, and unresolved ordinary feedback accurately - never
 call it clean just because the author is internal. Sid's verified Design-owner
 exception still does not waive membership or the ultra-scary gate.
 
-For the exact `liamdebeasi` login and immutable GitHub user ID `2721089`, keep
+For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, keep
 current BuilderIO membership mandatory. If the current, non-draft PR has no
 current-head, non-dismissed approval, the Liam exception permits approval
 through ordinary check, review-feedback, scope, and UX-owner gates. It never

@@ -61,7 +61,7 @@ permissions, tenant isolation, secrets, destructive data loss or migrations,
 remote code execution, SSRF, payments, deployment, or unexplained dependency
 and infrastructure risk.
 
-For the exact `liamdebeasi` login and immutable GitHub user ID `2721089`, a
+For the exact \`liamdebeasi\` login and immutable GitHub user ID \`2721089\`, a
 current BuilderIO membership check is still required. When the current,
 non-draft PR has no current-head, non-dismissed approval, the Liam exception
 allows approval across ordinary check, review-feedback, scope, and UX-owner

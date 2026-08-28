@@ -422,8 +422,8 @@ export default defineAction({
           governance.trustException
             ? `Factory auto-approved under the verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
             : governance.ownerException
-            ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-            : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
+              ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
+              : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
         );
         approvalUrl = approval.htmlUrl;
         metadata.autoApprovedAt = new Date().toISOString();

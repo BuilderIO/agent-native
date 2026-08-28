@@ -100,9 +100,7 @@ export function decidePullRequestGovernance(
     {
       code: "unknown_change",
       passed:
-        input.clearBug ||
-        verifiedOwnerException !== null ||
-        liamException,
+        input.clearBug || verifiedOwnerException !== null || liamException,
       reason:
         input.clearBug || verifiedOwnerException !== null || liamException
           ? "The automation classified this as a clear bug with a concrete failure signal."
