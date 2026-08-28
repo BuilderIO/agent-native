@@ -30,10 +30,34 @@ describe("DefaultSpinner", () => {
     });
 
     expect(container.querySelector("span")?.textContent).toBe("Churning");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
     expect(
       container.querySelectorAll("[data-agent-native-cube-loader] rect"),
     ).toHaveLength(9);
     expect(container.textContent).not.toContain("2m");
+  });
+
+  it("rotates through playful loading labels", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        root.render(<DefaultSpinner />);
+      });
+
+      expect(
+        container.querySelector(".agent-running-shimmer")?.textContent,
+      ).toBe("Churning");
+
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+
+      expect(
+        container.querySelector(".agent-running-shimmer")?.textContent,
+      ).toBe("Accomplishing");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses a caller-provided accessible loading label", () => {
