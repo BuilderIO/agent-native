@@ -220,6 +220,20 @@ function applyImageStyle(
   }
 }
 
+function imageStyleDeclarations(updates: ImageStyleUpdates): string {
+  return [
+    updates.objectFit || (updates.objectPosition ? "cover" : undefined),
+    updates.objectPosition,
+  ]
+    .map((value, index) =>
+      value
+        ? `${index === 0 ? "object-fit" : "object-position"}: ${value}`
+        : null,
+    )
+    .filter((declaration): declaration is string => declaration !== null)
+    .join("; ");
+}
+
 function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -229,30 +243,79 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 const MARKDOWN_IMAGE_PATTERN =
-  /!\[([^\]]*)\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+  /!\[([^\]]*)\]\(\s*(<[^>]+>|(?:\\.|[^)\s])+)(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+const HTML_IMAGE_PATTERN = /<img\b[^>]*>/gi;
 
-function updateMarkdownImage(
+interface ImageSourceToken {
+  end: number;
+  kind: "html" | "markdown";
+  source: string;
+  start: number;
+}
+
+function decodeMarkdownImageDestination(rawSource: string): string {
+  const destination = rawSource.startsWith("<")
+    ? rawSource.slice(1, -1)
+    : rawSource;
+  const decoded = parseFragment(`<span>${destination}</span>`).body
+    .firstElementChild?.textContent;
+  return (decoded ?? destination).replace(/\\([\\()])/g, "$1");
+}
+
+function imageSourceTokens(content: string): ImageSourceToken[] {
+  const tokens: ImageSourceToken[] = [];
+  for (const match of content.matchAll(HTML_IMAGE_PATTERN)) {
+    const rawImage = match[0];
+    const image = parseFragment(rawImage).body.querySelector("img");
+    const source = image?.getAttribute("src");
+    if (source) {
+      const start = match.index ?? 0;
+      tokens.push({
+        end: start + rawImage.length,
+        kind: "html",
+        source,
+        start,
+      });
+    }
+  }
+  for (const match of content.matchAll(MARKDOWN_IMAGE_PATTERN)) {
+    const rawSource = match[2] as string;
+    const start = match.index ?? 0;
+    tokens.push({
+      end: start + match[0].length,
+      kind: "markdown",
+      source: decodeMarkdownImageDestination(rawSource),
+      start,
+    });
+  }
+  return tokens.sort((a, b) => a.start - b.start);
+}
+
+function updateMarkdownImageAt(
   content: string,
   src: string,
   updates: ImageStyleUpdates,
-  imageOccurrence: number,
+  tokenStart: number,
 ): string {
-  let matchingImage = 0;
   let updated = false;
   const nextContent = content.replace(
     MARKDOWN_IMAGE_PATTERN,
-    (match, alt: string, rawSrc: string, rawTitle?: string) => {
-      const markdownSrc = rawSrc.startsWith("<") ? rawSrc.slice(1, -1) : rawSrc;
-      if (markdownSrc !== src || matchingImage++ !== imageOccurrence) {
+    (
+      match,
+      alt: string,
+      rawSrc: string,
+      rawTitle: string | undefined,
+      offset: number,
+    ) => {
+      if (
+        offset !== tokenStart ||
+        decodeMarkdownImageDestination(rawSrc) !== src
+      ) {
         return match;
       }
 
-      const style = [
-        updates.objectFit && `object-fit: ${updates.objectFit}`,
-        updates.objectPosition && `object-position: ${updates.objectPosition}`,
-      ]
-        .filter(Boolean)
-        .join("; ");
+      const markdownSrc = decodeMarkdownImageDestination(rawSrc);
+      const style = imageStyleDeclarations(updates);
       const title = rawTitle
         ? ` title="${escapeHtmlAttribute(rawTitle.slice(1, -1))}"`
         : "";
@@ -263,23 +326,35 @@ function updateMarkdownImage(
   return updated ? nextContent : content;
 }
 
+function updateHtmlImageAt(
+  content: string,
+  token: ImageSourceToken,
+  updates: ImageStyleUpdates,
+): string {
+  const image = parseFragment(
+    content.slice(token.start, token.end),
+  ).body.querySelector<HTMLImageElement>("img");
+  if (!image || image.getAttribute("src") !== token.source) return content;
+  applyImageStyle(image, updates);
+  const replacement = image.outerHTML;
+  return content.slice(0, token.start) + replacement + content.slice(token.end);
+}
+
 export function updateImageFitInSlideHtml(
   content: string,
   src: string,
   updates: ImageStyleUpdates,
   imageOccurrence = 0,
 ): string {
-  const doc = parseFragment(content);
-  const matchingImages = Array.from(
-    doc.body.querySelectorAll<HTMLImageElement>("img"),
-  ).filter((candidate) => candidate.getAttribute("src") === src);
-  const image = matchingImages[imageOccurrence];
-  if (image) {
-    applyImageStyle(image, updates);
-    return serializeFragment(doc);
+  let matchingImage = 0;
+  for (const token of imageSourceTokens(content)) {
+    if (token.source !== src) continue;
+    if (matchingImage++ !== Math.max(0, imageOccurrence)) continue;
+    return token.kind === "html"
+      ? updateHtmlImageAt(content, token, updates)
+      : updateMarkdownImageAt(content, src, updates, token.start);
   }
-
-  return updateMarkdownImage(content, src, updates, imageOccurrence);
+  return content;
 }
 
 export function insertImageIntoSlideHtml(

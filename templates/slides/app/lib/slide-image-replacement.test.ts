@@ -94,6 +94,66 @@ describe("slide image replacement", () => {
     expect(img?.style.objectPosition).toBe("right bottom");
   });
 
+  it("adds cover when only a Markdown image crop position changes", () => {
+    const src = "https://cdn.example.com/chart.png";
+    const img = firstImage(
+      updateImageFitInSlideHtml(`![Chart](${src})`, src, {
+        objectPosition: "left top",
+      }),
+    );
+
+    expect(img?.style.objectFit).toBe("cover");
+    expect(img?.style.objectPosition).toBe("left top");
+  });
+
+  it("matches entity-encoded and escaped Markdown destinations", () => {
+    const entitySrc = "https://cdn.example.com/chart.png?width=800&height=400";
+    const entityImage = firstImage(
+      updateImageFitInSlideHtml(
+        `![Chart](https://cdn.example.com/chart.png?width=800&amp;height=400)`,
+        entitySrc,
+        { objectFit: "cover" },
+      ),
+    );
+    const escapedSrc = "https://cdn.example.com/chart(1).png";
+    const escapedImage = firstImage(
+      updateImageFitInSlideHtml(
+        String.raw`![Chart](https://cdn.example.com/chart\(1\).png)`,
+        escapedSrc,
+        { objectFit: "cover" },
+      ),
+    );
+
+    expect(entityImage?.getAttribute("src")).toBe(entitySrc);
+    expect(escapedImage?.getAttribute("src")).toBe(escapedSrc);
+  });
+
+  it("keeps Markdown and HTML duplicate occurrences in rendered order", () => {
+    const src = "https://cdn.example.com/shared.png";
+    const html = `![First](${src})<img src="${src}" alt="Raw" style="object-fit: contain;">![Third](${src})`;
+    const updatedRaw = updateImageFitInSlideHtml(
+      html,
+      src,
+      { objectFit: "cover" },
+      1,
+    );
+    const updatedMarkdown = updateImageFitInSlideHtml(
+      html,
+      src,
+      { objectFit: "cover" },
+      2,
+    );
+
+    expect(updatedRaw).toContain(`![First](${src})`);
+    expect(updatedRaw).toContain(
+      `<img src="${src}" alt="Raw" style="object-fit: cover;">`,
+    );
+    expect(updatedRaw).toContain(`![Third](${src})`);
+    expect(updatedMarkdown).toContain(
+      `<img src="${src}" alt="Third" style="object-fit: cover;">`,
+    );
+  });
+
   it.each([
     ["top left", "left top"],
     ["top right", "right top"],

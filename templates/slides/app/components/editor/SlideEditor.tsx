@@ -470,6 +470,22 @@ function buildStyleSnapshot(
   const paddingBottom = cssPx(computed.paddingBottom);
   const parsedZIndex = Number(computed.zIndex);
   const zIndex = Number.isFinite(parsedZIndex) ? parsedZIndex : 0;
+  const isImage =
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-pptx-image") ||
+    element.getAttribute("data-pptx-element-kind") === "image";
+  const objectFit =
+    element.tagName === "IMG"
+      ? computed.objectFit === "contain"
+        ? "contain"
+        : "cover"
+      : undefined;
+  const objectPosition =
+    element.tagName === "IMG"
+      ? normalizeImageObjectPosition(
+          element.style.objectPosition || computed.objectPosition,
+        )
+      : undefined;
 
   const selectedTextStyle =
     inlineTextStyle?.scope === "selection" ? inlineTextStyle : null;
@@ -487,10 +503,9 @@ function buildStyleSnapshot(
     isText:
       element.tagName !== "IMG" &&
       (!!textPreview || element.classList.contains("fmd-text-box")),
-    isImage:
-      element.tagName === "IMG" ||
-      element.classList.contains("fmd-pptx-image") ||
-      element.getAttribute("data-pptx-element-kind") === "image",
+    isImage,
+    objectFit,
+    objectPosition,
     color:
       selectedColor === null || selectedColor === undefined
         ? normalizedColor(computed.color)
@@ -546,6 +561,7 @@ function selectionItemForElement(
   element: HTMLElement,
   runtimeSelector: string,
   snapshot?: SlideStyleSnapshot,
+  imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
 ): SlideSelectionItem {
   const identity = getSlideSelectionIdentity(element, runtimeSelector);
   return {
@@ -562,7 +578,9 @@ function selectionItemForElement(
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
         : (element.querySelector("img")?.getAttribute("src") ?? undefined),
-    style: snapshot ? { ...snapshot, selector: identity.selector } : undefined,
+    style: snapshot
+      ? { ...snapshot, ...imageStyle, selector: identity.selector }
+      : undefined,
   };
 }
 
@@ -5065,22 +5083,31 @@ export default function SlideEditor({
     );
   }, [multiSelection.size, multiSelectionRects, slide.id, slideIndex]);
 
+  const publishImageSelection = useCallback(
+    (
+      element: HTMLElement,
+      imageStyle?: Pick<SlideStyleSnapshot, "objectFit" | "objectPosition">,
+    ) => {
+      const selector =
+        getBuilderSelector(element) ??
+        `[data-builder-id="${ensureBuilderId(element)}"]`;
+      const snapshot = buildStyleSnapshot(element, selector);
+      syncSelectionToAppState(
+        buildSelectionState("image", [
+          selectionItemForElement(
+            element,
+            selector,
+            { ...snapshot, isImage: true },
+            imageStyle,
+          ),
+        ]),
+      );
+    },
+    [buildSelectionState],
+  );
+
   const showImageOverlay = useCallback(
     (target: HTMLElement) => {
-      const publishImageSelection = (element: HTMLElement) => {
-        const selector =
-          getBuilderSelector(element) ??
-          `[data-builder-id="${ensureBuilderId(element)}"]`;
-        const snapshot = buildStyleSnapshot(element, selector);
-        syncSelectionToAppState(
-          buildSelectionState("image", [
-            selectionItemForElement(element, selector, {
-              ...snapshot,
-              isImage: true,
-            }),
-          ]),
-        );
-      };
       if (target.tagName === "IMG") {
         const img = target as HTMLImageElement;
         const rect = img.getBoundingClientRect();
@@ -5130,7 +5157,7 @@ export default function SlideEditor({
         publishImageSelection(placeholder);
       }
     },
-    [buildSelectionState, getPlaceholderTarget, getSlideContent],
+    [getPlaceholderTarget, getSlideContent, publishImageSelection],
   );
 
   // Browsers put the dragged element's outerHTML on the "text/html" data
@@ -6173,6 +6200,12 @@ export default function SlideEditor({
               imageOverlay.imageOccurrence,
             );
             setImageOverlay({ ...imageOverlay, objectFit: newFit });
+            if (selectedImg) {
+              publishImageSelection(selectedImg, {
+                objectFit: newFit,
+                objectPosition: imageOverlay.objectPosition,
+              });
+            }
           }}
           onChangeObjectPosition={(objectPosition) => {
             onChangeObjectPosition(
@@ -6181,6 +6214,12 @@ export default function SlideEditor({
               imageOverlay.imageOccurrence,
             );
             setImageOverlay({ ...imageOverlay, objectPosition });
+            if (selectedImg) {
+              publishImageSelection(selectedImg, {
+                objectFit: imageOverlay.objectFit,
+                objectPosition,
+              });
+            }
           }}
           onClose={() => setImageOverlay(null)}
         />
