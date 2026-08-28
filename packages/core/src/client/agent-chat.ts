@@ -111,6 +111,13 @@ export interface AgentChatMessage {
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
+  /**
+   * Names what this turn is FOR, e.g. `"crm:enrich-record"`. Recorded as the
+   * usage row's label and as the run's observability span name
+   * (`agent_run:<label>`), so a turn a feature sent on the user's behalf is
+   * distinguishable from a typed chat message. Omit for ordinary chat.
+   */
+  usageLabel?: string;
 }
 
 export interface AgentChatContextItem {
@@ -982,6 +989,8 @@ export interface ParsedSubmitChat {
   requestMode?: AgentChatRequestMode;
   /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
+  /** See {@link AgentChatMessage.usageLabel}. */
+  usageLabel?: string;
 }
 
 function parseSubmitChatAttachments(
@@ -1067,6 +1076,7 @@ export function parseSubmitChatMessage(
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
+    usageLabel: nonEmptyString(raw.usageLabel),
   };
 }
 

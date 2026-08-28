@@ -708,10 +708,17 @@ async function executeBackgroundAutomation(
                   // makes it visible to per-user observability reads.
                   userId: ownerEmail,
                   config,
-                  spanName: "background_automation_run",
+                  // The trace list column is a name, so it has to say WHICH
+                  // automation ran; a constant here made every scheduled run
+                  // in LLM analytics indistinguishable from every other one.
+                  spanName: `background_automation_run:${automation.name}`,
                   metadata: {
                     automation: automation.name,
                     trigger: "background_automation",
+                    // `recurring-job:` / `manual-automation:` / `automation:`
+                    // — what actually started this run, which the span name
+                    // alone does not say.
+                    label: usageLabel,
                     scope: orgId ? "organization" : "personal",
                   },
                 });

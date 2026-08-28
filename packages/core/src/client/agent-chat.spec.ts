@@ -156,6 +156,30 @@ describe("sendToAgentChat", () => {
     expect(payload.data.message).toBe("hello");
   });
 
+  it("carries usageLabel through the postMessage payload and back out", () => {
+    sendToAgentChat({
+      message: "enrich this record",
+      usageLabel: "crm:enrich",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.usageLabel).toBe("crm:enrich");
+
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+    } as MessageEvent);
+    expect(parsed?.usageLabel).toBe("crm:enrich");
+  });
+
+  it("drops a blank usageLabel instead of forwarding an empty label", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: { message: "hi", usageLabel: "   " },
+      },
+    } as MessageEvent);
+    expect(parsed?.usageLabel).toBeUndefined();
+  });
+
   it("includes submitted image data in the postMessage payload", () => {
     sendToAgentChat({
       message: "describe this image",

@@ -469,6 +469,18 @@ function normalizeBrowserTabId(value: unknown): string | undefined {
   return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? trimmed : undefined;
 }
 
+/**
+ * The usage label is caller-supplied (a template surface, an MCP host, an
+ * extension), and it lands in a usage row AND in a trace span name. Bound it
+ * and strip control characters here so a client cannot turn either into a
+ * payload channel.
+ */
+function normalizeUsageLabel(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim();
+  return trimmed ? trimmed.slice(0, 120) : undefined;
+}
+
 function normalizeChatScope(
   value: unknown,
 ): { type: string; id: string; label?: string } | null | undefined {
@@ -9143,6 +9155,7 @@ export function createProductionAgentHandler(
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;
+    const turnUsageLabel = normalizeUsageLabel(body.usageLabel);
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;
@@ -10873,8 +10886,17 @@ export function createProductionAgentHandler(
                 threadId: threadId ?? null,
                 userId: ownerEmail,
                 config: obsConfig,
+                // A caller that named its turn (a template surface, an MCP
+                // host, a background send) gets that name in the trace list;
+                // a plain chat turn stays `agent_run` so the common case
+                // still aggregates.
+                spanName:
+                  turnUsageLabel && turnUsageLabel !== "chat"
+                    ? `agent_run:${turnUsageLabel}`
+                    : undefined,
                 metadata: {
                   modelSelectionSource,
+                  ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
                   ...(experimentAssignments.length > 0
                     ? { experimentAssignments }
                     : {}),
@@ -10940,7 +10962,7 @@ export function createProductionAgentHandler(
                 cacheReadTokens: turnUsage.cacheReadTokens,
                 cacheWriteTokens: turnUsage.cacheWriteTokens,
                 model: turnUsage.model,
-                label: body.usageLabel || "chat",
+                label: turnUsageLabel || "chat",
                 // token_usage has had run_id/thread_id/task_id since it was
                 // created and every row was NULL on all three, so no spend could
                 // be tied back to a run, thread, or outcome.
