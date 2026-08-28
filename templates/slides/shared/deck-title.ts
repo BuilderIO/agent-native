@@ -1,3 +1,17 @@
+export const DEFAULT_DECK_TITLE = "Untitled Deck";
+export const DEFAULT_IMPORTED_DECK_TITLE = "New Presentation";
+
+const IMPORTED_TITLE_PLACEHOLDERS = new Set([
+  "untitled deck",
+  "untitled file",
+  "untitled presentation",
+  "untitled scene",
+  "untitled slide",
+  "imported file",
+  "imported presentation",
+  DEFAULT_IMPORTED_DECK_TITLE.toLowerCase(),
+]);
+
 const GENERATED_TITLE_PLACEHOLDERS = new Set([
   "deck",
   "date",
@@ -9,14 +23,7 @@ const GENERATED_TITLE_PLACEHOLDERS = new Set([
   "untitled",
   "untitled deck",
   "your name",
-]);
-
-const IMPORTED_TITLE_PLACEHOLDERS = new Set([
-  "untitled deck",
-  "untitled file",
-  "untitled presentation",
-  "untitled scene",
-  "untitled slide",
+  ...IMPORTED_TITLE_PLACEHOLDERS,
 ]);
 
 /**
@@ -26,8 +33,6 @@ const IMPORTED_TITLE_PLACEHOLDERS = new Set([
  */
 const OPAQUE_DECK_TITLE_PATTERN =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z0-9_-]{12,64}$/;
-
-export const DEFAULT_DECK_TITLE = "Untitled Deck";
 
 export function isOpaqueDeckTitle(value: unknown): value is string {
   return (
@@ -83,7 +88,7 @@ function plainTextLines(value: string): string[] {
 function usableCandidate(value: string): string | null {
   const candidate = plainText(value).replace(/^[•●▪‣\-\s]+/, "");
   if (!candidate || candidate.length > 140) return null;
-  if (GENERATED_TITLE_PLACEHOLDERS.has(candidate.toLowerCase())) return null;
+  if (isGeneratedDeckTitle(candidate)) return null;
   return candidate;
 }
 
@@ -127,7 +132,8 @@ export function deriveDeckTitleFromSlideContent(
   }
 
   const fallbackLines = plainTextLines(content);
-  if (fallbackLines.length > 1) {
+  const hasMarkup = /<[^>]+>/.test(content);
+  if (fallbackLines.length > 1 || !hasMarkup) {
     for (const line of fallbackLines) {
       const text = usableCandidate(line);
       if (text) {
@@ -171,23 +177,20 @@ export function repairGeneratedDeckTitle(
 export function resolveImportedDeckTitle(
   requestedTitle: unknown,
   firstSlideContent: unknown,
+  fallbackTitle?: unknown,
 ): string {
-  if (typeof requestedTitle === "string") {
-    const title = requestedTitle.trim();
-    const opaqueTitle = isOpaqueDeckTitle(requestedTitle);
-    if (
-      title &&
-      !opaqueTitle &&
-      !IMPORTED_TITLE_PLACEHOLDERS.has(title.toLowerCase())
-    ) {
-      return title;
-    }
-  }
+  const title = usableCandidate(
+    typeof requestedTitle === "string" ? requestedTitle : "",
+  );
+  if (title) return title;
 
   const derivedTitle = deriveDeckTitleFromSlideContent(firstSlideContent);
   if (derivedTitle) return derivedTitle;
 
-  return "Imported File";
+  const fallback = usableCandidate(
+    typeof fallbackTitle === "string" ? fallbackTitle : "",
+  );
+  return fallback ?? DEFAULT_IMPORTED_DECK_TITLE;
 }
 
 export function assertHumanReadableDeckTitle(title: string): void {
