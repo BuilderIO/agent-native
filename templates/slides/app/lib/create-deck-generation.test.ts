@@ -203,6 +203,11 @@ describe("startDeckGeneration", () => {
       expect.anything(),
     );
     expect(agentSubmit).toHaveBeenCalledOnce();
+    expect(agentSubmit.mock.calls[0]?.[0]).toBe(
+      "Create this as a focused deck, more like the attached deck. Here's the outline. Preserve the useful before and after examples, but ignore the numbers because they do not mean slides.",
+    );
+    expect(agentSubmit.mock.calls[0]?.[0]).not.toContain("Create deck:");
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain("import-from-url");
     expect(agentSubmit.mock.calls[0]?.[2]?.attachments).toEqual([
       {
         type: "file",

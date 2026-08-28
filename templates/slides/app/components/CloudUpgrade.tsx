@@ -128,7 +128,7 @@ export function CloudUpgrade({
     } finally {
       connectingRef.current = false;
     }
-  }, [dbUrl, authToken, t]);
+  }, [dbUrl, t]);
 
   const isConnecting = status === "saving" || status === "polling";
 

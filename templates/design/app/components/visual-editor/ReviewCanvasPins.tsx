@@ -830,7 +830,7 @@ export function ReviewCanvasPins({
 
   const submitReprompt = useCallback(
     async (pin: ReviewDraftPin) => {
-      const instruction = pin.draft.trim();
+      const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
       const targetSelector =
@@ -838,7 +838,7 @@ export function ReviewCanvasPins({
           ? pin.metadata.targetSelector
           : undefined;
       if (
-        !instruction ||
+        !instruction.trim() ||
         (!nodeId && !targetSelector) ||
         !sourceVersionHash ||
         sourceType !== "inline" ||
@@ -925,7 +925,7 @@ export function ReviewCanvasPins({
 
   const submitSelectionQuestion = useCallback(
     async (pin: ReviewDraftPin) => {
-      const instruction = pin.draft.trim();
+      const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
       const targetSelector =
@@ -933,7 +933,7 @@ export function ReviewCanvasPins({
           ? pin.metadata.targetSelector
           : undefined;
       if (
-        !instruction ||
+        !instruction.trim() ||
         (!nodeId && !targetSelector) ||
         sourceType !== "inline" ||
         agentSubmitting

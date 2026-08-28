@@ -14,6 +14,7 @@ export const CRM_SETTINGS_SECTIONS = [
   "fields",
   "lists",
   "intelligence",
+  "mcp",
   "advanced",
 ] as const;
 

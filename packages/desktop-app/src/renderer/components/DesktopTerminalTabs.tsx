@@ -151,8 +151,9 @@ export default function DesktopTerminalTabs({
 
   useEffect(() => {
     let cancelled = false;
-    const getTerminalInfoUrl =
-      window.electronAPI?.desktopChat?.getTerminalInfoUrl;
+    const getTerminalInfoUrl = window.electronAPI?.desktopChat
+      ? (id: string) => window.electronAPI!.desktopChat!.getTerminalInfoUrl(id)
+      : undefined;
     if (!terminalApp || !getTerminalInfoUrl) {
       setConnection({
         state: "error",

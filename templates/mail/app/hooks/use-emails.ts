@@ -241,7 +241,7 @@ function delayedInvalidate(
   ms = 3000,
 ) {
   setTimeout(() => {
-    for (const key of keys) qc.invalidateQueries({ queryKey: key });
+    for (const key of keys) void qc.invalidateQueries({ queryKey: key });
   }, ms);
 }
 
@@ -1346,7 +1346,7 @@ export function useSendEmail() {
       }
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
     },
   });
 }

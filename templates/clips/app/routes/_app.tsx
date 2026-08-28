@@ -41,7 +41,7 @@ function useGlobalSequenceShortcuts() {
             .every((k, i) => k === seq.keys[i])
         ) {
           e.preventDefault();
-          navigate(seq.path);
+          void navigate(seq.path);
           bufferRef.current = [];
           return;
         }

@@ -32,7 +32,9 @@ export const BUILDER_DOCS_MODELS = [
   "symbol",
 ] as const;
 
-export type BuilderDocsModel = (typeof BUILDER_DOCS_MODELS)[number] | string;
+export type BuilderDocsModel =
+  | (typeof BUILDER_DOCS_MODELS)[number]
+  | (string & {});
 
 export interface BuilderContentEntry {
   id: string;
@@ -455,6 +457,14 @@ function frontmatterValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function textValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  return JSON.stringify(value) ?? "";
+}
+
 function frontmatterLine(key: string, value: unknown) {
   if (value === undefined) return "";
   return `${key}: ${frontmatterValue(value)}`;
@@ -637,14 +647,14 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     const name = componentName(block);
     const options = componentOptions(block);
     if (name === "Text") {
-      const table = possibleNativeTableHtml(String(options.text ?? ""));
+      const table = possibleNativeTableHtml(textValue(options.text));
       if (table) {
         fingerprint.push(...(await readableLayoutFingerprint(table)));
         continue;
       }
       fingerprint.push(
         ...(await readableLayoutFingerprint(
-          htmlToMarkdown(String(options.text ?? "")),
+          htmlToMarkdown(textValue(options.text)),
         )),
       );
       continue;
@@ -843,7 +853,7 @@ function textFromBuilderBlocks(blocks: unknown[]): string {
       const name = componentName(block);
       const options = componentOptions(block);
       if (name === "Text") {
-        return stripHtml(String(options.text ?? "")).trim();
+        return stripHtml(textValue(options.text)).trim();
       }
       return textFromBuilderBlocks(childBlocks(block));
     })
@@ -1172,7 +1182,7 @@ async function builderBlockToMdx(
     const data: BuilderTextData = {
       ...raw,
       body: escapeBuilderMdxText(
-        htmlToMarkdown(String(options.text ?? "")).trim(),
+        htmlToMarkdown(textValue(options.text)).trim(),
       ),
     };
     return serializeRegistryBlockToMdx("builder-text", {
@@ -1184,7 +1194,7 @@ async function builderBlockToMdx(
   if (name === "Code Block" || name === "Blog Code Block") {
     const data: BuilderCodeBlockData = {
       ...raw,
-      code: String(options.code ?? ""),
+      code: textValue(options.code),
       language:
         typeof options.language === "string" ? options.language : undefined,
       filename:
@@ -1323,14 +1333,14 @@ async function builderBlockToReadableMdx(
   const mapping = builderSourceComponentMappingFor(name);
 
   if (name === "Text") {
-    const table = await validatedNativeTableHtml(String(options.text ?? ""));
-    return table ?? htmlToMarkdown(String(options.text ?? "")).trim();
+    const table = await validatedNativeTableHtml(textValue(options.text));
+    return table ?? htmlToMarkdown(textValue(options.text)).trim();
   }
 
   if (name === "Code Block" || name === "Blog Code Block") {
     const language =
       typeof options.language === "string" ? options.language.trim() : "";
-    const code = String(options.code ?? "").trimEnd();
+    const code = textValue(options.code).trimEnd();
     return code ? `\`\`\`${language}\n${code}\n\`\`\`` : "";
   }
 
@@ -1454,7 +1464,7 @@ interface ReadableEditableSegment {
 function readableCodeBlockMarkdown(options: Record<string, unknown>) {
   const language =
     typeof options.language === "string" ? options.language.trim() : "";
-  const code = String(options.code ?? "").trimEnd();
+  const code = textValue(options.code).trimEnd();
   return code ? `\`\`\`${language}\n${code}\n\`\`\`` : "";
 }
 
@@ -1467,7 +1477,7 @@ function collectReadableEditableSegments(
     const name = componentName(block);
     const options = componentOptions(block);
     if (name === "Text") {
-      const rawText = String(options.text ?? "").trim();
+      const rawText = textValue(options.text).trim();
       const table = possibleNativeTableHtml(rawText);
       const baseline = table ?? htmlToMarkdown(rawText).trim();
       if (baseline) {
@@ -1524,7 +1534,7 @@ function builderBlockHasReadableOutput(block: unknown): boolean {
   const name = componentName(block);
   const options = componentOptions(block);
   if (name === "Text") {
-    return htmlToMarkdown(String(options.text ?? "")).trim().length > 0;
+    return htmlToMarkdown(textValue(options.text)).trim().length > 0;
   }
   if (name === "Code Block" || name === "Blog Code Block") {
     return readableCodeBlockMarkdown(options).trim().length > 0;
@@ -2310,7 +2320,7 @@ function freshTableBlock(node: MdxNode, raw: string): unknown {
   };
 }
 
-function freshImageBlock(markdown: string): unknown | null {
+function freshImageBlock(markdown: string): Record<string, unknown> | null {
   const image = parseMarkdownImage(markdown);
   if (!image?.src) {
     if (markdown.trimStart().startsWith("![")) {
@@ -2673,7 +2683,7 @@ function applyTextData(
 ) {
   const block = rawBlockForData(data, sidecars);
   const rawOptions = componentOptions(block);
-  const originalBody = htmlToMarkdown(String(rawOptions.text ?? ""));
+  const originalBody = htmlToMarkdown(textValue(rawOptions.text));
   const body = unescapeBuilderMdxText(data.body);
   if (
     normalizeMarkdownForCompare(body) ===
@@ -2781,7 +2791,7 @@ function applySymbolData(
 async function blockFromMdxComponent(
   raw: string,
   sidecars: Record<string, string>,
-): Promise<unknown | null> {
+): Promise<Record<string, unknown> | null> {
   const parsed = await parseRegistryBlockData(raw);
   if (!parsed) return null;
   switch (parsed.type) {
@@ -3142,7 +3152,7 @@ export function markdownToBuilderTextHtml(markdown: string) {
     value: string,
     whitespace: string,
   ) => {
-    const indent = [...whitespace].reduce(
+    const indent = Array.from(whitespace).reduce(
       (width, character) => width + (character === "\t" ? 2 : 1),
       0,
     );

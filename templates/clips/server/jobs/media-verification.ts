@@ -101,7 +101,7 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
       );
     } catch (err) {
       console.warn("[media-verification] sweep item failed", {
-        key: String(row.key ?? ""),
+        key: typeof row.key === "string" ? row.key : "",
         recordingId,
         error: err instanceof Error ? err.message : String(err),
       });

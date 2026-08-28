@@ -1832,7 +1832,7 @@ export async function createMCPServerForRequest(
             maxRounds: 2,
             roundTimeoutMs: 10 * 60_000,
           },
-          requestState: { verify: approvalCodec.verify },
+          requestState: { verify: approvalCodec.verify.bind(approvalCodec) },
         }
       : {}),
   });

@@ -384,7 +384,7 @@ const electronAPI = {
     download: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_DOWNLOAD),
     install: (): void => {
-      ipcRenderer.invoke(IPC.UPDATE_INSTALL);
+      void ipcRenderer.invoke(IPC.UPDATE_INSTALL);
     },
     getStatus: (): Promise<UpdateStatus> =>
       ipcRenderer.invoke(IPC.UPDATE_GET_STATUS),

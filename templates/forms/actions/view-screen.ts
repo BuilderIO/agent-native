@@ -30,7 +30,12 @@ function safeJson<T>(value: string, fallback: T): T {
 function cleanText(value: unknown, maxLength = 160): string {
   if (value === undefined || value === null || value === "") return "";
   const text =
-    typeof value === "object" ? JSON.stringify(value) : String(value);
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+      ? String(value)
+      : JSON.stringify(value);
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized.length <= maxLength
     ? normalized

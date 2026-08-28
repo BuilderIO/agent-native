@@ -205,7 +205,7 @@ async function fetchEmailList(
   }
 }
 
-async function fetchThreadMessages(threadId: string): Promise<any | null> {
+async function fetchThreadMessages(threadId: string): Promise<any> {
   try {
     const accounts = await getAccessTokens();
     if (accounts.length === 0) return null;

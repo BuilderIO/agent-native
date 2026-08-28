@@ -1806,7 +1806,7 @@ function fullReloadOnOptimizeDep504(): Plugin {
       let lastReloadAt: number | null = null;
       let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
-        const originalEnd = res.end;
+        const originalEnd = res.end.bind(res);
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
           ...endArgs: unknown[]
         ) => {
@@ -2867,7 +2867,7 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
 type NitroModuleNode = {
   id: string | null;
   ssrError?: Error | null;
-  transformResult: unknown | null;
+  transformResult: unknown;
 };
 
 type NitroModuleGraph = {

@@ -271,7 +271,13 @@ describe("Builder CMS read client", () => {
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     const [, listInit] = fetchImpl.mock.calls[2] as [string, RequestInit];
-    expect(JSON.parse(String(listInit.body))).toMatchObject({
+    expect(
+      JSON.parse(
+        typeof listInit.body === "string"
+          ? listInit.body
+          : (JSON.stringify(listInit.body) ?? ""),
+      ),
+    ).toMatchObject({
       method: "tools/call",
       params: {
         name: "list_builder_models",
@@ -712,7 +718,11 @@ describe("Builder CMS read client", () => {
       "data.customModelField": "MCP preserved",
     });
     const [, request] = fetchImpl.mock.calls[2] as [string, RequestInit];
-    const fields = JSON.parse(String(request.body)).params.arguments.fields;
+    const fields = JSON.parse(
+      typeof request.body === "string"
+        ? request.body
+        : (JSON.stringify(request.body) ?? ""),
+    ).params.arguments.fields;
     expect(fields).toContain("data.topics");
     expect(fields).toContain("data.tags");
     expect(fields).toContain("data.customModelField");
@@ -775,8 +785,11 @@ describe("Builder CMS read client", () => {
       .slice(3, 5)
       .map(
         ([, request]) =>
-          JSON.parse(String((request as RequestInit).body)).params.arguments
-            .searchText,
+          JSON.parse(
+            typeof (request as RequestInit).body === "string"
+              ? (request as RequestInit).body
+              : (JSON.stringify((request as RequestInit).body) ?? ""),
+          ).params.arguments.searchText,
       );
     expect(searchTexts).toEqual(["Agent-Native Test", legacySearchText]);
   });
@@ -1270,7 +1283,11 @@ describe("Builder CMS read client", () => {
     }));
     const pageRequests: Array<{ limit: number; offset: number }> = [];
     const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as {
+      const body = JSON.parse(
+        typeof init?.body === "string"
+          ? init.body
+          : (JSON.stringify(init?.body) ?? ""),
+      ) as {
         method: string;
         params?: {
           name?: string;
@@ -1346,7 +1363,11 @@ describe("Builder CMS read client", () => {
     );
     const initializeVersions: string[] = [];
     const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body)) as {
+      const body = JSON.parse(
+        typeof init?.body === "string"
+          ? init.body
+          : (JSON.stringify(init?.body) ?? ""),
+      ) as {
         method: string;
         params?: {
           protocolVersion?: string;

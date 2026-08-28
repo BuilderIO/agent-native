@@ -347,7 +347,7 @@ export type DatabaseFilter = ContentDatabaseFilter;
 export type DatabaseFilterMode = ContentDatabaseFilterMode;
 export type DatabaseColumnCalculation = ContentDatabaseColumnCalculation;
 export type DatabaseRowDensity = ContentDatabaseRowDensity;
-export type ColumnKey = "name" | string;
+export type ColumnKey = "name" | (string & {});
 
 const DEFAULT_NAME_COLUMN_WIDTH = 240;
 const DEFAULT_PROPERTY_COLUMN_WIDTH = 180;
@@ -1634,7 +1634,9 @@ function DatabaseTable({
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
-    navigate(databaseItemPagePath(item.document.id, databaseId, document.id));
+    void navigate(
+      databaseItemPagePath(item.document.id, databaseId, document.id),
+    );
   }
 
   function openWorkspaceFiles(item: ContentDatabaseItem) {
@@ -6571,7 +6573,7 @@ function DatabaseInlineSortControl({
     [sorts],
   );
 
-  function addSortForField(key: "name" | string, label: string) {
+  function addSortForField(key: "name" | (string & {}), label: string) {
     onSortsChange([...sorts, { key, label, direction: "asc" }]);
   }
 
@@ -6700,8 +6702,8 @@ function DatabaseAddFilterButton({
   filters: DatabaseFilter[];
   properties: DocumentProperty[];
   onOpenChange: (open: boolean) => void;
-  onAddFilter: (key: "name" | string, label: string) => void;
-  onAddAdvancedFilter: (key: "name" | string, label: string) => void;
+  onAddFilter: (key: "name" | (string & {}), label: string) => void;
+  onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
 }) {
   const excludedFilterKeys = useMemo(
     () => new Set(filters.filter(isActiveFilter).map((filter) => filter.key)),
@@ -6872,14 +6874,14 @@ function DatabaseAdvancedFilterGroupControl({
     onFiltersChange(nextFilters);
   }
 
-  function addAdvancedRule(key: "name" | string, label: string) {
+  function addAdvancedRule(key: "name" | (string & {}), label: string) {
     onFiltersChange([
       ...filters,
       createDatabaseFilterForField(key, label, properties, true),
     ]);
   }
 
-  function addNestedFilterGroup(key: "name" | string, label: string) {
+  function addNestedFilterGroup(key: "name" | (string & {}), label: string) {
     onFiltersChange([
       ...filters,
       createDatabaseFilterForField(key, label, properties, {
@@ -6891,7 +6893,7 @@ function DatabaseAdvancedFilterGroupControl({
 
   function addNestedFilterRule(
     groupId: string,
-    key: "name" | string,
+    key: "name" | (string & {}),
     label: string,
   ) {
     onFiltersChange([
@@ -7058,7 +7060,7 @@ function DatabaseAdvancedFilterRuleRow({
   onUpdateFilter: (next: Partial<DatabaseFilter>) => void;
   onRemove: () => void;
 }) {
-  function selectField(key: "name" | string, label: string) {
+  function selectField(key: "name" | (string & {}), label: string) {
     onUpdateFilter({
       key,
       label,
@@ -7239,7 +7241,7 @@ function DatabaseAdvancedNestedFilterGroup({
   onUpdateFilter: (index: number, next: Partial<DatabaseFilter>) => void;
   onAddNestedFilterRule: (
     groupId: string,
-    key: "name" | string,
+    key: "name" | (string & {}),
     label: string,
   ) => void;
   onRemoveFilter: (index: number) => void;
@@ -7418,7 +7420,7 @@ function DatabaseInlineFilterControl({
     onFiltersChange(nextFilters);
   }
 
-  function selectField(key: "name" | string, label: string) {
+  function selectField(key: "name" | (string & {}), label: string) {
     updateFilter({
       key,
       label,
@@ -12543,7 +12545,7 @@ export interface DatabaseBoardGroup {
   id: string;
   label: string;
   property: DocumentProperty | null;
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE;
+  value: DocumentPropertyValue;
   items: ContentDatabaseItem[];
 }
 
@@ -14908,7 +14910,9 @@ export function calendarDateKey(value: Date | DocumentPropertyValue) {
   if (dateKey) return dateKey;
   if (value === null || value === undefined || value === "") return null;
 
-  const date = new Date(String(value));
+  const date = new Date(
+    typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+  );
   if (Number.isNaN(date.getTime())) return null;
   return formatCalendarDateKey(date);
 }
@@ -15002,7 +15006,7 @@ function databaseBoardItemGroupValues(
   item: ContentDatabaseItem,
   property: DocumentProperty,
   optionIds: Set<string>,
-): Array<DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE> {
+): DocumentPropertyValue[] {
   const value =
     item.properties.find(
       (candidate) => candidate.definition.id === property.definition.id,
@@ -15028,14 +15032,14 @@ function databaseBoardItemGroupValues(
 
 function databaseBoardGroupId(
   property: DocumentProperty,
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE,
+  value: DocumentPropertyValue,
 ) {
-  return `${property.definition.id}:${String(value)}`;
+  return `${property.definition.id}:${typeof value === "string" ? value : (JSON.stringify(value) ?? "")}`;
 }
 
 export function boardGroupValueForProperty(
   property: DocumentProperty,
-  value: DocumentPropertyValue | typeof BOARD_UNGROUPED_VALUE,
+  value: DocumentPropertyValue,
 ): DocumentPropertyValue {
   if (value === BOARD_UNGROUPED_VALUE) {
     return property.definition.type === "multi_select" ? [] : null;
@@ -16972,8 +16976,11 @@ function propertyValueText(property: DocumentProperty | null | undefined) {
   ) {
     return (
       property.definition.options.options?.find(
-        (option) => option.id === String(value),
-      )?.name ?? String(value)
+        (option) =>
+          option.id ===
+          (typeof value === "string" ? value : (JSON.stringify(value) ?? "")),
+      )?.name ??
+      (typeof value === "string" ? value : (JSON.stringify(value) ?? ""))
     );
   }
   if (property.definition.type === "checkbox") {
@@ -16997,7 +17004,12 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
   const value =
     typeof property.value === "number"
       ? property.value
-      : Number(String(property.value).trim());
+      : Number(
+          (typeof property.value === "string"
+            ? property.value
+            : (JSON.stringify(property.value) ?? "")
+          ).trim(),
+        );
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
@@ -17025,7 +17037,11 @@ function SortMenu({
     onSortsChange(baseSorts);
   }
 
-  function selectSort(index: number, key: "name" | string, label: string) {
+  function selectSort(
+    index: number,
+    key: "name" | (string & {}),
+    label: string,
+  ) {
     updateSort(index, { key, label });
   }
 
@@ -17040,7 +17056,7 @@ function SortMenu({
     onSortsChange([...sorts, defaultDatabaseSort()]);
   }
 
-  function addSortForField(key: "name" | string, label: string) {
+  function addSortForField(key: "name" | (string & {}), label: string) {
     onSortsChange([...sorts, { key, label, direction: "asc" }]);
   }
 
@@ -17218,8 +17234,8 @@ function FilterMenu({
   inlineOpen: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAddFilter: (key: "name" | string, label: string) => void;
-  onAddAdvancedFilter: (key: "name" | string, label: string) => void;
+  onAddFilter: (key: "name" | (string & {}), label: string) => void;
+  onAddAdvancedFilter: (key: "name" | (string & {}), label: string) => void;
 }) {
   const activeFilters = filters.filter(isActiveFilter);
   const active = activeFilters.length > 0 || inlineOpen;
