@@ -3046,6 +3046,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.body.appendChild(node);
       });
       applyLayerStateSelectors();
+      frameLabelRenderKey = "";
       selectedEl = null;
       clearHoverGate();
       var reanchorCandidates = forceFullDocument ? activeCandidates.filter(isStableIdentitySelector) : activeCandidates;
@@ -3938,6 +3939,30 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return sizes;
     }
+    function gridTrackDistribution(tracks, contentSize, gap, distribution) {
+      var used = 0;
+      for (var i = 0; i < tracks.length; i += 1) used += tracks[i];
+      used += gap * Math.max(0, tracks.length - 1);
+      var leftover = contentSize - used;
+      if (!(leftover > 0.01)) return { offset: 0, gap };
+      var mode = (distribution || "normal").split(" ").pop() || "normal";
+      if (mode === "center") return { offset: leftover / 2, gap };
+      if (mode === "end" || mode === "flex-end" || mode === "right") {
+        return { offset: leftover, gap };
+      }
+      if (mode === "space-between" && tracks.length > 1) {
+        return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+      }
+      if (mode === "space-around" && tracks.length > 0) {
+        var around = leftover / tracks.length;
+        return { offset: around / 2, gap: gap + around };
+      }
+      if (mode === "space-evenly" && tracks.length > 0) {
+        var evenly = leftover / (tracks.length + 1);
+        return { offset: evenly, gap: gap + evenly };
+      }
+      return { offset: 0, gap };
+    }
     function updateGridCellOverlay(el) {
       if (!el || !document.documentElement.contains(el)) {
         hideGridCellOverlay();
@@ -3963,10 +3988,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       var rect = el.getBoundingClientRect();
-      var originX = rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
-      var originY = rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
-      var columnGap = readPx(cs.columnGap);
-      var rowGap = readPx(cs.rowGap);
+      var contentLeft = rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
+      var contentTop = rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+      var contentWidth = rect.width - readPx(cs.borderLeftWidth) - readPx(cs.borderRightWidth) - readPx(cs.paddingLeft) - readPx(cs.paddingRight);
+      var contentHeight = rect.height - readPx(cs.borderTopWidth) - readPx(cs.borderBottomWidth) - readPx(cs.paddingTop) - readPx(cs.paddingBottom);
+      var columnFlow = gridTrackDistribution(
+        columns,
+        contentWidth,
+        readPx(cs.columnGap),
+        cs.justifyContent
+      );
+      var rowFlow = gridTrackDistribution(
+        rows,
+        contentHeight,
+        readPx(cs.rowGap),
+        cs.alignContent
+      );
+      var originX = contentLeft + columnFlow.offset;
+      var originY = contentTop + rowFlow.offset;
+      var columnGap = columnFlow.gap;
+      var rowGap = rowFlow.gap;
       var line = Math.max(1, chromeLineScale());
       var nextKey = [
         originX,
@@ -3998,15 +4039,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
+    var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
     var frameLabelRenderKey = "";
     function outermostFrameElements() {
       var frames = Array.prototype.slice.call(
-        document.querySelectorAll('[data-an-primitive="frame"]')
+        document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR)
       );
       return frames.filter(function(frame) {
         if (isOverlayElement(frame)) return false;
         var parent = frame.parentElement;
-        return !parent || !parent.closest('[data-an-primitive="frame"]');
+        return !parent || !parent.closest(FRAME_PRIMITIVE_SELECTOR);
       });
     }
     function frameLabelText(frame) {
@@ -4195,7 +4237,12 @@ export const editorChromeBridgeScript: string = `"use strict";
     var OVERLAY_ANIMATION_TRACKING_MAX_MS = 4e3;
     function isOverlayAnimationTrackingTarget(target) {
       if (!target) return false;
-      return target === selectedEl || target === hoveredEl;
+      if (target === selectedEl || target === hoveredEl) return true;
+      var el = target;
+      if (!el || typeof el.closest !== "function") return false;
+      return Boolean(
+        el.closest(FRAME_PRIMITIVE_SELECTOR) || el.querySelector && el.querySelector(FRAME_PRIMITIVE_SELECTOR)
+      );
     }
     function tickOverlayAnimationTracking() {
       if (!overlayAnimationTrackingActive) return;

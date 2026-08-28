@@ -4036,6 +4036,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       document.body.appendChild(node);
     });
     applyLayerStateSelectors();
+    // The morph can swap a frame for an equivalent element with the same name
+    // and box, which the label cache cannot see: rebuild so no label's click
+    // closure keeps pointing at a detached node.
+    frameLabelRenderKey = "";
 
     selectedEl = null;
     clearHoverGate();
@@ -5335,6 +5339,42 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return sizes;
   }
 
+  /**
+   * Where the tracks actually start, and how far apart they sit, once
+   * justify-content / align-content has distributed the space the tracks do
+   * not fill. Reading only the content-box origin paints the cells of a
+   * centered or distributed grid away from its real tracks.
+   */
+  function gridTrackDistribution(
+    tracks: number[],
+    contentSize: number,
+    gap: number,
+    distribution: string,
+  ): { offset: number; gap: number } {
+    var used = 0;
+    for (var i = 0; i < tracks.length; i += 1) used += tracks[i];
+    used += gap * Math.max(0, tracks.length - 1);
+    var leftover = contentSize - used;
+    if (!(leftover > 0.01)) return { offset: 0, gap: gap };
+    var mode = (distribution || "normal").split(" ").pop() || "normal";
+    if (mode === "center") return { offset: leftover / 2, gap: gap };
+    if (mode === "end" || mode === "flex-end" || mode === "right") {
+      return { offset: leftover, gap: gap };
+    }
+    if (mode === "space-between" && tracks.length > 1) {
+      return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+    }
+    if (mode === "space-around" && tracks.length > 0) {
+      var around = leftover / tracks.length;
+      return { offset: around / 2, gap: gap + around };
+    }
+    if (mode === "space-evenly" && tracks.length > 0) {
+      var evenly = leftover / (tracks.length + 1);
+      return { offset: evenly, gap: gap + evenly };
+    }
+    return { offset: 0, gap: gap };
+  }
+
   function updateGridCellOverlay(el: Element | null): void {
     if (!el || !document.documentElement.contains(el)) {
       hideGridCellOverlay();
@@ -5360,11 +5400,38 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     var rect = el.getBoundingClientRect();
-    var originX =
+    var contentLeft =
       rect.left + readPx(cs.borderLeftWidth) + readPx(cs.paddingLeft);
-    var originY = rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
-    var columnGap = readPx(cs.columnGap);
-    var rowGap = readPx(cs.rowGap);
+    var contentTop =
+      rect.top + readPx(cs.borderTopWidth) + readPx(cs.paddingTop);
+    var contentWidth =
+      rect.width -
+      readPx(cs.borderLeftWidth) -
+      readPx(cs.borderRightWidth) -
+      readPx(cs.paddingLeft) -
+      readPx(cs.paddingRight);
+    var contentHeight =
+      rect.height -
+      readPx(cs.borderTopWidth) -
+      readPx(cs.borderBottomWidth) -
+      readPx(cs.paddingTop) -
+      readPx(cs.paddingBottom);
+    var columnFlow = gridTrackDistribution(
+      columns,
+      contentWidth,
+      readPx(cs.columnGap),
+      cs.justifyContent,
+    );
+    var rowFlow = gridTrackDistribution(
+      rows,
+      contentHeight,
+      readPx(cs.rowGap),
+      cs.alignContent,
+    );
+    var originX = contentLeft + columnFlow.offset;
+    var originY = contentTop + rowFlow.offset;
+    var columnGap = columnFlow.gap;
+    var rowGap = rowFlow.gap;
     var line = Math.max(1, chromeLineScale());
     var nextKey = [
       originX,
@@ -5416,16 +5483,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // This chrome paints over the design's own page, never over editor surfaces.
   // guard:allow-raw-color — a mid grey is legible on white screens and dark boards.
   var FRAME_LABEL_IDLE_COLOR = "rgba(113,113,122,0.95)";
+  var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
   var frameLabelRenderKey = "";
 
   function outermostFrameElements(): Element[] {
     var frames = Array.prototype.slice.call(
-      document.querySelectorAll('[data-an-primitive="frame"]'),
+      document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR),
     ) as Element[];
     return frames.filter(function (frame) {
       if (isOverlayElement(frame)) return false;
       var parent = frame.parentElement;
-      return !parent || !parent.closest('[data-an-primitive="frame"]');
+      return !parent || !parent.closest(FRAME_PRIMITIVE_SELECTOR);
     });
   }
 
@@ -5711,7 +5779,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     target: EventTarget | null,
   ): boolean {
     if (!target) return false;
-    return target === selectedEl || target === hoveredEl;
+    if (target === selectedEl || target === hoveredEl) return true;
+    // Frame labels are always-on chrome, so a transition that moves or
+    // resizes a labelled frame — on the frame, an ancestor, or a child that
+    // grows a hug-sized one — has to drive this loop even with nothing
+    // selected. Mutation records never fire for a running keyframe.
+    var el = target as Element;
+    if (!el || typeof el.closest !== "function") return false;
+    return Boolean(
+      el.closest(FRAME_PRIMITIVE_SELECTOR) ||
+      (el.querySelector && el.querySelector(FRAME_PRIMITIVE_SELECTOR)),
+    );
   }
 
   function tickOverlayAnimationTracking(): void {

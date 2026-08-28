@@ -11347,18 +11347,47 @@ function DesignEditor() {
   // reflows the children too — writing display:grid/flex alone leaves them
   // absolutely positioned and the new layout never renders.
   const handleApplyLayoutFlow = useCallback(
-    (nodeId: string, containerStyles: Record<string, string>) =>
-      runApplyLayoutFlow(
+    (nodeId: string | null, containerStyles: Record<string, string>) => {
+      const content = getFreshActiveContent();
+      // A merged multi-selection has no single sourceId, so the inspector
+      // cannot name its targets: resolve them from the selection itself, and
+      // hand a selection that reaches beyond this file to the style path
+      // rather than reflowing only the half that lives here.
+      const selectedNodeIds = content
+        ? getActiveFileSelectedNodeIds(content)
+        : [];
+      const selectedFileIds = new Set(files.map((file) => file.id));
+      const selectableLayerIds = selectedLayerIdsState.filter(
+        (layerId) => !layerId.startsWith("__") && !selectedFileIds.has(layerId),
+      );
+      if (
+        selectableLayerIds.length > 1 &&
+        selectedNodeIds.length !== selectableLayerIds.length
+      ) {
+        return "unsupported" as const;
+      }
+      const targetIds =
+        selectedNodeIds.length > 0 ? selectedNodeIds : nodeId ? [nodeId] : [];
+      return runApplyLayoutFlow(
         {
           applyLocalContentUpdate,
           canEditDesign,
           getFreshActiveContent,
           t,
         },
-        nodeId,
+        targetIds,
         containerStyles,
-      ),
-    [applyLocalContentUpdate, canEditDesign, getFreshActiveContent, t],
+      );
+    },
+    [
+      applyLocalContentUpdate,
+      canEditDesign,
+      files,
+      getActiveFileSelectedNodeIds,
+      getFreshActiveContent,
+      selectedLayerIdsState,
+      t,
+    ],
   );
 
   // Figma parity: turning auto layout off must leave a freeform container.

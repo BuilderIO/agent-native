@@ -68,7 +68,8 @@ export type StyleChangeHandler = (
 export type ApplyLayoutFlowOutcome = "applied" | "unsupported" | "failed";
 
 export type ApplyLayoutFlowHandler = (
-  nodeId: string,
+  /** Null for a merged multi-selection, which has no single source id. */
+  nodeId: string | null,
   containerStyles: Record<string, string>,
 ) => ApplyLayoutFlowOutcome;
 

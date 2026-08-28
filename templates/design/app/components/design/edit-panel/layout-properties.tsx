@@ -387,10 +387,13 @@ function FlexContainerControls({
             ...element.inlineStyles,
           });
           // Children drawn on canvas are absolutely positioned, so the
-          // container styles alone would render no layout at all — only a node
-          // this editor cannot rewrite may fall through to them.
-          if (onApplyLayoutFlow && nodeId) {
-            if (onApplyLayoutFlow(nodeId, patch) !== "unsupported") return;
+          // container styles alone would render no layout at all — only a
+          // selection this editor cannot rewrite falls through to them.
+          if (
+            onApplyLayoutFlow &&
+            onApplyLayoutFlow(nodeId ?? null, patch) !== "unsupported"
+          ) {
+            return;
           }
           if (onStylesChange) {
             onStylesChange(patch);
