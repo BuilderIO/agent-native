@@ -413,6 +413,14 @@ type ComposerDocument = {
   descendants: (callback: (node: any) => boolean | void) => void;
 };
 
+type ComposerDraftEditor = {
+  isDestroyed?: boolean;
+  getHTML(): string;
+  state: { doc: ComposerDocument };
+};
+
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 300;
+
 function composerDocumentHasContent(doc: ComposerDocument): boolean {
   if (doc.textContent.trim().length > 0) return true;
   let hasContent = false;
@@ -432,7 +440,7 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
 
 function persistComposerDraft(
   draftKey: string | null,
-  editor: { getHTML(): string; state: { doc: ComposerDocument } },
+  editor: ComposerDraftEditor,
 ): void {
   if (!draftKey) return;
   try {
@@ -2478,6 +2486,37 @@ export function TiptapComposer({
     hasDraftScope || initialText === undefined
       ? getComposerDraftKey(draftScope)
       : null;
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
+  const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScheduledDraftPersist = useCallback(() => {
+    if (draftSaveTimerRef.current === null) return;
+    clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = null;
+  }, []);
+  const flushComposerDraft = useCallback(() => {
+    cancelScheduledDraftPersist();
+    const ed = draftEditorRef.current;
+    if (!ed || !isComposerEditorUsable(ed)) return;
+    persistComposerDraft(draftKeyRef.current, ed);
+  }, [cancelScheduledDraftPersist]);
+  const scheduleComposerDraftPersist = useCallback(
+    (ed: ComposerDraftEditor) => {
+      draftEditorRef.current = ed;
+      cancelScheduledDraftPersist();
+      const key = draftKeyRef.current;
+      if (!key) return;
+      draftSaveTimerRef.current = setTimeout(() => {
+        draftSaveTimerRef.current = null;
+        if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
+          return;
+        }
+        persistComposerDraft(key, ed);
+      }, COMPOSER_DRAFT_SAVE_DELAY_MS);
+    },
+    [cancelScheduledDraftPersist],
+  );
   const previousDraftKeyRef = useRef(draftKey);
   useEffect(() => {
     lastComposerRuntimeSyncRef.current = null;
@@ -2502,8 +2541,7 @@ export function TiptapComposer({
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
       onTextChangeRef.current?.(ed.state.doc.textContent.trim());
 
-      // Write before an unmount can cancel a deferred save.
-      persistComposerDraft(draftKey, ed);
+      scheduleComposerDraftPersist(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to } = ed.state.selection;
@@ -2777,6 +2815,24 @@ export function TiptapComposer({
     },
   });
 
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    draftEditorRef.current = editor;
+    const flush = () => {
+      cancelScheduledDraftPersist();
+      persistComposerDraft(draftKey, editor);
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      cancelScheduledDraftPersist();
+      persistComposerDraft(draftKey, editor);
+      if (draftEditorRef.current === editor) draftEditorRef.current = null;
+    };
+  }, [cancelScheduledDraftPersist, draftKey, editor]);
+
   // Placeholder decorations are computed by ProseMirror. Dispatching an empty
   // transaction makes a locale or composer-mode change visible immediately.
   useEffect(() => {
@@ -2927,7 +2983,7 @@ export function TiptapComposer({
       setSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
-      persistComposerDraft(draftKey, editor);
+      flushComposerDraft();
     },
     insertReference,
   }));
@@ -3293,12 +3349,19 @@ export function TiptapComposer({
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
     ed.commands.clearContent();
+    cancelScheduledDraftPersist();
     setEditorHasText(false);
     setSlotReferences([]);
     resetComposerRuntimeState();
     clearComposerDraft(draftKey);
     closePopover();
-  }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
+  }, [
+    cancelScheduledDraftPersist,
+    closePopover,
+    draftKey,
+    editor,
+    resetComposerRuntimeState,
+  ]);
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
@@ -3306,6 +3369,8 @@ export function TiptapComposer({
       if (!isComposerEditorUsable(ed)) return;
       if (submitInFlightRef.current) return;
 
+      draftEditorRef.current = ed;
+      flushComposerDraft();
       const { text, references } = syncComposerState();
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
@@ -3414,6 +3479,7 @@ export function TiptapComposer({
         setSlotReferences([]);
         setComposerMode(null);
         composerModeRef.current = null;
+        cancelScheduledDraftPersist();
         clearComposerDraft(draftKey);
         closePopover();
         return;
@@ -3443,16 +3509,19 @@ export function TiptapComposer({
       if (isComposerEditorUsable(ed)) ed.commands.clearContent();
       setEditorHasText(false);
       setSlotReferences([]);
+      cancelScheduledDraftPersist();
       clearComposerDraft(draftKey);
       closePopover();
     },
     [
       closePopover,
       clearEditorAfterSubmit,
+      cancelScheduledDraftPersist,
       composerMode,
       composerRuntime,
       draftKey,
       editor,
+      flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
       onBeforeSubmit,
@@ -3638,6 +3707,8 @@ export function TiptapComposer({
       initialTextKeyRef.current = undefined;
       setEditorHasText(false);
       setSlotReferences([]);
+      setComposerMode(null);
+      composerModeRef.current = null;
       composerRuntime.setText("");
       void composerRuntime.clearAttachments().catch((error) => {
         onAttachmentErrorRef.current?.(
@@ -3675,11 +3746,18 @@ export function TiptapComposer({
       setEditorHasText(composerDocumentHasContent(editor.state.doc));
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
-      persistComposerDraft(draftKey, editor);
+      scheduleComposerDraftPersist(editor);
     } catch {
       // coercion-ok: a stale editor during unmount should not block the refresh path.
     }
-  }, [composerRuntime, draftKey, editor, initialText, initialTextKey]);
+  }, [
+    composerRuntime,
+    draftKey,
+    editor,
+    initialText,
+    initialTextKey,
+    scheduleComposerDraftPersist,
+  ]);
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {

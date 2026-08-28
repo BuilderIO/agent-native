@@ -29,14 +29,20 @@ vi.mock("./use-jobs.js", () => ({
 vi.mock("../AgentAskPopover.js", () => ({
   AgentAskPopover: ({
     context,
+    draftScope,
     label,
     title,
   }: {
     context: string;
+    draftScope?: string;
     label?: string;
     title: string;
   }) => (
-    <button type="button" data-creation-context={context}>
+    <button
+      type="button"
+      data-creation-context={context}
+      data-draft-scope={draftScope}
+    >
       {label ?? title}
     </button>
   ),
@@ -174,6 +180,33 @@ describe("AgentJobsTab organization automations", () => {
       "Scheduled and event-triggered automations shared with this organization.",
     );
     expect(container.textContent).not.toContain("personal today");
+  });
+
+  it("scopes organization creation drafts to the active organization", () => {
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg organizationId="org-a" />);
+    });
+
+    expect(
+      container.querySelector(
+        '[data-draft-scope="agent-jobs:organization-create:org-a"]',
+      ),
+    ).not.toBeNull();
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg organizationId="org-b" />);
+    });
+
+    expect(
+      container.querySelector(
+        '[data-draft-scope="agent-jobs:organization-create:org-b"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[data-draft-scope="agent-jobs:organization-create:org-a"]',
+      ),
+    ).toBeNull();
   });
 
   it("stays quiet about the scheduler when schedules actually fire", () => {

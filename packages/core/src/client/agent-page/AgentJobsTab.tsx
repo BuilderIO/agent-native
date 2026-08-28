@@ -218,7 +218,11 @@ export function organizationAutomationCreationContext(): string {
 export function AgentJobsTab({
   canManageOrg = false,
   hideHeader = false,
-}: AgentPageTabProps & { hideHeader?: boolean }) {
+  organizationId,
+}: AgentPageTabProps & {
+  hideHeader?: boolean;
+  organizationId?: string | null;
+}) {
   const t = useT();
   const formatters = useFormatters();
   const personalJobsQuery = useRecurringJobs("user");
@@ -235,6 +239,9 @@ export function AgentJobsTab({
   const organizationJobsMutation = useManageRecurringJob("org");
   const organizationAutomationsMutation = useManageAutomation("org");
   const runAutomationMutation = useRunAutomationNow();
+  const organizationDraftScope = organizationId?.trim()
+    ? `agent-jobs:organization-create:${organizationId}`
+    : undefined;
   const [deleteTarget, setDeleteTarget] = useState<ListedAutomation | null>(
     null,
   );
@@ -333,7 +340,7 @@ export function AgentJobsTab({
             ) : null}
             <AgentAskPopover
               context={organizationAutomationCreationContext()}
-              draftScope="agent-jobs:organization-create"
+              draftScope={organizationDraftScope}
               prompt={t("jobs.organizationPrompt", {
                 defaultValue:
                   "Create a shared organization automation that does this: ",

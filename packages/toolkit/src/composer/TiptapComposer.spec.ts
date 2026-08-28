@@ -242,7 +242,13 @@ describe("createTiptapComposerExtensions", () => {
     const onTextChange = vi.fn();
     let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
 
-    function Harness({ currentScope }: { currentScope?: string }) {
+    function Harness({
+      currentScope,
+      plusMenuMode = "hidden",
+    }: {
+      currentScope?: string;
+      plusMenuMode?: "full" | "hidden";
+    }) {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
       harnessRuntime = runtime;
       return React.createElement(
@@ -258,7 +264,7 @@ describe("createTiptapComposerExtensions", () => {
             initialTextKey: "seed",
             includeDefaultSlashSkills: false,
             onTextChange,
-            plusMenuMode: "hidden",
+            plusMenuMode,
             voiceEnabled: false,
           }),
         ),
@@ -291,6 +297,18 @@ describe("createTiptapComposerExtensions", () => {
       "Typed prompt",
     );
 
+    act(() =>
+      focusRef.current?.insertReference({
+        label: "Pending reference",
+        refType: "file",
+        refPath: "/tmp/pending.txt",
+      }),
+    );
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "Pending reference",
+    );
+
     await act(async () => {
       await harnessRuntime?.thread.composer.addAttachment({
         id: "scope-a-attachment",
@@ -305,7 +323,33 @@ describe("createTiptapComposerExtensions", () => {
 
     await act(async () => {
       root.render(
-        React.createElement(Harness, { currentScope: "draft-recovery:other" }),
+        React.createElement(Harness, {
+          currentScope: scope,
+          plusMenuMode: "full",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Add..."]')
+        ?.click();
+    });
+    act(() => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Schedule Task")
+        ?.click();
+    });
+    expect(
+      container.querySelector('[data-agent-composer-slot="mode-row"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, {
+          currentScope: "draft-recovery:other",
+          plusMenuMode: "full",
+        }),
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -315,6 +359,9 @@ describe("createTiptapComposerExtensions", () => {
     expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
       0,
     );
+    expect(
+      container.querySelector('[data-agent-composer-slot="mode-row"]'),
+    ).toBeNull();
   });
 
   it.each([
