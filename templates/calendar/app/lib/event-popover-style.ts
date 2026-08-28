@@ -19,7 +19,8 @@ export const eventPopoverWidth = "w-[min(284px,calc(100vw-2rem))]";
 export const eventPopoverHeader =
   "flex h-11 shrink-0 items-center justify-between border-b border-border/60 pl-4 pr-2.5";
 
-export const eventPopoverHeaderTitle = "text-[13px] font-medium text-foreground";
+export const eventPopoverHeaderTitle =
+  "text-[13px] font-medium text-foreground";
 
 /** Header icon buttons — 30px hit target around a 16px icon. */
 export const eventPopoverHeaderButton =

@@ -273,6 +273,7 @@ describe("EventDetailPopover characterization", () => {
     );
     expect(content).toBeTruthy();
     expect(content?.className).toContain("w-[min(284px,calc(100vw-2rem))]");
+    expect(content?.innerHTML).toContain("text-[13px] font-medium");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {

@@ -51,6 +51,12 @@ describe("editor side panels", () => {
       "setAnimationsOpen((open) => !open);",
     );
   });
+
+  it("rounds the canvas edge consistently for either right-side panel", () => {
+    expect(editorSource).toContain(
+      'animationsOpen || layersOpen ? "rounded-r-lg" : ""',
+    );
+  });
 });
 
 describe("slide context toolbar", () => {

@@ -2045,7 +2045,7 @@ export function EventDetailPopover({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs"
                             disabled={updateEvent.isPending}
                             onClick={handleAddGoogleMeet}
                           >
@@ -2056,7 +2056,7 @@ export function EventDetailPopover({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs"
                             disabled={
                               updateEvent.isPending || connectZoom.isPending
                             }
@@ -2069,7 +2069,7 @@ export function EventDetailPopover({
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
                             onClick={() => setEditingField("meetingLink")}
                           >
                             <IconPlus className="h-3.5 w-3.5" />
@@ -2426,7 +2426,7 @@ export function EventDetailPopover({
                             }
                             disabled={updateEvent.isPending}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-[30px] text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2450,7 +2450,7 @@ export function EventDetailPopover({
                             }
                             disabled={updateEvent.isPending}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-[30px] text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2477,7 +2477,7 @@ export function EventDetailPopover({
                             }
                             disabled={updateEvent.isPending}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-[30px] text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>

@@ -725,57 +725,57 @@ export function EventAttendeesSection({
       )}
 
       <div className="space-y-0.5">
-            {visibleOthers.map((attendee, index) => (
-              <AttendeeRow
-                key={attendee.email + index}
-                attendee={attendee}
-                event={event}
-                photoUrl={photos?.[attendee.email.toLowerCase()]}
-                canEditOptional={canEditOptional}
-                onToggleOptional={onToggleOptional}
-                timezoneOverrides={timezoneOverrides}
-                onSetTimezone={handleSetTimezone}
-              />
-            ))}
+        {visibleOthers.map((attendee, index) => (
+          <AttendeeRow
+            key={attendee.email + index}
+            attendee={attendee}
+            event={event}
+            photoUrl={photos?.[attendee.email.toLowerCase()]}
+            canEditOptional={canEditOptional}
+            onToggleOptional={onToggleOptional}
+            timezoneOverrides={timezoneOverrides}
+            onSetTimezone={handleSetTimezone}
+          />
+        ))}
 
-            {shouldTruncate && !expanded && hiddenCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setExpanded(true)}
-                className="flex items-center gap-2 -mx-1 px-1 py-1.5 text-[13px] leading-[18px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <span className="flex h-8 w-8 items-center justify-center text-lg text-muted-foreground/50">
-                  ⋮
-                </span>
-                <span>
-                  {t("eventForm.seeAllParticipants", {
-                    count: attendees.length,
-                  })}
-                </span>
-              </button>
-            )}
+        {shouldTruncate && !expanded && hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="flex items-center gap-2 -mx-1 px-1 py-1.5 text-[13px] leading-[18px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <span className="flex h-8 w-8 items-center justify-center text-lg text-muted-foreground/50">
+              ⋮
+            </span>
+            <span>
+              {t("eventForm.seeAllParticipants", {
+                count: attendees.length,
+              })}
+            </span>
+          </button>
+        )}
 
-            {selfAttendee && (
-              <>
-                {others.length > 0 && (
-                  <div className="my-1 border-t border-border/30" />
-                )}
-                <AttendeeRow
-                  attendee={selfAttendee}
-                  event={event}
-                  photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
-                  inlineRsvp={canRsvpInline}
-                  currentStatus={selfStatus}
-                  currentNote={selfNote}
-                  onResponseChange={handleSelfResponseChange}
-                  isRecurring={!!event.recurringEventId}
-                  canEditOptional={canEditOptional}
-                  onToggleOptional={onToggleOptional}
-                  timezoneOverrides={timezoneOverrides}
-                  onSetTimezone={handleSetTimezone}
-                />
-              </>
+        {selfAttendee && (
+          <>
+            {others.length > 0 && (
+              <div className="my-1 border-t border-border/30" />
             )}
+            <AttendeeRow
+              attendee={selfAttendee}
+              event={event}
+              photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
+              inlineRsvp={canRsvpInline}
+              currentStatus={selfStatus}
+              currentNote={selfNote}
+              onResponseChange={handleSelfResponseChange}
+              isRecurring={!!event.recurringEventId}
+              canEditOptional={canEditOptional}
+              onToggleOptional={onToggleOptional}
+              timezoneOverrides={timezoneOverrides}
+              onSetTimezone={handleSetTimezone}
+            />
+          </>
+        )}
       </div>
     </div>
   );
