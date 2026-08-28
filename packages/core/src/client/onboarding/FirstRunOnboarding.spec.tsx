@@ -225,8 +225,17 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[data-testid="first-run-builder-consent"]')
         ?.textContent,
     ).toContain("Activate free credits");
+    expect(document.body.textContent).toContain(
+      "We'll automatically create your Builder.io account for you.",
+    );
     expect(document.body.textContent).toContain("Create and activate");
-    expect(document.body.textContent).toContain("Log in");
+    const existingAccountButton = document.body.querySelector(
+      '[data-testid="first-run-builder-existing-account"]',
+    );
+    expect(existingAccountButton?.textContent).toContain(
+      "I have a Builder.io account",
+    );
+    expect(existingAccountButton?.querySelector("svg")).toBeNull();
     expect(document.body.textContent).not.toContain("Google credentials");
     expect(document.body.textContent).not.toContain("Connect or log in");
 

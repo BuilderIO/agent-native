@@ -636,6 +636,10 @@ export function FirstRunOnboarding({
                       >
                         Activate free credits
                       </h2>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        We&apos;ll automatically create your Builder.io account
+                        for you.
+                      </p>
                       <button
                         type="button"
                         data-testid="first-run-builder-create-and-activate"
@@ -678,8 +682,7 @@ export function FirstRunOnboarding({
                           handleBuilder(false);
                         }}
                       >
-                        Log in
-                        <IconArrowRight size={15} />
+                        I have a Builder.io account
                       </button>
                     </div>
                   </PopoverContent>
