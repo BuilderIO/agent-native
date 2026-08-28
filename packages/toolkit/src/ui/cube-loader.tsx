@@ -51,8 +51,8 @@ export function CubeLoader({
         <rect
           key={index}
           className="an-cube-cell"
-          x={1 + (index % 3) * 7}
-          y={1 + Math.floor(index / 3) * 7}
+          x={2.5 + (index % 3) * 7}
+          y={2.5 + Math.floor(index / 3) * 7}
           width={5}
           height={5}
           rx={1}
