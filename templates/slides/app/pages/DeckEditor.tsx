@@ -433,6 +433,15 @@ export default function DeckEditor() {
   const latestSlideContentRef = useRef(new Map<string, string>());
   const renderedSlideContentRef = useRef(new Map<string, string>());
 
+  const updateSlideContent = useCallback(
+    (slideId: string, content: string) => {
+      if (!id) return;
+      latestSlideContentRef.current.set(slideId, content);
+      updateSlide(id, slideId, { content });
+    },
+    [id, updateSlide],
+  );
+
   const updatePendingImagePreviews = useCallback(
     (update: PendingImagePreviewUpdate) => {
       const current = pendingImagePreviewsRef.current;
@@ -894,17 +903,19 @@ export default function DeckEditor() {
     (oldSrc: string, newSrc: string, alt?: string) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
+      const currentContent =
+        latestSlideContentRef.current.get(slide.id) ?? slide.content;
       const updatedContent = replaceImageTargetInSlideHtml(
-        slide.content,
+        currentContent,
         oldSrc,
         newSrc,
         { alt },
       );
-      if (updatedContent !== slide.content) {
-        updateSlide(id, slide.id, { content: updatedContent });
+      if (updatedContent !== currentContent) {
+        updateSlideContent(slide.id, updatedContent);
       }
     },
-    [id, updateSlide],
+    [updateSlideContent],
   );
 
   const uploadAndApplyImage = useCallback(
@@ -985,7 +996,7 @@ export default function DeckEditor() {
         }
         latestSlideContentRef.current.set(targetSlideId, updatedContent);
         if (updatedContent !== targetContent) {
-          updateSlide(id, targetSlide.id, { content: updatedContent });
+          updateSlideContent(targetSlide.id, updatedContent);
         }
         clearPreview();
       } catch (error) {
@@ -998,7 +1009,14 @@ export default function DeckEditor() {
         });
       }
     },
-    [getDeck, id, t, updatePendingImagePreviews, updateSlide, uploadImageAsset],
+    [
+      getDeck,
+      id,
+      t,
+      updatePendingImagePreviews,
+      updateSlideContent,
+      uploadImageAsset,
+    ],
   );
 
   // Drag an already-hosted image (e.g. dragged out of a generated-image
@@ -1014,19 +1032,22 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       if (!replaceSrc) {
         const targetSlide = currentSlideRef.current;
+        const currentContent =
+          latestSlideContentRef.current.get(targetSlide.id) ??
+          targetSlide.content;
         const updatedContent = insertDroppedImageIntoSlideHtml(
-          targetSlide.content,
+          currentContent,
           url,
           { position },
         );
-        if (updatedContent !== targetSlide.content) {
-          updateSlide(id, targetSlide.id, { content: updatedContent });
+        if (updatedContent !== currentContent) {
+          updateSlideContent(targetSlide.id, updatedContent);
         }
         return;
       }
       replaceImageInSlide(replaceSrc, url);
     },
-    [id, replaceImageInSlide, updateSlide],
+    [replaceImageInSlide, updateSlideContent],
   );
 
   const handleClipboardImagePaste = useCallback(
@@ -1066,12 +1087,14 @@ export default function DeckEditor() {
     (imgSrc: string, newFit: string) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
+      const currentContent =
+        latestSlideContentRef.current.get(slide.id) ?? slide.content;
       const escapedSrc = imgSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       // Match the img tag containing this src and update/add object-fit in its style
       const imgRegex = new RegExp(
         `(<img[^>]*src=["']${escapedSrc}["'][^>]*?)(/?>)`,
       );
-      const match = slide.content.match(imgRegex);
+      const match = currentContent.match(imgRegex);
       if (!match) return;
       let imgTag = match[1];
       // Update or add style attribute with object-fit
@@ -1090,12 +1113,15 @@ export default function DeckEditor() {
       } else {
         imgTag += ` style="object-fit: ${newFit};"`;
       }
-      const updatedContent = slide.content.replace(imgRegex, imgTag + match[2]);
-      if (updatedContent !== slide.content) {
-        updateSlide(id, slide.id, { content: updatedContent });
+      const updatedContent = currentContent.replace(
+        imgRegex,
+        imgTag + match[2],
+      );
+      if (updatedContent !== currentContent) {
+        updateSlideContent(slide.id, updatedContent);
       }
     },
-    [id, updateSlide],
+    [updateSlideContent],
   );
 
   // Handle direct file upload and replace image
