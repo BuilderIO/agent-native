@@ -252,9 +252,8 @@ function SidebarContent({
         {!collapsed && (
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <AgentNativeIcon
-              size={28}
               aria-hidden="true"
-              className="h-4 w-7 shrink-0 text-black dark:text-white"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
             <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
               {t("navigation.brand")}

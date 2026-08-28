@@ -1257,8 +1257,8 @@ export function NavContent({
           <AgentNativeIcon
             aria-hidden="true"
             className={cn(
-              "shrink-0 text-black dark:text-white",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+              "shrink-0 text-foreground",
+              collapsed ? "h-3.5 w-6" : "h-[17px] w-[30px]",
             )}
           />
           {!collapsed && (
