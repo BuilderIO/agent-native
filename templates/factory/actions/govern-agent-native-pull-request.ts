@@ -620,7 +620,8 @@ export default defineAction({
             const definitiveRejection =
               error.status !== null &&
               error.status >= 400 &&
-              error.status < 500;
+              error.status < 500 &&
+              !error.rateLimited;
             const claimCanBeReleased =
               definitiveRejection || !error.requestAttempted;
             if (claimCanBeReleased) {

@@ -84,6 +84,7 @@ export class GitHubRequestError extends Error {
     message: string,
     readonly requestAttempted: boolean,
     readonly status: number | null = null,
+    readonly rateLimited = false,
   ) {
     super(message);
     this.name = "GitHubRequestError";
@@ -226,10 +227,17 @@ export function createGitHubClient(options: GitHubClientOptions) {
       })) as JsonResponse;
       if (!response.ok) {
         const detail = (await response.text()).slice(0, 500);
+        const rateLimited =
+          response.status === 429 ||
+          (response.status === 403 &&
+            /rate limit|secondary rate|abuse detection|retry after/i.test(
+              detail,
+            ));
         throw new GitHubRequestError(
           `GitHub API request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
           true,
           response.status,
+          rateLimited,
         );
       }
       if (response.status === 204 && options.allowEmpty) return undefined as T;

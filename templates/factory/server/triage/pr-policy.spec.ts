@@ -137,6 +137,17 @@ describe("pull-request governance", () => {
       ),
     ).toBe(false);
     expect(
+      hasActiveCredibleSafetyFinding(
+        [
+          {
+            state: "commented",
+            body: "Authentication middleware does not enforce tenant isolation.",
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
       isUltraScaryChange(["templates/factory/server/triage/github-client.ts"]),
     ).toBe(true);
     expect(
