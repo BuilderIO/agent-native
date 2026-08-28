@@ -76,7 +76,7 @@ export function createAiServicesGitReadClient(
             user: { login: string };
             state: string;
             submittedAt: string;
-            commitId?: string;
+            commitId?: string | null;
             comments?: Array<{
               id: number;
               user: { login: string };

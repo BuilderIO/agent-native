@@ -32,6 +32,7 @@ const reviewSchema = z.object({
     "pending",
     "dismissed",
   ]),
+  commitSha: z.string().max(128).nullable().optional(),
   observedAt: z.string().datetime(),
 });
 const checkSchema = z.object({

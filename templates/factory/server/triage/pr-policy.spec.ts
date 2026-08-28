@@ -17,6 +17,7 @@ const cleanInternalBug = {
   productUxImplications: false,
   checksPassed: true,
   reviewFeedbackHandled: true,
+  blockingReviewStatesClean: true,
   openNonDraft: true,
   internalBuilderMember: true,
   factoryTriggered: true,
@@ -53,6 +54,7 @@ describe("pull-request governance", () => {
         ...cleanInternalBug,
         checksPassed: false,
         reviewFeedbackHandled: false,
+        blockingReviewStatesClean: true,
       }),
     ).toMatchObject({
       autoApprove: true,
@@ -71,6 +73,7 @@ describe("pull-request governance", () => {
         productUxImplications: true,
         checksPassed: false,
         reviewFeedbackHandled: false,
+        blockingReviewStatesClean: true,
       }),
     ).toMatchObject({
       trustException: "liamdebeasi",
@@ -103,7 +106,18 @@ describe("pull-request governance", () => {
       decidePullRequestGovernance({
         ...cleanInternalBug,
         author: "liamdebeasi",
-        authorId: 1,
+        authorId: 2721089,
+        clearBug: false,
+        productUxImplications: true,
+        blockingReviewStatesClean: false,
+      }).autoApprove,
+    ).toBe(false);
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "liamdebeasi",
+        authorId: 2721089,
+        repository: "BuilderIO/other-repo",
         clearBug: false,
         productUxImplications: true,
       }).autoApprove,

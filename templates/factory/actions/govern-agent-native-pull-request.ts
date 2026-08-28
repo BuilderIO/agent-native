@@ -257,7 +257,7 @@ export default defineAction({
       snapshot.coverage === "complete" &&
       snapshot.checks.length > 0 &&
       snapshot.checks.every((check) => check.state === "passed");
-    const reviewStateClean = snapshot.reviews.every(
+    const blockingReviewStatesClean = snapshot.reviews.every(
       (review) =>
         review.state !== "changes_requested" && review.state !== "pending",
     );
@@ -272,7 +272,8 @@ export default defineAction({
         "builderio[bot]",
       ],
     });
-    const reviewFeedbackHandled = reviewStateClean && reviewFeedback.isClean;
+    const reviewFeedbackHandled =
+      blockingReviewStatesClean && reviewFeedback.isClean;
     const internalMember = await github.checkOrganizationMember(
       "BuilderIO",
       pullRequest.userLogin,
@@ -295,6 +296,7 @@ export default defineAction({
       productUxImplications,
       checksPassed,
       reviewFeedbackHandled,
+      blockingReviewStatesClean,
       openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
       internalBuilderMember: internalMember.isMember,
       factoryTriggered,
@@ -417,6 +419,34 @@ export default defineAction({
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
+        if (metadata.autoApprovalClaimHeadSha) {
+          throw new Error(
+            "A pull-request approval intent already exists; reconcile the provider result before retrying.",
+          );
+        }
+        const approvalClaim = serializeTriageMetadata({
+          ...metadata,
+          autoApprovalClaimHeadSha: snapshot.headSha,
+          autoApprovalClaimedAt: new Date().toISOString(),
+        });
+        const claimed = await getDb()
+          .update(triageItems)
+          .set({
+            metadataJson: approvalClaim,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+              eq(triageItems.metadataJson, item.metadataJson),
+            ),
+          )
+          .returning({ id: triageItems.id });
+        if (!claimed[0]) {
+          throw new Error(
+            "A concurrent pull-request approval changed the Factory item; reconcile before retrying.",
+          );
+        }
         const approval = await github.approvePullRequest(
           repository,
           pullRequestNumber,
@@ -430,6 +460,8 @@ export default defineAction({
         metadata.autoApprovedAt = new Date().toISOString();
         metadata.autoApprovalUrl = approval.htmlUrl;
         metadata.autoApprovalHeadSha = snapshot.headSha;
+        delete metadata.autoApprovalClaimHeadSha;
+        delete metadata.autoApprovalClaimedAt;
         await getDb()
           .update(triageItems)
           .set({
@@ -440,15 +472,9 @@ export default defineAction({
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
     } else {
-      approvalUrl = (
-        await github.approvePullRequest(
-          repository,
-          pullRequestNumber,
-          governance.ownerException
-            ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-            : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
-        )
-      ).htmlUrl;
+      throw new Error(
+        "PR governance requires a Factory item for an atomic approval claim.",
+      );
     }
 
     await recordFactoryAudit(

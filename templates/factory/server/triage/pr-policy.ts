@@ -24,6 +24,7 @@ export interface PullRequestGovernanceInput {
   productUxImplications: boolean;
   checksPassed: boolean;
   reviewFeedbackHandled: boolean;
+  blockingReviewStatesClean: boolean;
   openNonDraft: boolean;
   internalBuilderMember: boolean;
   factoryTriggered: boolean;
@@ -87,6 +88,7 @@ export function decidePullRequestGovernance(
   const liamException =
     input.author.trim().toLowerCase() === "liamdebeasi" &&
     input.authorId === LIAMDEBEASI_USER_ID &&
+    input.repository.trim().toLowerCase() === "builderio/agent-native" &&
     input.internalBuilderMember &&
     !ultraScary;
   const ownerException = detectPullRequestOwnerException(input);
@@ -135,12 +137,16 @@ export function decidePullRequestGovernance(
     },
     {
       code: "unknown_change",
-      passed: internalEvidenceException || input.reviewFeedbackHandled,
-      reason: input.reviewFeedbackHandled
-        ? "All observed review feedback is fixed, resolved, replied to, or outdated."
-        : internalEvidenceException
-          ? "Review feedback is unanswered, unresolved, truncated, or otherwise unknown; the verified internal-author exception does not treat that state as clean."
-          : "Review feedback is unanswered, unresolved, truncated, or otherwise unknown.",
+      passed:
+        input.blockingReviewStatesClean &&
+        (internalEvidenceException || input.reviewFeedbackHandled),
+      reason: !input.blockingReviewStatesClean
+        ? "An active changes-requested or pending review remains blocking."
+        : input.reviewFeedbackHandled
+          ? "All observed review feedback is fixed, resolved, replied to, or outdated."
+          : internalEvidenceException
+            ? "Review feedback is unanswered, unresolved, truncated, or otherwise unknown; the verified internal-author exception does not treat that state as clean."
+            : "Review feedback is unanswered, unresolved, truncated, or otherwise unknown.",
     },
   ];
 
@@ -223,14 +229,19 @@ export function hasCurrentPullRequestApproval(
   reviews: readonly {
     author: string;
     state: string;
-    commitSha?: string;
+    commitSha?: string | null;
     observedAt: string;
   }[],
   headSha: string,
 ): boolean {
   const latestByAuthor = new Map<
     string,
-    { state: string; commitSha?: string; observedAt: string; order: number }
+    {
+      state: string;
+      commitSha?: string | null;
+      observedAt: string;
+      order: number;
+    }
   >();
   reviews.forEach((review, order) => {
     const author = review.author.trim().toLowerCase();
