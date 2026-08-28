@@ -329,8 +329,10 @@ const RAW_TEXT_ELEMENTS = /^(script|style|textarea|title)$/i;
  * `<p title="Use <style> here">` reads as a `<style>` start tag, and truncating
  * there drops the rest of a perfectly valid slide.
  */
-function startTagPositions(html: string): { name: string; index: number }[] {
-  const found: { name: string; index: number }[] = [];
+function startTagPositions(
+  html: string,
+): { name: string; index: number; end: number }[] {
+  const found: { name: string; index: number; end: number }[] = [];
   for (let i = 0; i < html.length; i++) {
     if (html[i] !== "<") continue;
     if (html.startsWith("<!--", i)) {
@@ -359,7 +361,7 @@ function startTagPositions(html: string): { name: string; index: number }[] {
       continue;
     }
     const lower = name.toLowerCase();
-    found.push({ name: lower, index: i });
+    found.push({ name: lower, index: i, end: cursor });
     if (RAW_TEXT_ELEMENTS.test(lower)) {
       // A raw-text element's body is text, not markup — `content: "<script>"`
       // inside a stylesheet is a CSS string, and reading it as a start tag
@@ -397,13 +399,56 @@ function dropFromFirstUnclosedRawText(html: string): string {
   return html;
 }
 
+/**
+ * Rewrites `/` attribute separators inside start tags as spaces.
+ *
+ * `/` is a legal separator between attributes, so `<img src="x"/onerror="…">`
+ * is an image with a live handler — and every attribute scrub below is anchored
+ * on whitespace, so none of them matched it. Normalizing here rather than
+ * widening each scrub to `[\s/]+` is what keeps a legitimate value intact: a
+ * URL like `https://cdn.example/onerror=logo.png` lives inside quotes, and this
+ * only touches separators outside them.
+ */
+function normalizeTagAttributeSeparators(html: string): string {
+  const tags = startTagPositions(html);
+  if (!tags.length) return html;
+  let out = "";
+  let copied = 0;
+  for (const { index, end } of tags) {
+    // Start after the tag name so `</p>` and the opening `<` are untouched.
+    const nameEnd = /^<[a-z][a-z0-9-]*/i.exec(html.slice(index, end))?.[0]
+      .length;
+    if (nameEnd === undefined) continue;
+    const from = index + nameEnd;
+    let region = "";
+    let quote = "";
+    for (let i = from; i < end; i++) {
+      const char = html[i];
+      if (quote) {
+        if (char === quote) quote = "";
+        region += char;
+      } else if (char === '"' || char === "'") {
+        quote = char;
+        region += char;
+      } else if (char === "/") {
+        region += " ";
+      } else {
+        region += char;
+      }
+    }
+    out += html.slice(copied, from) + region;
+    copied = end;
+  }
+  return out + html.slice(copied);
+}
+
 function sanitizeHtmlString(
   html: string,
   scopeSelector?: string,
   allowBlobImages = false,
 ): string {
   return (
-    html
+    normalizeTagAttributeSeparators(html)
       .replace(/<style\b[^>]*>([\s\S]*?)<\/\s*style\s*>/gi, (_match, css) => {
         const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
         return safeCss
