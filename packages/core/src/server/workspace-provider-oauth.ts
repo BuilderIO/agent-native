@@ -6,6 +6,7 @@ import {
   getCookie,
   getMethod,
   getQuery,
+  getRequestHeader,
   setCookie,
   setResponseStatus,
   type H3Event,
@@ -35,6 +36,7 @@ import {
   decodeOAuthState,
   encodeOAuthState,
   getAppUrl,
+  oauthErrorPage,
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
 } from "./google-oauth.js";
@@ -140,6 +142,26 @@ export function createWorkspaceProviderOAuthHandler(
   );
 }
 
+/**
+ * Fails the OAuth start in whatever form the caller can actually read.
+ *
+ * `startWorkspaceProviderOAuth` reaches this endpoint by navigating the top
+ * window, and onboarding cards link straight to it, so a bare `{ error }` body
+ * replaces whatever the user was looking at — a deck, a settings page — with
+ * raw JSON and no way back. Anything that asks for HTML gets the same error
+ * page the OAuth callbacks already use; a programmatic caller still gets JSON.
+ */
+export function oauthStartFailure(
+  event: H3Event,
+  status: number,
+  message: string,
+): Response | { error: string } {
+  setResponseStatus(event, status);
+  const accept = getRequestHeader(event, "accept") ?? "";
+  if (!accept.includes("text/html")) return { error: message };
+  return oauthErrorPage(message);
+}
+
 export async function handleWorkspaceProviderOAuthStart(
   event: H3Event,
   providerId: GenericWorkspaceOAuthProvider,
@@ -153,10 +175,11 @@ export async function handleWorkspaceProviderOAuthStart(
   );
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
   if (!requestedScope) {
-    setResponseStatus(event, 400);
-    return {
-      error: "OAuth connection scope must be user, organization, or app.",
-    };
+    return oauthStartFailure(
+      event,
+      400,
+      "OAuth connection scope must be user, organization, or app.",
+    );
   }
   const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
@@ -168,8 +191,7 @@ export async function handleWorkspaceProviderOAuthStart(
   }
   const orgId = orgContext.orgId;
   if (!orgId) {
-    setResponseStatus(event, 403);
-    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
+    return oauthStartFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
   const provider = requiredProvider(providerId);
   const salesforceLoginUrl =
@@ -177,8 +199,11 @@ export async function handleWorkspaceProviderOAuthStart(
       ? resolveSalesforceOAuthLoginUrl(text(query.environment))
       : undefined;
   if (providerId === "salesforce" && !salesforceLoginUrl) {
-    setResponseStatus(event, 400);
-    return { error: "Salesforce environment must be production or sandbox." };
+    return oauthStartFailure(
+      event,
+      400,
+      "Salesforce environment must be production or sandbox.",
+    );
   }
   const useRootGoogleCallback =
     isWorkspaceOAuthCallbackRelayEnabled() &&
@@ -190,24 +215,25 @@ export async function handleWorkspaceProviderOAuthStart(
       : workspaceProviderOAuthPath(providerId, "callback"),
   );
   if (!redirectUri) {
-    setResponseStatus(event, 400);
-    return { error: "Invalid OAuth redirect URI." };
+    return oauthStartFailure(event, 400, "Invalid OAuth redirect URI.");
   }
   if (useRootGoogleCallback) {
     let parsedRedirectUri: URL;
     try {
       parsedRedirectUri = new URL(redirectUri);
     } catch {
-      setResponseStatus(event, 400);
-      return { error: "Invalid OAuth redirect URI." };
+      return oauthStartFailure(event, 400, "Invalid OAuth redirect URI.");
     }
     if (
       parsedRedirectUri.pathname !== "/_agent-native/google/callback" ||
       parsedRedirectUri.search ||
       parsedRedirectUri.hash
     ) {
-      setResponseStatus(event, 400);
-      return { error: "Google workspace OAuth must use the shared callback." };
+      return oauthStartFailure(
+        event,
+        400,
+        "Google workspace OAuth must use the shared callback.",
+      );
     }
   }
   return runWithRequestContext(
@@ -216,10 +242,11 @@ export async function handleWorkspaceProviderOAuthStart(
       const [clientId, clientSecret] =
         await resolveProviderClientCredentials(providerId);
       if (!clientId || !clientSecret) {
-        setResponseStatus(event, 503);
-        return {
-          error: `${provider.label} OAuth client credentials are not configured.`,
-        };
+        return oauthStartFailure(
+          event,
+          503,
+          `${provider.label} OAuth client credentials are not configured.`,
+        );
       }
       const verifier = crypto.randomBytes(48).toString("base64url");
       const challenge = crypto
