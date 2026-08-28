@@ -150,7 +150,7 @@ export default function NotificationsRoute() {
           <div className="mt-6 rounded-md border bg-muted/30 p-3">
             <div className="text-xs text-muted-foreground mb-1.5">
               {t("notificationsRoute.replyTo", {
-                email: replyFor.authorEmail,
+                email: replyFor.authorName?.trim() || replyFor.authorEmail,
               })}{" "}
               <span className="font-medium text-foreground">
                 {replyFor.recordingTitle}

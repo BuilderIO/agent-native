@@ -21,6 +21,7 @@ export interface RecordingSummary {
   failureReason?: string | null;
   visibility: "private" | "org" | "public";
   ownerEmail: string;
+  ownerName?: string | null;
   folderId: string | null;
   spaceIds: string[];
   tags: string[];

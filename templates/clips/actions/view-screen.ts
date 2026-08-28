@@ -38,6 +38,7 @@ import {
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
@@ -128,17 +129,19 @@ async function fetchComments(recordingId: string) {
     .from(schema.recordingComments)
     .where(eq(schema.recordingComments.recordingId, recordingId))
     .orderBy(asc(schema.recordingComments.videoTimestampMs));
-  return rows.map((c) => ({
-    id: c.id,
-    threadId: c.threadId,
-    parentId: c.parentId,
-    authorEmail: c.authorEmail,
-    authorName: c.authorName,
-    content: c.content,
-    videoTimestampMs: c.videoTimestampMs,
-    resolved: Boolean(c.resolved),
-    createdAt: c.createdAt,
-  }));
+  return hydrateCommentAuthorNames(
+    rows.map((c) => ({
+      id: c.id,
+      threadId: c.threadId,
+      parentId: c.parentId,
+      authorEmail: c.authorEmail,
+      authorName: c.authorName,
+      content: c.content,
+      videoTimestampMs: c.videoTimestampMs,
+      resolved: Boolean(c.resolved),
+      createdAt: c.createdAt,
+    })),
+  );
 }
 
 async function fetchBrowserDiagnosticsSummary(recordingId: string) {

@@ -6,9 +6,11 @@ import {
   getUserSetting,
   mutateUserSetting,
 } from "../settings/user-settings.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   normalizeOnboardingRole,
   normalizeUserProfileName,
+  resolveUserProfileName,
   USER_PROFILE_SETTING_KEY,
   type OnboardingRole,
   type UserProfile,
@@ -19,6 +21,68 @@ async function getAuthUser(email: string) {
   const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
   if (!adapter) return null;
   return adapter.findUserByEmail(email, { includeAccounts: false });
+}
+
+function profileFromAuthUser(
+  email: string,
+  user: {
+    name?: string | null;
+    image?: string | null;
+    onboardingRole?: unknown;
+  },
+): UserProfile {
+  const image = isGoogleProfileImageUrl(user.image)
+    ? user.image.trim()
+    : undefined;
+  const onboardingRole = normalizeOnboardingRole(
+    typeof user.onboardingRole === "string" ? user.onboardingRole : null,
+  );
+  return {
+    email,
+    name: normalizeUserProfileName(user.name, email),
+    ...(image ? { image } : {}),
+    onboardingRole,
+  };
+}
+
+async function profileFromAuthUserWithStoredName(
+  email: string,
+  user: {
+    name?: string | null;
+    image?: string | null;
+    onboardingRole?: unknown;
+  },
+): Promise<UserProfile> {
+  const profile = profileFromAuthUser(email, user);
+  const storedResult = (
+    await Promise.allSettled([getStoredUserProfile(email)])
+  )[0];
+  if (storedResult.status !== "fulfilled") return profile;
+
+  return {
+    ...profile,
+    name: normalizeUserProfileName(
+      resolveUserProfileName(email, storedResult.value.name, user.name),
+      email,
+    ),
+    onboardingRole:
+      profile.onboardingRole ?? storedResult.value.onboardingRole ?? null,
+  };
+}
+
+async function getStoredUserProfile(email: string): Promise<UserProfile> {
+  const stored = await getUserSetting(email, USER_PROFILE_SETTING_KEY);
+  const storedName = typeof stored?.name === "string" ? stored.name : null;
+  const name = resolveUserProfileName(email, storedName);
+  const onboardingRole = normalizeOnboardingRole(
+    typeof stored?.onboardingRole === "string" ? stored.onboardingRole : null,
+  );
+
+  return {
+    email,
+    name: normalizeUserProfileName(name, email),
+    onboardingRole,
+  };
 }
 
 async function updateFallbackUserProfile(
@@ -32,24 +96,82 @@ async function updateFallbackUserProfile(
 }
 
 export async function getUserProfile(email: string): Promise<UserProfile> {
-  const stored = await getUserSetting(email, USER_PROFILE_SETTING_KEY);
   const authUser = await getAuthUser(email);
-  const authName = authUser?.user.name;
-  const storedName = typeof stored?.name === "string" ? stored.name : null;
-  const authRole = normalizeOnboardingRole(
-    typeof authUser?.user.onboardingRole === "string"
-      ? authUser.user.onboardingRole
-      : null,
-  );
-  const storedRole = normalizeOnboardingRole(
-    typeof stored?.onboardingRole === "string" ? stored.onboardingRole : null,
-  );
+  if (authUser) return profileFromAuthUserWithStoredName(email, authUser.user);
+  return getStoredUserProfile(email);
+}
 
-  return {
-    email,
-    name: normalizeUserProfileName(storedName ?? authName, email),
-    onboardingRole: authRole ?? storedRole,
-  };
+export async function getUserProfiles(
+  emails: readonly string[],
+): Promise<Map<string, UserProfile>> {
+  const uniqueEmails = Array.from(
+    new Set(
+      emails
+        .map((email) => email.trim())
+        .filter(Boolean)
+        .map((email) => email.toLowerCase()),
+    ),
+  );
+  if (uniqueEmails.length === 0) return new Map();
+
+  const adapter = getBetterAuthSync()
+    ? await getBetterAuthInternalAdapter().catch(() => undefined)
+    : undefined;
+  const profiles = new Map<string, UserProfile>();
+  let batchLookupSucceeded = false;
+
+  if (adapter?.listUsers) {
+    try {
+      const users = await adapter.listUsers(
+        uniqueEmails.length,
+        undefined,
+        undefined,
+        [
+          {
+            field: "email",
+            operator: "in",
+            value: uniqueEmails,
+            mode: "insensitive",
+          },
+        ],
+      );
+      const userProfiles = await Promise.all(
+        users.map(async (user) => {
+          const email = user.email.trim().toLowerCase();
+          return email
+            ? ([
+                email,
+                await profileFromAuthUserWithStoredName(email, user),
+              ] as const)
+            : null;
+        }),
+      );
+      for (const entry of userProfiles) {
+        if (entry) profiles.set(...entry);
+      }
+      batchLookupSucceeded = true;
+    } catch {
+      // coercion-ok: older or custom adapters use the established per-user fallback.
+      // Fall back to the single-profile path for older/custom adapters.
+    }
+  }
+
+  const missingEmails = uniqueEmails.filter((email) => !profiles.has(email));
+  const results = await Promise.allSettled(
+    missingEmails.map(
+      async (email) =>
+        [
+          email,
+          batchLookupSucceeded
+            ? await getStoredUserProfile(email)
+            : await getUserProfile(email),
+        ] as const,
+    ),
+  );
+  for (const result of results) {
+    if (result.status === "fulfilled") profiles.set(...result.value);
+  }
+  return profiles;
 }
 
 export async function updateUserProfile(
