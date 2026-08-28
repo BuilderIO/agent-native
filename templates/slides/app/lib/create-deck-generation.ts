@@ -236,7 +236,7 @@ type SubmitAgent = (
 ) => void;
 
 export interface StartDeckGenerationOptions {
-  session: unknown | null;
+  session: unknown;
   prompt: string;
   files: UploadedFile[];
   retryFiles?: UploadedFile[];

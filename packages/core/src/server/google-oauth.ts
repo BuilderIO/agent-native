@@ -864,7 +864,7 @@ export function oauthCallbackResponse(
     appName?: string;
     desktopWebview?: boolean;
   },
-): Response | string | unknown | Promise<Response | string | unknown> {
+): unknown {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
   // clients. UA detection remains the fallback for ordinary mobile browsers.
   const mobile = opts.mobile || isMobile(event);

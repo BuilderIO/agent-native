@@ -237,7 +237,7 @@ export function SnoozeModal({
           });
       }
     },
-    [snoozeTargets, snoozeEmail, onSnoozed, onClose],
+    [snoozeTargets, snoozeEmail, onSnoozed, onClose, t],
   );
 
   const handleKeyDown = useCallback(

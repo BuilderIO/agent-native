@@ -82,7 +82,7 @@ function jsonResponse(body: object, status = 200) {
 
 async function getSessionEmailWithTimeout(
   token: string,
-): Promise<string | null | "timeout"> {
+): Promise<"timeout" | (string & {}) | null> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

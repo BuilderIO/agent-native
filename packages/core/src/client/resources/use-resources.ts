@@ -353,7 +353,7 @@ export function useCreateResource() {
       return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["resources"] });
     },
   });
 }
@@ -382,8 +382,10 @@ export function useUpdateResource() {
       return res.json() as Promise<Resource>;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
-      queryClient.invalidateQueries({ queryKey: ["resource", variables.id] });
+      void queryClient.invalidateQueries({ queryKey: ["resources"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["resource", variables.id],
+      });
     },
   });
 }
@@ -402,7 +404,7 @@ export function useDeleteResource() {
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
+      void queryClient.invalidateQueries({ queryKey: ["resources"] });
     },
   });
 }

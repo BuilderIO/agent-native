@@ -130,7 +130,7 @@ export function ExcalidrawThumbnail({ data }: { data: string }) {
     const parsed = parseExcalidrawData(data);
     if (!parsed?.elements?.length) return;
 
-    import("@excalidraw/excalidraw").then(async (mod) => {
+    void import("@excalidraw/excalidraw").then(async (mod) => {
       try {
         const svgEl = await mod.exportToSvg({
           elements: parsed.elements,

@@ -300,8 +300,11 @@ function filterMentionItemsForSlots(
 
 function isDocumentAttachment(value: Record<string, unknown>): boolean {
   if (value.type === "document") return true;
-  const contentType = String(value.contentType ?? "").toLowerCase();
-  const name = String(value.name ?? "").toLowerCase();
+  const contentType =
+    typeof value.contentType === "string"
+      ? value.contentType.toLowerCase()
+      : "";
+  const name = typeof value.name === "string" ? value.name.toLowerCase() : "";
   return contentType === "application/pdf" || name.endsWith(".pdf");
 }
 

@@ -198,7 +198,7 @@ export function SearchModal({
 
   const go = useCallback(
     (entry: SearchEntry) => {
-      navigate(
+      void navigate(
         entry.sectionId ? `${entry.path}#${entry.sectionId}` : entry.path,
       );
       onClose();

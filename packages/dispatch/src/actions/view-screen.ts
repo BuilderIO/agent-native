@@ -41,7 +41,7 @@ async function runLocalDispatchAction(
   const modulePath = `./${name}.js`;
   const module = (await import(/* @vite-ignore */ modulePath)) as {
     default?: {
-      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+      run: (args: Record<string, unknown>) => unknown;
     };
   };
   if (!module.default) throw new Error(`Dispatch action not found: ${name}`);

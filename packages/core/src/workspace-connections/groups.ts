@@ -47,7 +47,7 @@ export function workspaceUserGroupsTable(): string {
 }
 
 function isDuplicateObjectError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
+  const code = stringifyValue((err as { code?: unknown })?.code ?? "");
   const message = String((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();
@@ -96,7 +96,7 @@ function normalizeGroupName(value: unknown): string {
 function iso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "number") return new Date(value).toISOString();
-  const parsed = Date.parse(String(value ?? ""));
+  const parsed = Date.parse(stringifyValue(value ?? ""));
   return Number.isFinite(parsed)
     ? new Date(parsed).toISOString()
     : new Date(0).toISOString();
@@ -119,13 +119,13 @@ function requireWorkspaceUserGroupScope(): {
 
 function parseRow(row: Record<string, unknown>): WorkspaceUserGroup {
   return {
-    id: String(row.id ?? ""),
-    orgId: String(row.org_id ?? ""),
-    name: String(row.name ?? ""),
+    id: stringifyValue(row.id ?? ""),
+    orgId: stringifyValue(row.org_id ?? ""),
+    name: stringifyValue(row.name ?? ""),
     memberEmails: normalizeMemberEmails(
       safeJsonParse<unknown>(row.member_emails_json, []),
     ),
-    createdByEmail: String(row.created_by_email ?? ""),
+    createdByEmail: stringifyValue(row.created_by_email ?? ""),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -428,4 +428,14 @@ export async function workspaceUserGroupsIncludeUser(
     normalizedIds,
   );
   return groups.some((group) => group.memberEmails.includes(normalizedEmail));
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

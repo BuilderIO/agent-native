@@ -3193,7 +3193,7 @@ function DesignEditor() {
       if (result.saved.length > 0 || result.rebased.length > 0) {
         // rebased = a 409 the server moved past; refetch so the editor rebases
         // onto current content. No toast: the file wasn't lost, unlike dropped.
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
       }
@@ -3512,7 +3512,7 @@ function DesignEditor() {
       .then((result: any) => {
         if (!result?.id) throw new Error("Missing copied design id");
         const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
-        navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+        void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
       })
       .catch(() => {
         postAuthSaveRef.current = null;
@@ -3615,7 +3615,9 @@ function DesignEditor() {
       });
       updateDesignMutation.mutate({ id, designSystemId } as any, {
         onError: () => {
-          queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
         },
       });
     },
@@ -3677,8 +3679,12 @@ function DesignEditor() {
         for (const [queryKey, data] of previousListDesignsQueries) {
           queryClient.setQueryData(queryKey, data);
         }
-        queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
-        queryClient.invalidateQueries({ queryKey: ["action", "list-designs"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "get-design"],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        });
       },
     });
   }, [
@@ -4022,7 +4028,7 @@ function DesignEditor() {
               );
             await acknowledgeOutboxEntry(outboxEntry);
           } catch {
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
             warnChangesWillRetry();
@@ -7105,7 +7111,7 @@ function DesignEditor() {
         } as any,
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({
+            void queryClient.invalidateQueries({
               queryKey: ["action", "get-design"],
             });
             toast.success(t("designEditor.toasts.componentCreated"));
@@ -15541,7 +15547,7 @@ function DesignEditor() {
         mode,
       });
       if (nextSearch === location.search) return;
-      navigate(
+      void navigate(
         {
           pathname: location.pathname,
           search: nextSearch,
@@ -15684,7 +15690,7 @@ function DesignEditor() {
     }
     urlSyncTimerRef.current = window.setTimeout(() => {
       urlSyncTimerRef.current = null;
-      navigate(
+      void navigate(
         {
           pathname: location.pathname,
           search: nextSearch,
@@ -18250,7 +18256,7 @@ function DesignEditor() {
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
   useEffect(() => {
-    if (!id) navigate("/");
+    if (!id) void navigate("/");
   }, [id, navigate]);
 
   // ── Early returns and derived render values ────────────────────────────────
@@ -20768,7 +20774,7 @@ function DesignEditor() {
         onCreativeContextChange={handleCreativeContextChange}
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
-          navigate("/design-systems/setup");
+          void navigate("/design-systems/setup");
         }}
       />
       <PromptPopover

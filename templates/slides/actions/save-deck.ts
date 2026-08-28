@@ -44,7 +44,7 @@ function comparableDeckData(raw: unknown): string {
     delete clone.updatedAt;
     return JSON.stringify(clone);
   } catch {
-    return String(raw ?? "");
+    return typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
   }
 }
 

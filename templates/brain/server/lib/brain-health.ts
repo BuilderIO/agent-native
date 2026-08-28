@@ -39,7 +39,7 @@ export type BrainSourceHealthState =
   | "error";
 
 export interface BrainEvalSnapshot {
-  mode: "product-demo" | "retrieval" | string;
+  mode: "product-demo" | "retrieval" | (string & {});
   seedId?: string;
   dataset?: string;
   dataMode?: string;

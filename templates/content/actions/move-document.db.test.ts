@@ -135,8 +135,10 @@ describe("move-document position race", () => {
 
     await Promise.all(
       incomingIds.map((id) =>
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          moveDocumentAction.run({ id, parentId, position: 0 } as any),
+        Promise.resolve(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            moveDocumentAction.run({ id, parentId, position: 0 } as any),
+          ),
         ),
       ),
     );

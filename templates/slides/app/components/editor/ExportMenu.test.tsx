@@ -5,6 +5,14 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : (JSON.stringify(value) ?? "");
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -485,7 +493,7 @@ describe("<ExportMenu>", () => {
         body: JSON.stringify({ deckId: "deck-1" }),
       }),
     );
-    expect(String(vi.mocked(fetch).mock.calls[0][0])).not.toContain(
+    expect(requestString(vi.mocked(fetch).mock.calls[0][0])).not.toContain(
       "/_agent-native/actions/export-html",
     );
     expect(URL.createObjectURL).toHaveBeenCalled();

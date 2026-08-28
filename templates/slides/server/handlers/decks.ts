@@ -113,11 +113,11 @@ export const deckEvents = defineEventHandler(async (event) => {
   const eventStream = createEventStream(event);
 
   // Send initial connected event
-  eventStream.push(JSON.stringify({ type: "connected" }));
+  void eventStream.push(JSON.stringify({ type: "connected" }));
 
   // Register this client's push function
   const push: SSEPush = (data: string) => {
-    eventStream.push(data);
+    void eventStream.push(data);
   };
   sseClients.add(push);
 

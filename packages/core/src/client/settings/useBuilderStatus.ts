@@ -111,13 +111,13 @@ export function useBuilderStatus({
       return;
     }
     setLoading(true);
-    fetchStatus();
+    void fetchStatus();
 
     function onFocus() {
-      fetchStatus();
+      void fetchStatus();
     }
     function onVisibility() {
-      if (document.visibilityState === "visible") fetchStatus();
+      if (document.visibilityState === "visible") void fetchStatus();
     }
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
@@ -712,9 +712,9 @@ export function useBuilderConnectFlow(
         setError(null);
       }
     };
-    refresh();
+    void refresh();
     const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") void refresh();
     };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisible);

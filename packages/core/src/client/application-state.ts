@@ -40,7 +40,7 @@ async function parseAppStateResponse<T>(
   } catch (err) {
     const cause = err instanceof Error ? err.message : String(err);
     const error = new Error(
-      `${operation} failed: response body could not be read: ${cause}`,
+      `${String(operation)} failed: response body could not be read: ${cause}`,
     );
     (error as { status?: number }).status = response.status;
     throw error;
@@ -53,7 +53,7 @@ async function parseAppStateResponse<T>(
     } catch {
       if (response.ok) {
         const error = new Error(
-          `${operation} returned a non-JSON ${response.status} response: ${raw.slice(
+          `${String(operation)} returned a non-JSON ${response.status} response: ${raw.slice(
             0,
             200,
           )}`,
@@ -76,7 +76,7 @@ async function parseAppStateResponse<T>(
       raw.slice(0, 200) ||
       response.statusText ||
       `HTTP ${response.status}`;
-    const error = new Error(`${operation} failed: ${message}`);
+    const error = new Error(`${String(operation)} failed: ${String(message)}`);
     (error as { status?: number }).status = response.status;
     throw error;
   }

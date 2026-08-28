@@ -423,7 +423,7 @@ export function FirstDeckOnboardingFlow({
         setReferenceImporting(false);
       }
     },
-    [callAction, createDeck, deleteDeck, ensureDeckPersisted, reloadDecks, t],
+    [createDeck, deleteDeck, ensureDeckPersisted, reloadDecks, t],
   );
 
   const handleReferenceSourceImport = useCallback(
@@ -474,7 +474,7 @@ export function FirstDeckOnboardingFlow({
         setReferenceImporting(false);
       }
     },
-    [callAction, reloadDecks, t],
+    [reloadDecks, t],
   );
 
   const handleReferenceSkip = useCallback(async () => {

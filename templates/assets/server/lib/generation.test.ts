@@ -9,6 +9,15 @@ import {
 } from "./generation.js";
 import type { GenerateProviderInput } from "./generation.js";
 
+const requestUrl = (input: string | URL | Request): string =>
+  input instanceof Request
+    ? input.url
+    : input instanceof URL
+      ? input.href
+      : input;
+const requestBodyText = (body: BodyInit | null | undefined): string =>
+  typeof body === "string" ? body : "";
+
 const resolveBuilderGatewayCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
@@ -111,11 +120,11 @@ function requestIdempotencyKeys(
   fetchMock: ReturnType<typeof vi.fn>,
 ): (string | undefined)[] {
   return fetchMock.mock.calls
-    .filter(([url]) => String(url).endsWith("/generations"))
+    .filter(([url]) => requestUrl(url).endsWith("/generations"))
     .map(([, init]) => {
       const body = (init as RequestInit | undefined)?.body;
       return body
-        ? (JSON.parse(String(body)) as { idempotencyKey?: string })
+        ? (JSON.parse(requestBodyText(body)) as { idempotencyKey?: string })
             .idempotencyKey
         : undefined;
     });
@@ -427,7 +436,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     const body = JSON.parse(
-      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+      requestBodyText((fetchMock.mock.calls[0][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "gpt-image-1",
@@ -440,7 +449,7 @@ describe("generateWithManagedImageProvider", () => {
   it("forwards transparent background requests through Builder", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
-        if (String(url).endsWith("/generations")) {
+        if (requestUrl(url).endsWith("/generations")) {
           return builderGenerationSuccess();
         }
         return builderImageBytes();
@@ -474,10 +483,10 @@ describe("generateWithManagedImageProvider", () => {
     const calls = fetchMock.mock.calls as Array<
       [string | URL | Request, RequestInit]
     >;
-    expect(String(calls[0][0])).toBe(
+    expect(requestUrl(calls[0][0])).toBe(
       "https://builder.test/agent-native/images/v1/generations",
     );
-    const body = JSON.parse(String(calls[0][1].body)) as Record<
+    const body = JSON.parse(requestBodyText(calls[0][1].body)) as Record<
       string,
       unknown
     >;
@@ -498,7 +507,7 @@ describe("generateWithManagedImageProvider", () => {
   it("forwards edit mode and mask references through Builder", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
-        if (String(url).endsWith("/generations")) {
+        if (requestUrl(url).endsWith("/generations")) {
           return builderGenerationSuccess();
         }
         return builderImageBytes();
@@ -542,7 +551,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     const body = JSON.parse(
-      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+      requestBodyText((fetchMock.mock.calls[0][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "gpt-image-2",
@@ -680,7 +689,7 @@ describe("generateWithManagedImageProvider", () => {
         ),
       }),
     );
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+    expect(fetchMock.mock.calls.map(([url]) => requestUrl(url))).not.toContain(
       "https://api.openai.com/v1/images/generations",
     );
   });
@@ -716,7 +725,7 @@ describe("generateWithManagedImageProvider", () => {
         ),
       }),
     );
-    expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContain(
+    expect(fetchMock.mock.calls.map(([url]) => requestUrl(url))).not.toContain(
       "https://api.openai.com/v1/images/generations",
     );
   });
@@ -757,7 +766,7 @@ describe("generateWithManagedImageProvider", () => {
   it("recovers when a transient Builder retry succeeds", async () => {
     const fetchMock = vi.fn(
       async (url: string | URL | Request, _init?: RequestInit) => {
-        const href = String(url);
+        const href = requestUrl(url);
         if (href.endsWith("/generations") && fetchMock.mock.calls.length <= 2) {
           return new Response(
             JSON.stringify({ error: { message: "Provider warming up" } }),
@@ -811,7 +820,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     ]);
     const requestBody = JSON.parse(
-      String((fetchMock.mock.calls[2][1] as RequestInit).body),
+      requestBodyText((fetchMock.mock.calls[2][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(requestBody.model).toBe("gemini-3.1-flash-image-preview");
   });
@@ -819,7 +828,7 @@ describe("generateWithManagedImageProvider", () => {
   it("polls the same idempotency key while the service reports the request in progress", async () => {
     let generationCalls = 0;
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
-      if (String(url).endsWith("/generations")) {
+      if (requestUrl(url).endsWith("/generations")) {
         generationCalls += 1;
         if (generationCalls <= 2) {
           return new Response(
@@ -858,7 +867,7 @@ describe("generateWithManagedImageProvider", () => {
   it("polls after a client-side abort instead of regenerating", async () => {
     let generationCalls = 0;
     const fetchMock = vi.fn(async (url: string | URL | Request) => {
-      if (String(url).endsWith("/generations")) {
+      if (requestUrl(url).endsWith("/generations")) {
         generationCalls += 1;
         if (generationCalls === 1) {
           const abort = new Error("The operation was aborted.");

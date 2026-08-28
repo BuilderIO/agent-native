@@ -77,8 +77,8 @@ export function useNavigationState() {
         body: JSON.stringify(state),
       }).catch(() => {});
 
-    write(appStateKeyForBrowserTab("navigation", TAB_ID));
-    write("navigation");
+    void write(appStateKeyForBrowserTab("navigation", TAB_ID));
+    void write("navigation");
   }, [location.pathname, location.search]);
 
   // Listen for navigate commands from agent. Prefer the one-shot command for
@@ -174,7 +174,7 @@ export function useNavigationState() {
       }
     }
 
-    navigate(path);
+    void navigate(path);
     qc.setQueryData(["navigate-command", TAB_ID], null);
   }, [navCommand, navigate, qc]);
 }

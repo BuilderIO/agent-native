@@ -21,7 +21,7 @@ export function Countdown() {
     ) => {
       if (closingRef.current) return;
       closingRef.current = true;
-      emit(eventName, { cause }).finally(() => {
+      void emit(eventName, { cause }).finally(() => {
         getCurrentWindow()
           .close()
           .catch(() => {});

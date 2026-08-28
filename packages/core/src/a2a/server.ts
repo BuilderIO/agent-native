@@ -78,7 +78,7 @@ function addSecretCandidate(
  * before the audience claim shipped) skip the audience check.
  */
 function expectedJwtAudience(
-  event: any | undefined,
+  event: any,
   options?: {
     routePrefix?: string;
     allowBaseAudience?: boolean;

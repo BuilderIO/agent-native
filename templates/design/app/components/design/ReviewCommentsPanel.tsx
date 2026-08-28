@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 export interface ReviewCommentsPanelProps {
   designId: string;
   activeFileId?: string | null;
-  commentAnchor?: unknown | null;
+  commentAnchor?: unknown;
   commentMetadata?: Record<string, unknown>;
   commentContextLabel?: string;
   canComment: boolean;
@@ -42,7 +42,7 @@ export function resolveReviewComposerTargetId({
 }: {
   scope: ReviewCommentsScope;
   activeFileId?: string | null;
-  commentAnchor?: unknown | null;
+  commentAnchor?: unknown;
 }): string | null | undefined {
   if (commentAnchor != null) return activeFileId;
   return scope === "screen" ? activeFileId : undefined;
