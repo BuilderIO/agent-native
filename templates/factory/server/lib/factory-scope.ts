@@ -271,7 +271,7 @@ function readFrontmatterFactoryId(content: string): string | undefined {
   const match = content.slice(4, end).match(/^factoryId:\s*(.*)$/m);
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationFactoryId(
@@ -381,7 +381,7 @@ function readFrontmatterField(
     .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 export function readAutomationDisplayName(content: string): string | null {

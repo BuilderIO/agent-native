@@ -28,6 +28,10 @@ import {
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  resolveImportedDeckTitle,
+} from "../shared/deck-title.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
@@ -117,7 +121,7 @@ export async function importPptxBufferToDeck(args: {
   } = args;
   const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
   applyImageFallbacks(presentation, imageFallbacks);
-  const deckTitle = title || presentation.title || "Imported Presentation";
+  const requestedTitle = title?.trim() || presentation.title || "";
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
   const themeFont = presentation.theme?.fonts?.[0];
@@ -176,6 +180,11 @@ export async function importPptxBufferToDeck(args: {
     ),
   );
   const slides = results.map((r) => r.slide);
+  const deckTitle = resolveImportedDeckTitle(
+    requestedTitle,
+    results[0]?.sourceText || slides[0]?.content,
+  );
+  assertHumanReadableDeckTitle(deckTitle);
   const imagesSkipped = results.reduce(
     (total, r) => total + r.imageSkippedCount,
     0,

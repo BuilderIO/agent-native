@@ -211,7 +211,7 @@ export default function ClipsTemplate() {
   const sliderHandleRef = useRef<ClipPreviewSliderHandle>(null);
 
   function handleCopyAiPrompt() {
-    navigator.clipboard.writeText(AI_PROMPT);
+    void navigator.clipboard.writeText(AI_PROMPT);
     setAiPromptCopied(true);
     trackEvent("copy cli command", {
       template: template.slug,

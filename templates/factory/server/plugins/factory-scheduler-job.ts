@@ -441,7 +441,7 @@ function frontmatterField(content: string, key: string): string | undefined {
     .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   const value = match?.[1]?.trim();
   if (!value) return undefined;
-  return value.replace(/^(\"|')|((\"|')$)/g, "");
+  return value.replace(/^("|')|(("|')$)/g, "");
 }
 
 function automationFactoryScopeInstruction(factoryId: string): string {

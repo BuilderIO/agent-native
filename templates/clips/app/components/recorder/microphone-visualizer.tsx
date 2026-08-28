@@ -97,7 +97,8 @@ async function getMicrophonePermissionState(): Promise<MicrophonePermissionState
 
 export async function friendlyMicError(err: unknown): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error ? err.message : typeof err === "string" ? err : "";
   const combined = `${name} ${message}`;
   const permissionState = await getMicrophonePermissionState();
   const blockedByPolicy = isMicrophoneBlockedByPolicy();

@@ -58,7 +58,7 @@ export const appConfig = z.object({
     .optional()
     .meta({
       env: ["APP_LOGO_URL"],
-      doc: "Absolute HTTPS logo URL used in transactional emails.",
+      doc: "Absolute HTTPS logo URL used in transactional emails and social OG images.",
     }),
   pingMessage: z
     .string()

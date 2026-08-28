@@ -210,7 +210,7 @@ function MiniCalendar({
     if (!isSameMonth(viewMonth, selectedDate)) {
       setViewMonth(startOfMonth(selectedDate));
     }
-  }, [selectedDate]);
+  }, [selectedDate, viewMonth]);
 
   const days = useMemo(() => {
     const monthStart = startOfMonth(viewMonth);
@@ -683,7 +683,7 @@ export function Sidebar({
   function handleMiniCalendarDateSelect(date: Date) {
     setSelectedDate(date);
     if (location.pathname !== "/") {
-      navigate("/");
+      void navigate("/");
     }
     onClose();
   }

@@ -268,7 +268,7 @@ export const InlineReplyComposer = forwardRef<
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       e.stopPropagation();
-      handleSend();
+      void handleSend();
     }
     if (e.key === "Escape") {
       e.preventDefault();
@@ -676,7 +676,7 @@ export const InlineReplyComposer = forwardRef<
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        handleGenerate();
+                        void handleGenerate();
                       }
                       if (e.key === "Escape") {
                         e.stopPropagation();

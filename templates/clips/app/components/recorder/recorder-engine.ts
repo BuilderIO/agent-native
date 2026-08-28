@@ -270,7 +270,13 @@ function isDeviceUnavailableError(err: unknown): boolean {
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err || "Unknown error");
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err || "Unknown error";
+  try {
+    return JSON.stringify(err) ?? "Unknown error";
+  } catch {
+    return "Unknown error";
+  }
 }
 
 function micLabelDiagnostic(label: string | null | undefined): string {
@@ -476,7 +482,7 @@ function fetchSignalWithTimeout(
 
 function fetchAbortError(signal: AbortSignal, err: unknown): Error {
   if (signal.aborted && signal.reason instanceof Error) return signal.reason;
-  return err instanceof Error ? err : new Error(String(err));
+  return err instanceof Error ? err : new Error(errorMessage(err));
 }
 
 export class RecorderEngine {
@@ -1094,7 +1100,7 @@ export class RecorderEngine {
       // by a camera permission denial would leave the screen capture
       // running until tab close.
       this.cleanupTracks();
-      this.transition("error", { reason: String(err) });
+      this.transition("error", { reason: errorMessage(err) });
       throw err instanceof Error ? err : this.friendlyError(err);
     }
   }
@@ -1445,7 +1451,7 @@ export class RecorderEngine {
       // isFinal sentinel upload. Ensure we never leave the engine stuck
       // mid-state — the UI spinner is wired to engine state and would
       // hang forever otherwise.
-      const e = err instanceof Error ? err : new Error(String(err));
+      const e = err instanceof Error ? err : new Error(errorMessage(err));
       if (e.name !== "AbortError") {
         this.rememberUploadFailure(e);
       }
@@ -1486,7 +1492,7 @@ export class RecorderEngine {
       completed = true;
       return this.toFinalizeResult(result, meta);
     } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
+      const e = err instanceof Error ? err : new Error(errorMessage(err));
       if (e.name !== "AbortError") {
         this.rememberUploadFailure(e);
       }
@@ -1569,9 +1575,9 @@ export class RecorderEngine {
         throw err;
       }
       throw new Error(
-        `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        `Couldn't prepare the recording for re-upload (network error contacting reset-chunks). ${errorMessage(
+          err,
+        )}`,
       );
     }
     if (!resetRes.ok) {
@@ -1661,7 +1667,7 @@ export class RecorderEngine {
         // (compressBlobIfTooLarge normally swallows ffmpeg-internal
         // failures and returns `{ compressed: false }`, so this catch is
         // for the abort path and the truly unexpected.)
-        throw err instanceof Error ? err : new Error(String(err));
+        throw err instanceof Error ? err : new Error(errorMessage(err));
       }
 
       const finalBlob = compression.blob;
@@ -1955,7 +1961,8 @@ export class RecorderEngine {
           total: null,
         });
       } catch (err) {
-        const failure = err instanceof Error ? err : new Error(String(err));
+        const failure =
+          err instanceof Error ? err : new Error(errorMessage(err));
         // User-initiated cancel — cancel() already runs the abortUrl path.
         if (failure.name === "AbortError") return;
         this.rememberUploadFailure(failure);
@@ -2057,7 +2064,8 @@ export class RecorderEngine {
         } catch (err) {
           if (chunkAbort.signal.aborted) return;
           if (!uploadError) {
-            uploadError = err instanceof Error ? err : new Error(String(err));
+            uploadError =
+              err instanceof Error ? err : new Error(errorMessage(err));
             chunkAbort.abort(uploadError);
           }
           return;
@@ -2467,7 +2475,7 @@ export class RecorderEngine {
   }
 
   private emitError(err: unknown) {
-    const e = err instanceof Error ? err : new Error(String(err));
+    const e = err instanceof Error ? err : new Error(errorMessage(err));
     this.opts.onError?.(e);
     this.transition("error", { message: e.message });
   }

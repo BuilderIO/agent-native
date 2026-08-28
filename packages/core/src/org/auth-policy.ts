@@ -14,7 +14,9 @@ function providerFromRow(row: Record<string, unknown>): RequiredAuthProvider {
   const provider = row.provider == null ? "" : String(row.provider);
   if (!provider) return null;
   if (provider !== "google") {
-    throw new Error(`Unsupported organization auth provider: ${provider}`);
+    throw new Error(
+      `Unsupported organization auth provider: ${String(provider)}`,
+    );
   }
   return "google";
 }
@@ -139,7 +141,9 @@ export async function setRequiredAuthProvider(
   revokedLegacySessions: number;
 }> {
   if (provider !== "google" && provider !== null) {
-    throw new Error(`Unsupported organization auth provider: ${provider}`);
+    throw new Error(
+      `Unsupported organization auth provider: ${String(provider)}`,
+    );
   }
 
   const db = getDbExec();

@@ -67,9 +67,11 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
+  toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
+  resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
   type ActionEntry,
@@ -146,6 +148,20 @@ function actionEntry(opts: {
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
 }
+
+describe("toolCallCacheKey", () => {
+  it("deduplicates equivalent docs-search queries without merging distinct queries", () => {
+    expect(
+      toolCallCacheKey("docs-search", { query: "  Slides   generation " }),
+    ).toBe(toolCallCacheKey("docs-search", { query: "slides generation" }));
+    expect(
+      toolCallCacheKey("docs-search", { query: "slides generation" }),
+    ).not.toBe(toolCallCacheKey("docs-search", { query: "slides export" }));
+    expect(
+      toolCallCacheKey("read-file", { query: "  Slides   generation " }),
+    ).not.toBe(toolCallCacheKey("read-file", { query: "slides generation" }));
+  });
+});
 
 describe("resolveAgentRequestReasoningEffort", () => {
   it("narrates a retry the user waited through, and stays silent on a blip", async () => {
@@ -494,6 +510,29 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it("does not send display-only chat attachments to the model", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "make a deck from the reference",
+        attachments: [
+          {
+            type: "file",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            displayOnly: true,
+          },
+          {
+            type: "file",
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            displayOnly: true,
+            text: "outline",
+          },
+        ],
+      }),
+    ).toEqual([{ type: "text", text: "make a deck from the reference" }]);
+  });
+
   it("preserves the prompt text when there are no attachments", () => {
     expect(buildUserContentWithAttachments({ text: "Hello" })).toEqual([
       { type: "text", text: "Hello" },
@@ -593,6 +632,39 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Embed this image" },
     ]);
+  });
+
+  it("uses inline bytes for vision while retaining URL-only references as text", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Use these image references",
+      attachments: [
+        {
+          type: "image",
+          name: "with-bytes.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+          url: "https://cdn.example.com/with-bytes.png",
+        } as any,
+        {
+          type: "image",
+          name: "url-only.png",
+          contentType: "image/png",
+          url: "https://cdn.example.com/url-only.png",
+        } as any,
+      ],
+    });
+
+    expect(parts).toContainEqual({
+      type: "image",
+      mediaType: "image/png",
+      data: "aW1hZ2U=",
+    });
+    const text = parts
+      .filter((part: any) => part.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    expect(text).toContain("https://cdn.example.com/url-only.png");
+    expect(text).toContain("not sent as a vision image");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -6165,10 +6237,12 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // 12 real calls exhaust the convergence budget; the declines that follow
-    // are bounded by the existing error breaker instead of running to
-    // maxIterations.
-    expect(streamCalls).toBeLessThan(25);
+    // The threshold's worth of real calls exhausts the convergence budget; the
+    // declines that follow are bounded by the existing error breaker instead of
+    // running to maxIterations.
+    expect(streamCalls).toBeLessThan(
+      resolveSourceSweepToolCallThreshold() + 13,
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -6181,7 +6255,8 @@ describe("runAgentLoop", () => {
   });
 
   it("detects repeated read-only source sweeps but ignores ordinary helpers", () => {
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: "gong-calls",
       input: { company: `Account ${i + 1}` },
     }));
@@ -6194,7 +6269,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "gong-calls",
-      priorCalls: 12,
+      priorCalls: threshold,
       message: expect.stringContaining("change strategy"),
     });
 
@@ -6209,7 +6284,7 @@ describe("runAgentLoop", () => {
       }),
     ).toMatchObject({
       toolName: "hubspot-records",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
 
     expect(
@@ -6243,7 +6318,8 @@ describe("runAgentLoop", () => {
       "read-source-file": actionEntry({ readOnly: true }),
       "search-docs": actionEntry({ readOnly: true }),
     };
-    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+    const threshold = resolveSourceSweepToolCallThreshold();
+    const priorToolCalls = Array.from({ length: threshold }, (_, i) => ({
       name: Object.keys(actions)[i % Object.keys(actions).length],
       input: { query: `term-${i + 1}` },
     }));
@@ -6261,14 +6337,14 @@ describe("runAgentLoop", () => {
       shouldGuardRepeatedSourceSweep({
         toolName: "search-docs",
         entry: actions["search-docs"],
-        priorToolCalls: Array.from({ length: 12 }, () => ({
+        priorToolCalls: Array.from({ length: threshold }, () => ({
           name: "search-docs",
           input: {},
         })),
       }),
     ).toMatchObject({
       toolName: "search-docs",
-      priorCalls: 12,
+      priorCalls: threshold,
     });
   });
 
@@ -6394,7 +6470,9 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(gongCalls).toHaveBeenCalledTimes(12);
+    expect(gongCalls).toHaveBeenCalledTimes(
+      resolveSourceSweepToolCallThreshold(),
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -6464,35 +6542,38 @@ describe("runAgentLoop", () => {
     };
     const gongCalls = vi.fn(async () => "should not run");
     const events: any[] = [];
-    const priorToolMessages = Array.from({ length: 12 }, (_, i) => {
-      const input = { company: `Account ${i + 1}` };
-      const toolCallId = `gong-prior-${i + 1}`;
-      return [
-        {
-          role: "assistant" as const,
-          content: [
-            {
-              type: "tool-call" as const,
-              id: toolCallId,
-              name: "gong-calls",
-              input,
-            },
-          ],
-        },
-        {
-          role: "user" as const,
-          content: [
-            {
-              type: "tool-result" as const,
-              toolCallId,
-              toolName: "gong-calls",
-              toolInput: JSON.stringify(input),
-              content: "no Figma MCP hits",
-            },
-          ],
-        },
-      ];
-    }).flat();
+    const priorToolMessages = Array.from(
+      { length: resolveSourceSweepToolCallThreshold() },
+      (_, i) => {
+        const input = { company: `Account ${i + 1}` };
+        const toolCallId = `gong-prior-${i + 1}`;
+        return [
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool-call" as const,
+                id: toolCallId,
+                name: "gong-calls",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "tool-result" as const,
+                toolCallId,
+                toolName: "gong-calls",
+                toolInput: JSON.stringify(input),
+                content: "no Figma MCP hits",
+              },
+            ],
+          },
+        ];
+      },
+    ).flat();
 
     await runAgentLoop({
       engine,

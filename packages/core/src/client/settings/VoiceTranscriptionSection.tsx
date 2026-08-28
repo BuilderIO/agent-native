@@ -897,7 +897,8 @@ function SystemAudioStatus() {
           setState(granted ? { kind: "available" } : { kind: "denied" });
         } catch (err) {
           if (cancelled) return;
-          const msg = String(err ?? "");
+          const msg =
+            typeof err === "string" ? err : (JSON.stringify(err ?? "") ?? "");
           if (/macOS\s*1[0-2]|requires macOS 13/i.test(msg)) {
             setState({ kind: "unsupported", reason: msg });
           } else {
@@ -916,7 +917,8 @@ function SystemAudioStatus() {
           setState(granted ? { kind: "available" } : { kind: "denied" });
         } catch (err) {
           if (cancelled) return;
-          const msg = String(err ?? "");
+          const msg =
+            typeof err === "string" ? err : (JSON.stringify(err ?? "") ?? "");
           if (/macOS|ScreenCaptureKit/i.test(msg)) {
             setState({ kind: "unsupported", reason: msg });
           } else {

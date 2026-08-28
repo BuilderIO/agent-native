@@ -77,11 +77,11 @@ export default function InviteAcceptRoute() {
         if (!cancelled) setLoading(false);
       }
     }
-    load();
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [t, token]);
 
   async function handleAccept() {
     if (!token) return;
@@ -93,7 +93,7 @@ export default function InviteAcceptRoute() {
           team: invite?.organizationName ?? t("inviteRoute.theTeam"),
         }),
       );
-      navigate("/library", { replace: true });
+      void navigate("/library", { replace: true });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("inviteRoute.acceptFailed"),
@@ -108,7 +108,7 @@ export default function InviteAcceptRoute() {
     try {
       await callAction("decline-invite" as any, { token } as any);
       toast.success(t("inviteRoute.declined"));
-      navigate("/", { replace: true });
+      void navigate("/", { replace: true });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("inviteRoute.declineFailed"),

@@ -566,7 +566,11 @@ describe("Builder docs DB-backed source", () => {
     const initializeVersions: string[] = [];
     const fetchImpl = vi.fn(
       async (_input: URL | RequestInfo, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as {
+        const body = JSON.parse(
+          typeof init?.body === "string"
+            ? init.body
+            : (JSON.stringify(init?.body) ?? ""),
+        ) as {
           method: string;
           params?: {
             protocolVersion?: string;

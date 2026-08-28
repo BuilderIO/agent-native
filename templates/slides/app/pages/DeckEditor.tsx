@@ -43,7 +43,9 @@ import {
   type SlideShapeType,
 } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
-import EditorToolbar from "@/components/editor/EditorToolbar";
+import EditorToolbar, {
+  type PresentRequest,
+} from "@/components/editor/EditorToolbar";
 import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
@@ -66,6 +68,7 @@ import {
   clearSlideEditingActive,
   deckIdFromPathname,
   defaultSlideContent,
+  flushPendingSaves,
   hasUnsavedDeckChanges,
   markSlideEditingActive,
   type Slide,
@@ -90,7 +93,10 @@ import {
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
-import { shouldSuppressSlidesItalicShortcut } from "@/lib/editor-shortcuts";
+import {
+  shouldActivateSlidesCommentShortcut,
+  shouldSuppressSlidesItalicShortcut,
+} from "@/lib/editor-shortcuts";
 import {
   exportDeckToGoogleSlides,
   fetchDeckPptxFromServer,
@@ -115,7 +121,10 @@ import {
   replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
-import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
+import {
+  shouldActivateRectangleTool,
+  shouldActivateTextTool,
+} from "@/lib/text-tool-shortcut";
 
 type EditorSidePanel = "comments" | null;
 
@@ -187,6 +196,17 @@ export default function DeckEditor() {
   // or leaves the shared save queue, so the deck-specific read stays current.
   const hasPendingDeckWrites = id ? hasUnsavedDeckChanges(id) : hasUnsavedSave;
   const hasPendingDeckEdits = inlineEditActive || hasPendingDeckWrites;
+  const inlineEditFlushRef = useRef<(() => boolean) | null>(null);
+  const presentNavigationRef = useRef(false);
+  const presentInFlightRef = useRef(false);
+  const presentAttemptRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      presentAttemptRef.current += 1;
+      presentInFlightRef.current = false;
+      presentNavigationRef.current = false;
+    };
+  }, [id]);
   // Inline drafts flush through SlideEditor keepalive handlers. The native
   // prompt only needs to cover queued or in-flight writes now.
   usePendingDeckUnloadGuard(hasPendingDeckWrites);
@@ -197,6 +217,7 @@ export default function DeckEditor() {
           hasPendingEdits: hasPendingDeckEdits,
           currentPathname: currentLocation.pathname,
           nextPathname: nextLocation.pathname,
+          allowPendingEdits: presentNavigationRef.current,
         }),
       [hasPendingDeckEdits],
     ),
@@ -382,7 +403,7 @@ export default function DeckEditor() {
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deck?.title]);
+  }, [deck]);
 
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
@@ -432,6 +453,7 @@ export default function DeckEditor() {
       [
         "The user answered the pre-generation questions.",
         `Deck ID: ${id}`,
+        "Before generating, call get-deck for this deck and recover generationContext. Continue the original brief and target slide count; do not treat these answers as a new unrelated request.",
         "",
         "Answers:",
         formattedAnswers,
@@ -963,32 +985,65 @@ export default function DeckEditor() {
   );
 
   useEffect(() => {
-    const handleTextToolShortcut = (event: KeyboardEvent) => {
-      if (
-        !shouldActivateTextTool(event, {
-          canEdit,
-          activeElement: document.activeElement,
-          blockingSurfaceOpen: Boolean(
-            document.querySelector(
-              "[role='dialog'], [role='menu'], [role='listbox']",
-            ),
+    const handleSlideToolShortcut = (event: KeyboardEvent) => {
+      const options = {
+        canEdit,
+        activeElement: document.activeElement,
+        blockingSurfaceOpen: Boolean(
+          document.querySelector(
+            "[role='dialog'], [role='menu'], [role='listbox']",
           ),
+        ),
+      };
+
+      if (shouldActivateTextTool(event, options)) {
+        event.preventDefault();
+        setDrawMode(false);
+        setPinMode(false);
+        setShapeType(null);
+        setTextBoxMode(true);
+        return;
+      }
+
+      if (!shouldActivateRectangleTool(event, options)) return;
+      event.preventDefault();
+      selectShape("rectangle");
+    };
+
+    document.addEventListener("keydown", handleSlideToolShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleSlideToolShortcut);
+  }, [canEdit, selectShape]);
+
+  useEffect(() => {
+    const handleCommentShortcut = (event: KeyboardEvent) => {
+      const activeElement = document.activeElement;
+      if (
+        !shouldActivateSlidesCommentShortcut(event, {
+          canComment,
+          activeElement,
+          focusedCanvas:
+            activeElement?.closest("[data-slide-canvas-focus='true']") !== null,
+          blockingSurfaceOpen:
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox'], [data-slide-comment-popover], [data-pin-popover]",
+            ) !== null,
         })
       ) {
         return;
       }
 
       event.preventDefault();
+      event.stopPropagation();
       setDrawMode(false);
-      setPinMode(false);
+      setTextBoxMode(false);
+      setPinMode(true);
       setShapeType(null);
-      setTextBoxMode(true);
     };
 
-    document.addEventListener("keydown", handleTextToolShortcut);
-    return () =>
-      document.removeEventListener("keydown", handleTextToolShortcut);
-  }, [canEdit]);
+    document.addEventListener("keydown", handleCommentShortcut);
+    return () => document.removeEventListener("keydown", handleCommentShortcut);
+  }, [canComment]);
 
   useEffect(() => {
     const handleItalicShortcut = (event: KeyboardEvent) => {
@@ -1383,7 +1438,7 @@ export default function DeckEditor() {
   const currentUser = session?.email
     ? {
         email: session.email,
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         color: emailToColor(session.email),
       }
     : undefined;
@@ -1497,6 +1552,63 @@ export default function DeckEditor() {
   const currentIndex = deck.slides.findIndex((s) => s.id === currentSlide?.id);
   currentSlideRef.current = currentSlide;
 
+  const finishPresent = async (
+    attemptId: number,
+    target: Window | null,
+    presentationUrl: string,
+  ) => {
+    try {
+      await flushDeckSave(id);
+      if (presentAttemptRef.current !== attemptId) {
+        if (target && !target.closed) target.close();
+        return;
+      }
+      if (target) {
+        if (!target.closed) target.location.href = presentationUrl;
+        return;
+      }
+      presentNavigationRef.current = true;
+      void navigate(presentationUrl);
+    } catch (error) {
+      if (presentAttemptRef.current !== attemptId) {
+        if (target && !target.closed) target.close();
+        return;
+      }
+      if (target && !target.closed) target.close();
+      console.error("[slides-present] failed to flush save:", error);
+      toast.error(t("settings.saveFailed"));
+    } finally {
+      if (presentAttemptRef.current === attemptId) {
+        presentInFlightRef.current = false;
+      }
+    }
+  };
+
+  const handlePresent = (request?: PresentRequest): boolean | void => {
+    if (presentInFlightRef.current || presentNavigationRef.current) {
+      return request?.preserveNativeNavigation ? true : undefined;
+    }
+
+    const hasInlineDraft = inlineEditFlushRef.current?.() ?? false;
+    const hasPendingEdits =
+      hasPendingDeckEdits || hasInlineDraft || hasUnsavedDeckChanges(id);
+    flushPendingSaves();
+    if (request?.preserveNativeNavigation && !hasPendingEdits) return false;
+
+    const presentationUrl = `/deck/${id}/present?slide=${Math.max(0, currentIndex) + 1}`;
+    const target = request?.preserveNativeNavigation
+      ? window.open("", "_blank")
+      : null;
+    if (request?.preserveNativeNavigation && !target) {
+      toast.error(t("settings.saveFailed"));
+      return true;
+    }
+    presentInFlightRef.current = true;
+    const attemptId = ++presentAttemptRef.current;
+    void finishPresent(attemptId, target, presentationUrl);
+    return request?.preserveNativeNavigation ? true : undefined;
+  };
+
   // Editor-wide drag-and-drop catch-all. SlideEditor's own drop handler runs
   // first for drops landing on a slide (it calls stopPropagation), so this
   // only fires for drops that landed in the surrounding chrome. Prevent the
@@ -1567,6 +1679,7 @@ export default function DeckEditor() {
         }}
         onShowHistory={() => setHistoryOpen((open) => !open)}
         historyButtonRef={historyButtonRef}
+        onPresent={handlePresent}
         currentSlide={currentSlide}
         onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
         addSlideGenerating={addSlideGenerating}
@@ -1605,11 +1718,11 @@ export default function DeckEditor() {
             // send them back instead of stranding them on a "Deck
             // unavailable" screen for a deck that no longer exists.
             if (deckIdFromPathname(window.location.pathname) === newId) {
-              navigate("/");
+              void navigate("/");
             }
             toast.error(t("home.duplicateFailed"));
           });
-          if (optimistic) navigate(`/deck/${optimistic.id}`);
+          if (optimistic) void navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
           try {
@@ -1795,7 +1908,10 @@ export default function DeckEditor() {
           <SlideEditor
             slide={currentSlide}
             deckId={id}
+            flushInlineEditRef={inlineEditFlushRef}
             readOnly={!canEdit}
+            canComment={canComment}
+            comments={currentSlideThreads}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
             contextToolbarLeading={
@@ -1870,15 +1986,6 @@ export default function DeckEditor() {
             onOpenAnimations={openAnimationsForTarget}
             onSelectedAnimationTargetChange={setAnimationTarget}
             slideId={currentSlide.id}
-            slideTitle={(() => {
-              const m = currentSlide.content?.match(
-                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-              );
-              return (
-                m?.[1]?.trim() ||
-                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-              );
-            })()}
             presentUsers={slidePresence.get(currentSlide.id) ?? []}
           />
         )}

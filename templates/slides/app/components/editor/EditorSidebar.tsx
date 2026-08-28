@@ -686,7 +686,7 @@ export default function EditorSidebar({
         }
       >
         <div
-          className="h-full min-h-0 space-y-1 overflow-y-auto overscroll-contain p-2"
+          className="h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2"
           onScroll={(event) => {
             setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
           }}
@@ -760,9 +760,7 @@ export default function EditorSidebar({
             } catch (error) {
               console.error("Failed to persist new slide:", error);
               onAddSlideGeneratingChange?.(false, null);
-              // The popover already closed (AddSlidePopover doesn't wait on
-              // this async callback), so the typed prompt is gone either
-              // way. Only remove the placeholder if it's still untouched —
+              // Only remove the placeholder if it's still untouched —
               // the save retries take long enough that the user could have
               // started editing it directly on the canvas in the meantime,
               // and deleting it would destroy that work.
@@ -774,9 +772,10 @@ export default function EditorSidebar({
                 onRemoveFailedSlide?.(describeSlideId);
               }
               toast.error(t("editorSidebar.newSlideSaveFailed"));
-              return;
+              return false;
             }
             addSlideAgentSubmit(message, context);
+            return true;
           }}
         />
       )}

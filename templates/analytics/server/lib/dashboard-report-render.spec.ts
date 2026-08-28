@@ -463,7 +463,7 @@ describe("renderReportEmail", () => {
           "x",
           {
             status: "rows" as const,
-            rows: [{ name: "<img src=x onerror=alert(1)>" }],
+            rows: [{ name: "<img src=x onerror=alert(1)> | second\nline" }],
             schema: [],
           },
         ],
@@ -474,6 +474,9 @@ describe("renderReportEmail", () => {
     expect(rendered.html).not.toContain("<img src=x");
     expect(rendered.html).toContain("&lt;script&gt;");
     expect(rendered.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(rendered.text).toContain(
+      "<img src=x onerror=alert(1)> \\| second line",
+    );
   });
 
   it("only emits http(s) hrefs for link columns", async () => {

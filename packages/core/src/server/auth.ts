@@ -15,6 +15,7 @@ import {
 import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -145,6 +146,7 @@ import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getBetterAuthInternalAdapter,
   getBetterAuthUserIdForEmail,
   getAuthSecret,
   getBetterAuth,
@@ -169,6 +171,7 @@ import {
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
+import { getDeploymentEmailReadiness } from "./email.js";
 import type { GoogleAuthMode } from "./google-auth-mode.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
@@ -191,7 +194,10 @@ import {
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
-import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
+import {
+  resolveCanonicalUserForLegacySession,
+  type CanonicalLegacyUser,
+} from "./legacy-auth-migration.js";
 import {
   encodeMagicLinkSignupAttribution,
   MAGIC_LINK_ATTRIBUTION_PARAM,
@@ -272,6 +278,8 @@ function headersWithSignupAttribution(
 
 export interface AuthSession {
   email: string;
+  /** Better Auth's email-ownership state, when the provider exposes it. */
+  emailVerified?: boolean;
   userId?: string;
   token?: string;
   /** Display name from the auth provider, when available (Better Auth user.name). */
@@ -292,6 +300,11 @@ export interface AuthOptions {
    * When provided, Better Auth is bypassed entirely.
    */
   getSession?: (event: H3Event) => Promise<AuthSession | null>;
+  /**
+   * Set only when the custom provider independently verifies email ownership.
+   * Without this opt-in, an omitted `emailVerified` value remains unknown.
+   */
+  trustCustomEmailVerification?: boolean;
   /**
    * Paths that are accessible without authentication.
    * Supports prefix matching: "/book" matches /book/anything.
@@ -519,6 +532,32 @@ function frameworkSessionCookieNamesToClear(): string[] {
   return AUTH_COOKIE_NAMESPACE.frameworkCookieNamesToClear;
 }
 
+async function enrichLegacySessionIdentity(
+  session: AuthSession,
+  canonicalUser?: CanonicalLegacyUser | null,
+): Promise<AuthSession> {
+  if (!getBetterAuthSync() || !session.email) return session;
+  let existing = canonicalUser;
+  if (existing === undefined) {
+    const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+    if (!adapter) return session;
+    existing = await adapter
+      .findUserByEmail(session.email, { includeAccounts: false })
+      // coercion-ok: preserve the valid legacy session when optional profile enrichment is unreadable.
+      .catch(() => null);
+  }
+  if (!existing) return session;
+  return {
+    ...session,
+    ...(!session.name?.trim() && existing.user.name?.trim()
+      ? { name: existing.user.name.trim() }
+      : {}),
+    ...(!session.image?.trim() && existing.user.image?.trim()
+      ? { image: existing.user.image.trim() }
+      : {}),
+  };
+}
+
 function deleteCookieFromEveryScope(event: H3Event, name: string): void {
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
@@ -540,8 +579,9 @@ async function getLegacyCookieSession(
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
     const email = await getSessionEmail(value);
     if (email) {
+      let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
-        await ensureCanonicalUserForLegacySession(email);
+        canonicalUser = await resolveCanonicalUserForLegacySession(email);
       } catch (error) {
         console.warn(
           "[auth] legacy session canonical-user backfill failed:",
@@ -549,7 +589,10 @@ async function getLegacyCookieSession(
         );
       }
       if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
-      return { email, token: value };
+      return enrichLegacySessionIdentity(
+        await mapLegacySession(email, value),
+        canonicalUser,
+      );
     }
   }
   return null;
@@ -669,7 +712,7 @@ export function safeReturnPath(raw: string | null | undefined): string {
 // invalid as a Better Auth relative callback. Promote those paths to the
 // canonical app origin so the callback remains same-origin and valid there.
 const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
-  /^\/(?!\/|\\|%2f|%5c)[\w\-.\+/@]*(?:\?[\w\-.\+/=&%@]*)?$/i;
+  /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/i;
 
 function betterAuthCallbackURL(
   raw: string | null | undefined,
@@ -871,7 +914,9 @@ async function getBearerLegacySession(
   const bearerToken = getBearerSessionToken(event);
   if (!bearerToken) return null;
   const email = await getSessionEmail(bearerToken);
-  return email ? { email, token: bearerToken } : null;
+  return email
+    ? enrichLegacySessionIdentity(await mapLegacySession(email, bearerToken))
+    : null;
 }
 
 /**
@@ -1036,6 +1081,12 @@ async function ensureEmailVerifiedForRedirect(
       sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
       args: [email],
     });
+
+    const verified = await db.execute({
+      sql: 'SELECT 1 FROM "user" WHERE email = ? AND email_verified = TRUE LIMIT 1',
+      args: [email],
+    });
+    if (verified.rows.length === 0) return;
   } catch (error) {
     // Better Auth already handled the verification route, so this repair
     // staying best-effort (never blocking the response) is correct. But a
@@ -1046,6 +1097,15 @@ async function ensureEmailVerifiedForRedirect(
     // 2026-07-31 and 2026-08-05) — this UPDATE is the only place that would
     // show whether Better Auth's own write is failing too.
     captureAuthError(error, { route: "verify-email", email });
+    return;
+  }
+  try {
+    await acceptPendingInvitationsForEmail(email);
+  } catch (error) {
+    console.error(
+      "[auth] failed to reconcile pending invitations after email verification",
+      error,
+    );
   }
 }
 
@@ -1095,6 +1155,10 @@ const AUTH_LOGIN_FALLBACK =
   "We couldn't sign you in right now. Please try again.";
 const AUTH_MAGIC_LINK_FALLBACK =
   "We couldn't send a sign-in link right now. Please try again.";
+const AUTH_MAGIC_LINK_UNAVAILABLE =
+  "Magic-link sign-in requires a configured email provider.";
+const AUTH_EMAIL_VERIFICATION_UNAVAILABLE =
+  "Email verification requires a configured email provider.";
 const AUTH_SIGNUP_FALLBACK =
   "We couldn't create your account right now. Please try again.";
 const AUTH_VERIFICATION_LINK_FALLBACK =
@@ -1454,12 +1518,57 @@ export async function getSessionEmail(token: string): Promise<string | null> {
   return email;
 }
 
+type LegacySessionEmailVerification =
+  | "verified"
+  | "unverified"
+  | "absent"
+  | "unreadable";
+
+async function resolveLegacySessionEmailVerification(
+  email: string,
+): Promise<LegacySessionEmailVerification> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: 'SELECT email_verified FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1',
+      args: [email],
+    });
+    if (rows.length === 0) return "absent";
+    const value = rows[0].email_verified;
+    if (value === true || value === 1 || value === "1") return "verified";
+    if (value === false || value === 0 || value === "0") return "unverified";
+    return "unreadable";
+  } catch (error) {
+    console.warn(
+      "[auth] failed to resolve legacy session email verification:",
+      error instanceof Error ? error.message : error,
+    );
+    return "unreadable";
+  }
+}
+
+async function mapLegacySession(
+  email: string,
+  token: string,
+): Promise<AuthSession> {
+  const verification = await resolveLegacySessionEmailVerification(email);
+  return {
+    email,
+    ...(verification === "verified"
+      ? { emailVerified: true }
+      : verification === "unverified"
+        ? { emailVerified: false }
+        : {}),
+    token,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // getSession — the auth contract
 // ---------------------------------------------------------------------------
 
 let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
   null;
+let trustCustomEmailVerification = false;
 
 /**
  * Mutable config for the auth guard. Stored separately from the guard function
@@ -2870,10 +2979,9 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
         // The sign-in document is part of the public server shell. Keep it on the
         // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
         // template roots do not invoke origin just to render anonymous login UI.
-        // The login markup is env-INDEPENDENT (a Google-only app always renders
-        // a working button); the analytics script is public build configuration,
-        // not user/session state. Never vary this per request — the
-        // deployment-wide override inside the resolver is the only knob.
+        // The login markup reflects deployment-wide auth configuration; the
+        // analytics script is public build configuration, not user/session
+        // state. Never vary this per request by cookie or session.
         ...resolveSsrCacheHeaders(),
         "X-Robots-Tag": "noindex, nofollow",
       },
@@ -3688,11 +3796,20 @@ async function maybeAutoCreateDevSession(
  * Map a Better Auth session to our AuthSession type.
  */
 function mapBetterAuthSession(baSession: {
-  user: { id: string; email: string; name?: string; image?: string | null };
+  user: {
+    id: string;
+    email: string;
+    name?: string;
+    image?: string | null;
+    emailVerified?: boolean;
+  };
   session: { token: string };
 }): AuthSession {
   return {
     email: baSession.user.email,
+    ...(typeof baSession.user.emailVerified === "boolean"
+      ? { emailVerified: baSession.user.emailVerified }
+      : {}),
     userId: baSession.user.id,
     name: baSession.user.name,
     ...(baSession.user.image ? { image: baSession.user.image } : {}),
@@ -3784,7 +3901,12 @@ async function resolveSessionUncached(
   // 3. BYOA custom getSession
   if (customGetSession) {
     const session = await customGetSession(event);
-    if (session) return session;
+    if (session) {
+      if (trustCustomEmailVerification && session.emailVerified === undefined) {
+        return { ...session, emailVerified: true };
+      }
+      return session;
+    }
 
     const bearerSession = await getBearerSession(event);
     if (bearerSession) return bearerSession;
@@ -3796,7 +3918,7 @@ async function resolveSessionUncached(
     // home-dir broker file (and so production builds never consult it).
     if (!cookieOnlyDesktopCheck) {
       const sso = await readDesktopSsoSafely(event);
-      if (sso?.email) return { email: sso.email, token: sso.token };
+      if (sso?.email) return mapLegacySession(sso.email, sso.token);
     }
     // Fall through to mobile _session check
   } else {
@@ -3837,9 +3959,7 @@ async function resolveSessionUncached(
     // impersonate whichever email last signed into the desktop app.
     if (!cookieOnlyDesktopCheck) {
       const sso = await readDesktopSsoSafely(event);
-      if (sso?.email) {
-        return { email: sso.email, token: sso.token };
-      }
+      if (sso?.email) return mapLegacySession(sso.email, sso.token);
     }
   }
 
@@ -3865,7 +3985,7 @@ async function promoteQuerySession(
   if (!email) return null;
   setFrameworkSessionCookie(event, qToken);
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  return { email, token: qToken };
+  return mapLegacySession(email, qToken);
 }
 
 function isReadMethod(event: H3Event): boolean {
@@ -4463,6 +4583,7 @@ async function mountBetterAuthRoutes(
             email,
             accountId: googleAccountId,
             name: typeof user.name === "string" ? user.name : undefined,
+            image: typeof user.picture === "string" ? user.picture : undefined,
           });
           if (isNewGoogleUser === true) {
             setFirstRunOnboardingCookie(event);
@@ -4755,12 +4876,11 @@ async function mountBetterAuthRoutes(
         // request could consume or lose the one-time token before the
         // desktop callback sees the Better Auth session cookie.
         try {
-          const response = await auth.handler(
-            new Request(verificationURL, {
-              method: "GET",
-              headers: event.headers,
-            }),
-          );
+          const verificationRequest = new Request(verificationURL, {
+            method: "GET",
+            headers: event.headers,
+          });
+          const response = await auth.handler(verificationRequest);
           if (response instanceof Response) {
             logMagicLinkVerificationResponse(
               event,
@@ -4768,6 +4888,19 @@ async function mountBetterAuthRoutes(
               response,
               preConsume,
             );
+            if (
+              response.status >= 200 &&
+              response.status < 400 &&
+              extractSessionTokenFromSetCookies(response)
+            ) {
+              // Existing users do not run Better Auth's user-create hook when
+              // magic-link verification flips emailVerified, so reconcile
+              // their pending organization invitations here as well.
+              await ensureEmailVerifiedForRedirect(
+                verificationRequest,
+                response,
+              );
+            }
           }
           return response;
         } catch (error) {
@@ -4953,6 +5086,30 @@ async function mountBetterAuthRoutes(
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isMagicLinkVerification =
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
+      if (
+        isMagicLinkRequest &&
+        getDeploymentEmailReadiness().status !== "ready"
+      ) {
+        return new Response(
+          JSON.stringify({ error: AUTH_MAGIC_LINK_UNAVAILABLE }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if (
+        isSendVerificationEmail &&
+        getDeploymentEmailReadiness().status !== "ready"
+      ) {
+        return new Response(
+          JSON.stringify({ error: AUTH_EMAIL_VERIFICATION_UNAVAILABLE }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
       const isEmailSignup =
         reqPath.includes("/sign-up/email") && getMethod(event) === "POST";
       const isSignOut =
@@ -5137,6 +5294,19 @@ async function mountBetterAuthRoutes(
           response,
           magicLinkPreConsume,
         );
+        if (
+          (response as Response).status >= 200 &&
+          (response as Response).status < 400 &&
+          extractSessionTokenFromSetCookies(response as Response)
+        ) {
+          // Existing users do not run Better Auth's user-create hook when
+          // magic-link verification flips emailVerified, so reconcile their
+          // pending organization invitations here as well.
+          await ensureEmailVerifiedForRedirect(
+            authRequest,
+            response as Response,
+          );
+        }
       }
 
       if (isResponse && (response as Response).status >= 400) {
@@ -5368,6 +5538,14 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
+      if (
+        getMethod(event) === "POST" &&
+        getDeploymentEmailReadiness().status !== "ready"
+      ) {
+        setResponseStatus(event, 503);
+        return { error: AUTH_MAGIC_LINK_UNAVAILABLE };
+      }
+
       if (getMethod(event) === "GET") {
         const query = getQuery(event);
         if (typeof query.token === "string") {
@@ -5903,6 +6081,8 @@ export async function autoMountAuth(
     // can't see the template's server/plugins/ dir and auto-mounts defaults).
     if (options.getSession) {
       customGetSession = options.getSession;
+      trustCustomEmailVerification =
+        options.trustCustomEmailVerification === true;
     }
     if (_authGuardConfig) {
       if (options.googleOnly || options.loginHtml || options.marketing) {
@@ -5952,6 +6132,7 @@ export async function autoMountAuth(
   if (!app) {
     if (isDevEnvironment()) {
       customGetSession = null;
+      trustCustomEmailVerification = false;
       return false;
     }
     throw new Error(
@@ -5961,6 +6142,7 @@ export async function autoMountAuth(
 
   // Reset globals
   customGetSession = null;
+  trustCustomEmailVerification = false;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
   const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
@@ -5970,6 +6152,8 @@ export async function autoMountAuth(
 
   if (options.getSession) {
     customGetSession = options.getSession;
+    trustCustomEmailVerification =
+      options.trustCustomEmailVerification === true;
   }
 
   // BYOA — custom getSession provider

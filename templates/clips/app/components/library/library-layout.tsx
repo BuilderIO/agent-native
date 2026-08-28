@@ -854,9 +854,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         setDeleteSpaceId={setDeleteSpaceId}
         onMutationSuccess={(deletedSpaceId) => {
           if (deletedSpaceId && spaceId === deletedSpaceId) {
-            navigate("/spaces");
+            void navigate("/spaces");
           }
-          refetchSpaces?.();
+          void refetchSpaces?.();
         }}
       />
     </div>

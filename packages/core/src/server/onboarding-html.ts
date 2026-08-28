@@ -1132,14 +1132,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const authMode = opts.authMode ?? "password";
   const magicLinkMode = authMode === "magic-link";
   const simplifiedAuth = opts.initialPrompt === true;
-  // In a Google-only app, Google is the sole sign-in method, so always render
-  // a working button — never gate it on env vars detected at render time. The
-  // login page is a public, CDN-cacheable shell served to everyone (per-user
-  // and per-config state is resolved client-side after load), so baking a
-  // "not configured" message in here would freeze that error into the cache
-  // for every visitor. A genuinely misconfigured server instead surfaces a
-  // clear error at click time via the auth API.
-  const renderGoogleButton = showGoogle || googleOnly;
+  const renderGoogleButton = showGoogle;
   const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
@@ -1212,6 +1205,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const t = (key: keyof typeof EN_AUTH_COPY) => defaultAuthCopy[key];
   const i18nAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n="${key}"` : "";
+  const googleUnavailableHtml =
+    googleOnly && !showGoogle
+      ? `<p class="google-error show" id="google-err" role="status"${i18nAttr("googleNotConfigured")}>${esc(t("googleNotConfigured"))}</p>`
+      : "";
   const i18nAriaAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n-aria-label="${key}"` : "";
   const i18nPlaceholderAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
@@ -2274,8 +2271,7 @@ ${
   .auth-mode-link { text-decoration: none; }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
-  .magic-link-submit { display: none; }
-  .magic-link-submit.is-visible { display: block; }
+  .magic-link-submit { display: block; }
   .magic-link-success { display: none; }
   .magic-link-success.is-visible { display: block; }
   .magic-link-success-copy {
@@ -2410,6 +2406,7 @@ ${marketingPanelHtml}
 ${identitySsoHtml}
 ${localDevHtml}
 <div id="full-auth-options" class="full-auth-options">
+${googleUnavailableHtml}
 ${
   renderGoogleButton
     ? `
@@ -3663,8 +3660,7 @@ ${
       var button = document.getElementById('magic-link-submit');
       if (!emailInput || !button) return;
       var isValid = __anIsValidAuthEmail(emailInput.value);
-      button.classList.toggle('is-visible', isValid);
-      button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      button.disabled = !isValid;
       var googleButton = document.getElementById('google-btn');
       if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
     }
@@ -3950,7 +3946,7 @@ ${
         initial = 'login';
       } else if (path === '/signup' || path.endsWith('/signup')) {
         initial = 'signup';
-      } else {
+      } else if (__AN_AUTH_MODE !== 'magic-link') {
         var stored = localStorage.getItem(TAB_STORAGE_KEY);
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
@@ -4123,11 +4119,25 @@ ${
           __anRedirectToSignedInApp();
           return;
         }
+        var loginData;
+        try {
+          loginData = await loginRes.json();
+        } catch (error) {
+          console.warn('[auth] Could not parse sign-in response', error);
+        }
+        var loginError = __anAuthErrorText(loginData, __anT('registrationFailed'));
+        if (loginRes.status === 403 && /not verified|verification/i.test(loginError)) {
           btn.disabled = false;
           btn.textContent = originalLabel;
           showVerificationStep(email, pass);
           return;
         }
+        msg.textContent = loginError;
+        msg.classList.add('show', 'error');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
       msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
