@@ -224,6 +224,10 @@ describe("handleMcpConnect", () => {
       const body = await res.text();
       expect(body).toContain("Abre Customize → Connectors en Claude.");
       expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("Tu URL de MCP");
+      expect(body).toContain("Conexiones existentes");
+      expect(body).not.toContain("Existing connections");
+      expect(body).not.toContain("Signed in as");
       expect(body).toContain('id="mcp-guide-tab-claude"');
       expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
     });
@@ -248,23 +252,21 @@ describe("handleMcpConnect", () => {
       );
       const body = await res.text();
       expect(body).toContain("ABCD-2345");
-      expect(body).toContain("Authorize this device");
+      expect(body).toContain("Authorize device");
       expect(body).not.toContain("From your terminal");
       expect(body).not.toContain("Connect an external agent");
       expect(body).not.toContain(">None<");
       expect(body).toContain("Authorizing device...");
       expect(body).toContain(
-        'showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized")',
+        'showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized)',
       );
       expect(body).toContain(
-        'showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected")',
+        'showMsg(COPY.connectedDescription, "ok", COPY.connected)',
       );
       expect(body).toContain(".msg-title");
       expect(body).toContain(".msg-copy");
       expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
-      expect(body).not.toContain("Your MCP URL");
-      expect(body).not.toContain("Advanced options");
     });
   });
 

@@ -1,5 +1,475 @@
 import type { LocaleCode } from "./shared.js";
 
+export interface McpConnectMessages {
+  pageTitle: string;
+  authorizeLabel: string;
+  terminalTitle: string;
+  assistantTitle: string;
+  signedInAs: string;
+  deviceCode: string;
+  guidesLabel: string;
+  advancedOptions: string;
+  labelOptional: string;
+  labelPlaceholder: string;
+  expiresInDays: string;
+  terminalAlternative: string;
+  existingConnections: string;
+  checkingConnections: string;
+  unavailable: string;
+  couldNotLoadConnections: string;
+  emptyConnections: string;
+  unlabeled: string;
+  lastUsed: string;
+  revoked: string;
+  created: string;
+  revoke: string;
+  couldNotRevoke: string;
+  authorizeDevice: string;
+  createToken: string;
+  authorizingDevice: string;
+  creatingToken: string;
+  couldNotAuthorize: string;
+  finishingConnection: string;
+  deviceAuthorized: string;
+  connected: string;
+  connectedDescription: string;
+  couldNotCreate: string;
+  networkError: string;
+  urlTitle: string;
+}
+
+export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
+  "en-US": {
+    pageTitle: "Connect {appName}",
+    authorizeLabel: "Authorize {appName}",
+    terminalTitle: "Authorize {appName} from your terminal?",
+    assistantTitle: "Use {appName} from your AI assistant",
+    signedInAs: "Signed in as",
+    deviceCode: "Device code",
+    guidesLabel: "MCP URL guides",
+    advancedOptions: "Advanced options",
+    labelOptional: "Label (optional)",
+    labelPlaceholder: "e.g. Claude Code on my laptop",
+    expiresInDays: "Expires in (days, 1–365)",
+    terminalAlternative: "Terminal alternative",
+    existingConnections: "Existing connections",
+    checkingConnections: "Checking connections...",
+    unavailable: "Unavailable",
+    couldNotLoadConnections: "Could not load connections.",
+    emptyConnections:
+      "Created connections will appear here for revoking later.",
+    unlabeled: "(unlabeled)",
+    lastUsed: "last used",
+    revoked: "Revoked",
+    created: "Created",
+    revoke: "Revoke",
+    couldNotRevoke: "Could not revoke token.",
+    authorizeDevice: "Authorize device",
+    createToken: "Create connection token",
+    authorizingDevice: "Authorizing device...",
+    creatingToken: "Creating token...",
+    couldNotAuthorize: "Could not authorize this device code.",
+    finishingConnection:
+      "Finishing connection… you can return to your terminal.",
+    deviceAuthorized: "Device authorized",
+    connected: "Connected",
+    connectedDescription:
+      "This device can now act as you — manage or revoke it below.",
+    couldNotCreate: "Could not create token.",
+    networkError: "Network error. Please try again.",
+    urlTitle: "Your MCP URL",
+  },
+  "es-ES": {
+    pageTitle: "Conectar {appName}",
+    authorizeLabel: "Autorizar {appName}",
+    terminalTitle: "¿Autorizar {appName} desde tu terminal?",
+    assistantTitle: "Usa {appName} desde tu asistente de IA",
+    signedInAs: "Sesión iniciada como",
+    deviceCode: "Código del dispositivo",
+    guidesLabel: "Guías de URL de MCP",
+    advancedOptions: "Opciones avanzadas",
+    labelOptional: "Etiqueta (opcional)",
+    labelPlaceholder: "p. ej., Claude Code en mi portátil",
+    expiresInDays: "Caduca en (días, 1–365)",
+    terminalAlternative: "Alternativa para la terminal",
+    existingConnections: "Conexiones existentes",
+    checkingConnections: "Comprobando conexiones...",
+    unavailable: "No disponible",
+    couldNotLoadConnections: "No se pudieron cargar las conexiones.",
+    emptyConnections:
+      "Las conexiones creadas aparecerán aquí para revocarlas más adelante.",
+    unlabeled: "(sin etiqueta)",
+    lastUsed: "último uso",
+    revoked: "Revocado",
+    created: "Creado",
+    revoke: "Revocar",
+    couldNotRevoke: "No se pudo revocar el token.",
+    authorizeDevice: "Autorizar dispositivo",
+    createToken: "Crear token de conexión",
+    authorizingDevice: "Autorizando dispositivo...",
+    creatingToken: "Creando token...",
+    couldNotAuthorize: "No se pudo autorizar este código de dispositivo.",
+    finishingConnection: "Terminando la conexión… puedes volver a tu terminal.",
+    deviceAuthorized: "Dispositivo autorizado",
+    connected: "Conectado",
+    connectedDescription:
+      "Este dispositivo ya puede actuar como tú; puedes administrarlo o revocarlo abajo.",
+    couldNotCreate: "No se pudo crear el token.",
+    networkError: "Error de red. Inténtalo de nuevo.",
+    urlTitle: "Tu URL de MCP",
+  },
+  "fr-FR": {
+    pageTitle: "Connecter {appName}",
+    authorizeLabel: "Autoriser {appName}",
+    terminalTitle: "Autoriser {appName} depuis votre terminal ?",
+    assistantTitle: "Utiliser {appName} depuis votre assistant IA",
+    signedInAs: "Connecté en tant que",
+    deviceCode: "Code de l’appareil",
+    guidesLabel: "Guides d’URL MCP",
+    advancedOptions: "Options avancées",
+    labelOptional: "Libellé (facultatif)",
+    labelPlaceholder: "ex. Claude Code sur mon ordinateur portable",
+    expiresInDays: "Expire dans (jours, 1–365)",
+    terminalAlternative: "Alternative terminal",
+    existingConnections: "Connexions existantes",
+    checkingConnections: "Vérification des connexions...",
+    unavailable: "Indisponible",
+    couldNotLoadConnections: "Impossible de charger les connexions.",
+    emptyConnections:
+      "Les connexions créées apparaîtront ici pour être révoquées plus tard.",
+    unlabeled: "(sans libellé)",
+    lastUsed: "dernière utilisation",
+    revoked: "Révoqué",
+    created: "Créé",
+    revoke: "Révoquer",
+    couldNotRevoke: "Impossible de révoquer le jeton.",
+    authorizeDevice: "Autoriser l’appareil",
+    createToken: "Créer un jeton de connexion",
+    authorizingDevice: "Autorisation de l’appareil...",
+    creatingToken: "Création du jeton...",
+    couldNotAuthorize: "Impossible d’autoriser ce code d’appareil.",
+    finishingConnection:
+      "Connexion en cours… vous pouvez retourner à votre terminal.",
+    deviceAuthorized: "Appareil autorisé",
+    connected: "Connecté",
+    connectedDescription:
+      "Cet appareil peut maintenant agir en votre nom. Gérez-le ou révoquez-le ci-dessous.",
+    couldNotCreate: "Impossible de créer le jeton.",
+    networkError: "Erreur réseau. Réessayez.",
+    urlTitle: "Votre URL MCP",
+  },
+  "de-DE": {
+    pageTitle: "{appName} verbinden",
+    authorizeLabel: "{appName} autorisieren",
+    terminalTitle: "{appName} über dein Terminal autorisieren?",
+    assistantTitle: "{appName} mit deinem KI-Assistenten verwenden",
+    signedInAs: "Angemeldet als",
+    deviceCode: "Gerätecode",
+    guidesLabel: "MCP-URL-Anleitungen",
+    advancedOptions: "Erweiterte Optionen",
+    labelOptional: "Bezeichnung (optional)",
+    labelPlaceholder: "z. B. Claude Code auf meinem Laptop",
+    expiresInDays: "Läuft ab in (Tagen, 1–365)",
+    terminalAlternative: "Terminal-Alternative",
+    existingConnections: "Vorhandene Verbindungen",
+    checkingConnections: "Verbindungen werden geprüft...",
+    unavailable: "Nicht verfügbar",
+    couldNotLoadConnections: "Verbindungen konnten nicht geladen werden.",
+    emptyConnections:
+      "Erstellte Verbindungen werden hier angezeigt, damit du sie später widerrufen kannst.",
+    unlabeled: "(ohne Bezeichnung)",
+    lastUsed: "zuletzt verwendet",
+    revoked: "Widerrufen",
+    created: "Erstellt",
+    revoke: "Widerrufen",
+    couldNotRevoke: "Token konnte nicht widerrufen werden.",
+    authorizeDevice: "Gerät autorisieren",
+    createToken: "Verbindungstoken erstellen",
+    authorizingDevice: "Gerät wird autorisiert...",
+    creatingToken: "Token wird erstellt...",
+    couldNotAuthorize: "Dieser Gerätecode konnte nicht autorisiert werden.",
+    finishingConnection:
+      "Verbindung wird abgeschlossen… du kannst zu deinem Terminal zurückkehren.",
+    deviceAuthorized: "Gerät autorisiert",
+    connected: "Verbunden",
+    connectedDescription:
+      "Dieses Gerät kann jetzt in deinem Namen handeln. Verwalte oder widerrufe es unten.",
+    couldNotCreate: "Token konnte nicht erstellt werden.",
+    networkError: "Netzwerkfehler. Bitte versuche es erneut.",
+    urlTitle: "Deine MCP-URL",
+  },
+  "pt-BR": {
+    pageTitle: "Conectar {appName}",
+    authorizeLabel: "Autorizar {appName}",
+    terminalTitle: "Autorizar {appName} pelo seu terminal?",
+    assistantTitle: "Usar {appName} pelo seu assistente de IA",
+    signedInAs: "Sessão iniciada como",
+    deviceCode: "Código do dispositivo",
+    guidesLabel: "Guias de URL MCP",
+    advancedOptions: "Opções avançadas",
+    labelOptional: "Rótulo (opcional)",
+    labelPlaceholder: "ex.: Claude Code no meu laptop",
+    expiresInDays: "Expira em (dias, 1–365)",
+    terminalAlternative: "Alternativa pelo terminal",
+    existingConnections: "Conexões existentes",
+    checkingConnections: "Verificando conexões...",
+    unavailable: "Indisponível",
+    couldNotLoadConnections: "Não foi possível carregar as conexões.",
+    emptyConnections:
+      "As conexões criadas aparecerão aqui para revogação posterior.",
+    unlabeled: "(sem rótulo)",
+    lastUsed: "último uso",
+    revoked: "Revogado",
+    created: "Criado",
+    revoke: "Revogar",
+    couldNotRevoke: "Não foi possível revogar o token.",
+    authorizeDevice: "Autorizar dispositivo",
+    createToken: "Criar token de conexão",
+    authorizingDevice: "Autorizando dispositivo...",
+    creatingToken: "Criando token...",
+    couldNotAuthorize: "Não foi possível autorizar este código de dispositivo.",
+    finishingConnection:
+      "Concluindo a conexão… você pode voltar ao seu terminal.",
+    deviceAuthorized: "Dispositivo autorizado",
+    connected: "Conectado",
+    connectedDescription:
+      "Este dispositivo agora pode agir por você. Gerencie ou revogue-o abaixo.",
+    couldNotCreate: "Não foi possível criar o token.",
+    networkError: "Erro de rede. Tente novamente.",
+    urlTitle: "Sua URL MCP",
+  },
+  "zh-CN": {
+    pageTitle: "连接 {appName}",
+    authorizeLabel: "授权 {appName}",
+    terminalTitle: "要从终端授权 {appName} 吗？",
+    assistantTitle: "通过 AI 助手使用 {appName}",
+    signedInAs: "已登录为",
+    deviceCode: "设备代码",
+    guidesLabel: "MCP URL 指南",
+    advancedOptions: "高级选项",
+    labelOptional: "标签（可选）",
+    labelPlaceholder: "例如：我笔记本上的 Claude Code",
+    expiresInDays: "有效期（天，1–365）",
+    terminalAlternative: "终端替代方案",
+    existingConnections: "现有连接",
+    checkingConnections: "正在检查连接...",
+    unavailable: "不可用",
+    couldNotLoadConnections: "无法加载连接。",
+    emptyConnections: "创建的连接会显示在这里，方便稍后撤销。",
+    unlabeled: "（无标签）",
+    lastUsed: "上次使用",
+    revoked: "已撤销",
+    created: "已创建",
+    revoke: "撤销",
+    couldNotRevoke: "无法撤销令牌。",
+    authorizeDevice: "授权设备",
+    createToken: "创建连接令牌",
+    authorizingDevice: "正在授权设备...",
+    creatingToken: "正在创建令牌...",
+    couldNotAuthorize: "无法授权此设备代码。",
+    finishingConnection: "正在完成连接…你可以返回终端。",
+    deviceAuthorized: "设备已授权",
+    connected: "已连接",
+    connectedDescription:
+      "此设备现在可以代表你操作，你可以在下方管理或撤销它。",
+    couldNotCreate: "无法创建令牌。",
+    networkError: "网络错误。请重试。",
+    urlTitle: "你的 MCP URL",
+  },
+  "zh-TW": {
+    pageTitle: "連線 {appName}",
+    authorizeLabel: "授權 {appName}",
+    terminalTitle: "要從終端機授權 {appName} 嗎？",
+    assistantTitle: "透過 AI 助理使用 {appName}",
+    signedInAs: "已登入為",
+    deviceCode: "裝置代碼",
+    guidesLabel: "MCP URL 指南",
+    advancedOptions: "進階選項",
+    labelOptional: "標籤（選填）",
+    labelPlaceholder: "例如：我筆記型電腦上的 Claude Code",
+    expiresInDays: "有效期限（天，1–365）",
+    terminalAlternative: "終端機替代方案",
+    existingConnections: "現有連線",
+    checkingConnections: "正在檢查連線...",
+    unavailable: "無法使用",
+    couldNotLoadConnections: "無法載入連線。",
+    emptyConnections: "建立的連線會顯示在這裡，方便稍後撤銷。",
+    unlabeled: "（無標籤）",
+    lastUsed: "上次使用",
+    revoked: "已撤銷",
+    created: "已建立",
+    revoke: "撤銷",
+    couldNotRevoke: "無法撤銷權杖。",
+    authorizeDevice: "授權裝置",
+    createToken: "建立連線權杖",
+    authorizingDevice: "正在授權裝置...",
+    creatingToken: "正在建立權杖...",
+    couldNotAuthorize: "無法授權此裝置代碼。",
+    finishingConnection: "正在完成連線…你可以返回終端機。",
+    deviceAuthorized: "裝置已授權",
+    connected: "已連線",
+    connectedDescription:
+      "此裝置現在可以代表你操作，你可以在下方管理或撤銷它。",
+    couldNotCreate: "無法建立權杖。",
+    networkError: "網路錯誤。請再試一次。",
+    urlTitle: "你的 MCP URL",
+  },
+  "ja-JP": {
+    pageTitle: "{appName} に接続",
+    authorizeLabel: "{appName} を承認",
+    terminalTitle: "ターミナルから {appName} を承認しますか？",
+    assistantTitle: "AI アシスタントで {appName} を使う",
+    signedInAs: "ログイン中のアカウント:",
+    deviceCode: "デバイスコード",
+    guidesLabel: "MCP URL ガイド",
+    advancedOptions: "詳細設定",
+    labelOptional: "ラベル（任意）",
+    labelPlaceholder: "例: ノートパソコンの Claude Code",
+    expiresInDays: "有効期限（日数、1–365）",
+    terminalAlternative: "ターミナルでの代替方法",
+    existingConnections: "既存の接続",
+    checkingConnections: "接続を確認中...",
+    unavailable: "利用できません",
+    couldNotLoadConnections: "接続を読み込めませんでした。",
+    emptyConnections: "作成した接続は、後で取り消せるようここに表示されます。",
+    unlabeled: "（ラベルなし）",
+    lastUsed: "最終使用",
+    revoked: "取り消し済み",
+    created: "作成済み",
+    revoke: "取り消す",
+    couldNotRevoke: "トークンを取り消せませんでした。",
+    authorizeDevice: "デバイスを承認",
+    createToken: "接続トークンを作成",
+    authorizingDevice: "デバイスを承認中...",
+    creatingToken: "トークンを作成中...",
+    couldNotAuthorize: "このデバイスコードを承認できませんでした。",
+    finishingConnection:
+      "接続を完了しています…ターミナルに戻ることができます。",
+    deviceAuthorized: "デバイスを承認しました",
+    connected: "接続済み",
+    connectedDescription:
+      "このデバイスはあなたの代わりに操作できます。下で管理または取り消しができます。",
+    couldNotCreate: "トークンを作成できませんでした。",
+    networkError: "ネットワークエラーです。もう一度お試しください。",
+    urlTitle: "MCP URL",
+  },
+  "ko-KR": {
+    pageTitle: "{appName} 연결",
+    authorizeLabel: "{appName} 승인",
+    terminalTitle: "터미널에서 {appName}을(를) 승인하시겠습니까?",
+    assistantTitle: "AI 도우미에서 {appName} 사용",
+    signedInAs: "로그인 계정",
+    deviceCode: "기기 코드",
+    guidesLabel: "MCP URL 안내",
+    advancedOptions: "고급 옵션",
+    labelOptional: "라벨(선택사항)",
+    labelPlaceholder: "예: 내 노트북의 Claude Code",
+    expiresInDays: "만료 기간(일, 1–365)",
+    terminalAlternative: "터미널 대안",
+    existingConnections: "기존 연결",
+    checkingConnections: "연결 확인 중...",
+    unavailable: "사용할 수 없음",
+    couldNotLoadConnections: "연결을 불러올 수 없습니다.",
+    emptyConnections:
+      "생성된 연결이 나중에 취소할 수 있도록 여기에 표시됩니다.",
+    unlabeled: "(라벨 없음)",
+    lastUsed: "마지막 사용",
+    revoked: "취소됨",
+    created: "생성됨",
+    revoke: "취소",
+    couldNotRevoke: "토큰을 취소할 수 없습니다.",
+    authorizeDevice: "기기 승인",
+    createToken: "연결 토큰 생성",
+    authorizingDevice: "기기 승인 중...",
+    creatingToken: "토큰 생성 중...",
+    couldNotAuthorize: "이 기기 코드를 승인할 수 없습니다.",
+    finishingConnection: "연결을 완료하는 중… 터미널로 돌아가도 됩니다.",
+    deviceAuthorized: "기기 승인됨",
+    connected: "연결됨",
+    connectedDescription:
+      "이 기기는 이제 사용자를 대신해 작업할 수 있습니다. 아래에서 관리하거나 취소하세요.",
+    couldNotCreate: "토큰을 생성할 수 없습니다.",
+    networkError: "네트워크 오류입니다. 다시 시도하세요.",
+    urlTitle: "MCP URL",
+  },
+  "hi-IN": {
+    pageTitle: "{appName} कनेक्ट करें",
+    authorizeLabel: "{appName} को अनुमति दें",
+    terminalTitle: "अपने terminal से {appName} को अनुमति दें?",
+    assistantTitle: "अपने AI assistant से {appName} का उपयोग करें",
+    signedInAs: "इस रूप में साइन इन",
+    deviceCode: "डिवाइस कोड",
+    guidesLabel: "MCP URL गाइड",
+    advancedOptions: "उन्नत विकल्प",
+    labelOptional: "लेबल (वैकल्पिक)",
+    labelPlaceholder: "उदाहरण: मेरे laptop पर Claude Code",
+    expiresInDays: "समाप्ति (दिन, 1–365)",
+    terminalAlternative: "Terminal विकल्प",
+    existingConnections: "मौजूदा कनेक्शन",
+    checkingConnections: "कनेक्शन जाँचे जा रहे हैं...",
+    unavailable: "उपलब्ध नहीं",
+    couldNotLoadConnections: "कनेक्शन लोड नहीं किए जा सके।",
+    emptyConnections: "बाद में revoke करने के लिए बनाए गए कनेक्शन यहाँ दिखेंगे।",
+    unlabeled: "(बिना लेबल)",
+    lastUsed: "अंतिम उपयोग",
+    revoked: "Revoke किया गया",
+    created: "बनाया गया",
+    revoke: "Revoke करें",
+    couldNotRevoke: "Token revoke नहीं किया जा सका।",
+    authorizeDevice: "डिवाइस को अनुमति दें",
+    createToken: "कनेक्शन token बनाएँ",
+    authorizingDevice: "डिवाइस को अनुमति दी जा रही है...",
+    creatingToken: "Token बनाया जा रहा है...",
+    couldNotAuthorize: "इस डिवाइस कोड को अनुमति नहीं दी जा सकी।",
+    finishingConnection: "कनेक्शन पूरा हो रहा है… आप terminal पर लौट सकते हैं।",
+    deviceAuthorized: "डिवाइस को अनुमति दी गई",
+    connected: "कनेक्टेड",
+    connectedDescription:
+      "यह डिवाइस अब आपकी ओर से काम कर सकता है। नीचे इसे manage या revoke करें।",
+    couldNotCreate: "Token बनाया नहीं जा सका।",
+    networkError: "Network error. फिर से कोशिश करें।",
+    urlTitle: "आपका MCP URL",
+  },
+  "ar-SA": {
+    pageTitle: "الاتصال بـ {appName}",
+    authorizeLabel: "تخويل {appName}",
+    terminalTitle: "هل تريد تخويل {appName} من الطرفية؟",
+    assistantTitle: "استخدم {appName} من مساعد الذكاء الاصطناعي",
+    signedInAs: "تم تسجيل الدخول باسم",
+    deviceCode: "رمز الجهاز",
+    guidesLabel: "أدلة عنوان MCP",
+    advancedOptions: "خيارات متقدمة",
+    labelOptional: "التسمية (اختيارية)",
+    labelPlaceholder: "مثال: Claude Code على حاسوبي المحمول",
+    expiresInDays: "تنتهي الصلاحية خلال (أيام، 1–365)",
+    terminalAlternative: "بديل الطرفية",
+    existingConnections: "الاتصالات الحالية",
+    checkingConnections: "جارٍ التحقق من الاتصالات...",
+    unavailable: "غير متاح",
+    couldNotLoadConnections: "تعذر تحميل الاتصالات.",
+    emptyConnections: "ستظهر الاتصالات التي أنشأتها هنا لإلغائها لاحقًا.",
+    unlabeled: "(بلا تسمية)",
+    lastUsed: "آخر استخدام",
+    revoked: "تم الإلغاء",
+    created: "تم الإنشاء",
+    revoke: "إلغاء",
+    couldNotRevoke: "تعذر إلغاء الرمز.",
+    authorizeDevice: "تخويل الجهاز",
+    createToken: "إنشاء رمز اتصال",
+    authorizingDevice: "جارٍ تخويل الجهاز...",
+    creatingToken: "جارٍ إنشاء الرمز...",
+    couldNotAuthorize: "تعذر تخويل رمز الجهاز هذا.",
+    finishingConnection: "جارٍ إنهاء الاتصال… يمكنك العودة إلى الطرفية.",
+    deviceAuthorized: "تم تخويل الجهاز",
+    connected: "متصل",
+    connectedDescription:
+      "يمكن لهذا الجهاز الآن التصرف نيابةً عنك. يمكنك إدارته أو إلغاءه أدناه.",
+    couldNotCreate: "تعذر إنشاء الرمز.",
+    networkError: "حدث خطأ في الشبكة. حاول مرة أخرى.",
+    urlTitle: "عنوان MCP الخاص بك",
+  },
+};
+
 export interface McpSettingsMessages {
   mcpTitle: string;
   mcpDescription: string;
@@ -17,6 +487,7 @@ export interface McpSettingsMessages {
   mcpCopied: string;
   mcpStaticTokenDescription: string;
   mcpOpenConnectPage: string;
+  mcpConnect: McpConnectMessages;
 }
 
 export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
@@ -41,6 +512,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "Open the full connect page to create a token for clients that cannot complete OAuth.",
     mcpOpenConnectPage: "Open full connect page",
+    mcpConnect: MCP_CONNECT_MESSAGES["en-US"],
   },
   "es-ES": {
     mcpTitle: "MCP",
@@ -63,6 +535,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "Abre la página completa de conexión para crear un token para clientes que no pueden completar OAuth.",
     mcpOpenConnectPage: "Abrir página completa de conexión",
+    mcpConnect: MCP_CONNECT_MESSAGES["es-ES"],
   },
   "fr-FR": {
     mcpTitle: "MCP",
@@ -85,6 +558,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "Ouvrez la page complète de connexion pour créer un jeton pour les clients qui ne peuvent pas terminer OAuth.",
     mcpOpenConnectPage: "Ouvrir la page complète de connexion",
+    mcpConnect: MCP_CONNECT_MESSAGES["fr-FR"],
   },
   "de-DE": {
     mcpTitle: "MCP",
@@ -107,6 +581,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "Öffne die vollständige Verbindungsseite, um ein Token für Clients zu erstellen, die OAuth nicht abschließen können.",
     mcpOpenConnectPage: "Vollständige Verbindungsseite öffnen",
+    mcpConnect: MCP_CONNECT_MESSAGES["de-DE"],
   },
   "pt-BR": {
     mcpTitle: "MCP",
@@ -129,6 +604,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "Abra a página completa de conexão para criar um token para clientes que não conseguem concluir o OAuth.",
     mcpOpenConnectPage: "Abrir página completa de conexão",
+    mcpConnect: MCP_CONNECT_MESSAGES["pt-BR"],
   },
   "zh-CN": {
     mcpTitle: "MCP",
@@ -150,6 +626,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "打开完整连接页面，为无法完成 OAuth 的客户端创建令牌。",
     mcpOpenConnectPage: "打开完整连接页面",
+    mcpConnect: MCP_CONNECT_MESSAGES["zh-CN"],
   },
   "zh-TW": {
     mcpTitle: "MCP",
@@ -171,6 +648,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "開啟完整連線頁面，為無法完成 OAuth 的用戶端建立權杖。",
     mcpOpenConnectPage: "開啟完整連線頁面",
+    mcpConnect: MCP_CONNECT_MESSAGES["zh-TW"],
   },
   "ja-JP": {
     mcpTitle: "MCP",
@@ -193,6 +671,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "完全な接続ページを開いて、OAuth を完了できないクライアント用のトークンを作成します。",
     mcpOpenConnectPage: "完全な接続ページを開く",
+    mcpConnect: MCP_CONNECT_MESSAGES["ja-JP"],
   },
   "ko-KR": {
     mcpTitle: "MCP",
@@ -215,6 +694,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "전체 연결 페이지를 열어 OAuth를 완료할 수 없는 클라이언트용 토큰을 만드세요.",
     mcpOpenConnectPage: "전체 연결 페이지 열기",
+    mcpConnect: MCP_CONNECT_MESSAGES["ko-KR"],
   },
   "hi-IN": {
     mcpTitle: "MCP",
@@ -237,6 +717,7 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "पूरी कनेक्शन पेज खोलकर उन clients के लिए token बनाएँ जो OAuth पूरा नहीं कर सकते।",
     mcpOpenConnectPage: "पूरी कनेक्शन पेज खोलें",
+    mcpConnect: MCP_CONNECT_MESSAGES["hi-IN"],
   },
   "ar-SA": {
     mcpTitle: "MCP",
@@ -259,5 +740,6 @@ export const MCP_SETTINGS_MESSAGES: Record<LocaleCode, McpSettingsMessages> = {
     mcpStaticTokenDescription:
       "افتح صفحة الاتصال الكاملة لإنشاء رمز مميز للعملاء الذين لا يستطيعون إكمال OAuth.",
     mcpOpenConnectPage: "فتح صفحة الاتصال الكاملة",
+    mcpConnect: MCP_CONNECT_MESSAGES["ar-SA"],
   },
 };

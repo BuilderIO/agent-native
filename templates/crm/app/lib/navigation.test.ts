@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCrmNavigationSelection } from "../../shared/crm-navigation";
-import { crmNavigationPath, viewFromPath } from "./navigation";
+import {
+  crmNavigationPath,
+  parseCrmNavigationSelection,
+  viewFromPath,
+} from "./navigation";
 
 describe("CRM Intelligence navigation", () => {
   it("maps the Intelligence settings tab to a navigable semantic path", () => {
