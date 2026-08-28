@@ -13,6 +13,7 @@ export interface OptimisticImagePreview {
   previewSrc: string;
   replaceSrc: string | null;
   alt?: string;
+  style?: string;
   position?: SlideImageDropPosition;
   objectId?: string;
 }
@@ -65,11 +66,19 @@ function serializeFragment(doc: Document): string {
   return doc.body.innerHTML;
 }
 
-function hasImageSource(content: string, src: string): boolean {
-  const doc = parseFragment(content);
-  return Array.from(doc.body.querySelectorAll<HTMLImageElement>("img")).some(
-    (image) => image.getAttribute("src") === src,
+function findImageWithSource(
+  doc: Document,
+  src: string,
+): HTMLImageElement | null {
+  return (
+    Array.from(doc.body.querySelectorAll<HTMLImageElement>("img")).find(
+      (image) => image.getAttribute("src") === src,
+    ) ?? null
   );
+}
+
+function hasImageSource(content: string, src: string): boolean {
+  return findImageWithSource(parseFragment(content), src) !== null;
 }
 
 function cleanAlt(value: string | undefined): string {
@@ -156,9 +165,7 @@ function replaceImageSrc(
   options: ReplaceOptions,
 ): string {
   const doc = parseFragment(content);
-  const image = Array.from(
-    doc.body.querySelectorAll<HTMLImageElement>("img"),
-  ).find((img) => img.getAttribute("src") === oldSrc);
+  const image = findImageWithSource(doc, oldSrc);
   if (!image) return content;
 
   image.setAttribute("src", newSrc);
@@ -173,14 +180,28 @@ export function replaceOptimisticImagePreview(
   finalSrc: string | null,
 ): string {
   const doc = parseFragment(content);
-  const image = Array.from(
-    doc.body.querySelectorAll<HTMLImageElement>("img"),
-  ).find((img) => img.getAttribute("src") === previewSrc);
+  const image = findImageWithSource(doc, previewSrc);
   if (!image) return content;
 
   if (finalSrc) image.setAttribute("src", finalSrc);
   else image.remove();
   return serializeFragment(doc);
+}
+
+/** Keep edits made to a temporary image while its blob URL is stripped. */
+export function captureOptimisticImagePreview(
+  content: string,
+  preview: OptimisticImagePreview,
+): OptimisticImagePreview {
+  const image = findImageWithSource(parseFragment(content), preview.previewSrc);
+  if (!image) return preview;
+
+  return {
+    ...preview,
+    alt: image.getAttribute("alt") ?? preview.alt,
+    objectId: image.getAttribute("data-slide-object-id") ?? preview.objectId,
+    style: image.getAttribute("style") ?? undefined,
+  };
 }
 
 export function applyOptimisticImagePreview(
@@ -201,6 +222,7 @@ export function applyOptimisticImagePreview(
         alt: preview.alt,
         position: preview.position,
         objectId: preview.objectId,
+        style: preview.style,
       });
 }
 
@@ -285,6 +307,7 @@ export function insertDroppedImageIntoSlideHtml(
   options: ReplaceOptions & {
     position?: SlideImageDropPosition;
     objectId?: string;
+    style?: string;
   } = {},
 ): string {
   const doc = parseFragment(content);
@@ -305,7 +328,8 @@ export function insertDroppedImageIntoSlideHtml(
   img.className = "fmd-img-uploaded";
   img.setAttribute(
     "style",
-    `position: absolute; left: ${left}px; top: ${top}px; width: ${DROPPED_IMAGE_WIDTH}px; height: ${DROPPED_IMAGE_HEIGHT}px; max-width: none; max-height: none; margin: 0; border-radius: 8px; object-fit: contain; box-sizing: border-box; z-index: 1;`,
+    options.style ??
+      `position: absolute; left: ${left}px; top: ${top}px; width: ${DROPPED_IMAGE_WIDTH}px; height: ${DROPPED_IMAGE_HEIGHT}px; max-width: none; max-height: none; margin: 0; border-radius: 8px; object-fit: contain; box-sizing: border-box; z-index: 1;`,
   );
 
   const slideRoot = doc.body.querySelector<HTMLElement>(".fmd-slide");

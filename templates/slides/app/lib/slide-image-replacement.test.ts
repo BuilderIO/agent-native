@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureOptimisticImagePreview,
   createPlaceholderImageTarget,
   hasOptimisticImagePreview,
   insertDroppedImageIntoSlideHtml,
@@ -98,6 +99,33 @@ describe("slide image replacement", () => {
     expect(persisted).toContain("Edited copy");
     expect(persisted).toContain('src="/old.png"');
     expect(persisted).not.toContain("blob:replacement");
+  });
+
+  it("keeps moved and resized geometry when the upload replaces a preview", () => {
+    const preview = {
+      previewSrc: "blob:edited",
+      replaceSrc: null,
+      objectId: "preview-object",
+      position: { x: 200, y: 120 },
+    };
+    const editedContent = `<div class="fmd-slide"><img src="blob:edited" alt="photo.png" data-slide-object-id="preview-object" style="position: absolute; left: 123px; top: 87px; width: 512px; height: 300px; object-fit: contain;"></div>`;
+    const editedPreview = captureOptimisticImagePreview(editedContent, preview);
+    const withoutPreview = stripOptimisticImagePreviews(editedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(withoutPreview, editedPreview),
+      "blob:edited",
+      "/uploads/photo.png",
+    );
+    const image = firstImage(completed);
+
+    expect(withoutPreview).not.toContain("blob:edited");
+    expect(image?.getAttribute("src")).toBe("/uploads/photo.png");
+    expect(image?.getAttribute("style")).toContain("left: 123px");
+    expect(image?.getAttribute("style")).toContain("top: 87px");
+    expect(image?.getAttribute("style")).toContain("width: 512px");
+    expect(image?.getAttribute("style")).toContain("height: 300px");
   });
 
   it("replaces a clicked placeholder target with an uploaded image", () => {

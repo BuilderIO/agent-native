@@ -127,6 +127,7 @@ import {
 } from "@/lib/slide-clipboard";
 import {
   applyOptimisticImagePreview,
+  captureOptimisticImagePreview,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   replaceOptimisticImagePreview,
@@ -911,7 +912,7 @@ export default function DeckEditor() {
       if (!id || !currentSlideRef.current) return;
       const targetSlideId = currentSlideRef.current.id;
       const previewSrc = URL.createObjectURL(file);
-      const pendingPreview: PendingImagePreview = {
+      const initialPreview: PendingImagePreview = {
         slideId: targetSlideId,
         previewSrc,
         replaceSrc,
@@ -926,7 +927,7 @@ export default function DeckEditor() {
             replaceSrc === null ||
             preview.replaceSrc !== replaceSrc,
         ),
-        pendingPreview,
+        initialPreview,
       ]);
       const clearPreview = () => {
         updatePendingImagePreviews((current) =>
@@ -951,6 +952,10 @@ export default function DeckEditor() {
           clearPreview();
           return;
         }
+        const activePreview = pendingImagePreviewsRef.current.find(
+          (preview) => preview.previewSrc === previewSrc,
+        );
+        if (!activePreview) return;
         const pendingForSlide = pendingImagePreviewsRef.current.filter(
           (preview) => preview.slideId === targetSlideId,
         );
@@ -960,7 +965,7 @@ export default function DeckEditor() {
         );
         const previewContent = applyOptimisticImagePreview(
           cleanTargetContent,
-          pendingPreview,
+          activePreview,
         );
         const updatedContent = replaceOptimisticImagePreview(
           previewContent,
@@ -2310,24 +2315,43 @@ export default function DeckEditor() {
                         ),
                       )
                     : pendingForSlide;
-              if (updates.content !== undefined && clearMissingPreviews) {
-                updatePendingImagePreviews((current) =>
-                  current.filter(
-                    (preview) =>
-                      preview.slideId !== targetSlideId ||
-                      activePreviews.some(
-                        (active) => active.previewSrc === preview.previewSrc,
+              const previewsToStrip =
+                updates.content === undefined
+                  ? activePreviews
+                  : activePreviews.map((preview) =>
+                      captureOptimisticImagePreview(
+                        updates.content as string,
+                        preview,
                       ),
-                  ),
+                    );
+              if (updates.content !== undefined) {
+                updatePendingImagePreviews((current) =>
+                  current.flatMap((preview) => {
+                    if (preview.slideId !== targetSlideId) return [preview];
+                    if (
+                      !activePreviews.some(
+                        (active) => active.previewSrc === preview.previewSrc,
+                      )
+                    ) {
+                      return clearMissingPreviews ? [] : [preview];
+                    }
+                    const updated = previewsToStrip.find(
+                      (candidate) =>
+                        candidate.previewSrc === preview.previewSrc,
+                    );
+                    return [
+                      { ...(updated ?? preview), slideId: preview.slideId },
+                    ];
+                  }),
                 );
               }
               const safeUpdates =
-                updates.content !== undefined && activePreviews.length > 0
+                updates.content !== undefined && previewsToStrip.length > 0
                   ? {
                       ...updates,
                       content: stripOptimisticImagePreviews(
                         updates.content,
-                        activePreviews,
+                        previewsToStrip,
                       ),
                     }
                   : updates;
