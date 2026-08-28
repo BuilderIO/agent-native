@@ -228,13 +228,17 @@ function AppContent() {
       "[data-slides-editor-root]",
     );
     const active = document.activeElement;
-    const editing =
+    const contentEditable =
+      active instanceof HTMLElement &&
+      (active.isContentEditable ||
+        Boolean(active.closest("[contenteditable='true']")));
+    const formControl =
       active instanceof HTMLInputElement ||
       active instanceof HTMLTextAreaElement ||
       active instanceof HTMLSelectElement ||
-      (active instanceof HTMLElement && active.isContentEditable) ||
-      Boolean(active?.closest("[contenteditable='true'], [role='textbox']"));
-    if (editor?.dataset.slidesEditorEditable === "true" && !editing) {
+      Boolean(active?.closest("[role='textbox']"));
+    if (formControl && !contentEditable) return;
+    if (editor?.dataset.slidesEditorEditable === "true" && !contentEditable) {
       window.dispatchEvent(new CustomEvent("slides:toggle-layers"));
       setCmdkOpen(false);
       return;
