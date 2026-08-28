@@ -645,6 +645,8 @@ const messages = {
     macSublabel: "ユニバーサル (Apple Silicon + Intel)",
     windowsSublabel: "64 ビット MSI インストーラー",
     downloadFor: "翻訳済み: Download for {{platform}}",
+    downloadStarted: "ダウンロードを開始しました",
+    downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
     clipsDesktop: "Clips Desktop",
