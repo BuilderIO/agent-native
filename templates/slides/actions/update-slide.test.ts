@@ -236,15 +236,108 @@ describe("update-slide", () => {
   });
 
   it("rejects mixed edit modes before mutating the deck", async () => {
+    const mixedInputs = [
+      {
+        find: "Old",
+        replace: "New",
+        edits: [{ find: "Old", replace: "New" }],
+      },
+      {
+        find: "Old",
+        fullContent: "<div>Whole slide replacement</div>",
+      },
+    ];
+
+    for (const input of mixedInputs) {
+      await expect(
+        action.run({ deckId: "deck-1", slideId: "slide-1", ...input }),
+      ).rejects.toThrow("Use exactly one input mode");
+    }
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects style-only edits that change slide structure", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
     await expect(
       action.run({
         deckId: "deck-1",
         slideId: "slide-1",
-        find: "Old",
-        replace: "New",
-        edits: [{ find: "Old", replace: "New" }],
+        styleOnly: true,
+        edits: [{ find: "Headline", replace: "Changed", expectedMatches: 1 }],
       }),
-    ).rejects.toThrow("Use --edits instead of combining it");
+    ).rejects.toThrow("Style-only slide edits must preserve");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("accepts style-only CSS edits without changing slide structure", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: [
+        {
+          find: "border: 1px solid blue",
+          replace: "border: 0",
+          expectedMatches: 1,
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="padding: 80px;"><div style="border: 0; padding: 20px;"><h1>Headline</h1></div></div>',
+    );
+  });
+
+  it("rejects newly introduced unresolved placeholder content", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div><h2>Right card content</h2></div>",
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [
+          {
+            find: "Right card content",
+            replace: "__RIGHT_CARD__",
+            expectedMatches: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow("unresolved placeholder content");
 
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();

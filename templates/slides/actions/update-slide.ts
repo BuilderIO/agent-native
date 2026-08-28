@@ -94,9 +94,46 @@ function storedCreativeContext(value: unknown): {
   };
 }
 
+const unresolvedPlaceholderPattern =
+  /__[A-Za-z][A-Za-z0-9]*(?:[_ -][A-Za-z0-9]+)*__/g;
+
+function assertNoNewUnresolvedPlaceholders(
+  previousContent: string,
+  nextContent: string,
+): void {
+  const previous = new Set(previousContent.match(unresolvedPlaceholderPattern));
+  const introduced = [
+    ...new Set(nextContent.match(unresolvedPlaceholderPattern)),
+  ].filter((marker) => !previous.has(marker));
+  if (introduced.length > 0) {
+    throw new Error(
+      `Slide edit introduced unresolved placeholder content: ${introduced.join(", ")}. Re-read the slide and preserve the existing content instead of using markers as stand-ins.`,
+    );
+  }
+}
+
+function styleInvariant(content: string): string {
+  return content
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function assertStyleOnlyEdit(
+  previousContent: string,
+  nextContent: string,
+): void {
+  if (styleInvariant(previousContent) !== styleInvariant(nextContent)) {
+    throw new Error(
+      "Style-only slide edits must preserve text, markup, element order, and layout structure; use edits that change only CSS declarations",
+    );
+  }
+}
+
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for reorders or changes that must stay consistent across lists, tables, or other representations. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Use exactly one input mode: edits, legacy find/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated, especially for style-only requests, reorders, or changes that must stay consistent across lists, tables, or other representations. For style-only requests, set styleOnly=true and use edits that change only the requested CSS declarations and preserve text and layout properties; the action rejects text or markup changes and fullContent in that mode. Never use unresolved placeholder markers as stand-ins for preserved content. Use baseContentHash from get-deck to reject stale patches, then re-read the targeted slide to verify every affected representation and the requested scope. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -157,6 +194,13 @@ export default defineAction({
       .describe(
         "Ordered atomic edits against the current HTML. Each edit must match unless required=false. Use expectedMatches to make ambiguity explicit.",
       ),
+    styleOnly: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Set true for a styling-only request. Requires edits and rejects any change outside CSS declarations, including text, markup, or layout structure.",
+      ),
     baseContentHash: z
       .string()
       .optional()
@@ -207,20 +251,31 @@ export default defineAction({
       baseContentHash,
       format,
       preserveSource,
+      styleOnly,
       contextPackId,
       contextModeOverride,
       reuseLabels,
     } = args;
-    if (!edits && find === undefined && fullContent === undefined) {
+    const hasLegacyMode = find !== undefined || replace !== undefined;
+    const inputModeCount =
+      Number(Boolean(edits)) +
+      Number(hasLegacyMode) +
+      Number(fullContent !== undefined);
+    if (inputModeCount === 0) {
       throw new Error("One of --edits, --find, or --fullContent is required");
+    }
+    if (inputModeCount > 1) {
+      throw new Error(
+        "Use exactly one input mode: --edits, --find/--replace, or --fullContent; do not combine modes",
+      );
+    }
+    if (styleOnly && !edits) {
+      throw new Error(
+        "Style-only slide edits require --edits and cannot use --fullContent or legacy find/replace",
+      );
     }
     if (find !== undefined && find.length === 0) {
       throw new Error("find must not be empty for legacy search/replace");
-    }
-    if (edits && (find !== undefined || fullContent !== undefined)) {
-      throw new Error(
-        "Use --edits instead of combining it with --find or --fullContent",
-      );
     }
     await assertAccess("deck", deckId, "editor");
 
@@ -302,15 +357,22 @@ export default defineAction({
       // per-edit breakdown to report.
       let editResults: string[] | undefined;
       const previousContent = String(slide.content ?? "");
-
-      if (fullContent !== undefined) {
-        const nextContent = normalizeSlidePadding(fullContent);
+      const validateNextContent = (nextContent: string) => {
+        assertNoNewUnresolvedPlaceholders(previousContent, nextContent);
+        if (styleOnly) {
+          assertStyleOnlyEdit(previousContent, nextContent);
+        }
         assertSourceSlidePreserved({
           metadata: sourceImportForDeck(deck.sourceImport),
           slideId,
           nextContent,
           preserveSource,
         });
+      };
+
+      if (fullContent !== undefined) {
+        const nextContent = normalizeSlidePadding(fullContent);
+        validateNextContent(nextContent);
         slide.content = nextContent;
         applied = nextContent !== previousContent;
       } else if (edits) {
@@ -323,12 +385,7 @@ export default defineAction({
           format,
         );
         const nextContent = normalizeSlidePadding(patched.content);
-        assertSourceSlidePreserved({
-          metadata: sourceImportForDeck(deck.sourceImport),
-          slideId,
-          nextContent,
-          preserveSource,
-        });
+        validateNextContent(nextContent);
         slide.content = nextContent;
         applied = patched.changed;
         editResults = patched.applied;
@@ -342,12 +399,7 @@ export default defineAction({
             previousContent.slice(0, idx) +
             (replace ?? "") +
             previousContent.slice(idx + find.length);
-          assertSourceSlidePreserved({
-            metadata: sourceImportForDeck(deck.sourceImport),
-            slideId,
-            nextContent,
-            preserveSource,
-          });
+          validateNextContent(nextContent);
           slide.content = nextContent;
           applied = nextContent !== previousContent;
         }
