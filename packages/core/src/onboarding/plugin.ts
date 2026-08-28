@@ -24,7 +24,7 @@ import {
 
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
-import { getSession } from "../server/auth.js";
+import { cookieDomainAttrs, getSession } from "../server/auth.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
@@ -322,7 +322,10 @@ export function createOnboardingPlugin(
             FIRST_RUN_ONBOARDING_COMPLETED_KEY,
           );
           if (completed?.completed === true) {
-            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+              path: "/",
+              ...cookieDomainAttrs(),
+            });
             return { firstRun: false };
           }
 
@@ -338,7 +341,10 @@ export function createOnboardingPlugin(
           const firstRun =
             orgContext.orgId !== null && eligible?.orgId === orgContext.orgId;
           if (!firstRun) {
-            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+              path: "/",
+              ...cookieDomainAttrs(),
+            });
           }
           return {
             firstRun,
@@ -402,7 +408,10 @@ export function createOnboardingPlugin(
           { completed: true, at: new Date().toISOString() },
           { requestSource: "agent" },
         );
-        deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+        deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+          path: "/",
+          ...cookieDomainAttrs(),
+        });
         return { ok: true };
       }),
     );
