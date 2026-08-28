@@ -272,7 +272,7 @@ describe("EventDetailPopover characterization", () => {
       'div[class*="radix-popover-content-available-height"]',
     );
     expect(content).toBeTruthy();
-    expect(content?.className).toContain("w-[min(18rem,calc(100vw-2rem))]");
+    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {

@@ -1524,7 +1524,7 @@ export function EventDetailPopover({
         side={isMobile ? "bottom" : (popoverSide ?? "right")}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(18rem,calc(100vw-2rem))] flex-col overflow-hidden p-0"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
