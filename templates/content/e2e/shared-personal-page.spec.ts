@@ -377,12 +377,9 @@ test("an editor can read and edit one shared Personal page without gaining its p
       await expect(
         recipient.locator('[data-block-fields-state="error"]'),
       ).toBeVisible();
-      await crossFailureDurabilityBoundary(recipient);
-      propertyFailureActive = false;
-      await recipient.getByRole("button", { name: "Retry" }).click();
-      await expect(
-        recipient.locator('[data-block-fields-state="error"]'),
-      ).toHaveCount(0);
+      // Property initialization fails before the primary editor mounts, so
+      // crossing its full debounce interval is the relevant durability boundary.
+      await recipient.waitForTimeout(1_000);
       const propertyFailureUnchanged = await getAction(owner, "get-document", {
         id: documentId,
       });
@@ -390,6 +387,11 @@ test("an editor can read and edit one shared Personal page without gaining its p
       expect(await getCollabState(owner, documentId)).toBe(
         persistedCollabBaseline,
       );
+      propertyFailureActive = false;
+      await recipient.getByRole("button", { name: "Retry" }).click();
+      await expect(
+        recipient.locator('[data-block-fields-state="error"]'),
+      ).toHaveCount(0);
       await expect(recipient.locator(".ProseMirror")).toContainText(editedBody);
       await recipient.unrouteAll({ behavior: "wait" });
     }
