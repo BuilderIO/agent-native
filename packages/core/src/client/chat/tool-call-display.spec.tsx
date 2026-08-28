@@ -139,6 +139,10 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("waits five minutes before showing the long-running hint", () => {
+    expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(5 * 60_000);
+  });
+
   it("renders the provider logo for catalog-backed MCP tools", async () => {
     await act(async () => {
       root.render(
@@ -324,7 +328,9 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Asking Analytics...");
     expect(container.textContent).not.toContain("Asked Analytics");
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-spinner]"),
+    ).not.toBeNull();
   });
 
   it("keeps a remote pending delegation out of the terminal state", () => {
@@ -342,7 +348,9 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Asking Analytics...");
     expect(container.textContent).not.toContain("Asked Analytics");
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-spinner]"),
+    ).not.toBeNull();
   });
 
   it("shows activity tool cards as running while the chat runs", () => {
@@ -361,7 +369,9 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("generate design");
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-spinner]"),
+    ).not.toBeNull();
     expect(
       container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
     ).toBe("true");
@@ -383,7 +393,7 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("generate design");
-    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector("[data-agent-native-spinner]")).toBeNull();
     expect(
       container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
     ).toBeNull();
@@ -406,7 +416,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("may or may not have completed");
     expect(container.querySelector(".text-destructive")).toBeNull();
-    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector("[data-agent-native-spinner]")).toBeNull();
   });
 
   it("does not animate a tool row that mounts already resolved", () => {
@@ -552,7 +562,9 @@ describe("ToolCallDisplay native renderers", () => {
       });
 
       expect(container.querySelectorAll(".agent-tool-call")).toHaveLength(1);
-      expect(container.querySelectorAll(".animate-spin")).toHaveLength(1);
+      expect(
+        container.querySelectorAll("[data-agent-native-spinner]"),
+      ).toHaveLength(1);
       expect(container.textContent).toContain("Asking Analytics...");
       expect(container.textContent).not.toContain("call agent");
 
@@ -1141,7 +1153,9 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("generate design");
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-native-spinner]"),
+    ).not.toBeNull();
   });
 
   it("does not spin frozen reconnect activity cards", () => {
@@ -1168,7 +1182,7 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("update extension");
-    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector("[data-agent-native-spinner]")).toBeNull();
   });
 
   it("renders explicit native widgets ahead of MCP Apps metadata", async () => {

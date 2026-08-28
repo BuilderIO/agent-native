@@ -1,5 +1,5 @@
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
-  IconLoader2,
   IconChevronRight,
   IconExternalLink,
   IconAlertCircle,
@@ -168,7 +168,7 @@ export function AgentTaskCard({
       >
         <span className="relative flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="size-3.5 animate-spin" />
+            <Spinner aria-hidden="true" className="size-3.5" />
           ) : isError ? (
             <IconAlertCircle className="size-3.5 text-destructive" />
           ) : (

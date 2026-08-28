@@ -1,46 +1,16 @@
-import { useEffect, useState } from "react";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 
 /**
  * Full-screen loading spinner rendered during SSR and initial hydration.
- * Uses inline SVG + styles because Tailwind may not be loaded yet on the server.
+ * Uses inline layout because Tailwind may not be loaded yet on the server.
  * Respects the user's OS color scheme so dark-mode users don't get a white flash.
- *
- * In development builds, the stall hint is revealed by a pure-CSS
- * `animation-delay`, never a timer:
- * the states that strand a user here (hydration never runs, the route module
- * 404s, a cold dev-server compile) are exactly the states where no JS of ours
- * executes, so a `setTimeout` fallback would never fire. A featureless spinner
- * is indistinguishable from a blank screen, and reads as "the app is broken"
- * rather than "look at the terminal" — that mis-read is what this text buys.
  */
-
-function isDevelopmentBuild(): boolean {
-  if (
-    typeof process !== "undefined" &&
-    process.env?.NODE_ENV === "production"
-  ) {
-    return false;
-  }
-  const viteEnv = (
-    import.meta as ImportMeta & {
-      env?: { DEV?: boolean; PROD?: boolean };
-    }
-  ).env;
-  if (viteEnv?.PROD === true) return false;
-  return viteEnv?.DEV === true;
-}
 
 export function DefaultSpinner({
   ariaLabel = "Loading",
 }: {
   ariaLabel?: string;
 }) {
-  const [showStallHint, setShowStallHint] = useState(false);
-
-  useEffect(() => {
-    setShowStallHint(isDevelopmentBuild());
-  }, []);
-
   return (
     <div
       style={{
@@ -48,56 +18,24 @@ export function DefaultSpinner({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 16,
         height: "100vh",
         width: "100%",
       }}
     >
-      <svg
-        role="status"
-        aria-label={ariaLabel}
-        width={24}
-        height={24}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={{ animation: "an-spin 1s linear infinite", opacity: 0.7 }}
-      >
-        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-      </svg>
-      {showStallHint && (
-        <p className="an-stall-hint">
-          Still loading. A first run compiles dependencies and can take a minute
-          — if it does not finish, check the terminal running the dev server for
-          errors.
-        </p>
-      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Spinner aria-label={ariaLabel} className="size-6" />
+        <span
+          style={{
+            fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            fontSize: 16,
+            fontWeight: 500,
+            opacity: 0.65,
+          }}
+        >
+          Churning
+        </span>
+      </div>
       <style>{`
-        @keyframes an-spin { to { transform: rotate(360deg) } }
-        ${
-          showStallHint
-            ? `
-        @keyframes an-stall-in { to { opacity: 0.6 } }
-        .an-stall-hint {
-          opacity: 0;
-          margin: 0;
-          max-width: 32rem;
-          padding: 0 1.5rem;
-          text-align: center;
-          font-size: 0.875rem;
-          line-height: 1.5;
-          font-family: ui-sans-serif, system-ui, sans-serif;
-          animation: an-stall-in 0.4s ease-out 10s forwards;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .an-stall-hint { animation-duration: 0s }
-        }
-        `
-            : ""
-        }
         html {
           background: hsl(var(--background, 0 0% 100%));
           color: hsl(var(--foreground, 240 10% 3.9%));

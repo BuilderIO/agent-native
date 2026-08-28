@@ -1,9 +1,9 @@
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconCheck,
   IconCode,
   IconCopy,
   IconExternalLink,
-  IconLoader2,
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
@@ -337,7 +337,7 @@ export function ConnectBuilderCard({
           )}
         >
           {runResult ? (
-            <IconLoader2 className="h-5 w-5 animate-spin" />
+            <Spinner aria-hidden="true" className="h-5 w-5" />
           ) : showExternalAgentHandoff ? (
             <IconCode className="h-5 w-5" />
           ) : (
@@ -399,7 +399,7 @@ export function ConnectBuilderCard({
                     )}
                   >
                     {localCodeChangeRequested ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                     ) : (
                       <IconCode className="h-3.5 w-3.5" />
                     )}
@@ -420,7 +420,7 @@ export function ConnectBuilderCard({
                 >
                   {sending ? (
                     <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                       Sending to Builder…
                     </>
                   ) : (
@@ -443,7 +443,7 @@ export function ConnectBuilderCard({
                     )}
                   >
                     {localCodeChangeRequested ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                     ) : (
                       <IconCode className="h-3.5 w-3.5" />
                     )}
@@ -487,7 +487,7 @@ export function ConnectBuilderCard({
                     )}
                   >
                     {localCodeChangeRequested ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                     ) : (
                       <IconCode className="h-3.5 w-3.5" />
                     )}
@@ -507,7 +507,7 @@ export function ConnectBuilderCard({
                 >
                   {joiningWaitlist ? (
                     <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                       Joining…
                     </>
                   ) : (
@@ -530,7 +530,7 @@ export function ConnectBuilderCard({
                     )}
                   >
                     {localCodeChangeRequested ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                     ) : (
                       <IconCode className="h-3.5 w-3.5" />
                     )}
@@ -550,7 +550,7 @@ export function ConnectBuilderCard({
                 >
                   {connecting ? (
                     <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                       Waiting for Builder…
                     </>
                   ) : (
@@ -570,7 +570,7 @@ export function ConnectBuilderCard({
                 )}
               >
                 {localCodeChangeRequested ? (
-                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Spinner aria-hidden="true" className="h-3.5 w-3.5" />
                 ) : (
                   <IconCode className="h-3.5 w-3.5" />
                 )}

@@ -1,9 +1,9 @@
 // Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
 // and ReconnectStreamMessage used by AssistantChat.
 
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
-  IconLoader2,
   IconAlertTriangle,
   IconCircleX,
   IconCheck,
@@ -172,7 +172,7 @@ export function toolCallHasPendingApproval(part: {
   );
 }
 
-export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 5 * 60_000;
 
 export function ToolActivityPresentation({
   toolName,
@@ -1089,7 +1089,7 @@ function ToolCallDisplayGeneric({
       >
         <span className="relative flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="size-3.5 animate-spin" />
+            <Spinner aria-hidden="true" className="size-3.5" />
           ) : isAgentError ? (
             <IconCircleX className="size-3.5 text-destructive" />
           ) : isUnknownOutcome ? (
@@ -1296,7 +1296,7 @@ function AgentCallCell({
         className="flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
         {isRunning ? (
-          <IconLoader2 className="size-3.5 animate-spin" />
+          <Spinner aria-hidden="true" className="size-3.5" />
         ) : isError ? (
           <IconCircleX className="size-3.5 text-destructive" />
         ) : (
@@ -1368,7 +1368,7 @@ function AgentActivityToolCallRow({
       <div className="my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground">
         <span className="flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="size-3.5 animate-spin" />
+            <Spinner aria-hidden="true" className="size-3.5" />
           ) : (
             <ToolIcon className="size-3.5" />
           )}

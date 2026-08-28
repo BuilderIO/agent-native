@@ -5,6 +5,7 @@
 
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   useThreadRuntime,
   useMessageRuntime,
@@ -42,7 +43,6 @@ import {
   IconMessageChatbot,
   IconPencil,
   IconAlertTriangle,
-  IconLoader2,
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
@@ -2184,7 +2184,7 @@ export function AssistantMessage() {
             </div>
           ) : showRestore && restoreState === "restoring" ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <IconLoader2 className="h-3 w-3 animate-spin" />
+              <Spinner aria-hidden="true" className="h-3 w-3" />
               {t("agentChat.message.restoring")}
             </span>
           ) : restoreState === "error" ? (

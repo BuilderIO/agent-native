@@ -7,12 +7,12 @@
  *            capped at MAX_VISIBLE_LINES by default (expandable)
  */
 
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   IconChevronDown,
   IconCircleCheck,
   IconCircleX,
   IconClock,
-  IconLoader2,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
@@ -90,7 +90,7 @@ export function BashCell({ meta, output, isRunning }: BashCellProps) {
         {/* Status icon */}
         <span className="shrink-0">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <Spinner aria-hidden="true" className="h-3 w-3" />
           ) : failed ? (
             <IconCircleX className="h-3 w-3 text-destructive" />
           ) : (

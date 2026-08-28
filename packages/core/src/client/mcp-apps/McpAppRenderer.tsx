@@ -1,3 +1,4 @@
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import {
   AppBridge,
   PostMessageTransport,
@@ -6,7 +7,7 @@ import {
   type McpUiResourcePermissions,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -349,7 +350,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     >
       {!ready && !error && (
         <div className="agent-mcp-app__loading">
-          <IconLoader2 size={14} className="agent-conversation-spin" />
+          <Spinner aria-hidden="true" size={14} />
           <span>Loading MCP App</span>
         </div>
       )}
