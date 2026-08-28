@@ -290,7 +290,9 @@ export default defineAction({
       }
     }
 
-    const visibleDocumentIds = new Set(documents.map((document) => document.id));
+    const visibleDocumentIds = new Set(
+      documents.map((document) => document.id),
+    );
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
