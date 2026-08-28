@@ -9,19 +9,35 @@ const ONE_PAGER_CREATION_PATTERN =
 
 const EXPLICIT_PLAN_PATTERN =
   /\b(?:(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:one[-\s]?page(?:r)?s?\s+)?(?:plans?|prototypes?|recaps?)|one[-\s]?page(?:r)?s?\s+(?:(?:interactive|visual)(?:\s*,\s*|\s+)){1,2}(?:plans?|prototypes?|recaps?))\b/i;
-const NEGATION_PATTERN =
-  /\b(?:do\s+not|don't|dont|never|not(?!\s+only)|no\s+need|instead\s+of|rather\s+than)\b/i;
 const NEGATED_MATCH_PATTERN =
-  /\b(?:without|no)\s+(?:a\s+|an\s+|the\s+)?(?:[\w-]+\s+){0,6}(?:(?:interactive|visual)\s+){0,2}(?:one[-\s]?page(?:r)?s?|visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
+  /\b(?:not(?!\s+only)|without|no)\s+(?:a\s+|an\s+|the\s+)?(?:[\w-]+\s+){0,6}(?:(?:interactive|visual)\s+){0,2}(?:one[-\s]?page(?:r)?s?|visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration|design|intake|form|plan|prototype|recap)\b/i;
 const VISUAL_PROSE_EXCLUSION_PATTERN =
   /\b(?:about|documentation|document|report)\b/i;
+const ROUTING_ACTION_PATTERN =
+  /\b(?:file|submit|add|log|track|triage|prioriti[sz]e|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b/gi;
+const CREATION_ACTION_PATTERN =
+  /\b(?:assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b/i;
+const INFORMATIONAL_ACTION_PATTERN =
+  /\b(?:how\s+(?:do|can|should|would)|how\s+to|explain\s+how)\b/i;
+const NEGATED_ACTION_PREFIX_PATTERN =
+  /(?:\b(?:do\s+not|don't|dont|never)\s*|\bno\s+need(?:\s+to)?\s*|\b(?:instead\s+of|rather\s+than)\s*)$/i;
 const ACTION_CLAUSE_SPLIT_PATTERN =
-  /[.!?;]+|,(?=\s*(?:do\s+not|don't|dont|never|not|no\b|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together|discuss|compare|review|explain|describe|summarize|outline|analy[sz]e|edit|update|revise|check|evaluate)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
+  /[.!?;:—]+|,(?=\s*(?:do\s+not|don't|dont|never|not|no\b|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b)|\b(?:but\s+rather|but|and|or|then)\b(?=\s+(?:do\s+not|don't|dont|never|not|no(?:\s+need)?|assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together|discuss|compare|review|explain|describe|summarize|outline|analy[sz]e|edit|update|revise|check|evaluate)\b)|(?=\b(?:instead(?:\s+of)?|rather\s+than)\b)/gi;
 
 const VISUAL_DESIGN_PATTERNS = [
   /\b(?:assemble|build|design|redesign|create|draft|generate|make|prepare|produce|write|put\s+together|mock(?:\s+up)?)\b.{0,64}\b(?:visual|mockup|wireframe|screen|interface|ui|website|landing\s+page|homepage|logo|graphic|illustration)\b/i,
   /\b(?:visual|ui|website|product|brand)\s+design\b/i,
 ];
+
+function findLastRoutingAction(
+  text: string,
+): { index: number; text: string } | undefined {
+  let lastMatch: { index: number; text: string } | undefined;
+  for (const match of text.matchAll(ROUTING_ACTION_PATTERN)) {
+    lastMatch = { index: match.index, text: match[0] };
+  }
+  return lastMatch;
+}
 
 function hasAffirmativeMatch(
   text: string,
@@ -35,14 +51,23 @@ function hasAffirmativeMatch(
     if (match?.index === undefined) return false;
 
     const matchPrefix = clause.slice(0, match.index);
-    const matchContext = clause.slice(0, match.index + match[0].length);
+    const matchEnd = match.index + match[0].length;
+    const actionAtMatchStart = match[0].match(CREATION_ACTION_PATTERN);
+    const actionMatch =
+      actionAtMatchStart?.index === 0
+        ? { index: match.index, text: actionAtMatchStart[0] }
+        : findLastRoutingAction(matchPrefix);
+    const actionStart = actionMatch?.index;
+    const actionPrefix =
+      actionStart === undefined ? matchPrefix : clause.slice(0, actionStart);
+    const actionContext = clause.slice(actionStart ?? match.index, matchEnd);
     return (
-      !NEGATION_PATTERN.test(matchPrefix) &&
-      (!rejectNegatedMatch ||
-        (!NEGATION_PATTERN.test(matchContext) &&
-          !NEGATED_MATCH_PATTERN.test(matchContext))) &&
-      (!matchExclusionPattern || !matchExclusionPattern.test(matchContext)) &&
-      (!actionPattern || actionPattern.test(matchPrefix))
+      !NEGATED_ACTION_PREFIX_PATTERN.test(actionPrefix) &&
+      (!actionPattern ||
+        (actionMatch !== undefined && actionPattern.test(actionMatch.text))) &&
+      (!actionPattern || !INFORMATIONAL_ACTION_PATTERN.test(actionPrefix)) &&
+      (!rejectNegatedMatch || !NEGATED_MATCH_PATTERN.test(actionContext)) &&
+      (!matchExclusionPattern || !matchExclusionPattern.test(actionContext))
     );
   });
 }
@@ -65,7 +90,7 @@ export function dispatchIntegrationRoutingHint(
     hasAffirmativeMatch(
       normalized,
       EXPLICIT_PLAN_PATTERN,
-      /\b(?:assemble|build|create|design|redesign|draft|generate|make|prepare|produce|write|put\s+together)\b/i,
+      CREATION_ACTION_PATTERN,
       true,
     )
   ) {
@@ -92,7 +117,7 @@ export function dispatchIntegrationRoutingHint(
       hasAffirmativeMatch(
         normalized,
         pattern,
-        undefined,
+        CREATION_ACTION_PATTERN,
         true,
         VISUAL_PROSE_EXCLUSION_PATTERN,
       ),
@@ -106,7 +131,12 @@ export function dispatchIntegrationRoutingHint(
   }
 
   if (
-    hasAffirmativeMatch(normalized, ONE_PAGER_CREATION_PATTERN, undefined, true)
+    hasAffirmativeMatch(
+      normalized,
+      ONE_PAGER_CREATION_PATTERN,
+      CREATION_ACTION_PATTERN,
+      true,
+    )
   ) {
     return {
       targetAgent: "content",

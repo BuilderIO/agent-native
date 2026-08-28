@@ -143,6 +143,13 @@ describe("dispatchIntegrationRoutingHint", () => {
   });
 
   it.each([
+    "How do I create a one-pager?",
+    "Explain how to create an interactive visual plan",
+  ])("does not route how-to questions as artifact creation: %s", (text) => {
+    expect(dispatchIntegrationRoutingHint(text)).toBeUndefined();
+  });
+
+  it.each([
     "Do not create a one-pager",
     "Do not create an interactive visual plan",
     "Create no one-pager",
@@ -160,6 +167,9 @@ describe("dispatchIntegrationRoutingHint", () => {
       "Do not create an interactive visual plan; instead create a one-pager",
       "Don't create a visual plan, create a one-pager instead",
       "Don't create a visual plan, but create a one-pager instead",
+      "Do not create an interactive visual plan: create a one-pager",
+      "Do not create an interactive visual plan — create a one-pager",
+      "Do not use an interactive visual plan template to create a one-pager",
       "For the customer who is not available, create a one-pager",
     ]) {
       expect(dispatchIntegrationRoutingHint(text)).toMatchObject({
