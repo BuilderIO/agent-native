@@ -34,7 +34,7 @@ import {
   IconSpacingVertical,
   IconStackBack,
   IconStackFront,
-  IconTransitionRight,
+  IconBolt,
   IconUnderline,
   IconZoomIn,
   IconZoomOut,
@@ -256,14 +256,14 @@ export function SlideContextToolbar({
                   MENU_BUTTON_CLASS,
                   animationsOpen && TOGGLE_ACTIVE_CLASS,
                 )}
-                aria-label={t("editorToolbar.transition")}
+                aria-label={t("animations.title")}
                 aria-pressed={animationsOpen}
                 onClick={onOpenAnimations}
               >
-                <IconTransitionRight className="size-3.5" />
+                <IconBolt className="size-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{t("editorToolbar.transition")}</TooltipContent>
+            <TooltipContent>{t("animations.title")}</TooltipContent>
           </Tooltip>
           <div className={TOOLBAR_DIVIDER} />
         </>
