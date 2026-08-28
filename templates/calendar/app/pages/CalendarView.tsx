@@ -200,14 +200,6 @@ function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
   const fallback = fallbackDraftRange(fallbackDate);
   const fullDayTimezone = draft.startTimeZone ?? draft.endTimeZone;
   const fullDayDatePattern = /^\d{4}-\d{2}-\d{2}$/;
-  const dateOnlyAllDay =
-    draft.allDay === true &&
-    Boolean(
-      draft.start &&
-      draft.end &&
-      fullDayDatePattern.test(draft.start) &&
-      fullDayDatePattern.test(draft.end),
-    );
   const semanticFullDay =
     draft.eventType === "outOfOffice" &&
     draft.fullDay &&
@@ -216,6 +208,15 @@ function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
     draft.end &&
     fullDayDatePattern.test(draft.start) &&
     fullDayDatePattern.test(draft.end);
+  const dateOnlyAllDay =
+    draft.allDay === true &&
+    !semanticFullDay &&
+    Boolean(
+      draft.start &&
+      draft.end &&
+      fullDayDatePattern.test(draft.start) &&
+      fullDayDatePattern.test(draft.end),
+    );
   const start = dateOnlyAllDay
     ? dateKeyToDate(draft.start!)
     : semanticFullDay
@@ -334,11 +335,11 @@ function applyDraftPatch(
   copy("location");
   copy("allDay");
   copy("fullDay");
-  if (patch.allDay === true) {
+  copy("eventType");
+  if (patch.allDay === true && next.eventType !== "outOfOffice") {
     delete next.startTimeZone;
     delete next.endTimeZone;
   }
-  copy("eventType");
   copy("outOfOfficeProperties");
   copy("transparency");
   copy("visibility");
@@ -859,10 +860,11 @@ export default function CalendarView() {
             ? draft.start!
             : start.toISOString(),
         end: semanticFullDay || dateOnlyAllDay ? draft.end! : end.toISOString(),
-        startTimeZone: draft.allDay ? undefined : timezone,
-        endTimeZone: draft.allDay
-          ? undefined
-          : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
+        startTimeZone: draft.allDay && !semanticFullDay ? undefined : timezone,
+        endTimeZone:
+          draft.allDay && !semanticFullDay
+            ? undefined
+            : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
         location: eventType === "outOfOffice" ? "" : location,
         accountEmail,
         allDay: draft.allDay ?? false,
@@ -1340,7 +1342,6 @@ export default function CalendarView() {
     [
       displayTimezone,
       events,
-      displayTimezone,
       updateDraftEvent,
       promptGuestNotification,
       updateEvent,

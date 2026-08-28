@@ -34,6 +34,7 @@ import {
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 import { cn } from "@/lib/utils";
 
+import type { CommentPreviewData } from "./playback-comment-overlay";
 import { ReactionsTray, type ReactionHandler } from "./reactions-tray";
 import { Scrubber, msToClock } from "./scrubber";
 
@@ -52,9 +53,12 @@ export interface PlayerControlsProps {
   isFullscreen: boolean;
   isPip: boolean;
   theaterMode: boolean;
-  comments?: { id: string; videoTimestampMs: number; content: string }[];
+  comments?: (CommentPreviewData & {
+    videoTimestampMs: number;
+  })[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
+  onMarkerLanesChange?: (lanes: Map<number, number>) => void;
   onPlayPause: () => void;
   onSeek: (ms: number) => void;
   onSeekRelative: (deltaMs: number) => void;
@@ -95,6 +99,7 @@ export function PlayerControls(props: PlayerControlsProps) {
     comments,
     chapters,
     reactions,
+    onMarkerLanesChange,
     onPlayPause,
     onSeek,
     onSeekRelative,
@@ -131,6 +136,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         comments={comments}
         chapters={chapters}
         reactions={reactions}
+        onMarkerLanesChange={onMarkerLanesChange}
       />
 
       {/* guard:allow-raw-color -- video controls overlay the dark player scrim itself, not themed app chrome, so text stays white regardless of light/dark mode */}

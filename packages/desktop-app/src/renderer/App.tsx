@@ -78,7 +78,9 @@ export default function App() {
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
   const refreshWorkspaceAppList = useCallback(async () => {
-    const loader = window.electronAPI?.appConfig?.loadWorkspace;
+    const loader = window.electronAPI?.appConfig
+      ? () => window.electronAPI!.appConfig!.loadWorkspace!()
+      : undefined;
     if (!loader) {
       setWorkspaceAppList(undefined);
       return;
@@ -94,7 +96,9 @@ export default function App() {
   // has resolved. A change has to remount webviews — they are already pointed
   // at the previous origin.
   const refreshEnvironmentLane = useCallback(async () => {
-    const getLane = window.electronAPI?.identity?.getEnvironmentLane;
+    const getLane = window.electronAPI?.identity
+      ? () => window.electronAPI!.identity!.getEnvironmentLane()
+      : undefined;
     if (!getLane) return;
     try {
       const state = await getLane();
@@ -128,7 +132,13 @@ export default function App() {
 
   useEffect(() => {
     void refreshWorkspaceAppList();
-    const onStatusChange = window.electronAPI?.identity?.onStatusChange;
+    const onStatusChange = window.electronAPI?.identity
+      ? (
+          callback: Parameters<
+            typeof window.electronAPI.identity.onStatusChange
+          >[0],
+        ) => window.electronAPI!.identity!.onStatusChange(callback)
+      : undefined;
     if (!onStatusChange) return;
     return onStatusChange((status) => {
       // App is the shell-level subscriber, so sign-out invalidates the
@@ -153,7 +163,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onKeydown = window.electronAPI?.shortcuts?.onKeydown;
+    const onKeydown = window.electronAPI?.shortcuts
+      ? (
+          callback: Parameters<
+            typeof window.electronAPI.shortcuts.onKeydown
+          >[0],
+        ) => window.electronAPI!.shortcuts!.onKeydown(callback)
+      : undefined;
     if (!onKeydown) return;
     return onKeydown((input) => {
       if (

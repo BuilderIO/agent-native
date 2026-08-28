@@ -143,7 +143,7 @@ describe("RecordingOptionsMenu", () => {
     act(() => deleteButton?.click());
     expect(mocks.mutationOptions).not.toBeNull();
 
-    act(() => mocks.mutationOptions.onSuccess());
+    void act(() => mocks.mutationOptions.onSuccess());
     expect(onDeleted).not.toHaveBeenCalled();
 
     const closeEvent = { preventDefault: vi.fn() };

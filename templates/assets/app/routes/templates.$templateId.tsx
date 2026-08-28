@@ -1108,7 +1108,7 @@ export default function TemplateEditorRoute() {
     try {
       await deletePreset.mutateAsync({ id: preset.id });
       toast.success(t("brandKitDetail.generationPresetDeleted"));
-      navigate(settingsHref);
+      void navigate(settingsHref);
     } catch (error) {
       toast.error(
         error instanceof Error && error.message === "template-in-use"

@@ -32,10 +32,7 @@ function copyTitle(title: string): string {
   return /\(copy\)$/i.test(trimmed) ? trimmed : `${trimmed} (copy)`;
 }
 
-function remapJsonValue(
-  value: unknown,
-  ids: Map<string, string>,
-): JsonValue | unknown {
+function remapJsonValue(value: unknown, ids: Map<string, string>): unknown {
   if (typeof value === "string") {
     return ids.get(value) ?? value;
   }

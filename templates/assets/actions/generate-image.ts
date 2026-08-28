@@ -1439,7 +1439,10 @@ function logSkeletonGeneration(
   if (process.env.NODE_ENV === "test") return;
   const detail = Object.entries(fields)
     .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${key}=${value}`)
+    .map(
+      ([key, value]) =>
+        `${key}=${typeof value === "string" ? value : (JSON.stringify(value) ?? "")}`,
+    )
     .join(" ");
   console.info(
     `[assets] preset-skeleton ${event}${detail ? ` ${detail}` : ""}`,

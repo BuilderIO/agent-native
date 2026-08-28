@@ -34,7 +34,7 @@ export function useCreateForm() {
   const qc = useQueryClient();
   return useActionMutation("create-form", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
     },
     onError: () => {
       toast.error("Failed to create form");
@@ -46,8 +46,8 @@ export function useUpdateForm() {
   const qc = useQueryClient();
   return useActionMutation("update-form", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
       // Surface the server's actual error message (e.g. publish validation
@@ -73,7 +73,7 @@ export function usePatchFormFields() {
   const qc = useQueryClient();
   return useActionMutation("patch-form-fields", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (err: unknown) => {
       const message =
@@ -119,8 +119,8 @@ export function useDeleteForm() {
       return { removed } satisfies FormListMutationContext;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: (_error, variables, context) => {
       const mutationContext = context as FormListMutationContext | undefined;
@@ -145,8 +145,8 @@ export function useRestoreForm() {
   const qc = useQueryClient();
   return useActionMutation("restore-form", {
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
-      qc.invalidateQueries({ queryKey: ["action", "get-form"] });
+      void qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
+      void qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
     onError: () => {
       toast.error("Failed to restore form");

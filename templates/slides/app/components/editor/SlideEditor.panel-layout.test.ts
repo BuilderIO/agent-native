@@ -29,6 +29,28 @@ describe("editor side panels", () => {
     expect(editorSource).not.toContain("SlideStyleInspector");
     expect(editorSource).not.toContain('data-slide-style-dock="true"');
   });
+
+  it("clears generic animation targets when the active slide changes", () => {
+    expect(pageSource).toContain(`useEffect(() => {
+    setAnimationTarget(null);
+  }, [activeSlideId]);`);
+    const toggleAnimationsStart = pageSource.indexOf(
+      "const toggleAnimations = useCallback(() => {",
+    );
+    const toggleLayersStart = pageSource.indexOf(
+      "const toggleLayers = useCallback",
+      toggleAnimationsStart,
+    );
+    const toggleAnimationsSource = pageSource.slice(
+      toggleAnimationsStart,
+      toggleLayersStart,
+    );
+    expect(toggleAnimationsSource).toContain("setLayersOpen(false);");
+    expect(toggleAnimationsSource).toContain("setAnimationTarget(null);");
+    expect(toggleAnimationsSource).toContain(
+      "setAnimationsOpen((open) => !open);",
+    );
+  });
 });
 
 describe("slide context toolbar", () => {
@@ -77,6 +99,18 @@ describe("slide context toolbar", () => {
   it("cancels native image dragging on the editable canvas", () => {
     expect(editorSource).toContain(
       "onDragStart={(event) => event.preventDefault()}",
+    );
+  });
+
+  it("keeps the comment target mounted for Excalidraw slides", () => {
+    expect(editorSource).toContain(
+      'data-main-slide-canvas="true"\n              data-slide-canvas-focus="true"',
+    );
+    expect(editorSource).toContain(
+      '<div className="slide-content relative h-full">',
+    );
+    expect(editorSource).toContain(
+      "canvasSelector=\"[data-main-slide-canvas='true']\"",
     );
   });
 });

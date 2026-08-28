@@ -1,10 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconArrowBigRight,
   IconCircle,
+  IconLine,
   IconPlus,
   IconShape2,
   IconSquare,
   IconTextSize,
+  IconTriangle,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -28,18 +31,46 @@ const IDLE_CLASS =
 const ACTIVE_CLASS = "bg-accent text-foreground";
 const DIVIDER_CLASS = "mx-1 h-4 w-px shrink-0 bg-border";
 
-export type SlideShapeType = "rectangle" | "circle";
+export type SlideShapeType =
+  | "rectangle"
+  | "circle"
+  | "arrow"
+  | "triangle"
+  | "line";
+
+export const SLIDE_SHAPE_LABEL_KEYS = {
+  rectangle: "editorToolbar.shapeRectangle",
+  circle: "editorToolbar.shapeCircle",
+  arrow: "editorToolbar.shapeArrow",
+  triangle: "editorToolbar.shapeTriangle",
+  line: "editorToolbar.shapeLine",
+} as const;
 
 const SHAPES = [
   {
     value: "rectangle" as const,
-    labelKey: "editorToolbar.shapeRectangle",
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.rectangle,
     icon: IconSquare,
   },
   {
     value: "circle" as const,
-    labelKey: "editorToolbar.shapeCircle",
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.circle,
     icon: IconCircle,
+  },
+  {
+    value: "arrow" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.arrow,
+    icon: IconArrowBigRight,
+  },
+  {
+    value: "triangle" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.triangle,
+    icon: IconTriangle,
+  },
+  {
+    value: "line" as const,
+    labelKey: SLIDE_SHAPE_LABEL_KEYS.line,
+    icon: IconLine,
   },
 ];
 
@@ -133,15 +164,16 @@ export function EditorActionCluster({
               </TooltipTrigger>
               <TooltipContent>{t("editorToolbar.shapes")}</TooltipContent>
             </Tooltip>
-            <PopoverContent align="start" className="w-44 p-1.5">
-              <div className="grid grid-cols-2 gap-1" role="menu">
+            <PopoverContent align="start" className="w-52 p-1.5">
+              <div className="grid grid-cols-5 gap-1" role="menu">
                 {SHAPES.map(({ value, labelKey, icon: ShapeIcon }) => (
                   <button
                     key={value}
                     type="button"
                     role="menuitem"
+                    aria-label={t(labelKey)}
                     className={cn(
-                      "flex flex-col items-center gap-1 rounded-md px-2 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                      "flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
                       shapeType === value && "bg-accent text-foreground",
                     )}
                     onClick={() => {
@@ -149,8 +181,7 @@ export function EditorActionCluster({
                       setShapeMenuOpen(false);
                     }}
                   >
-                    <ShapeIcon className="size-5" />
-                    {t(labelKey)}
+                    <ShapeIcon className="size-5" aria-hidden="true" />
                   </button>
                 ))}
               </div>

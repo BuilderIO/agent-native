@@ -853,7 +853,7 @@ function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
       {
         onSuccess: (library: any) => {
           setCreatingPresetId(null);
-          navigate(`/library/${library.id}`);
+          void navigate(`/library/${library.id}`);
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
@@ -995,7 +995,7 @@ function LibraryKitSelector({
 
   function selectLibrary(libraryId: string | null) {
     setOpen(false);
-    navigate(libraryId ? `/library/${libraryId}` : "/library");
+    void navigate(libraryId ? `/library/${libraryId}` : "/library");
   }
   const titleTrigger = triggerStyle === "title";
 

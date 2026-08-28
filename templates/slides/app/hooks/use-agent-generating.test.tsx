@@ -5,12 +5,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const agentChatState = vi.hoisted(() => ({
   generating: false,
+  stopReason: null as "stopped" | null,
   send: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   useAgentChatGenerating: () =>
-    [agentChatState.generating, agentChatState.send] as const,
+    [
+      agentChatState.generating,
+      agentChatState.send,
+      agentChatState.stopReason,
+    ] as const,
 }));
 
 import {
@@ -21,6 +26,7 @@ import {
 afterEach(() => {
   vi.useRealTimers();
   agentChatState.generating = false;
+  agentChatState.stopReason = null;
   agentChatState.send.mockReset();
 });
 
@@ -51,6 +57,25 @@ describe("useAgentGenerating", () => {
 
     agentChatState.generating = false;
     rerender();
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(result.current.generating).toBe(false);
+  });
+
+  it("clears generation immediately for an explicit stop", () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(() => useAgentGenerating());
+
+    agentChatState.generating = true;
+    rerender();
+    expect(result.current.generating).toBe(true);
+
+    agentChatState.generating = false;
+    agentChatState.stopReason = "stopped";
+    rerender();
+
+    expect(result.current.generating).toBe(false);
     act(() => {
       vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
     });

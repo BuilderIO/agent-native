@@ -52,7 +52,7 @@ interface Dictation {
   cleanedText?: string | null;
   durationMs?: number | null;
   audioUrl?: string | null;
-  source?: "fn-hold" | "cmd-shift-space" | string;
+  source?: "fn-hold" | "cmd-shift-space" | (string & {});
   createdAt: string;
 }
 
@@ -425,7 +425,9 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
       { id: dictation.id },
       {
         onSuccess: () => {
-          qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
+          void qc.invalidateQueries({
+            queryKey: ["action", "list-dictations"],
+          });
         },
       },
     );
@@ -450,11 +452,15 @@ function DictationRow({ dictation }: { dictation: Dictation }) {
       {
         onSuccess: () => {
           toast.success(t("dictateRoute.replacedOriginal"));
-          qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
+          void qc.invalidateQueries({
+            queryKey: ["action", "list-dictations"],
+          });
         },
         onError: () => {
           toast.error("Couldn't replace");
-          qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
+          void qc.invalidateQueries({
+            queryKey: ["action", "list-dictations"],
+          });
         },
       },
     );
@@ -771,7 +777,9 @@ export default function DictateRoute() {
       {
         onSuccess: () => {
           toast.success(t("dictateRoute.dictationSaved"));
-          qc.invalidateQueries({ queryKey: ["action", "list-dictations"] });
+          void qc.invalidateQueries({
+            queryKey: ["action", "list-dictations"],
+          });
         },
         onError: (err: Error) => {
           toast.error(err.message || "Couldn't save dictation");
@@ -781,7 +789,7 @@ export default function DictateRoute() {
         },
       },
     );
-  }, [createDictation, qc]);
+  }, [createDictation, qc, t]);
 
   const stopBrowserDictation = useCallback(() => {
     const recognition = recognitionRef.current;
@@ -862,7 +870,7 @@ export default function DictateRoute() {
         toast.error(err instanceof Error ? err.message : "Couldn't start");
       }
     },
-    [createDictation.isPending, finishBrowserDictation, listening],
+    [createDictation.isPending, finishBrowserDictation, listening, t],
   );
 
   useEffect(() => {

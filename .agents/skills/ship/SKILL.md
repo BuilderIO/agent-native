@@ -2,10 +2,11 @@
 name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
-  babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
-  beta and the docs site through the prebuilt publisher; other production
-  promotion is manual.
+  babysit it, merge when clean, merge safe Dependabot updates encountered in
+  the queue, then create a fresh branch. Use when the user asks to ship,
+  publish, or hand off local changes. GitHub Actions auto-deploys beta and the
+  docs site through the prebuilt publisher; other production promotion is
+  manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -18,23 +19,42 @@ Ship the complete nonignored current-branch snapshot end-to-end: commit and
 push it, open or update a ready PR, run `/babysit-pr`, merge when its normal
 gates are satisfied, then run `/new-branch` after the merge lands.
 
-`/ship` means all nonignored local changes on the current branch. The shared
-checkout is the source of truth, so include concurrent-session changes in the
-same branch snapshot. The checkpoint helper excludes `learnings.md`,
-`bridge/**`, and `data/**`.
+`/ship` means all nonignored local changes belonging to the requested work on
+the current branch. The shared checkout is the source of truth, but unrelated
+or incomplete concurrent work stays with its owner and is not part of this PR
+snapshot. The checkpoint helper excludes `learnings.md`, `bridge/**`, and
+`data/**`.
 
 ## Non-Negotiable Shipping Invariant
 
-`/ship` ships the complete nonignored branch snapshot, not a hand-selected
-subset of dirty paths. At the start of the flow, record the status and publish
-all current local changes with the checkpoint helper. If another session adds a
-path during the flow, include it in the next coherent snapshot; never revert,
-stash, or overwrite it.
+`/ship` ships the complete nonignored snapshot of the requested work, not a
+hand-selected subset of that work. At the start of the flow, record the status
+and every unpushed commit, then verify that every candidate path and commit
+belongs to the requested fix before invoking the checkpoint helper. If the
+checkout mixes unrelated or incomplete concurrent work, do not run the helper:
+preserve those paths for their owner and report them instead. Apply the same
+ownership check before every later actionable push. Never revert, stash, or
+overwrite concurrent work.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
+
+When a ship run also reviews the open PR queue, it may merge a non-draft PR
+authored by the exact Dependabot bot login when the `review-prs` Dependabot
+merge exception passes. That exception is limited to patch/minor,
+dependency-only manifest/lockfile updates with clean mergeability, all
+required checks successful, no active review blocker, no ultra-scary security,
+data, or deployment risk, and no minor update for a major-version-0
+dependency. Satisfy any required approving review, then bind the normal
+protected merge to the expected head SHA with `--match-head-commit <sha>`; do
+not use an admin bypass. Any required approval must come from a verified
+BuilderIO human member who is not the PR author or a bot. Verify the
+approver's GitHub user type is `User` and
+`gh api orgs/BuilderIO/members/<login>` succeeds. This queue exception may
+skip the current branch's `/babysit-pr` soak, but it does not skip branch
+protection. Do not auto-merge other external PRs.
 
 ## Branch-wide Push
 
@@ -53,8 +73,12 @@ branch and read the remote sha back.
 
 Treat these as an immediate call to it: `/ship`, "ship our latest local
 changes", or "push up my local changes". Push the first coherent branch
-snapshot before long validation so CI and review can start, then publish later
-snapshots as local work arrives.
+snapshot before long validation so CI and review can start. After that first
+handoff, publish a later snapshot only when it contains an actionable change
+required by failing CI, PR feedback, a real merge conflict, or an explicit user
+request. Do not run `ship:push` on a clean or merely behind branch, and do not
+create a maintenance or `chore: publish branch work` commit just to refresh
+`main`, restart checks, or satisfy a babysit tick.
 
 ## Deployment split
 
@@ -205,9 +229,26 @@ branch, stay on it.
    shared/platform-managed worktrees; ship the branch belonging to this
    worktree.
 
-2. **Check local changes**: run `git status --short` and `git diff --stat` to
-   establish the branch snapshot. Multiple agents may have added work; include
-   those paths in the complete nonignored snapshot.
+2. **Check local changes**: run `git status --short` and `git diff --stat`,
+   then inspect the current branch's unpublished commits. Use the
+   branch-specific remote ref when it exists; otherwise use the first-push
+   fallback:
+
+   ```bash
+   if ! git fetch origin --quiet; then
+     echo "Cannot refresh origin refs; stop before checking unpublished commits." >&2
+     exit 1
+   fi
+   if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
+     git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+   else
+     git log --oneline --decorate HEAD --not --remotes=origin -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+   fi
+   ```
+
+   This works even before the first push, when `origin/<branch>` does not
+   exist. Multiple agents may have added work; include a path or unpushed
+   commit only after confirming it belongs to this requested fix.
 
    Then confirm the base is current, before validating or pushing anything. A
    worktree can be created from a stale ref, and its local `main` ref is stale
@@ -217,14 +258,34 @@ branch, stay on it.
    confidently-wrong clean answer this check exists to catch.
 
    ```bash
-   git fetch origin main --quiet
+   if ! git fetch origin main --quiet; then
+     echo "Cannot refresh origin/main; stop before checking branch freshness." >&2
+     exit 1
+   fi
    git rev-list --count HEAD..origin/main
    ```
 
-   Non-zero means reapply the work onto current `origin/main` before pushing —
-   shipping from a stale base conflicts with or reverts whatever landed in the
-   gap. Measured 2026-08-18: four live Codex worktrees sat 1,144 commits behind
-   `origin/main` while reporting themselves clean from the inside.
+   A non-zero count is a freshness signal, not a problem by itself. Do not
+   merge, rebase, or otherwise update the branch merely because `origin/main`
+   advanced; a PR may be behind `main` while remaining valid and mergeable.
+   Keep the branch head stable so its checks remain meaningful. Update from
+   current `origin/main` only when GitHub reports `CONFLICTING` (or a local
+   merge proves a real conflict blocks shipment). In that case, merge
+   `origin/main` once, resolve it, push, and wait for the new checks. Before
+   that merge, both `git status --short -- . ':(exclude)learnings.md'
+   ':(exclude)bridge/**' ':(exclude)data/**'` and the branch-specific
+   unpublished-commit check above must be empty. The check is also scoped to
+   publishable paths, so a commit containing only an excluded path does not
+   block recovery. The excluded paths remain
+   preserved and reported, but do not block conflict recovery unless the
+   merge itself touches them. If either publishable-path check is not empty,
+   inspect every dirty path and unpushed commit; publish them first only when
+   all of them belong to the same
+   actionable fix. If any unrelated or incomplete concurrent work overlaps the
+   checkout, preserve it and wait for its owner rather than stashing, restoring,
+   or forcing the merge. Do not repeat the merge while the PR is mergeable or
+   checks are merely pending. A behind count alone never justifies a merge
+   commit.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Push the first safe slice before running `pnpm run prep` or
@@ -233,28 +294,36 @@ branch, stay on it.
    record the exact failure, keep pushing stable slices, and let GitHub Actions
    be the validation gate that `/babysit-pr` monitors.
 
-4. **Publish the branch snapshot**: run `corepack pnpm ship:push` to stage,
-   commit, and push all nonignored current-branch work. Never add
-   `Co-Authored-By` or other agent attribution.
+4. **Publish the branch snapshot**: for the requested initial handoff, run
+   `corepack pnpm ship:push` to stage, commit, and push all nonignored
+   current-branch work. For later snapshots, run it only for an actionable fix
+   required by failing CI, PR feedback, a real merge conflict, or an explicit
+   user request, after verifying that all dirty paths belong to that fix.
+   Never add `Co-Authored-By` or other agent attribution.
 
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or
-   additional concurrent work. Later commits update that same PR and let CI
-   and review run in parallel with the rest of the ship workflow. Push each
-   later coherent branch snapshot as soon as it is available.
+   additional concurrent work. An actionable later commit updates that same PR
+   and lets CI and review run in parallel with the rest of the ship workflow.
+   Do not create or push a later snapshot for a clean tree, `origin/main` drift,
+   queued checks, or a babysit timer tick.
 
 5. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
    `codex`, `[codex]`, or similar agent labels in the title/body.
 
-   For every later safe slice, update this same PR immediately after pushing;
-   do not create a second PR or wait for prep to finish before handing the
-   slice to CI and review.
+   For every later safe slice that fixes failing CI, addresses PR feedback,
+   resolves a real merge conflict, or implements an explicit user request,
+   update this same PR immediately after pushing. Do not create a second PR or
+   wait for prep to finish before handing the slice to CI and review. A clean
+   tree, `origin/main` drift, queued checks, or a timer tick is not a safe
+   slice and must not produce a commit or push.
 
 6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 publishes the current nonignored branch snapshot, then
-   checks mergeability, every unaddressed review comment by reply state, and CI.
+   the PR. Its Step 0 checks the current nonignored branch snapshot and
+   publishes only actionable work, then checks mergeability, every unaddressed
+   review comment by reply state, and CI.
    Keep going until the PR is either merged/closed or the user explicitly tells
    you to stop.
 
@@ -263,6 +332,22 @@ branch, stay on it.
    requirements are simultaneously true for 10 consecutive minutes:
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
+
+   If conflict recovery was required, compare the local checkout with the
+   live PR head before merging `origin/main`; do not update or merge an
+   obsolete local head while another session has advanced the PR branch.
+   `/babysit-pr` provides the exact `headRefOid` check for this gate.
+
+   If this invocation also found a Dependabot PR, apply the dedicated
+   `review-prs` exception above and merge each qualifying update with its
+   expected head SHA. Immediately before each merge, re-read the current head,
+   review state, mergeability, and checks; obtain any required approval from a
+   verified BuilderIO human member other than the PR author or a bot, after
+   verifying the GitHub user type is `User` and organization membership with
+   `gh api orgs/BuilderIO/members/<login>`. Then run:
+   `gh pr merge <number> --squash --match-head-commit <sha>` without `--admin`.
+   Re-read each PR after merging and record its result; never use this path to
+   bypass a failed or unavailable check.
 
 8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
@@ -276,9 +361,10 @@ branch, stay on it.
 ## Important
 
 - **Multiple agents run concurrently.** There will often be locally changed
-  files you didn't generate. This is normal. Include those paths in the next
-  complete branch snapshot. Don't revert or overwrite other agents' work; fix
-  real bugs if CI or review feedback flags them.
+  files you didn't generate. This is normal. Include a path in a later branch
+  snapshot only when it belongs to the same actionable fix; otherwise preserve
+  it for its owner and report it. Don't revert or overwrite other agents' work;
+  fix real bugs if CI or review feedback flags them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.

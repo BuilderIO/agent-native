@@ -472,6 +472,7 @@ function serverUrlForPendingUpload(
 // an unparseable/non-OK response). An "unknown" result must never downgrade an
 // already-connected user to the setup flow.
 type VideoStorageProbe = "configured" | "missing" | "unknown";
+type FileUploadStatusProbe = VideoStorageProbe | "reauthorization-required";
 
 // Poll cadence for the caller's re-check loop is 5s; bound each probe request
 // well above that so a hung request can't wedge the poll's in-flight guard.
@@ -498,8 +499,11 @@ async function hasConfiguredVideoStorage(
   const base = serverUrl.replace(/\/+$/, "");
 
   // One endpoint's answer: "configured", "missing" (a definitive
-  // not-configured), or "unknown" (threw, non-OK, or unparseable).
-  const probeEndpoint = async (path: string): Promise<VideoStorageProbe> => {
+  // not-configured), "reauthorization-required", or "unknown" (threw,
+  // non-OK, or unparseable).
+  const probeEndpoint = async (
+    path: string,
+  ): Promise<FileUploadStatusProbe> => {
     try {
       const res = await fetchWithAbortTimeout(
         `${base}${path}`,
@@ -514,33 +518,35 @@ async function hasConfiguredVideoStorage(
       // result, which callers treat as distinct from configured/missing.
       const body = (await res.json().catch(() => null)) as {
         configured?: boolean;
+        builderReauthorizationRequired?: boolean;
       } | null;
       if (!body) return "unknown";
-      return body.configured ? "configured" : "missing";
+      if (body.configured) return "configured";
+      if (body.builderReauthorizationRequired) {
+        return "reauthorization-required";
+      }
+      return "missing";
     } catch {
       return "unknown";
     }
   };
 
-  const probes = [
-    probeEndpoint("/_agent-native/file-upload/status"),
-    probeEndpoint("/_agent-native/builder/status"),
-  ];
-  // The probes run concurrently. "configured" wins as soon as either endpoint
-  // reports it, but "missing" is only declared after both have settled — a
-  // Builder-credits-only user has file-upload configured:false and builder
-  // configured:true and must not be routed to storage setup.
-  let probe: VideoStorageProbe;
-  if ((await Promise.race(probes)) === "configured") {
-    probe = "configured";
-  } else {
-    const results = await Promise.all(probes);
-    probe = results.includes("configured")
-      ? "configured"
-      : results.includes("missing")
-        ? "missing"
-        : "unknown";
+  const uploadProbe = probeEndpoint("/_agent-native/file-upload/status");
+  const builderProbe = probeEndpoint("/_agent-native/builder/status");
+  const uploadResult = await uploadProbe;
+  if (uploadResult === "reauthorization-required") {
+    return "missing";
   }
+
+  // The probes run concurrently. The upload endpoint is authoritative when it
+  // reports that Builder needs reauthorization; otherwise, "configured" wins
+  // if either endpoint reports it.
+  const results = [uploadResult, await builderProbe];
+  const probe = results.includes("configured")
+    ? "configured"
+    : results.includes("missing")
+      ? "missing"
+      : "unknown";
   // Last-known-good cache: seeds the next launch's Start button so it isn't
   // held behind this round-trip. Only "configured" is ever cached —
   // "missing"/"unknown" must always re-probe — and only when we know whose
@@ -1165,10 +1171,13 @@ export function App({
     if (!retryingUploadId) return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    listen<NativeUploadProgress>("clips:native-upload-progress", (event) => {
-      const message = event.payload?.message?.trim();
-      if (message) setRetryingUploadStatus(message);
-    }).then((cleanup) => {
+    void listen<NativeUploadProgress>(
+      "clips:native-upload-progress",
+      (event) => {
+        const message = event.payload?.message?.trim();
+        if (message) setRetryingUploadStatus(message);
+      },
+    ).then((cleanup) => {
       if (disposed) cleanup();
       else unlisten = cleanup;
     });
@@ -1524,7 +1533,7 @@ export function App({
   }, [serverUrl]);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
   }, [checkAuth]);
 
   // Push the current server URL to the Rust meetings watcher so it can
@@ -1654,7 +1663,11 @@ export function App({
       if (method === "GET") {
         const params = new URLSearchParams();
         for (const [key, value] of Object.entries(body)) {
-          if (value != null) params.set(key, String(value));
+          if (value != null)
+            params.set(
+              key,
+              typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+            );
         }
         const qs = params.toString();
         if (qs) url += `?${qs}`;
@@ -2117,7 +2130,7 @@ export function App({
         cancelled = true;
       };
     }
-    Promise.all(
+    void Promise.all(
       meetings.map(async (meeting) => {
         if (!meeting.scheduledStart)
           return [meeting.id, { available: false }] as const;
@@ -2419,11 +2432,11 @@ export function App({
 
     try {
       setSignInError(null);
-      const flowId = crypto.randomUUID?.() ?? null;
+      const flowId = crypto.randomUUID?.call(crypto) ?? null;
       const verifier = (() => {
-        const randomUuid = crypto.randomUUID;
-        if (typeof randomUuid === "function") {
-          return `${randomUuid.call(crypto)}${randomUuid.call(crypto)}`;
+        const randomUuid = crypto.randomUUID?.bind(crypto);
+        if (randomUuid) {
+          return `${randomUuid()}${randomUuid()}`;
         }
         if (typeof crypto.getRandomValues === "function") {
           const bytes = new Uint8Array(32);
@@ -2770,7 +2783,7 @@ export function App({
   useEffect(() => {
     if (!toolbarActive) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         await invoke("show_toolbar");
         if (cancelled) return;
@@ -3099,7 +3112,7 @@ export function App({
   }, [fetchUpcomingMeetings, popoverView, popoverVisible]);
 
   useEffect(() => {
-    loadPendingUploads();
+    void loadPendingUploads();
   }, [loadPendingUploads, popoverVisible]);
 
   useEffect(() => {
@@ -6607,7 +6620,7 @@ function Setup({
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     let cancelled = false;
     setProviderStatusLoading(true);
-    (async () => {
+    void (async () => {
       try {
         const res = await fetch(
           `${base}/_agent-native/voice-providers/status`,
@@ -7736,7 +7749,7 @@ function Setup({
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          saveApiKey();
+                          void saveApiKey();
                         }
                       }}
                       placeholder={

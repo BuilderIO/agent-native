@@ -696,7 +696,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           multiple
           className="hidden"
           onChange={(e) => {
-            handleUploadSkillFiles(e.target.files);
+            void handleUploadSkillFiles(e.target.files);
             e.target.value = "";
           }}
         />

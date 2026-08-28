@@ -168,7 +168,7 @@ export default defineAction({
     }
 
     throw new Error(
-      `Unknown action "${action}". Valid: create, update, delete, delete-all`,
+      `Unknown action "${String(action)}". Valid: create, update, delete, delete-all`,
     );
   },
   link: ({ result }) => {

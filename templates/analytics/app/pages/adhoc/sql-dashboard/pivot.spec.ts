@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { pivotRows } from "./pivot";
 
 describe("pivotRows", () => {
+  it("preserves numeric x and series dimensions", () => {
+    const result = pivotRows(
+      [
+        { quarter: 1, year: 2025, count: 5 },
+        { quarter: 1, year: 2026, count: 2 },
+        { quarter: 2, year: 2025, count: 7 },
+      ],
+      { xKey: "quarter", seriesKey: "year", valueKey: "count" },
+      { fillDateGaps: false },
+    );
+
+    expect(result.seriesKeys).toEqual(["2025", "2026"]);
+    expect(result.rows).toEqual([
+      { quarter: 1, "2025": 5, "2026": 2 },
+      { quarter: 2, "2025": 7, "2026": 0 },
+    ]);
+  });
+
   it("fills missing series buckets with zeroes", () => {
     const result = pivotRows(
       [

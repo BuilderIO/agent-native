@@ -386,7 +386,7 @@ export function EmailThread({
 
   const goBack = useCallback(() => {
     onNavigateThread?.(undefined);
-    navigate(`/${view}${routeSearchSuffix}`);
+    void navigate(`/${view}${routeSearchSuffix}`);
   }, [navigate, view, routeSearchSuffix, onNavigateThread]);
 
   // Navigate between threads (j/k) — use ref to avoid stale closure
@@ -416,7 +416,7 @@ export function EmailThread({
         nextThread?.latestMessage.accountEmail,
       ).catch(() => {});
       onNavigateThread?.(nextThreadId);
-      navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
+      void navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
     [
       threadId,
@@ -451,7 +451,7 @@ export function EmailThread({
       });
 
       onNavigateThread?.(nextThreadKey);
-      navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${nextThreadKey}${routeSearchSuffix}`, {
         replace: true,
       });
     },
@@ -495,13 +495,13 @@ export function EmailThread({
     if (idx !== -1 && idx + 1 < emailIds.length) {
       const nextId = emailIds[idx + 1];
       onNavigateThread?.(nextId);
-      navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${nextId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else if (idx !== -1 && idx - 1 >= 0) {
       const prevId = emailIds[idx - 1];
       onNavigateThread?.(prevId);
-      navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
+      void navigate(`/${view}/${prevId}${routeSearchSuffix}`, {
         replace: true,
       });
     } else {
@@ -604,7 +604,7 @@ export function EmailThread({
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) unarchiveEmail.mutate(t.id);
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -660,7 +660,7 @@ export function EmailThread({
     const undo = () => {
       for (const key of threadKeys) unsuppressThread(key);
       for (const t of targets) untrashEmail.mutate(t.id);
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      void queryClient.invalidateQueries({ queryKey: ["emails"] });
     };
     setUndoAction(undo);
     toast(
@@ -1077,7 +1077,7 @@ export function EmailThread({
     } finally {
       setUnsubscribing(false);
     }
-  }, [unsubscribeInfo]);
+  }, [t, unsubscribeInfo]);
 
   if (!threadId) return null;
 
@@ -1380,7 +1380,7 @@ export function EmailThread({
                               label: "DELETE DRAFT",
                               onClick: () => {
                                 if (snapshot.savedDraftId) {
-                                  fetch(
+                                  void fetch(
                                     appApiPath(
                                       `/api/emails/${snapshot.savedDraftId}`,
                                     ),
@@ -1441,7 +1441,7 @@ export function EmailThread({
                           label: "DELETE DRAFT",
                           onClick: () => {
                             if (snapshot.savedDraftId) {
-                              fetch(
+                              void fetch(
                                 appApiPath(
                                   `/api/emails/${snapshot.savedDraftId}`,
                                 ),

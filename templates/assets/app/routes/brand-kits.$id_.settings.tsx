@@ -94,7 +94,7 @@ export default function BrandKitSettingsRoute() {
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [library?.title]);
+  }, [library]);
 
   const [titleDraft, setTitleDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
@@ -201,7 +201,7 @@ export default function BrandKitSettingsRoute() {
   );
 
   function handleBack() {
-    navigate(`/library/${libraryId}`);
+    void navigate(`/library/${libraryId}`);
   }
 
   function keepEditing() {

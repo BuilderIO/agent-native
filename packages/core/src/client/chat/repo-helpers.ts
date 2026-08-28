@@ -319,6 +319,48 @@ function repoToolCallProgress(repo: NormalizedRepo | null | undefined): {
   return progress;
 }
 
+function repoAttachmentCount(repo: NormalizedRepo | null | undefined): number {
+  let count = 0;
+  for (const entry of getRepoMessages(repo)) {
+    const message = getRepoMessage(entry);
+    const attachments = message?.attachments;
+    if (Array.isArray(attachments)) count += attachments.length;
+  }
+  return count;
+}
+
+function repoAttachmentIdentities(
+  repo: NormalizedRepo | null | undefined,
+): string[] {
+  const identities: string[] = [];
+  getRepoMessages(repo).forEach((entry, messageIndex) => {
+    const message = getRepoMessage(entry);
+    const attachments = message?.attachments;
+    if (!Array.isArray(attachments)) return;
+    attachments.forEach((attachment, index) => {
+      const value =
+        attachment && typeof attachment === "object"
+          ? (attachment as Record<string, unknown>)
+          : {};
+      const metadata =
+        value.metadata && typeof value.metadata === "object"
+          ? (value.metadata as Record<string, unknown>)
+          : {};
+      identities.push(
+        JSON.stringify([
+          messageIndex,
+          index,
+          typeof value.type === "string" ? value.type : "",
+          typeof value.name === "string" ? value.name : "",
+          typeof value.contentType === "string" ? value.contentType : "",
+          value.displayOnly === true || metadata.displayOnly === true,
+        ]),
+      );
+    });
+  });
+  return identities;
+}
+
 export function shouldImportServerThreadData(
   currentRepo: NormalizedRepo | null | undefined,
   incomingRepo: NormalizedRepo | null | undefined,
@@ -329,6 +371,22 @@ export function shouldImportServerThreadData(
   const currentCount = getRepoMessages(currentRepo).length;
   if (currentCount === 0) return true;
   if (incomingCount < currentCount) return false;
+
+  const currentAttachments = repoAttachmentCount(currentRepo);
+  const incomingAttachments = repoAttachmentCount(incomingRepo);
+  if (incomingAttachments < currentAttachments) {
+    return false;
+  }
+  const currentAttachmentIdentities = repoAttachmentIdentities(currentRepo);
+  const incomingAttachmentIdentities = repoAttachmentIdentities(incomingRepo);
+  if (
+    currentAttachments > 0 &&
+    currentAttachmentIdentities.some(
+      (identity, index) => incomingAttachmentIdentities[index] !== identity,
+    )
+  ) {
+    return false;
+  }
 
   if (incomingCount === currentCount) {
     const currentTerminalAssistants = repoTerminalAssistantCount(currentRepo);

@@ -14,6 +14,12 @@
  * additionally scopes the export to one selected element's subtree via its
  * `data-agent-native-node-id` — the same attribute the editor stamps on
  * selectable layers.
+ *
+ * `autoLayout: true` additionally returns `nodeSpec` — the same screen as a
+ * Figma NODE tree with real auto-layout (`shared/figma-node-spec.ts`), built
+ * from the same hydrated scene. SVG has no way to express auto-layout, so
+ * the SVG artifact always lands in Figma as absolutely-positioned geometry;
+ * the node spec is for callers that materialize through the Plugin API.
  */
 
 import { defineAction } from "@agent-native/core/action";
@@ -32,6 +38,7 @@ import {
 import { isMissingBrowserError } from "../server/lib/playwright-runtime.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
+import { buildFigmaNodeSpec } from "../shared/figma-node-spec.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 async function liveContent(
@@ -135,10 +142,14 @@ export default defineAction({
     "as normal EDITABLE layers (unlike `export-svg`'s foreignObject wrapper, " +
     "which Figma cannot import as vectors). Returns the SVG string plus an " +
     "export report classifying each element as vectorized, approximated, " +
-    "rasterized, or omitted. Note: Figma converts all imported SVG <text> to " +
-    "outlined vector paths on paste/drag-import — geometry stays pixel-exact " +
-    "but the text is no longer live/editable type in Figma; see the report's " +
-    "`vectorizedTextCaveat`.",
+    "rasterized, or omitted. Note: Figma imports SVG <text> as live, editable " +
+    "type, but its importer reads only font family, size and a coarse bold " +
+    "weight — letter spacing is dropped and weights above 700 resolve to " +
+    "Bold, so tracked or extra-bold text lands at a different width; see the " +
+    "report's `vectorizedTextCaveat`. Pass `autoLayout: true` to ALSO get " +
+    "`nodeSpec`, a Figma node tree with real auto-layout frames for the " +
+    "Plugin API path — that path has neither the SVG importer's text limits " +
+    "nor its inability to express layout.",
   schema: z.object({
     designId: z
       .string()
@@ -163,6 +174,19 @@ export default defineAction({
       .describe(
         "Scope the export to one element's subtree via its data-agent-native-node-id, " +
           "instead of the whole screen.",
+      ),
+    autoLayout: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Also return `nodeSpec`: a Figma NODE tree with real auto-layout " +
+          "(layoutMode/itemSpacing/padding/layoutGrow/layoutSizing), for " +
+          "materializing through the Figma Plugin API instead of importing " +
+          "the SVG. SVG cannot express auto-layout at all, so the SVG path " +
+          "always lands as absolutely-positioned geometry. `nodeSpecReport` " +
+          "names every container that could not be represented as a Figma " +
+          "auto-layout frame and why.",
       ),
     embedImages: z
       .boolean()
@@ -196,6 +220,7 @@ export default defineAction({
     fileId,
     filename,
     nodeId,
+    autoLayout,
     embedImages,
     width,
     height,
@@ -338,6 +363,10 @@ export default defineAction({
     const filenameOut = safeFigmaSvgFilename(designRow?.title ?? file.filename);
     const saveResult = await trySaveExportFile(filenameOut, result.svg);
 
+    // Built from the SAME hydrated scene the SVG came from, so the two
+    // exports can never disagree about what the screen contains.
+    const nodes = autoLayout ? buildFigmaNodeSpec(result.scene) : null;
+
     return {
       ok: true,
       designId: file.designId,
@@ -345,6 +374,8 @@ export default defineAction({
       filename: filenameOut,
       svg: result.svg,
       report: result.report,
+      nodeSpec: nodes?.root,
+      nodeSpecReport: nodes?.report,
       ...saveResult,
     };
   },

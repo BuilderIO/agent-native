@@ -504,6 +504,7 @@ interface DesignCanvasProps {
     styles: Record<string, string>,
     info?: ElementInfo,
     metadata?: {
+      phase?: "preview" | "commit";
       originalStyles?: Record<string, string>;
       preserveSelection?: boolean;
     },
@@ -2785,6 +2786,7 @@ export function DesignCanvas({
             styles,
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
+              phase: e.data.phase === "preview" ? "preview" : "commit",
               originalStyles,
               preserveSelection: e.data.preserveSelection === true,
             },
@@ -3029,7 +3031,11 @@ export function DesignCanvas({
       if (e.data.type === "figma-clipboard-paste") {
         const content =
           typeof e.data.content === "string" ? e.data.content : "";
-        if (content) onFigmaClipboardPaste?.({ content });
+        const html = typeof e.data.html === "string" ? e.data.html : "";
+        const text = typeof e.data.text === "string" ? e.data.text : "";
+        if (content || html || text) {
+          onFigmaClipboardPaste?.({ content, html, text });
+        }
         return;
       }
       if (e.data.type === "canvas-image-paste") {
@@ -4929,7 +4935,7 @@ export function DesignCanvas({
           annotationCaptureBusyRef.current = true;
           setAnnotationCaptureBusy(true);
           onAnnotationSendingChange?.(true);
-          captureAnnotatedScreenshot({
+          void captureAnnotatedScreenshot({
             designId,
             fileId: screenId,
             sourceType:

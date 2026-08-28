@@ -71,7 +71,7 @@ async function saveDelegatedImages(
       { httpsOnly: true, maxRedirects: 2 },
     ).catch((err: unknown) => {
       console.error(
-        `Could not download ${url}: ${err instanceof Error ? err.message : err}`,
+        `Could not download ${url}: ${err instanceof Error ? err.message : (JSON.stringify(err) ?? "")}`,
       );
       return null;
     });
@@ -354,7 +354,9 @@ Options:
   for (const settled of variantResults) {
     if (settled.status === "rejected") {
       const err = settled.reason as { message?: string } | undefined;
-      console.error(`Failed to generate variation: ${err?.message ?? err}`);
+      console.error(
+        `Failed to generate variation: ${err instanceof Error ? err.message : JSON.stringify(err)}`,
+      );
       continue;
     }
     const { i, result } = settled.value;

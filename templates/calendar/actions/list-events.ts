@@ -164,7 +164,7 @@ function cap(
 function sanitizeError(message: unknown, fallback: string) {
   return (
     cap(
-      String(message ?? fallback)
+      (typeof message === "string" ? message : fallback)
         .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
         .replace(
           /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,

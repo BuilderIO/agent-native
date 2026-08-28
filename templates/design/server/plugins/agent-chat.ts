@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
@@ -55,6 +56,7 @@ export default createAgentChatPlugin({
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
+  finalResponseGuard: designFinalResponseGuard,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per GitHub endpoint.
@@ -66,6 +68,8 @@ export default createAgentChatPlugin({
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
 
 Final responses should be concise and operational. Lead with what changed or what is needed. For ordinary design actions, use 1-3 short sentences or at most 3 flat bullets. Do not narrate your process, repeat the user's request, paste HTML or tool results, or write an essay. Mention screenshots and audits only as brief completion evidence. Expand only when the user explicitly asks for an explanation or detailed critique.
+
+Completion is evidence-based: any request to create, generate, build, edit, refine, add, or insert design content must finish with a successful mutating action result. Do not report a design, screen, variant, or asset as created, updated, or ready from prose alone. "create-design" creates only an empty shell (renderable: false), so continue to "generate-design", "present-design-variants", or the required "insert-asset" placement action and wait for its persisted proof.
 
 When a user message begins with [Reprompt selection], the design must remain unchanged until the user accepts a preview. Call propose-node-rewrite with the exact repromptId, target, and baseVersionHash from the message. Never call edit-design, update-design, update-file, generate-design, apply-visual-edit, or any other content-writing action for that turn. The proposal action stores preview state only; the frontend-only resolve-node-rewrite action persists a chosen variant after the user presses Accept.
 

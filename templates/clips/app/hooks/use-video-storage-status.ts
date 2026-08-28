@@ -6,6 +6,8 @@ export interface VideoStorageStatus {
   configured: boolean;
   activeProvider?: { id: string; name: string } | null;
   builderConfigured?: boolean;
+  builderUploadConfigured?: boolean;
+  builderReauthorizationRequired?: boolean;
 }
 
 export const VIDEO_STORAGE_STATUS_KEY = [
@@ -18,7 +20,12 @@ export async function fetchVideoStorageStatus(): Promise<VideoStorageStatus> {
   try {
     const r = await fetch(agentNativePath("/_agent-native/file-upload/status"));
     uploadStatus = r.ok ? ((await r.json()) as VideoStorageStatus) : null;
-    if (uploadStatus?.configured) return uploadStatus;
+    if (
+      uploadStatus?.configured ||
+      uploadStatus?.builderReauthorizationRequired
+    ) {
+      return uploadStatus;
+    }
   } catch {
     // Fall through to the Builder status check.
   }
@@ -57,7 +64,7 @@ export function useVideoStorageStatus() {
 export function usePrefetchVideoStorageStatus() {
   const qc = useQueryClient();
   useEffect(() => {
-    qc.prefetchQuery({
+    void qc.prefetchQuery({
       queryKey: VIDEO_STORAGE_STATUS_KEY,
       queryFn: fetchVideoStorageStatus,
       staleTime: 60_000,

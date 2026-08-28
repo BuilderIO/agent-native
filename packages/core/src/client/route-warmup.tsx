@@ -10,7 +10,7 @@ import {
 
 declare const __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__:
   | AgentNativeRouteWarmupConfigInput
-  | string
+  | (string & {})
   | undefined;
 
 type ReactRouterManifestRoute = {
@@ -58,7 +58,7 @@ export interface AgentNativeRouteWarmupProps {
 }
 
 function parseBuildTimeRouteWarmupConfig(
-  raw: AgentNativeRouteWarmupConfigInput | string | undefined,
+  raw: AgentNativeRouteWarmupConfigInput | (string & {}) | undefined,
 ): AgentNativeRouteWarmupConfigInput | undefined {
   if (typeof raw !== "string") return raw;
   const trimmed = raw.trim();

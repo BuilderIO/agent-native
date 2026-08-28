@@ -267,7 +267,7 @@ export function InspectorIconButton({
           variant="ghost"
           size="icon"
           className={cn(
-            "h-6 min-w-6 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed",
+            "h-6 min-w-6 flex-1 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed",
             active &&
               "bg-[var(--design-editor-panel-bg)] text-[var(--design-editor-accent-color)] shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]",
           )}
@@ -284,9 +284,20 @@ export function InspectorIconButton({
   );
 }
 
-export function InspectorSegment({ children }: { children: ReactNode }) {
+export function InspectorSegment({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="flex w-fit max-w-full min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
+    <div
+      className={cn(
+        "flex w-fit max-w-full min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]",
+        className,
+      )}
+    >
       {children}
     </div>
   );

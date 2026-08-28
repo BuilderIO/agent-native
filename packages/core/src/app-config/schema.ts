@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { a2aConfig } from "./a2a.js";
 import { agentConfig } from "./agent.js";
+import { analyticsConfig } from "./analytics.js";
 import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
 import { integrationsConfig } from "./integrations.js";
@@ -30,6 +31,7 @@ import { workspaceConfig } from "./workspace.js";
 export const appConfigSchema = z.object({
   a2a: a2aConfig.prefault({}),
   agent: agentConfig.prefault({}),
+  analytics: analyticsConfig.prefault({}),
   app: appConfig.prefault({}),
   auth: authConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
