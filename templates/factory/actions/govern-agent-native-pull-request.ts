@@ -37,7 +37,7 @@ import {
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
-  currentPullRequestApproval,
+  currentPullRequestApprovals,
   FACTORY_APPROVAL_BODY_MARKER,
   hasCurrentBlockingPullRequestReview,
 } from "../server/triage/pr-policy.js";
@@ -224,10 +224,11 @@ export default defineAction({
         `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
       );
     }
-    const currentApproval = currentPullRequestApproval(
+    const currentApprovals = currentPullRequestApprovals(
       snapshot.reviews,
       snapshot.headSha,
     );
+    const currentApproval = currentApprovals[0] ?? null;
     if (currentApproval) {
       await recordFactoryAudit(
         context,
@@ -273,10 +274,14 @@ export default defineAction({
           snapshot.headSha,
         );
         const authenticatedUser = await github.getAuthenticatedUser();
-        const attributedApproval =
-          currentApproval.reviewerLogin ===
-            authenticatedUser.login.trim().toLowerCase() &&
-          currentApproval.body?.startsWith(FACTORY_APPROVAL_BODY_MARKER);
+        const attributedApproval = currentApprovals.find(
+          (approval) =>
+            approval.reviewerLogin ===
+              authenticatedUser.login.trim().toLowerCase() &&
+            approval.body?.startsWith(
+              `${FACTORY_APPROVAL_BODY_MARKER}${decisionId};`,
+            ),
+        );
         if (attributedApproval) {
           const recovered = await getDb()
             .update(triageDecisions)
@@ -309,7 +314,7 @@ export default defineAction({
           const metadata = parseTriageMetadata(latestItem.metadataJson);
           metadata.autoApprovedAt = new Date().toISOString();
           metadata.autoApprovalUrl =
-            currentApproval.htmlUrl ?? pullRequest.htmlUrl;
+            attributedApproval.htmlUrl ?? pullRequest.htmlUrl;
           metadata.autoApprovalHeadSha = snapshot.headSha;
           await getDb()
             .update(triageItems)
@@ -536,10 +541,10 @@ export default defineAction({
             repository,
             pullRequestNumber,
             governance.trustException
-              ? `Factory auto-approved under the verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
+              ? `Factory auto-approved under decision ${decisionId}; verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
               : governance.ownerException
-                ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-                : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
+                ? `Factory auto-approved under decision ${decisionId}; verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
+                : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
           );
         } catch (error) {
           if (error instanceof GitHubRequestError && !error.requestAttempted) {

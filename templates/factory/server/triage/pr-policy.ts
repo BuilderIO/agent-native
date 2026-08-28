@@ -12,7 +12,8 @@ export type PullRequestOwnerException =
 export type PullRequestTrustException = "liamdebeasi";
 
 const LIAMDEBEASI_USER_ID = 2721089;
-export const FACTORY_APPROVAL_BODY_MARKER = "Factory auto-approved under";
+export const FACTORY_APPROVAL_BODY_MARKER =
+  "Factory auto-approved under decision ";
 
 export interface PullRequestGovernanceInput {
   author: string;
@@ -240,7 +241,7 @@ export function hasCurrentPullRequestApproval(
   return currentPullRequestApproval(reviews, headSha) !== null;
 }
 
-export function currentPullRequestApproval(
+export function currentPullRequestApprovals(
   reviews: readonly {
     author: string;
     state: string;
@@ -255,7 +256,7 @@ export function currentPullRequestApproval(
   htmlUrl?: string | null;
   reviewerLogin: string;
   body?: string | null;
-} | null {
+}[] {
   const approvalByAuthor = new Map<
     string,
     {
@@ -295,7 +296,7 @@ export function currentPullRequestApproval(
       "Pull-request approval evidence is missing a commit SHA; reconciliation is required before approval.",
     );
   }
-  const approval = [...approvalByAuthor.values()].find(
+  return [...approvalByAuthor.values()].filter(
     (
       review,
     ): review is {
@@ -305,7 +306,13 @@ export function currentPullRequestApproval(
       body?: string | null;
     } => review.commitSha === headSha,
   );
-  return approval ?? null;
+}
+
+export function currentPullRequestApproval(
+  reviews: Parameters<typeof currentPullRequestApprovals>[0],
+  headSha: string,
+) {
+  return currentPullRequestApprovals(reviews, headSha)[0] ?? null;
 }
 
 export function hasCurrentBlockingPullRequestReview(
