@@ -3622,6 +3622,9 @@ describe("server/auth", () => {
       expect(signInEmail).toHaveBeenCalledWith({
         body: { email: "user@example.com", password: "secret-password" },
       });
+      expect(event.res.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
     });
 
     it("rejects register emails that Better Auth would reject before signup", async () => {

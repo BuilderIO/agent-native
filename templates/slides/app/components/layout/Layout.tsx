@@ -8,7 +8,6 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 
-import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   hasCurrentSlideSelection,
@@ -60,9 +59,6 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { decks, loading: decksLoading } = useDecks();
-  const isEmptyDecksState =
-    location.pathname === "/" && !decksLoading && decks.length === 0;
 
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
@@ -155,7 +151,7 @@ export function Layout({ children }: LayoutProps) {
         }
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {!isEmptyDecksState && showAppSidebar && (
+          {showAppSidebar && (
             <>
               {sidebarOpen && (
                 <div
@@ -186,7 +182,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
-            {!isEmptyDecksState && !ownToolbar && (
+            {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
                 <button
                   onClick={() => setSidebarOpen(true)}
@@ -197,8 +193,8 @@ export function Layout({ children }: LayoutProps) {
                 </button>
               </div>
             )}
-            {!isEmptyDecksState && !ownToolbar && <Header />}
-            {!isEmptyDecksState && <InvitationBanner />}
+            {!ownToolbar && <Header />}
+            <InvitationBanner />
             <main
               className={cn(
                 "agent-native-app-main min-h-0 flex-1",

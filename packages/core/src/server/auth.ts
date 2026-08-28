@@ -5441,7 +5441,8 @@ async function mountBetterAuthRoutes(
       }
 
       if (
-        reqPath.includes("/sign-up/email") &&
+        (reqPath.includes("/sign-up/email") ||
+          reqPath.includes("/sign-in/email")) &&
         isResponse &&
         (response as Response).status >= 200 &&
         (response as Response).status < 300
@@ -5489,6 +5490,7 @@ async function mountBetterAuthRoutes(
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({
@@ -5917,6 +5919,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({
