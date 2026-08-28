@@ -229,12 +229,22 @@ branch, stay on it.
    shared/platform-managed worktrees; ship the branch belonging to this
    worktree.
 
-2. **Check local changes**: run `git status --short`, `git diff --stat`, and
-   `git log --oneline --decorate HEAD --not --remotes=origin` to establish the
-   branch snapshot. This works even before the first push, when
-   `origin/<branch>` does not exist. Multiple agents may have added work;
-   include a path or unpushed commit only after confirming it belongs to this
-   requested fix.
+2. **Check local changes**: run `git status --short` and `git diff --stat`,
+   then inspect the current branch's unpublished commits. Use the
+   branch-specific remote ref when it exists; otherwise use the first-push
+   fallback:
+
+   ```bash
+   if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
+     git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD
+   else
+     git log --oneline --decorate HEAD --not --remotes=origin
+   fi
+   ```
+
+   This works even before the first push, when `origin/<branch>` does not
+   exist. Multiple agents may have added work; include a path or unpushed
+   commit only after confirming it belongs to this requested fix.
 
    Then confirm the base is current, before validating or pushing anything. A
    worktree can be created from a stale ref, and its local `main` ref is stale
@@ -255,9 +265,10 @@ branch, stay on it.
    current `origin/main` only when GitHub reports `CONFLICTING` (or a local
    merge proves a real conflict blocks shipment). In that case, merge
    `origin/main` once, resolve it, push, and wait for the new checks. Before
-   that merge, both `git status --short` and the unpushed-commit log above must
-   be empty. If either is not empty, inspect every dirty path and unpushed
-   commit; publish them first only when all of them belong to the same
+   that merge, both `git status --short` and the branch-specific
+   unpublished-commit check above must be empty. If either is not empty,
+   inspect every dirty path and unpushed commit; publish them first only when
+   all of them belong to the same
    actionable fix. If any unrelated or incomplete concurrent work overlaps the
    checkout, preserve it and wait for its owner rather than stashing, restoring,
    or forcing the merge. Do not repeat the merge while the PR is mergeable or
