@@ -4468,6 +4468,9 @@ describe("server/auth", () => {
       await baHandler(event);
 
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
+      expect(event.res.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
     });
 
     it("carries browser signup attribution through the direct Better Auth handler", async () => {
