@@ -207,6 +207,9 @@ describe("getOnboardingHtml", () => {
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
+      expect(html).toContain(
+        "surface: __anAuthView === 'login' ? 'login' : 'signup'",
+      );
       expect(html).not.toContain('class="google-error show"');
     });
   });

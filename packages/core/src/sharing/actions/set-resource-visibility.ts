@@ -99,19 +99,21 @@ export default defineAction({
       args.resourceId,
       beforeExtensionTargets,
     );
-    const app = getAppConfig().app.slug ?? "unknown";
-    track(
-      "share_visibility_change",
-      {
-        app,
-        template: app,
-        resource_type: args.resourceType,
-        resource_id: args.resourceId,
-        visibility: args.visibility,
-        is_public: args.visibility === "public",
-      },
-      { userId: rawAccess.userEmail ?? undefined },
-    );
+    if (access.resource?.visibility !== args.visibility) {
+      const app = getAppConfig().app.slug ?? "unknown";
+      track(
+        "share_visibility_change",
+        {
+          app,
+          template: app,
+          resource_type: args.resourceType,
+          resource_id: args.resourceId,
+          visibility: args.visibility,
+          is_public: args.visibility === "public",
+        },
+        { userId: rawAccess.userEmail ?? undefined },
+      );
+    }
     return { ok: true, visibility: args.visibility };
   },
 });

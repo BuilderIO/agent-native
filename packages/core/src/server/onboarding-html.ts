@@ -4297,7 +4297,7 @@ ${
   renderGoogleButton
     ? `
     async function signInWithGoogle() {
-    __anTrackAuth(__anAuthView === 'login' ? 'auth.login_clicked' : 'auth.signup_clicked', { surface: 'signup', method: 'google', auth_view: __anAuthView });
+    __anTrackAuth(__anAuthView === 'login' ? 'auth.login_clicked' : 'auth.signup_clicked', { surface: __anAuthView === 'login' ? 'login' : 'signup', method: 'google', auth_view: __anAuthView });
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     var ret = __anResumeHref();
