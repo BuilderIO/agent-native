@@ -194,6 +194,34 @@ describe("provider API runtime", () => {
     expect(writeWorkspaceFile).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses to save a body-level provider failure as a durable file", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "SLACK_BOT_TOKEN" ? "xoxb-test-token" : null,
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "not_in_channel" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "dispatch",
+      providerIds: ["slack"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "slack",
+        method: "POST",
+        path: "/chat.postMessage",
+        body: { channel: "D0BPPCV7T0C", text: "summary" },
+        saveToFile: "exports/slack-response.json",
+      }),
+    ).rejects.toThrow("Refusing to save a failed provider response");
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+  });
+
   it("injects Clay's public API key with the official header", async () => {
     const fakeKey = "clay-test-example-key";
     resolveCredential.mockImplementation(async (key: string) =>
