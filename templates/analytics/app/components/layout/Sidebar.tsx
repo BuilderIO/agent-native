@@ -1,3 +1,4 @@
+import { AgentNativeIcon } from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,

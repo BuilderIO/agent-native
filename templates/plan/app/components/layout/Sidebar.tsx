@@ -13,6 +13,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  AgentNativeIcon,
   buildSignInReturnHref,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
