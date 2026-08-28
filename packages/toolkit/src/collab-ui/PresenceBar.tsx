@@ -20,6 +20,8 @@ export interface PresenceBarProps {
   agentPresent?: boolean;
   /** Whether the agent is actively making edits right now. */
   agentActive?: boolean;
+  /** @deprecated Agent editing is represented by the AI presence circle and tooltip. */
+  showAgentEditingDot?: boolean;
   /** Current user's email (to exclude from the list). */
   currentUserEmail?: string;
   /** Max visible avatars before "+N" overflow. Default: 5 */
