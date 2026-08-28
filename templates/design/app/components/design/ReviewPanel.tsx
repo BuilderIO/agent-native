@@ -379,7 +379,7 @@ function A11ySection({
 
   return (
     <section aria-labelledby="review-a11y-heading">
-      <div className="flex h-7 items-center justify-between gap-2">
+      <div className="flex min-h-[var(--design-row-height)] items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <IconShieldCheck className="size-3.5 text-muted-foreground" />
           <span

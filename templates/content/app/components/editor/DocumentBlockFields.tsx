@@ -18,6 +18,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
@@ -42,8 +43,8 @@ const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 
 interface DocumentBlockFieldsProps {
   documentId: string;
-  databaseId: string;
-  databaseDocumentId: string;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
   canEdit: boolean;
   /**
    * The fully-wired collaborative body editor for the primary "Content" field.
@@ -223,7 +224,7 @@ export type BlockFieldsRenderState =
 // (shared/api.ts → DocumentPropertiesResponse).
 export function isLoadedForDocument(
   documentId: string,
-  databaseId: string,
+  databaseId: string | null,
   data: DocumentPropertiesResponse | undefined,
 ): boolean {
   return documentPropertiesResponseMatchesScope(documentId, databaseId, data);
@@ -271,11 +272,30 @@ export function DocumentBlockFields({
 }: DocumentBlockFieldsProps) {
   const t = useT();
   const query = useDocumentProperties(documentId, databaseId);
+  const canEditFields =
+    canEdit &&
+    query.data?.canEditValues === true &&
+    databaseId !== null &&
+    databaseDocumentId !== null;
   const properties = query.data?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
     [properties],
   );
+
+  // A failed property read is not an empty field list. Rendering the editor in
+  // that state could bind the body before we know which storage target owns it.
+  if (query.isError) {
+    return (
+      <div className="grid gap-1" data-block-fields-state="error">
+        <QueryErrorState
+          compact
+          onRetry={() => globalThis.location.reload()}
+          retrying={query.isRefetching}
+        />
+      </div>
+    );
+  }
 
   // Placeholder data may belong to the previous row or database. Trust it only
   // after both response identities match the active scope.
@@ -324,9 +344,9 @@ export function DocumentBlockFields({
               // field while SAVING to another across an identity change.
               key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
-              databaseDocumentId={databaseDocumentId}
+              databaseDocumentId={databaseDocumentId ?? documentId}
               property={state.field}
-              canEdit={canEdit}
+              canEdit={canEditFields}
             />
           </div>
         );
@@ -340,9 +360,9 @@ export function DocumentBlockFields({
       return (
         <MultiBlockFields
           documentId={documentId}
-          databaseId={databaseId}
-          databaseDocumentId={databaseDocumentId}
-          canEdit={canEdit}
+          databaseId={databaseId ?? ""}
+          databaseDocumentId={databaseDocumentId ?? documentId}
+          canEdit={canEditFields}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           t={t}

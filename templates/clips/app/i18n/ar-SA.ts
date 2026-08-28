@@ -1071,6 +1071,10 @@ const messages = {
       "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
     resume: "استئناف",
     discardRecording: "حذف التسجيل",
+    restart: "إعادة بدء التسجيل",
+    restartShortcut: "إعادة البدء (⌥⇧R)",
+    restartQuestion: "هل تريد بدء تسجيل جديد؟",
+    restartConfirm: "إعادة البدء",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",

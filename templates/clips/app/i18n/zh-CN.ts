@@ -1016,6 +1016,10 @@ const messages = {
       "此操作无法撤销,到目前为止的录制内容将被永久删除。",
     resume: "继续",
     discardRecording: "丢弃录制",
+    restart: "重新录制",
+    restartShortcut: "重新开始 (⌥⇧R)",
+    restartQuestion: "要开始新的录制吗？",
+    restartConfirm: "重新开始",
   },
   countdownOverlay: {
     startsIn: "录制将在 {{count}} 后开始",

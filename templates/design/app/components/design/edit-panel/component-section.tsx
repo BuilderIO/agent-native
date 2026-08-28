@@ -762,10 +762,10 @@ export function ComponentSection({
   if (isLoading) {
     return (
       <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
-        <div className="flex min-h-8 items-center gap-2 px-2">
+        <div className="flex min-h-[var(--design-section-height)] items-center gap-2 px-2">
           <div className="h-3 w-24 animate-pulse rounded bg-muted/50" />
         </div>
-        <div className="space-y-2 px-2 pb-2 pt-0.5">
+        <div className="design-sidebar-section-content pt-0">
           <div className="h-5 w-full animate-pulse rounded bg-muted/40" />
           <div className="h-5 w-3/4 animate-pulse rounded bg-muted/40" />
         </div>
@@ -889,7 +889,10 @@ export function ComponentSection({
     >
       {/* ── Section header ── */}
       <div className="px-2">
-        <InspectorGrid className="min-h-8 items-center" layout="header-actions">
+        <InspectorGrid
+          className="min-h-[var(--design-section-height)] items-center"
+          layout="header-actions"
+        >
           <InspectorGridCell span={20}>
             <div className="flex min-w-0 items-center gap-2">
               {/* Accent diamond matching the workbench artboard component rows */}
@@ -1063,7 +1066,7 @@ export function ComponentSection({
       </div>
 
       {/* ── Body ── */}
-      <div className="space-y-2 px-2 pb-2 pt-0.5 !text-[11px]">
+      <div className="design-sidebar-section-content !text-[11px]">
         {/* Source path chip */}
         {sourceChip && (
           <div
@@ -1081,7 +1084,7 @@ export function ComponentSection({
             through apply-component-prop-edit; real-app sources are read-only
             until the deeper source-prop controls land. */}
         {hasRows && (
-          <div className="space-y-1">
+          <div className="design-sidebar-control-stack">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
               {t("designEditor.componentProps.label")}
             </p>

@@ -388,7 +388,7 @@ pre code {
   font-size: inherit;
 }
 
-pre {
+pre:where(:not(.builder-brand-tokens *)) {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.7;

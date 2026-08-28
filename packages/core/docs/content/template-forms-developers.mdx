@@ -45,55 +45,55 @@ Every operation is a TypeScript file in `templates/forms/actions/`, auto-mounted
 
 ### Form lifecycle
 
-| Action        | What it does                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create-form` | Create a draft or published form (title, description, fields, settings, slug, status). Returns an editor URL, plus a public response URL when created as `published`. |
-| `get-form`    | Get a single form by id with all fields and settings. Private settings (`integrations`, `allowedOrigins`) are only included for owner, editor, or admin roles.        |
-| `list-forms`  | List accessible forms with response counts. Pass `archived: true` to list soft-deleted forms (the Archive) instead of the main list.                                 |
-| `delete-form` | Soft-delete (sets `deleted_at`). Responses are preserved and stay visible in the Archive. Pass `purge: true` to permanently delete the form and all its responses.   |
-| `restore-form` | Restore a soft-deleted form. Responses stay intact.                                                                                                                  |
+| Action         | What it does                                                                                                                                                          |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create-form`  | Create a draft or published form (title, description, fields, settings, slug, status). Returns an editor URL, plus a public response URL when created as `published`. |
+| `get-form`     | Get a single form by id with all fields and settings. Private settings (`integrations`, `allowedOrigins`) are only included for owner, editor, or admin roles.        |
+| `list-forms`   | List accessible forms with response counts. Pass `archived: true` to list soft-deleted forms (the Archive) instead of the main list.                                  |
+| `delete-form`  | Soft-delete (sets `deleted_at`). Responses are preserved and stay visible in the Archive. Pass `purge: true` to permanently delete the form and all its responses.    |
+| `restore-form` | Restore a soft-deleted form. Responses stay intact.                                                                                                                   |
 
 ### Editing fields
 
-| Action              | What it does                                                                                                                                                                                                        |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `patch-form-fields` | The visual builder's real edit path. Applies granular `upsert` / `remove` / `reorder` operations via a server-side, per-form-locked read-modify-write, so two concurrent editors patching different fields both survive instead of one clobbering the other. |
+| Action              | What it does                                                                                                                                                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `patch-form-fields` | The visual builder's real edit path. Applies granular `upsert` / `remove` / `reorder` operations via a server-side, per-form-locked read-modify-write, so two concurrent editors patching different fields both survive instead of one clobbering the other.                 |
 | `update-form`       | Whole-array replace of `fields`, plus `title` / `description` / `slug` / `settings` / `status`. Marked legacy in its own source docblock, kept for agents and bulk imports that want to replace the entire form in one call. The UI builder does not use it for field edits. |
 
 The result is validated before it's persisted. `assertValidFields` rejects invalid or duplicate field ids and conditional rules that reference a later or missing field. If the form is already `published`, `assertPublishableForm` also re-checks that every field still has a label and that `select` / `multiselect` / `radio` fields still have options.
 
 ### Previewing and analyzing
 
-| Action              | What it does                                                                                                                                        |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `preview-form`      | Inline chat summary of a form's setup: fields, status, visibility, response count, and an "Open editor" action. The first-party answer to "what's the setup for this form?" |
+| Action              | What it does                                                                                                                                                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preview-form`      | Inline chat summary of a form's setup: fields, status, visibility, response count, and an "Open editor" action. The first-party answer to "what's the setup for this form?"                                                                        |
 | `response-insights` | Chart, table, or insights analytics widget over response data. `displayMode` (`chart` / `table` / `insights`, default `insights`) controls what's returned. See [Features](/docs/template-forms-features#response-insights) for the full contract. |
-| `list-responses`    | List raw response rows for a form, for reasoning or export. If the user just wants to see responses in the UI, use `navigate` with `view=responses` instead of rendering rows in chat. |
-| `export-responses`  | Export responses to CSV or JSON, uploaded to configured file storage (never written to local disk), returning the file URL. Throws with a clear message if no file storage provider is configured. |
+| `list-responses`    | List raw response rows for a form, for reasoning or export. If the user just wants to see responses in the UI, use `navigate` with `view=responses` instead of rendering rows in chat.                                                             |
+| `export-responses`  | Export responses to CSV or JSON, uploaded to configured file storage (never written to local disk), returning the file URL. Throws with a clear message if no file storage provider is configured.                                                 |
 
 ### Database
 
-| Action       | What it does                                                                                                                                     |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `db-status`  | Check the current database connection (local SQLite file vs. a configured remote `DATABASE_URL`).                                                    |
+| Action       | What it does                                                                                                                                                                                                |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `db-status`  | Check the current database connection (local SQLite file vs. a configured remote `DATABASE_URL`).                                                                                                           |
 | `db-connect` | Explain how to configure `DATABASE_URL` / `DATABASE_AUTH_TOKEN` for a deployment. It does not write the connection itself, since those are deployment-level settings applied through your hosting provider. |
 
 ### Navigation and UI state
 
-| Action        | What it does                                                                                                        |
-| ------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `navigate`    | Move the UI to a view, form, or tab.                                                                                 |
+| Action        | What it does                                                                                                                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `navigate`    | Move the UI to a view, form, or tab.                                                                                                                                                            |
 | `view-screen` | Read the current view back for the agent, including the current form, builder tab, and a preview of visible responses, scoped per browser tab. Not meant to be called directly by integrations. |
 
 ## Data model
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema.ts`. Forms carry the standard `ownableColumns()` and a matching framework shares table, so they slot into the per-user and per-org sharing model.
 
-| Table         | What it holds                                                                                                                                                                                                  |
+| Table         | What it holds                                                                                                                                                                                                 |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forms`       | A form definition: `title`, `description`, unique `slug`, `fields` (JSON array of `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`), and a soft-delete `deleted_at` |
 | `responses`   | One submission per row: `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, optional `ip`, `submitter_email`, `page_url`, and `client_surface`                                                     |
-| `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
+| `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                           |
 
 `page_url` and `client_surface` are hidden pass-through columns. Trusted embeds (like the framework's FeedbackButton) forward the URL of the page a respondent was on and the runtime shell they were in (`web`, `electron`, or `tauri`), so form owners can see which screen and which app feedback came from. Both are `NULL` for direct fills that send no context, and `client_surface` is allowlisted server-side. Anything else is dropped.
 

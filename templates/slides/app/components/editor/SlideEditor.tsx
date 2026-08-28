@@ -12,10 +12,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AgentPresenceChip,
-  RecentEditHighlights,
-} from "@agent-native/toolkit/collab-ui";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
@@ -370,6 +367,39 @@ function getBuilderSelector(el: HTMLElement): string | null {
 
 /** Block tags that can hold rich multi-paragraph content */
 const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
+
+/** Insert a soft line break inside one text leaf through native edit history. */
+function insertLineBreak(editable: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount !== 1) return false;
+  const range = selection.getRangeAt(0);
+
+  const textLeafFor = (node: Node) => {
+    if (!editable.contains(node)) return null;
+    let element = node instanceof HTMLElement ? node : node.parentElement;
+    while (element && element !== editable) {
+      if (isTextLeaf(element)) return element;
+      element = element.parentElement;
+    }
+    const canUseEditableFallback =
+      isTextLeaf(editable) ||
+      (editable.tagName !== "IMG" &&
+        !editable.classList.contains("fmd-img-placeholder") &&
+        (editable.classList.contains("fmd-text-box") ||
+          Array.from(editable.children).every((child) =>
+            isInlineTextElement(child),
+          )));
+    return canUseEditableFallback ? editable : null;
+  };
+
+  const startLeaf = textLeafFor(range.startContainer);
+  const endLeaf = textLeafFor(range.endContainer);
+  if (!startLeaf || startLeaf !== endLeaf) {
+    return false;
+  }
+
+  return document.execCommand("insertLineBreak");
+}
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
 function stripBuilderIds(html: string): string {
@@ -2414,10 +2444,9 @@ export default function SlideEditor({
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
-        //  - A single <p> or <div> leaf is multi-line capable — Enter
-        //    creates a new line via contentEditable's default behavior.
-        //  - Headings, inline leaves, and smart groups commit on Enter
-        //    so the slide layout can never be broken by a stray new node.
+        //  - Rich block leaves keep contentEditable's native multi-line edit.
+        //  - Other text blocks get a <br> so repeated presses stay within the
+        //    existing layout instead of creating new block children.
         if (e.shiftKey) return;
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
@@ -2439,8 +2468,16 @@ export default function SlideEditor({
         }
 
         if (!isMultiLineLeaf) {
+          const editing = editingElRef.current;
+          const inserted = editing ? insertLineBreak(editing) : false;
+          if (!inserted) {
+            // Keep an unsupported cross-leaf selection in edit mode rather
+            // than letting native Enter split the smart group into blocks.
+            e.preventDefault();
+            return;
+          }
           e.preventDefault();
-          exitInlineEdit();
+          captureInlineEditDraft(slide.id);
         }
       }
     };
@@ -6834,16 +6871,11 @@ export default function SlideEditor({
                               outlineOnly
                             />
                           )}
-                          {(agentActive || passivePresentUsers.length > 0) && (
-                            <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                              <AgentPresenceChip
-                                active={Boolean(agentActive)}
+                          {passivePresentUsers.length > 0 && (
+                            <div className="absolute right-2 top-2 z-10">
+                              <SameSlidePresenceIndicator
+                                users={passivePresentUsers}
                               />
-                              {passivePresentUsers.length > 0 && (
-                                <SameSlidePresenceIndicator
-                                  users={passivePresentUsers}
-                                />
-                              )}
                             </div>
                           )}
                           {overflowInfo &&

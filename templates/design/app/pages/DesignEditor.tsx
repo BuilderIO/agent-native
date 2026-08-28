@@ -19246,12 +19246,16 @@ function DesignEditor() {
       ? handleCreateScreenFromPreset
       : undefined,
     zoom,
-    inspectorGridDebug: editorPreferences.inspectorGridDebug,
-    onInspectorGridDebugChange: (inspectorGridDebug: boolean) =>
-      setEditorPreferences({
-        ...editorPreferences,
-        inspectorGridDebug,
-      }),
+    inspectorGridDebug: import.meta.env.DEV
+      ? editorPreferences.inspectorGridDebug
+      : false,
+    onInspectorGridDebugChange: import.meta.env.DEV
+      ? (inspectorGridDebug: boolean) =>
+          setEditorPreferences({
+            ...editorPreferences,
+            inspectorGridDebug,
+          })
+      : undefined,
     activeTab: activeInspectorTab,
     onActiveTabChange: setActiveInspectorTab,
     tweaks,

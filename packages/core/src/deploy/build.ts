@@ -1971,7 +1971,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
     (delay, index) =>
       `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:${delay}ms"></rect>`,
   ),
-  '</svg><span style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  '</svg><span class="agent-running-shimmer" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
   `<\/div><style>
         html {
           background: hsl(var(--background, 0 0% 100%));
