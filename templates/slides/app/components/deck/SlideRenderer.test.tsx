@@ -418,6 +418,24 @@ describe("SlideInner autofit", () => {
     });
   });
 
+  it("keeps a converted leading Markdown image in the Markdown layout path", () => {
+    const slide: Slide = {
+      id: "markdown-image-layout",
+      layout: "two-column",
+      notes: "",
+      content:
+        '<img data-markdown-image="true" src="https://cdn.example.com/chart.png" alt="Chart" style="display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;">\n\n---\n\nRight column',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const canvas = document.querySelector<HTMLElement>(
+      `[data-slide-canvas="${slide.id}"]`,
+    );
+    expect(canvas?.className).toContain("px-16");
+    expect(canvas?.querySelectorAll(".slide-content")).toHaveLength(2);
+  });
+
   it("keeps the current fit transform stable while a raw slide text block is edited", async () => {
     const slide: Slide = {
       id: "raw-editing",
