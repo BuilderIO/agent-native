@@ -108,6 +108,54 @@ describe("slide clipboard storage", () => {
     });
   });
 
+  it("keeps only validated optional fields and drops transient data", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    const result = readSlideClipboard(
+      storageKey,
+      createStorage({
+        [storageKey]: JSON.stringify({
+          version: 1,
+          slide: {
+            ...slide,
+            imageLoading: true,
+            unexpected: "stale data",
+            animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
+          },
+          copiedAt: 2_500,
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "ready",
+      slide: {
+        ...slide,
+        animations: [{ id: "animation-1", elementIndex: 0, type: "fade" }],
+      },
+      copiedAt: 2_500,
+    });
+  });
+
+  it("rejects malformed optional fields", () => {
+    const storageKey = getSlideClipboardStorageKey("alice@example.com");
+    expect(
+      readSlideClipboard(
+        storageKey,
+        createStorage({
+          [storageKey]: JSON.stringify({
+            version: 1,
+            slide: { ...slide, animations: [{ id: "bad" }] },
+            copiedAt: 2_500,
+          }),
+        }),
+      ),
+    ).toEqual({
+      status: "unreadable",
+      slide: null,
+      copiedAt: null,
+    });
+  });
+
   it("keeps clipboard snapshots isolated by signed-in user", () => {
     const storage = createStorage();
     const aliceKey = getSlideClipboardStorageKey("alice@example.com");

@@ -1,4 +1,9 @@
-import type { Slide, SlideLayout } from "@/context/DeckContext";
+import type {
+  AnimationType,
+  Slide,
+  SlideAnimation,
+  SlideLayout,
+} from "@/context/DeckContext";
 
 export const SLIDE_CLIPBOARD_STORAGE_PREFIX = "slides:slide-clipboard";
 
@@ -16,6 +21,12 @@ const SLIDE_LAYOUTS: readonly SlideLayout[] = [
   "statement",
   "full-image",
   "blank",
+];
+const ANIMATION_TYPES: readonly AnimationType[] = [
+  "appear",
+  "fade",
+  "slide-up",
+  "zoom",
 ];
 
 type SlideClipboardStorage = Pick<Storage, "getItem" | "setItem">;
@@ -49,7 +60,7 @@ function normalizeSlide(value: unknown): Slide | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
-  const candidate = value as Partial<Slide>;
+  const candidate = value as Partial<Slide> & Record<string, unknown>;
   if (
     typeof candidate.id !== "string" ||
     candidate.id.length === 0 ||
@@ -73,11 +84,94 @@ function normalizeSlide(value: unknown): Slide | null {
     return null;
   }
 
-  return {
-    ...candidate,
+  const normalized: Slide = {
     notes: notes ?? "",
     layout: (layout as SlideLayout | null | undefined) ?? "content",
+    id: candidate.id,
+    content: candidate.content,
   } as Slide;
+
+  const optionalStrings = [
+    "background",
+    "imageUrl",
+    "imagePrompt",
+    "excalidrawData",
+  ] as const;
+  for (const key of optionalStrings) {
+    const field = candidate[key];
+    if (field !== undefined && typeof field !== "string") return null;
+    if (field !== undefined) normalized[key] = field;
+  }
+
+  if (candidate.transition !== undefined) {
+    if (
+      typeof candidate.transition !== "string" ||
+      !["instant", "none", "fade", "slide", "zoom"].includes(
+        candidate.transition,
+      )
+    ) {
+      return null;
+    }
+    normalized.transition = candidate.transition as Slide["transition"];
+  }
+
+  for (const key of ["splitByParagraph", "skipped"] as const) {
+    const field = candidate[key];
+    if (field !== undefined && typeof field !== "boolean") return null;
+    if (field !== undefined) normalized[key] = field;
+  }
+
+  if (candidate.animations !== undefined) {
+    if (!Array.isArray(candidate.animations)) return null;
+    const animations: SlideAnimation[] = [];
+    for (const value of candidate.animations) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+      }
+      const animation = value as Partial<SlideAnimation> &
+        Record<string, unknown>;
+      if (
+        typeof animation.id !== "string" ||
+        animation.id.length === 0 ||
+        typeof animation.elementIndex !== "number" ||
+        !Number.isInteger(animation.elementIndex) ||
+        animation.elementIndex < 0 ||
+        typeof animation.type !== "string" ||
+        !ANIMATION_TYPES.includes(animation.type as AnimationType)
+      ) {
+        return null;
+      }
+      if (
+        animation.elementPath !== undefined &&
+        (!Array.isArray(animation.elementPath) ||
+          animation.elementPath.some(
+            (index) => typeof index !== "number" || !Number.isInteger(index),
+          ))
+      ) {
+        return null;
+      }
+      if (
+        animation.byParagraph !== undefined &&
+        typeof animation.byParagraph !== "boolean"
+      ) {
+        return null;
+      }
+      animations.push({
+        id: animation.id,
+        elementIndex: animation.elementIndex,
+        ...(animation.elementPath !== undefined
+          ? { elementPath: animation.elementPath as number[] }
+          : {}),
+        ...(animation.byParagraph !== undefined
+          ? { byParagraph: animation.byParagraph }
+          : {}),
+        type: animation.type as AnimationType,
+      });
+    }
+    normalized.animations = animations;
+  }
+
+  return normalized;
 }
 
 export function readSlideClipboard(
@@ -128,7 +222,7 @@ export function writeSlideClipboard(
   storage: SlideClipboardStorage | null = getBrowserStorage(),
 ): boolean {
   const normalizedSlide = normalizeSlide(slide);
-  if (!storage || !normalizedSlide) return false;
+  if (!storage || !normalizedSlide || !Number.isFinite(copiedAt)) return false;
   try {
     storage.setItem(
       storageKey,
