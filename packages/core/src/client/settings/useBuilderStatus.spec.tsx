@@ -98,6 +98,7 @@ const refreshedConnectUrl = signedConnectUrl.replace(
   "_an_connect=signed",
   "_an_connect=refreshed",
 );
+const provisioningToken = "nonce.email.session.1700000000000.mac";
 
 const connectedBuilderStatus = {
   configured: true,
@@ -122,6 +123,7 @@ function expectedConnectUrl(url: string): string {
 function expectedProvisionedConnectUrl(url: string): string {
   const parsed = new URL(url);
   parsed.searchParams.set("_an_mode", "agent-native");
+  parsed.searchParams.set("_an_provision", provisioningToken);
   return expectedConnectUrl(parsed.toString());
 }
 
@@ -271,16 +273,62 @@ describe("useBuilderConnectFlow", () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
-    vi.mocked(fetch).mockResolvedValue(
+    vi.mocked(fetch).mockImplementation(async () =>
       jsonResponse({
         configured: false,
         agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
         envManaged: false,
         builderEnabled: true,
         orgName: null,
         connectUrl: signedConnectUrl,
       }),
     );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(
+      expectedProvisionedConnectUrl(signedConnectUrl),
+    );
+  });
+
+  it("uses the click-time provisioning capability instead of a stale closure", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+        }),
+      );
 
     await act(async () => {
       root.render(<BuilderConnectProbe provisionAccount />);

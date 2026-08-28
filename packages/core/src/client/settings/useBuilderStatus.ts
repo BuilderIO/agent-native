@@ -12,6 +12,8 @@ export interface BuilderStatus {
   builderEnabled: boolean;
   /** True when the deploy can create or reuse a Builder account via SSO. */
   agentNativeProvisioningEnabled?: boolean;
+  /** Short-lived proof for the one-click account provisioning route. */
+  agentNativeProvisioningToken?: string;
   /**
    * True when `BUILDER_PRIVATE_KEY` is set at the deploy level. This is a
    * fallback credential; per-user/org Builder connections are still allowed
@@ -226,6 +228,7 @@ const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
 const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
 const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
+const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
@@ -580,6 +583,8 @@ export function useBuilderConnectFlow(
   const [envManaged, setEnvManaged] = useState(false);
   const [agentNativeProvisioningEnabled, setAgentNativeProvisioningEnabled] =
     useState(false);
+  const [agentNativeProvisioningToken, setAgentNativeProvisioningToken] =
+    useState<string | null>(null);
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -637,6 +642,7 @@ export function useBuilderConnectFlow(
           BuilderStatus,
           | "configured"
           | "agentNativeProvisioningEnabled"
+          | "agentNativeProvisioningToken"
           | "envManaged"
           | "builderEnabled"
           | "orgName"
@@ -669,6 +675,7 @@ export function useBuilderConnectFlow(
       setCodeChangeConfigured(false);
       setEnvManaged(false);
       setAgentNativeProvisioningEnabled(false);
+      setAgentNativeProvisioningToken(null);
       setBuilderEnabled(false);
       setOrgName(null);
       setConnecting(false);
@@ -694,6 +701,7 @@ export function useBuilderConnectFlow(
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
+      setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -777,12 +785,22 @@ export function useBuilderConnectFlow(
         agentNativePath("/_agent-native/builder/connect"),
         origin,
       ).href;
-      const withProvisionMode = (url: string): string => {
-        if (!provisionAccount || !agentNativeProvisioningEnabled) return url;
+      const withProvisionMode = (
+        url: string,
+        provisioningEnabled = agentNativeProvisioningEnabled,
+        provisioningToken = agentNativeProvisioningToken,
+      ): string => {
+        if (!provisionAccount || !provisioningEnabled || !provisioningToken) {
+          return url;
+        }
         const provisionUrl = new URL(url, origin);
         provisionUrl.searchParams.set(
           BUILDER_CONNECT_MODE_PARAM,
           BUILDER_AGENT_NATIVE_PROVISION_MODE,
+        );
+        provisionUrl.searchParams.set(
+          BUILDER_PROVISIONING_TOKEN_PARAM,
+          provisioningToken,
         );
         return provisionUrl.toString();
       };
@@ -827,6 +845,9 @@ export function useBuilderConnectFlow(
               setAgentNativeProvisioningEnabled(
                 !!s.agentNativeProvisioningEnabled,
               );
+              setAgentNativeProvisioningToken(
+                s.agentNativeProvisioningToken ?? null,
+              );
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
@@ -838,6 +859,8 @@ export function useBuilderConnectFlow(
 
             const hostUrl = withProvisionMode(
               s?.connectUrl ?? cachedFreshUrl ?? directUrl,
+              !!s?.agentNativeProvisioningEnabled,
+              s?.agentNativeProvisioningToken ?? null,
             );
             const trackedHostUrl = withBuilderConnectTrackingParams(hostUrl, {
               source: clickTrackingSource,
@@ -873,6 +896,9 @@ export function useBuilderConnectFlow(
               setAgentNativeProvisioningEnabled(
                 !!s.agentNativeProvisioningEnabled,
               );
+              setAgentNativeProvisioningToken(
+                s.agentNativeProvisioningToken ?? null,
+              );
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
@@ -888,6 +914,8 @@ export function useBuilderConnectFlow(
             // response before the status cache has warmed.
             const freshUrl = withProvisionMode(
               s?.connectUrl ?? cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
+              !!s?.agentNativeProvisioningEnabled,
+              s?.agentNativeProvisioningToken ?? null,
             );
             if (!freshUrl) {
               try {
@@ -921,6 +949,7 @@ export function useBuilderConnectFlow(
       enabled,
       fetchStatus,
       agentNativeProvisioningEnabled,
+      agentNativeProvisioningToken,
       provisionAccount,
       popupUrl,
       statusConnectUrl,
@@ -945,6 +974,7 @@ export function useBuilderConnectFlow(
         setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
+        setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
@@ -1043,6 +1073,9 @@ export function useBuilderConnectFlow(
           setCodeChangeConfigured(false);
           setEnvManaged(!!s.envManaged);
           setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
+          setAgentNativeProvisioningToken(
+            s.agentNativeProvisioningToken ?? null,
+          );
           setBuilderEnabled(!!s.builderEnabled);
           const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
@@ -1064,6 +1097,7 @@ export function useBuilderConnectFlow(
       setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
+      setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);

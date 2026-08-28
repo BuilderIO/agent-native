@@ -49,6 +49,8 @@ import {
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
+  signBuilderProvisioningToken,
+  verifyBuilderProvisioningToken,
   BUILDER_RELAY_FLOW_HEADER,
   BUILDER_RELAY_SECRET_ENV,
   BUILDER_RELAY_SIGNATURE_HEADER,
@@ -456,6 +458,55 @@ describe("Builder callback CSRF state", () => {
       expect(verifyBuilderConnectTokenAndGetOwner(token)).toBe(
         "alice@example.com",
       );
+    });
+  });
+
+  describe("signBuilderProvisioningToken / verifyBuilderProvisioningToken", () => {
+    it("binds the provisioning proof to the verified email and auth session", () => {
+      const token = signBuilderProvisioningToken(
+        "alice@example.com",
+        "session-alice",
+      );
+
+      expect(
+        verifyBuilderProvisioningToken(
+          token,
+          "alice@example.com",
+          "session-alice",
+        ),
+      ).toBe(true);
+      expect(
+        verifyBuilderProvisioningToken(
+          token,
+          "alice@example.com",
+          "session-bob",
+        ),
+      ).toBe(false);
+      expect(
+        verifyBuilderProvisioningToken(
+          token,
+          "bob@example.com",
+          "session-alice",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects an expired provisioning proof", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-04-24T12:00:00.000Z"));
+      const token = signBuilderProvisioningToken(
+        "alice@example.com",
+        "session-alice",
+      );
+      vi.setSystemTime(new Date("2026-04-24T12:11:00.000Z"));
+
+      expect(
+        verifyBuilderProvisioningToken(
+          token,
+          "alice@example.com",
+          "session-alice",
+        ),
+      ).toBe(false);
     });
   });
 

@@ -135,6 +135,7 @@ import {
   BUILDER_CONNECT_PARAM,
   BUILDER_CONNECT_MODE_PARAM,
   BUILDER_AGENT_NATIVE_PROVISION_MODE,
+  BUILDER_PROVISIONING_TOKEN_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
@@ -166,6 +167,8 @@ import {
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
+  signBuilderProvisioningToken,
+  verifyBuilderProvisioningToken,
   type BuilderConnectTrackingParams,
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
@@ -2283,12 +2286,30 @@ export function createCoreRoutesPlugin(
         const envStatus = getBuilderBrowserStatusForEvent(event);
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
-        const withConnectToken = <T extends { connectUrl: string }>(
+        const provisioningToken =
+          userEmail &&
+          ownerContext.session?.token &&
+          isBuilderAccountProvisioningEnabled()
+            ? signBuilderProvisioningToken(
+                userEmail,
+                ownerContext.session.token,
+              )
+            : undefined;
+        const withConnectToken = <
+          T extends {
+            connectUrl: string;
+            agentNativeProvisioningEnabled?: boolean;
+          },
+        >(
           status: T,
         ): T => {
           if (!userEmail) return status;
           return {
             ...status,
+            agentNativeProvisioningEnabled:
+              status.agentNativeProvisioningEnabled &&
+              Boolean(provisioningToken),
+            agentNativeProvisioningToken: provisioningToken,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
           };
         };
@@ -2748,6 +2769,21 @@ export function createCoreRoutesPlugin(
                 503,
                 "Builder account activation is not available.",
                 "provision_not_configured",
+              );
+            }
+
+            if (
+              !ownerContext.session?.token ||
+              !verifyBuilderProvisioningToken(
+                requestUrl.searchParams.get(BUILDER_PROVISIONING_TOKEN_PARAM),
+                ownerEmail,
+                ownerContext.session.token,
+              )
+            ) {
+              return failProvisioning(
+                403,
+                "This activation link is expired. Close this popup and click Activate again.",
+                "provision_token_invalid",
               );
             }
 
