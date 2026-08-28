@@ -182,6 +182,7 @@ describe("DispatchControlPlane", () => {
     });
     expect(clientState.promptComposerProps).toMatchObject({
       availableModels: [],
+      draftScope: "dispatch:overview",
       modelListLoading: false,
       selectedEffort: "medium",
       selectedEngine: "",

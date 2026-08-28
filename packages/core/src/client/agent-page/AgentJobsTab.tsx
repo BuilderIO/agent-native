@@ -333,6 +333,7 @@ export function AgentJobsTab({
             ) : null}
             <AgentAskPopover
               context={organizationAutomationCreationContext()}
+              draftScope="agent-jobs:organization-create"
               prompt={t("jobs.organizationPrompt", {
                 defaultValue:
                   "Create a shared organization automation that does this: ",
@@ -390,6 +391,7 @@ export function AgentJobsTab({
             organization ? null : (
               <AgentAskPopover
                 context={automationCreationContext()}
+                draftScope="agent-jobs:personal-empty-create"
                 prompt={t("jobs.automationPrompt", {
                   defaultValue: "Create an automation that does this: ",
                 })}
@@ -692,6 +694,7 @@ export function AgentJobsTab({
       actions={
         <AgentAskPopover
           context={automationCreationContext()}
+          draftScope="agent-jobs:page-create"
           prompt={t("jobs.automationPrompt", {
             defaultValue: "Create an automation that does this: ",
           })}
@@ -710,6 +713,7 @@ export function AgentJobsTab({
           <div className="flex justify-end">
             <AgentAskPopover
               context={automationCreationContext()}
+              draftScope="agent-jobs:compact-create"
               prompt={t("jobs.automationPrompt", {
                 defaultValue: "Create an automation that does this: ",
               })}

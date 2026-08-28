@@ -122,6 +122,7 @@ function CommandPanel() {
         </div>
         <PromptComposer
           availableModels={availableModels}
+          draftScope="dispatch:overview"
           modelListLoading={modelListLoading}
           placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
             defaultValue: "Ask Dispatch anything...",

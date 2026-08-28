@@ -408,10 +408,12 @@ function uniquifyComposerImageFile(file: File): File {
   return new File([file], uniqueName, { type: file.type });
 }
 
-function composerDocumentHasContent(doc: {
+type ComposerDocument = {
   textContent: string;
   descendants: (callback: (node: any) => boolean | void) => void;
-}): boolean {
+};
+
+function composerDocumentHasContent(doc: ComposerDocument): boolean {
   if (doc.textContent.trim().length > 0) return true;
   let hasContent = false;
   doc.descendants((node: any) => {
@@ -426,6 +428,21 @@ function composerDocumentHasContent(doc: {
     return true;
   });
   return hasContent;
+}
+
+function persistComposerDraft(
+  draftKey: string,
+  editor: { getHTML(): string; state: { doc: ComposerDocument } },
+): void {
+  try {
+    if (!composerDocumentHasContent(editor.state.doc)) {
+      localStorage.removeItem(draftKey);
+    } else {
+      localStorage.setItem(draftKey, editor.getHTML());
+    }
+  } catch {
+    // coercion-ok: browser storage is optional and can be unavailable or full.
+  }
 }
 
 export function handleComposerFileDrop(options: {
@@ -1542,7 +1559,9 @@ function ModelSelector({
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
-    } catch {}
+    } catch {
+      // coercion-ok: browser storage is optional and can be unavailable or full.
+    }
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
     setPickerOpen(false);
   }, [setPickerOpen]);
@@ -2443,14 +2462,8 @@ export function TiptapComposer({
     popoverStateRef.current = null;
   }, []);
 
-  // Persist draft to localStorage so hot-reloads don't lose the prompt
+  // Persist draft to localStorage so refreshes don't lose the prompt.
   const draftKey = getComposerDraftKey(draftScope);
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
-    return () => {
-      clearTimeout(draftTimerRef.current);
-    };
-  }, []);
   useEffect(() => {
     lastComposerRuntimeSyncRef.current = null;
   }, [composerRuntime]);
@@ -2468,44 +2481,14 @@ export function TiptapComposer({
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
     editable: !disabled,
-    onCreate: ({ editor: ed }) => {
-      // Restore draft on mount
-      try {
-        if (initialText !== undefined) {
-          ed.commands.setContent(plainTextToDoc(initialText));
-          ed.commands.focus("end");
-          setEditorHasText(composerDocumentHasContent(ed.state.doc));
-          initialTextKeyRef.current = initialTextKey ?? initialText;
-        } else {
-          const saved = localStorage.getItem(draftKey);
-          if (saved) {
-            ed.commands.setContent(saved);
-            ed.commands.focus("end");
-            setEditorHasText(composerDocumentHasContent(ed.state.doc));
-          }
-        }
-        onTextChangeRef.current?.(ed.state.doc.textContent.trim());
-      } catch {}
-    },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
       onTextChangeRef.current?.(ed.state.doc.textContent.trim());
 
-      // Debounce-save draft to localStorage
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = setTimeout(() => {
-        try {
-          const html = ed.getHTML();
-          const isEmpty = !composerDocumentHasContent(ed.state.doc);
-          if (isEmpty) {
-            localStorage.removeItem(draftKey);
-          } else {
-            localStorage.setItem(draftKey, html);
-          }
-        } catch {}
-      }, 300);
+      // Write before an unmount can cancel a deferred save.
+      persistComposerDraft(draftKey, ed);
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to } = ed.state.selection;
@@ -2929,13 +2912,7 @@ export function TiptapComposer({
       setSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
-      try {
-        if (trimmed) {
-          localStorage.setItem(draftKey, editor.getHTML());
-        } else {
-          localStorage.removeItem(draftKey);
-        }
-      } catch {}
+      persistComposerDraft(draftKey, editor);
     },
     insertReference,
   }));
@@ -3306,7 +3283,9 @@ export function TiptapComposer({
     resetComposerRuntimeState();
     try {
       localStorage.removeItem(draftKey);
-    } catch {}
+    } catch {
+      // coercion-ok: browser storage is optional and can be unavailable or full.
+    }
     closePopover();
   }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
 
@@ -3643,23 +3622,38 @@ export function TiptapComposer({
   }, [composerText, editor]);
 
   useEffect(() => {
-    if (!isComposerEditorUsable(editor) || initialText === undefined) return;
+    if (!isComposerEditorUsable(editor)) return;
     const key = initialTextKey ?? initialText;
-    if (initialTextKeyRef.current === key) return;
-    initialTextKeyRef.current = key;
-    editor.commands.setContent(plainTextToDoc(initialText));
-    editor.commands.focus("end");
-    const trimmed = editor.state.doc.textContent.trim();
-    setEditorHasText(trimmed.length > 0);
-    composerRuntime.setText(trimmed);
-    onTextChangeRef.current?.(trimmed);
+    let saved: string | null = null;
     try {
-      if (trimmed) {
-        localStorage.setItem(draftKey, editor.getHTML());
+      saved = localStorage.getItem(draftKey);
+    } catch {
+      // coercion-ok: browser storage is optional and can be unavailable or full.
+    }
+
+    try {
+      if (saved && editor.isEmpty) {
+        editor.commands.setContent(saved);
+        editor.commands.focus("end");
+        if (initialText !== undefined) initialTextKeyRef.current = key;
+      } else if (initialText === undefined) {
+        onTextChangeRef.current?.(editor.state.doc.textContent.trim());
+        return;
+      } else if (initialTextKeyRef.current !== key) {
+        initialTextKeyRef.current = key;
+        editor.commands.setContent(plainTextToDoc(initialText));
+        editor.commands.focus("end");
       } else {
-        localStorage.removeItem(draftKey);
+        return;
       }
-    } catch {}
+      const trimmed = editor.state.doc.textContent.trim();
+      setEditorHasText(composerDocumentHasContent(editor.state.doc));
+      composerRuntime.setText(trimmed);
+      onTextChangeRef.current?.(trimmed);
+      persistComposerDraft(draftKey, editor);
+    } catch {
+      // coercion-ok: a stale editor during unmount should not block the refresh path.
+    }
   }, [composerRuntime, draftKey, editor, initialText, initialTextKey]);
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.

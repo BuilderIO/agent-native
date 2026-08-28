@@ -16,6 +16,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { TooltipProvider } from "../ui/tooltip.js";
+import { getComposerDraftKey } from "./draft-key.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
@@ -54,6 +55,7 @@ let root: Root;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -221,6 +223,64 @@ describe("createTiptapComposerExtensions", () => {
     expect(editor.getHTML()).toContain('data-type="file-reference"');
 
     editor.destroy();
+  });
+
+  it("restores a scoped draft before a seeded prompt without crossing scopes", async () => {
+    const scope = "draft-recovery:test";
+    const draftEditor = new Editor({
+      element: document.createElement("div"),
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+    });
+    draftEditor.commands.setContent("<p>Saved prompt</p>");
+    localStorage.setItem(getComposerDraftKey(scope), draftEditor.getHTML());
+    draftEditor.destroy();
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "Saved prompt",
+    );
+
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onTextChange = vi.fn();
+
+    function Harness({ currentScope }: { currentScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            key: currentScope,
+            focusRef,
+            draftScope: currentScope,
+            initialText: "Seed prompt",
+            initialTextKey: "seed",
+            includeDefaultSlashSkills: false,
+            onTextChange,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: scope }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Saved prompt");
+    expect(onTextChange).toHaveBeenCalledWith("Saved prompt");
+
+    act(() =>
+      root.render(
+        React.createElement(Harness, { currentScope: "draft-recovery:other" }),
+      ),
+    );
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Seed prompt");
   });
 
   it.each([
