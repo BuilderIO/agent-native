@@ -72,12 +72,15 @@ vi.mock("../server/db/index.js", () => ({
       title: "decks.title",
       data: "decks.data",
       designSystemId: "decks.designSystemId",
+      updatedAt: "decks.updatedAt",
     },
   },
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => ({ and: args }),
   eq: (...args: unknown[]) => ({ eq: args }),
+  isNull: (...args: unknown[]) => ({ isNull: args }),
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings,
     values,
@@ -999,6 +1002,7 @@ describe("run() — asynchronous layout fit metadata", () => {
       id: "deck-1",
       title: "Deck",
       designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
       data: JSON.stringify({
         title: "Deck",
         updatedAt: "2026-01-01T00:00:00.000Z",
