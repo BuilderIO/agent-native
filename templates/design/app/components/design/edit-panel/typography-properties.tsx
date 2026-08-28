@@ -558,7 +558,7 @@ export function TypographyProperties({
       </InspectorGrid>
 
       {/* Row 2: weight + size side by side */}
-      <InspectorGrid className="items-center">
+      <InspectorGrid className="items-center" layout="pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <Select
             value={fontWeightIsMixed ? MIXED_VALUE : currentFontWeight}
@@ -621,7 +621,7 @@ export function TypographyProperties({
       </InspectorGrid>
 
       {/* Row 3: line-height + letter-spacing with design-editor leading icons */}
-      <InspectorGrid className="items-center">
+      <InspectorGrid className="items-center" layout="pair">
         <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
           <ScrubInput
             label={t("editPanel.labels.lineHeight")}
