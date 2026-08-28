@@ -24,6 +24,13 @@ interface TimeZoneGridProps {
   errorMessage?: string;
   /** Hosts (owner + eligible overlay hosts) with a resolved time zone. */
   hosts: TimeZoneGridHost[];
+  /**
+   * Manually added extra time zones. Lifted to the parent so they survive
+   * this component unmounting — e.g. toggling "Hide time zones" swaps this
+   * component out for TimeSlotPicker, which would otherwise reset local state.
+   */
+  extraTimezones: string[];
+  onExtraTimezonesChange: (timezones: string[]) => void;
 }
 
 function formatInTimeZone(iso: string, timeZone: string): string {
@@ -45,9 +52,10 @@ export function TimeZoneGrid({
   loading,
   errorMessage,
   hosts,
+  extraTimezones,
+  onExtraTimezonesChange,
 }: TimeZoneGridProps) {
   const t = useT();
-  const [extraTimezones, setExtraTimezones] = useState<string[]>([]);
   const [addingTimezone, setAddingTimezone] = useState(false);
   const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   // Resolved after mount only — the browser's timezone can differ from the
@@ -112,7 +120,7 @@ export function TimeZoneGrid({
         <div
           className="grid items-center gap-x-1 gap-y-1.5"
           style={{
-            gridTemplateColumns: `10rem repeat(${slots.length}, minmax(4.5rem, 1fr))`,
+            gridTemplateColumns: `10rem repeat(${slots.length}, minmax(5.5rem, 1fr))`,
           }}
         >
           {rows.map((row) => (
@@ -128,8 +136,8 @@ export function TimeZoneGrid({
                   <button
                     type="button"
                     onClick={() =>
-                      setExtraTimezones((prev) =>
-                        prev.filter((tz) => tz !== row.timezone),
+                      onExtraTimezonesChange(
+                        extraTimezones.filter((tz) => tz !== row.timezone),
                       )
                     }
                     className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -156,7 +164,7 @@ export function TimeZoneGrid({
                       )
                     }
                     className={cn(
-                      "rounded-md px-2 py-1.5 text-center text-sm transition-colors",
+                      "whitespace-nowrap rounded-md px-2 py-1.5 text-center text-sm transition-colors",
                       isSelected
                         ? "bg-primary font-medium text-primary-foreground"
                         : isHovered
@@ -178,9 +186,9 @@ export function TimeZoneGrid({
             <TimezoneCombobox
               value=""
               onChange={(timezone) => {
-                setExtraTimezones((prev) =>
-                  prev.includes(timezone) ? prev : [...prev, timezone],
-                );
+                if (!extraTimezones.includes(timezone)) {
+                  onExtraTimezonesChange([...extraTimezones, timezone]);
+                }
                 setAddingTimezone(false);
               }}
             />
