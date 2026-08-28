@@ -1689,6 +1689,8 @@ describe("DeckContext deck creation persistence", () => {
     const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
     const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
     const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
+    const normalizedMovedContent = normalizeSlidePadding(movedContent);
+    const normalizedResizedContent = normalizeSlidePadding(resizedContent);
     setAccessibleDeck({
       id: "gesture-deck",
       title: "Gesture deck",
@@ -1745,12 +1747,12 @@ describe("DeckContext deck creation persistence", () => {
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
-            movedContent,
+            normalizedMovedContent,
         ) &&
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
-            resizedContent,
+            normalizedResizedContent,
         )
       );
     });
@@ -1760,12 +1762,12 @@ describe("DeckContext deck creation persistence", () => {
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: movedContent },
+          fields: { content: normalizedMovedContent },
         },
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: resizedContent },
+          fields: { content: normalizedResizedContent },
         },
       ],
     });

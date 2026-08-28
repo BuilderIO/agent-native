@@ -3205,7 +3205,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const op: PatchDeckOp = {
         op: "patch-slide",
         slideId,
-        fields: updates,
+        fields: normalizedUpdates,
       };
       if (
         before &&
