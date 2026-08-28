@@ -1,11 +1,11 @@
 /**
- * Authorization for Builder.io REST asset calls (`/api/v1/upload/*`).
+ * Authorization for authenticated Builder.io requests.
  *
- * Two credential kinds reach those endpoints and they are not interchangeable:
+ * Two credential kinds reach these endpoints and they are not interchangeable:
  * a legacy `bpk-` private key bypasses Builder's OAuth scope middleware
  * entirely, while an OAuth access token is checked against the scopes its
  * grant was issued with. New Builder connections store only an OAuth grant, so
- * a caller that knows about private keys alone cannot upload for them at all.
+ * every authenticated Builder caller must share this precedence decision.
  */
 
 import { isTransientDatabaseError } from "../db/client.js";
@@ -15,7 +15,7 @@ import {
 } from "./builder-oauth.js";
 import {
   CredentialStoreUnavailableError,
-  resolveBuilderPrivateKey,
+  resolveBuilderCredential,
 } from "./credential-provider.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -37,6 +37,69 @@ async function readOAuthCustody(
   return readCredentialStore(() => hasBuilderOAuthSession(ownerEmail, orgId));
 }
 
+export type BuilderLegacyCredentialKey =
+  | "BUILDER_PRIVATE_KEY"
+  | "BUILDER_CMS_PRIVATE_KEY";
+
+export interface BuilderRequestAuthorization {
+  token: string;
+  authorization: string;
+  source: "oauth" | "legacy";
+  legacyCredentialKey?: BuilderLegacyCredentialKey;
+}
+
+/**
+ * Resolve the one effective authorization for an authenticated Builder
+ * request. OAuth custody wins even when the grant needs reconnecting or lacks
+ * a required scope; only a request with no OAuth custody may use a legacy key.
+ */
+export async function resolveBuilderRequestAuthorization(
+  input: {
+    requiredScope?: string;
+    legacyCredentialKeys?: readonly BuilderLegacyCredentialKey[];
+  } = {},
+): Promise<BuilderRequestAuthorization | null> {
+  const ownerEmail = getRequestUserEmail();
+  const orgId = getRequestOrgId();
+
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
+    const session = await readCredentialStore(() =>
+      getBuilderOAuthSession(ownerEmail, orgId),
+    );
+    if (!session) {
+      throw new Error(
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+      );
+    }
+    if (input.requiredScope && !session.scopes.includes(input.requiredScope)) {
+      throw new Error(
+        `Builder.io access needs re-authorizing to grant ${input.requiredScope}. Open Settings and authorize Builder.io again.`,
+      );
+    }
+    return {
+      token: session.accessToken,
+      authorization: `Bearer ${session.accessToken}`,
+      source: "oauth",
+    };
+  }
+
+  const legacyCredentialKeys = input.legacyCredentialKeys ?? [
+    "BUILDER_PRIVATE_KEY",
+  ];
+  for (const key of legacyCredentialKeys) {
+    const token = await resolveBuilderCredential(key);
+    if (token) {
+      return {
+        token,
+        authorization: `Bearer ${token}`,
+        source: "legacy",
+        legacyCredentialKey: key,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Resolve the `Authorization` header for a Builder asset API call.
  *
@@ -50,33 +113,9 @@ async function readOAuthCustody(
 export async function resolveBuilderApiAuthorization(
   requiredScope?: string,
 ): Promise<string> {
-  const ownerEmail = getRequestUserEmail();
-  // Bind to the request's organization, not the user's currently active one:
-  // the grant is org-scoped, and a recording that finalizes after the user
-  // switched org must still authorize against the org it belongs to. The
-  // legacy private-key path already resolves this way.
-  const orgId = getRequestOrgId();
-
-  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
-    const session = await readCredentialStore(() =>
-      getBuilderOAuthSession(ownerEmail, orgId),
-    );
-    if (!session) {
-      throw new Error(
-        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
-      );
-    }
-    if (requiredScope && !session.scopes.includes(requiredScope)) {
-      throw new Error(
-        `Builder.io access needs re-authorizing to grant ${requiredScope}. Open Settings and authorize Builder.io again.`,
-      );
-    }
-    return `Bearer ${session.accessToken}`;
-  }
-
-  const privateKey = await resolveBuilderPrivateKey();
-  if (!privateKey) throw new Error("Builder.io is not connected.");
-  return `Bearer ${privateKey}`;
+  const resolved = await resolveBuilderRequestAuthorization({ requiredScope });
+  if (!resolved) throw new Error("Builder.io is not connected.");
+  return resolved.authorization;
 }
 
 /**
@@ -94,7 +133,7 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   if (ownerEmail && (await readOAuthCustody(ownerEmail, getRequestOrgId()))) {
     return true;
   }
-  return !!(await resolveBuilderPrivateKey());
+  return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
 }
 
 /**
@@ -114,5 +153,5 @@ export async function canAuthorizeBuilderApiRequest(
     );
   }
 
-  return !!(await resolveBuilderPrivateKey());
+  return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
 }

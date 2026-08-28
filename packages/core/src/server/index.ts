@@ -578,8 +578,14 @@ export {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderLegacyCredentialKey,
+  type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
-export { BUILDER_ASSETS_WRITE_SCOPE } from "./builder-oauth.js";
+export {
+  BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_OAUTH_SCOPE,
+} from "./builder-oauth.js";
 export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,

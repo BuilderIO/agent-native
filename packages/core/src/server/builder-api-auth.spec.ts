@@ -4,11 +4,12 @@ import {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
+  resolveBuilderRequestAuthorization,
 } from "./builder-api-auth.js";
 
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
-const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const resolveBuilderCredentialMock = vi.hoisted(() => vi.fn());
 const CredentialStoreUnavailableErrorMock = vi.hoisted(
   () =>
     class CredentialStoreUnavailableError extends Error {
@@ -30,7 +31,7 @@ vi.mock("./builder-oauth.js", () => ({
 }));
 vi.mock("./credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
-  resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
+  resolveBuilderCredential: resolveBuilderCredentialMock,
 }));
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
@@ -45,7 +46,7 @@ beforeEach(() => {
   getRequestOrgIdMock.mockReturnValue(undefined);
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
-  resolveBuilderPrivateKeyMock.mockResolvedValue(null);
+  resolveBuilderCredentialMock.mockResolvedValue(null);
 });
 
 describe("resolveBuilderApiAuthorization", () => {
@@ -55,13 +56,13 @@ describe("resolveBuilderApiAuthorization", () => {
       accessToken: "<OAUTH_TOKEN_EXAMPLE>",
       scopes: ["builder:ai:invoke", ASSETS_WRITE],
     });
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer <OAUTH_TOKEN_EXAMPLE>",
     );
     // OAuth wins outright — the legacy key is never even consulted.
-    expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
   it("names the missing scope instead of falling back to a legacy key", async () => {
@@ -70,20 +71,20 @@ describe("resolveBuilderApiAuthorization", () => {
       accessToken: "<OAUTH_TOKEN_EXAMPLE>",
       scopes: ["builder:ai:invoke"],
     });
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toThrow(
       /needs re-authorizing to grant builder:assets:write/,
     );
     // Falling back here would let a deploy-level key act for a user who never
     // authorized it.
-    expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
   it("asks for re-authorization when custody exists but no session resolves", async () => {
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     getBuilderOAuthSessionMock.mockResolvedValue(null);
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toThrow(
       /access expired/,
@@ -112,7 +113,7 @@ describe("resolveBuilderApiAuthorization", () => {
   });
 
   it("uses the legacy private key when there is no OAuth grant", async () => {
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer bpk-legacy",
@@ -149,12 +150,60 @@ describe("resolveBuilderApiAuthorization", () => {
 
   it("skips the OAuth lookup with no request owner", async () => {
     getRequestUserEmailMock.mockReturnValue(undefined);
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-deploy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-deploy");
 
     await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).resolves.toBe(
       "Bearer bpk-deploy",
     );
     expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveBuilderRequestAuthorization", () => {
+  it("returns OAuth provenance for Settings and authenticated provider reads", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: ["builder:ai:invoke"],
+    });
+
+    await expect(
+      resolveBuilderRequestAuthorization({
+        requiredScope: "builder:ai:invoke",
+        legacyCredentialKeys: [
+          "BUILDER_PRIVATE_KEY",
+          "BUILDER_CMS_PRIVATE_KEY",
+        ],
+      }),
+    ).resolves.toEqual({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Content legacy alias inside the shared fallback boundary", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_CMS_PRIVATE_KEY" ? "cms-private-key" : null,
+    );
+
+    await expect(
+      resolveBuilderRequestAuthorization({
+        legacyCredentialKeys: [
+          "BUILDER_PRIVATE_KEY",
+          "BUILDER_CMS_PRIVATE_KEY",
+        ],
+      }),
+    ).resolves.toMatchObject({
+      token: "cms-private-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_CMS_PRIVATE_KEY",
+    });
+    expect(resolveBuilderCredentialMock.mock.calls).toEqual([
+      ["BUILDER_PRIVATE_KEY"],
+      ["BUILDER_CMS_PRIVATE_KEY"],
+    ]);
   });
 });
 
@@ -172,7 +221,7 @@ describe("canAuthorizeBuilderApiRequest", () => {
   });
 
   it("accepts a legacy private key", async () => {
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
     await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
       true,
@@ -185,7 +234,7 @@ describe("hasBuilderApiCredentialCustody", () => {
   // OAuth-only connection was treated as having no storage at all.
   it("counts an OAuth grant with no private key as connected", async () => {
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
-    resolveBuilderPrivateKeyMock.mockResolvedValue(null);
+    resolveBuilderCredentialMock.mockResolvedValue(null);
 
     await expect(hasBuilderApiCredentialCustody()).resolves.toBe(true);
   });
@@ -194,11 +243,11 @@ describe("hasBuilderApiCredentialCustody", () => {
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
 
     await expect(hasBuilderApiCredentialCustody()).resolves.toBe(true);
-    expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
   it("counts a legacy private key as connected", async () => {
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-legacy");
+    resolveBuilderCredentialMock.mockResolvedValue("bpk-legacy");
 
     await expect(hasBuilderApiCredentialCustody()).resolves.toBe(true);
   });

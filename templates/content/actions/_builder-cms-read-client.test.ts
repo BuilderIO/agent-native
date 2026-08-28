@@ -1,4 +1,7 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import {
+  resolveBuilderCredential,
+  resolveBuilderRequestAuthorization,
+} from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderBlocksHash, builderEntryBlocks } from "../shared/builder-mdx";
@@ -14,9 +17,14 @@ import {
 
 vi.mock("@agent-native/core/server", () => ({
   resolveBuilderCredential: vi.fn(),
+  resolveBuilderRequestAuthorization: vi.fn(),
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
 }));
 
 const resolveBuilderCredentialMock = vi.mocked(resolveBuilderCredential);
+const resolveBuilderRequestAuthorizationMock = vi.mocked(
+  resolveBuilderRequestAuthorization,
+);
 
 describe("Builder CMS read client", () => {
   beforeEach(() => {
@@ -26,6 +34,21 @@ describe("Builder CMS read client", () => {
     delete process.env.BUILDER_CMS_MCP_ENDPOINT;
     delete process.env.BUILDER_CMS_MCP_SEARCH_TEXT;
     delete process.env.BUILDER_CMS_READ_LIMIT;
+    resolveBuilderRequestAuthorizationMock.mockImplementation(async (input) => {
+      for (const key of input?.legacyCredentialKeys ?? [
+        "BUILDER_PRIVATE_KEY",
+      ]) {
+        const token = await resolveBuilderCredentialMock(key);
+        if (token) {
+          return {
+            token,
+            authorization: `Bearer ${token}`,
+            source: "legacy",
+          };
+        }
+      }
+      return null;
+    });
   });
 
   it("summarizes bounded rich-content fidelity without returning article text", () => {
@@ -155,6 +178,102 @@ describe("Builder CMS read client", () => {
     ).resolves.toMatchObject({
       state: "unconfigured",
       models: [],
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("lists Builder models with OAuth-only request authorization", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    models: [
+                      {
+                        id: "model-test",
+                        name: "agent-native-blog-article-test",
+                        displayName: "Agent-Native Blog Article Test",
+                        kind: "component",
+                        fields: [],
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      models: [{ id: "model-test" }],
+    });
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
+      headers: expect.objectContaining({
+        authorization: "Bearer oauth-access-token",
+      }),
+    });
+  });
+
+  it("reports an expired OAuth grant as an error instead of unconfigured", async () => {
+    resolveBuilderRequestAuthorizationMock.mockRejectedValue(
+      new Error(
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+      ),
+    );
+    const fetchImpl = vi.fn();
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      models: [],
+      message: expect.stringMatching(/access expired/),
+    });
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message: expect.stringMatching(/access expired/),
+      progress: { readMode: "none" },
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -654,10 +773,13 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("requests mapped model fields through Builder MCP list reads", async () => {
-    resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
-    );
+  it("requests mapped model fields through OAuth-only Builder MCP reads", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -728,6 +850,9 @@ describe("Builder CMS read client", () => {
     expect(fields).toContain("data.customModelField");
     expect(fields).not.toContain("data.blocks");
     expect(fields).not.toContain("data.blocksString");
+    expect(request.headers).toMatchObject({
+      authorization: "Bearer oauth-access-token",
+    });
   });
 
   it("falls back to the legacy Builder CMS test search label", async () => {
@@ -988,6 +1113,101 @@ describe("Builder CMS read client", () => {
       expect(input.searchParams.get("fields")).toContain("data.blocks");
       expect(input.searchParams.get("fields")).toContain("data.blocksString");
     }
+  });
+
+  it("hydrates an exact entry through MCP with OAuth-only authorization", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "oauth-access-token",
+      authorization: "Bearer oauth-access-token",
+      source: "oauth",
+    });
+    resolveBuilderCredentialMock.mockResolvedValue(null);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { supportedVersions: ["2026-07-28"] },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    content: [
+                      {
+                        id: "builder-entry-1",
+                        lastUpdated: "2026-06-08T12:00:00.000Z",
+                        data: {
+                          title: "OAuth hydration",
+                          blocks: [{ id: "text-1" }],
+                        },
+                      },
+                    ],
+                  }),
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      readBuilderCmsContentEntry({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      id: "builder-entry-1",
+      rawEntry: { data: { title: "OAuth hydration" } },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchImpl.mock.calls) {
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer oauth-access-token",
+      });
+    }
+    const [, entryInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(String(entryInit.body))).toMatchObject({
+      method: "tools/call",
+      params: {
+        name: "get_builder_content",
+        arguments: {
+          modelName: "blog_article",
+          limit: 1,
+          query: { id: "builder-entry-1" },
+        },
+      },
+    });
+  });
+
+  it("does not bypass expired OAuth custody with a public key during hydration", async () => {
+    resolveBuilderRequestAuthorizationMock.mockRejectedValue(
+      new Error(
+        "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
+      ),
+    );
+    resolveBuilderCredentialMock.mockResolvedValue("public-key");
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntry({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow("Builder.io access expired");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("can return an initial partial Builder Content API page for fast refresh", async () => {

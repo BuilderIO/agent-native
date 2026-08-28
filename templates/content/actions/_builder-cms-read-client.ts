@@ -1,4 +1,8 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import {
+  BUILDER_OAUTH_SCOPE,
+  resolveBuilderCredential,
+  resolveBuilderRequestAuthorization,
+} from "@agent-native/core/server";
 
 import type {
   BuilderCmsModelFieldSummary,
@@ -448,11 +452,12 @@ function builderMcpEndpoint() {
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderPrivateKey() {
-  return (
-    (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
-    (await resolveBuilderCredential("BUILDER_CMS_PRIVATE_KEY"))
-  );
+async function readBuilderCmsAuthorizationToken() {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope: BUILDER_OAUTH_SCOPE,
+    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+  });
+  return authorization?.token ?? null;
 }
 
 function parseBuilderMcpToolJson(value: unknown) {
@@ -1199,11 +1204,45 @@ export async function readBuilderCmsContentEntry(args: {
   entryId: string;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsSourceEntry | null> {
+  const privateKey = await readBuilderCmsAuthorizationToken();
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
-  if (!publicKey) {
+  if (!publicKey && !privateKey) {
     throw new Error(
-      "Builder CMS entry read skipped because BUILDER_PUBLIC_KEY is not configured.",
+      "Builder CMS entry read skipped because Builder is not connected.",
     );
+  }
+
+  if (!publicKey && privateKey) {
+    const endpoint = builderMcpEndpoint();
+    const connection = await initializeBuilderMcp({
+      endpoint,
+      privateKey,
+      fetchImpl: args.fetchImpl ?? fetch,
+    });
+    const entryResult = await postBuilderMcp({
+      endpoint,
+      privateKey,
+      fetchImpl: args.fetchImpl ?? fetch,
+      connection,
+      payload: {
+        jsonrpc: "2.0",
+        id: `entry-${args.entryId}`,
+        method: "tools/call",
+        params: {
+          name: "get_builder_content",
+          arguments: {
+            modelName: args.model,
+            limit: 1,
+            query: { id: args.entryId },
+            fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+            enrich: true,
+          },
+        },
+      },
+    });
+    const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
+    const [entry] = builderMcpEntriesFromToolResponse(entryJson, args.model);
+    return entry?.id === args.entryId ? entry : null;
   }
 
   const url = new URL(
@@ -1212,7 +1251,7 @@ export async function readBuilderCmsContentEntry(args: {
     )}`,
     builderContentApiHost(),
   );
-  applyBuilderCmsBodyEntryReadParams(url, publicKey);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey!);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -1239,8 +1278,21 @@ export async function listBuilderCmsModels(
   } = {},
 ): Promise<BuilderCmsModelsResponse> {
   const fetchedAt = new Date().toISOString();
-  const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
+  let privateKey: string | null;
+  try {
+    privateKey = await readBuilderCmsAuthorizationToken();
+  } catch (error) {
+    return {
+      state: "error",
+      models: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Builder authorization could not be resolved.",
+    };
+  }
   if (!privateKey) {
     return {
       state: "unconfigured",
@@ -1327,8 +1379,31 @@ export async function readBuilderCmsContentEntries(args: {
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
-  const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
+  let privateKey: string | null;
+  try {
+    privateKey = await readBuilderCmsAuthorizationToken();
+  } catch (error) {
+    return {
+      state: "error",
+      entries: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Builder authorization could not be resolved.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: args.offset ?? 0,
+        nextOffset: args.offset ?? 0,
+        fetchedEntryCount: args.offset ?? 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (args.requirePrivateKey === true && !privateKey) {
     return {
