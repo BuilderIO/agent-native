@@ -130,6 +130,25 @@ describe("release everything workflow", () => {
     assert.match(source, /Promise\.allSettled/);
   });
 
+  it("survives auto-publish pending-run replacement", () => {
+    const source = String((coordinator.with as Workflow).script);
+
+    assert.match(source, /async function listAutoPublishRuns\(\)/);
+    assert.match(source, /async function waitForAutoPublishIdle\(deadline\)/);
+    assert.match(source, /listJobsForWorkflowRun/);
+    assert.match(source, /wasSupersededPendingRun/);
+    assert.match(source, /retryIfSupersededPending/);
+    assert.match(
+      source,
+      /await waitForAutoPublishIdle\(packagePreparationDeadline\)/,
+    );
+    assert.match(source, /current\.conclusion === "cancelled"/);
+    assert.match(
+      source,
+      /Stable package release preparation did not start before the coordinator timeout/,
+    );
+  });
+
   it("checks out the coordinated release commit for desktop builds", () => {
     const desktopSource = JSON.stringify(desktopWorkflow);
     const clipsSource = JSON.stringify(clipsWorkflow);
