@@ -52,6 +52,31 @@ export default defineAction({
     }
 
     const updatedAt = new Date().toISOString();
+    if (args.content !== undefined && args.resolved !== undefined) {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(schema.documentComments)
+          .set({ content: args.content, updatedAt })
+          .where(
+            and(
+              eq(schema.documentComments.id, args.id),
+              eq(schema.documentComments.documentId, comment.documentId),
+            ),
+          );
+        await tx
+          .update(schema.documentComments)
+          .set({ resolved: args.resolved ? 1 : 0, updatedAt })
+          .where(
+            and(
+              eq(schema.documentComments.documentId, comment.documentId),
+              eq(schema.documentComments.threadId, comment.threadId),
+            ),
+          );
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      return { ok: true, resolved: args.resolved };
+    }
+
     if (args.resolved === true) {
       await db
         .update(schema.documentComments)

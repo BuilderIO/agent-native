@@ -66,6 +66,8 @@ vi.mock("../server/db/index.js", () => {
   };
 
   const db = {
+    transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback(db),
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: (cond: any) => ({
@@ -197,6 +199,26 @@ describe("update-comment (action) — reopen permission", () => {
     );
     expect(state.rows[1].resolved).toBe(1); // whole thread resolved
     expect(state.rows[2].resolved).toBe(0); // sibling thread unchanged
+  });
+
+  it("updates content and resolves the full thread in one transaction", async () => {
+    const result = await run({
+      id: "c-1",
+      content: "Corrected text",
+      resolved: true,
+    });
+
+    expect(result).toEqual({ ok: true, resolved: true });
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "editor",
+    );
+    expect(state.rows[0].content).toBe("Corrected text");
+    expect(state.rows[0].resolved).toBe(1);
+    expect(state.rows[1].content).toBe("A reply");
+    expect(state.rows[1].resolved).toBe(1);
+    expect(state.rows[2].resolved).toBe(0);
   });
 
   it("returns the same resolved state when an already-resolved thread is resolved again", async () => {
