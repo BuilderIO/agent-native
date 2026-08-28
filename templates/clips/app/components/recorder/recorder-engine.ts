@@ -35,6 +35,11 @@ import {
   formatMb,
   type CompressionResult,
 } from "@/lib/compress";
+import {
+  deleteRecordingBackup,
+  putRecordingBackupChunk,
+  putRecordingBackupMeta,
+} from "@/lib/recording-backup";
 
 // Re-exported for existing callers; the canonical impls live in
 // @shared/recording-core and are shared with the Chrome extension recorder.
@@ -535,6 +540,12 @@ export class RecorderEngine {
   private localChunks: Blob[] = [];
   private totalRecordedBytes = 0;
   private lastFinalizeMeta: RecordingFinalizeMeta | null = null;
+  /**
+   * Count of chunks mirrored to IndexedDB for this take (`recording-backup.ts`).
+   * Best-effort and independent of `chunkIndex`/upload state — a mirror write
+   * failure never blocks or retries the actual upload.
+   */
+  private backupChunkIndex = 0;
   /**
    * Owns the abort signal threaded into the compression pass so a `cancel()`
    * during a multi-minute ffmpeg.wasm encode actually terminates the worker
@@ -1195,6 +1206,7 @@ export class RecorderEngine {
     this.localChunks = [];
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
+    this.backupChunkIndex = 0;
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
     this.uploadGenerationId = null;
@@ -1216,6 +1228,7 @@ export class RecorderEngine {
       // whether this recording needs compression.
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
+      this.mirrorChunkToBackup(blob);
       if (this.uploadMode === "streaming") {
         this.pendingStreamBlobs.push(blob);
         this.pendingStreamBytes += blob.size;
@@ -1466,6 +1479,7 @@ export class RecorderEngine {
       if (completed) {
         this.localChunks = [];
         this.lastFinalizeMeta = null;
+        void deleteRecordingBackup(this.opts.recordingId).catch(() => {});
       }
     }
 
@@ -1502,6 +1516,7 @@ export class RecorderEngine {
       if (completed) {
         this.localChunks = [];
         this.lastFinalizeMeta = null;
+        void deleteRecordingBackup(this.opts.recordingId).catch(() => {});
       }
     }
   }
@@ -1792,6 +1807,9 @@ export class RecorderEngine {
     this.localChunks = [];
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
+    if (this.opts.recordingId && this.opts.recordingId !== "__pending__") {
+      void deleteRecordingBackup(this.opts.recordingId).catch(() => {});
+    }
     this.transition("idle");
 
     if (this.opts.abortUrl) {
@@ -2384,6 +2402,37 @@ export class RecorderEngine {
       !!this.micStream?.getAudioTracks().length ||
       !!this.displayStream?.getAudioTracks().length
     );
+  }
+
+  /**
+   * Mirror one raw chunk to IndexedDB so the library can retry this upload
+   * from this browser later, even after a reload. Fire-and-forget and never
+   * allowed to affect the recording/upload path — a mirror write failure (a
+   * private browsing tab, IndexedDB disabled, quota exceeded) is silently
+   * dropped, the same as a lost desktop local-file write would just mean no
+   * recovery option rather than a broken recording.
+   */
+  private mirrorChunkToBackup(blob: Blob): void {
+    const recordingId = this.opts.recordingId;
+    if (!recordingId || recordingId === "__pending__") return;
+    const index = this.backupChunkIndex++;
+    const dimensions = this.readDimensions();
+    void putRecordingBackupChunk(recordingId, index, blob)
+      .then(() =>
+        putRecordingBackupMeta({
+          recordingId,
+          mimeType: this.mimeType,
+          durationMs: Math.round(this.getElapsedMs()),
+          width: dimensions.width,
+          height: dimensions.height,
+          hasAudio: this.hasAudioTrack(),
+          hasCamera: !!this.cameraStream,
+          bytes: this.totalRecordedBytes,
+          chunkCount: index + 1,
+          savedAt: new Date().toISOString(),
+        }),
+      )
+      .catch(() => {});
   }
 
   /** Best-effort — unsupported browsers or a denied request must never block capture. */

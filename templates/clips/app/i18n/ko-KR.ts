@@ -1542,6 +1542,15 @@ const messages = {
       "메뉴 막대에서 Clips를 열어 저장된 업로드를 다시 시도하세요. 다시 녹화할 필요가 없습니다.",
     removeFailedClip: "실패한 클립 제거.",
     remove: "제거",
+    statusStalled: "지연됨",
+    uploadAtRisk: "평소보다 오래 걸리고 있습니다",
+    uploadAtRiskDetail:
+      "이 클립을 저장하려고 계속 시도 중입니다. 몇 분 정도 걸릴 수 있습니다.",
+    retry: "다시 시도",
+    retrying: "다시 시도 중…",
+    retryFailed: "이 업로드를 다시 시도할 수 없습니다.",
+    retryUnavailableHere:
+      "다시 시도는 이 녹화를 만든 기기 또는 브라우저에서만 가능합니다.",
     viewsCount: "조회수 {{count}}회",
     recordingMenu: "녹화 메뉴",
     moveToFolder: "폴더로 이동",

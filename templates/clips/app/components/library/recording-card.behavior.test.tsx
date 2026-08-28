@@ -71,6 +71,11 @@ vi.mock("@/lib/capture-install-options", () => ({
 
 vi.mock("@/lib/recording-status", () => ({
   isStaleRecordingUpload: () => false,
+  isAtRiskRecordingUpload: () => false,
+}));
+
+vi.mock("@/lib/recording-backup", () => ({
+  hasRecordingBackup: () => Promise.resolve(false),
 }));
 
 vi.mock("@/lib/storage-failures", () => ({
