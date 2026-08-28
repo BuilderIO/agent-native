@@ -519,7 +519,7 @@ const esES = {
       community: "Comunidad",
       legal: "Legal",
       docs: "Documentación",
-      actions: "Acciones",
+      download: "Descargar",
       apps: "Apps",
       privacyPolicy: "Política de privacidad",
       saasTerms: "Términos de SaaS",

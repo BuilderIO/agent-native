@@ -514,7 +514,7 @@ const hiIN = {
       community: "कम्युनिटी",
       legal: "कानूनी",
       docs: "दस्तावेज़",
-      actions: "एक्शन्स",
+      download: "डाउनलोड",
       apps: "ऐप्स",
       privacyPolicy: "गोपनीयता नीति",
       saasTerms: "SaaS शर्तें",

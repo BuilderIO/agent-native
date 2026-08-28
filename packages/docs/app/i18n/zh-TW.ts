@@ -506,7 +506,7 @@ const messages = {
       community: "社群",
       legal: "法律",
       docs: "文件",
-      actions: "行動",
+      download: "下載",
       apps: "應用",
       privacyPolicy: "隱私權政策",
       saasTerms: "SaaS 條款",

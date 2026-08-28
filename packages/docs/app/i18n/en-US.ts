@@ -516,7 +516,7 @@ const enUS = {
       community: "Community",
       legal: "Legal",
       docs: "Docs",
-      actions: "Actions",
+      download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "SaaS Terms",

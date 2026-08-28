@@ -517,7 +517,7 @@ const koKR = {
       community: "커뮤니티",
       legal: "법적 고지",
       docs: "문서",
-      actions: "액션",
+      download: "다운로드",
       apps: "앱",
       privacyPolicy: "개인정보 처리방침",
       saasTerms: "SaaS 약관",

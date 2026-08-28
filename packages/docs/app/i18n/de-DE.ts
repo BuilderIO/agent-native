@@ -518,7 +518,7 @@ const deDE = {
       community: "Community",
       legal: "Rechtliches",
       docs: "Docs",
-      actions: "Actions",
+      download: "Herunterladen",
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
       saasTerms: "SaaS-Bedingungen",
