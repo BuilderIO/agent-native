@@ -1,5 +1,12 @@
 # @agent-native/recap-cli
 
+## 0.5.19
+
+### Patch Changes
+
+- 4776e61: Reduce CI lint warnings across publishable packages.
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.18
 
 ### Patch Changes
