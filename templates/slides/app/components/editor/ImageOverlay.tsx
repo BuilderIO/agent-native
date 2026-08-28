@@ -10,15 +10,22 @@ import {
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  IMAGE_OBJECT_POSITION_VALUES,
+  type ImageObjectPosition,
+} from "@/lib/slide-image-replacement";
+
 interface ImageOverlayProps {
   anchorRect: DOMRect;
   src: string;
   objectFit: "cover" | "contain";
+  objectPosition: ImageObjectPosition;
   onGenerate: () => void;
   onLibrary: () => void;
   onUpload: () => void;
   onDownload: () => void;
   onToggleObjectFit: () => void;
+  onChangeObjectPosition: (objectPosition: ImageObjectPosition) => void;
   onClose: () => void;
 }
 
@@ -26,11 +33,13 @@ export default function ImageOverlay({
   anchorRect,
   src,
   objectFit,
+  objectPosition,
   onGenerate,
   onLibrary,
   onUpload,
   onDownload,
   onToggleObjectFit,
+  onChangeObjectPosition,
   onClose,
 }: ImageOverlayProps) {
   const t = useT();
@@ -125,6 +134,47 @@ export default function ImageOverlay({
         )}
         Fit: {objectFit === "cover" ? "Cover" : "Contain"}
       </button>
+      {objectFit === "cover" && (
+        <label className="image-overlay-position">
+          <span>{t("styleInspector.position")}</span>
+          <select
+            aria-label={t("styleInspector.position")}
+            value={objectPosition}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (
+                IMAGE_OBJECT_POSITION_VALUES.includes(
+                  value as ImageObjectPosition,
+                )
+              ) {
+                onChangeObjectPosition(value as ImageObjectPosition);
+              }
+            }}
+          >
+            <option value="left top">
+              {t("styleInspector.top")} {t("styleInspector.left")}
+            </option>
+            <option value="center top">
+              {t("styleInspector.top")} {t("styleInspector.center")}
+            </option>
+            <option value="right top">
+              {t("styleInspector.top")} {t("styleInspector.right")}
+            </option>
+            <option value="left center">{t("styleInspector.left")}</option>
+            <option value="center center">{t("styleInspector.center")}</option>
+            <option value="right center">{t("styleInspector.right")}</option>
+            <option value="left bottom">
+              {t("styleInspector.bottom")} {t("styleInspector.left")}
+            </option>
+            <option value="center bottom">
+              {t("styleInspector.bottom")} {t("styleInspector.center")}
+            </option>
+            <option value="right bottom">
+              {t("styleInspector.bottom")} {t("styleInspector.right")}
+            </option>
+          </select>
+        </label>
+      )}
     </div>,
     document.body,
   );

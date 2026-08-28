@@ -1217,6 +1217,39 @@ button[title="Open agent sidebar"] {
   color: hsl(var(--popover-foreground));
 }
 
+.image-overlay-position {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--popover-foreground) / 0.8);
+}
+
+.image-overlay-position:hover,
+.image-overlay-position:focus-within {
+  background: hsl(var(--accent));
+  color: hsl(var(--popover-foreground));
+}
+
+.image-overlay-position select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.image-overlay-position option {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
 /* ─── Inline Slide Editor (TipTap) ─── */
 
 .slide-tiptap-editor {

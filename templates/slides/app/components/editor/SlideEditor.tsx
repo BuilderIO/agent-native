@@ -81,6 +81,8 @@ import {
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
+  normalizeImageObjectPosition,
+  type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -632,7 +634,11 @@ interface SlideEditorProps {
     url: string,
     position?: SlideImageDropPosition,
   ) => void;
-  onToggleObjectFit: (imgSrc: string, newFit: string) => void;
+  onToggleObjectFit: (imgSrc: string, newFit: "cover" | "contain") => void;
+  onChangeObjectPosition: (
+    imgSrc: string,
+    objectPosition: ImageObjectPosition,
+  ) => void;
   /** Current user display info for cursor caret */
   collabUser?: { name: string; color: string };
   /** True briefly when AI agent is making edits */
@@ -1115,6 +1121,7 @@ export default function SlideEditor({
   onDropImage,
   onDropImageUrl,
   onToggleObjectFit,
+  onChangeObjectPosition,
   agentActive,
   slideIndex = 0,
   designSystem,
@@ -1151,6 +1158,7 @@ export default function SlideEditor({
     rect: DOMRect;
     src: string;
     objectFit: "cover" | "contain";
+    objectPosition: ImageObjectPosition;
   } | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
@@ -5076,8 +5084,17 @@ export default function SlideEditor({
             ? "contain"
             : "cover"
         ) as "cover" | "contain";
+        const computedStyle = window.getComputedStyle(img);
+        const position = normalizeImageObjectPosition(
+          img.style.objectPosition || computedStyle.objectPosition,
+        );
         setSelectedImg(img);
-        setImageOverlay({ rect, src, objectFit: fit });
+        setImageOverlay({
+          rect,
+          src,
+          objectFit: fit,
+          objectPosition: position,
+        });
         publishImageSelection(img);
         return;
       }
@@ -5092,6 +5109,7 @@ export default function SlideEditor({
           rect,
           src: getPlaceholderTarget(placeholder),
           objectFit: "cover",
+          objectPosition: "center center",
         });
         publishImageSelection(placeholder);
       }
@@ -6125,6 +6143,7 @@ export default function SlideEditor({
           anchorRect={imageOverlay.rect}
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
+          objectPosition={imageOverlay.objectPosition}
           onGenerate={onGenerateImage}
           onLibrary={() => onOpenAssetLibrary(imageOverlay.src)}
           onUpload={() => onUploadImage(imageOverlay.src)}
@@ -6134,6 +6153,10 @@ export default function SlideEditor({
               imageOverlay.objectFit === "cover" ? "contain" : "cover";
             onToggleObjectFit(imageOverlay.src, newFit);
             setImageOverlay({ ...imageOverlay, objectFit: newFit });
+          }}
+          onChangeObjectPosition={(objectPosition) => {
+            onChangeObjectPosition(imageOverlay.src, objectPosition);
+            setImageOverlay({ ...imageOverlay, objectPosition });
           }}
           onClose={() => setImageOverlay(null)}
         />

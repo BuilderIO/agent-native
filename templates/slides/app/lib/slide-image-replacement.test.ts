@@ -6,6 +6,7 @@ import {
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
   replaceImageTargetInSlideHtml,
+  updateImageFitInSlideHtml,
 } from "./slide-image-replacement";
 
 function firstImage(html: string): HTMLImageElement | null {
@@ -43,6 +44,20 @@ describe("slide image replacement", () => {
 
     expect(img?.getAttribute("src")).toBe("/uploads/new.png");
     expect(img?.getAttribute("alt")).toBe("New");
+  });
+
+  it("updates fit and position when the image URL contains escaped query params", () => {
+    const src = "https://cdn.example.com/chart.png?width=800&height=400";
+    const html = `<div class="fmd-slide"><img src="https://cdn.example.com/chart.png?width=800&amp;height=400" style="width: 100%; height: 100%; object-fit: contain;"></div>`;
+    const updated = updateImageFitInSlideHtml(html, src, {
+      objectFit: "cover",
+      objectPosition: "right bottom",
+    });
+    const img = firstImage(updated);
+
+    expect(img?.getAttribute("src")).toBe(src);
+    expect(img?.style.objectFit).toBe("cover");
+    expect(img?.style.objectPosition).toBe("right bottom");
   });
 
   it("drops into the first placeholder when no target is selected", () => {

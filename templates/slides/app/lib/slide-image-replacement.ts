@@ -9,6 +9,20 @@ export interface SlideImageDropPosition {
   y: number;
 }
 
+export const IMAGE_OBJECT_POSITION_VALUES = [
+  "left top",
+  "center top",
+  "right top",
+  "left center",
+  "center center",
+  "right center",
+  "left bottom",
+  "center bottom",
+  "right bottom",
+] as const;
+
+export type ImageObjectPosition = (typeof IMAGE_OBJECT_POSITION_VALUES)[number];
+
 const DROPPED_IMAGE_WIDTH = 320;
 const DROPPED_IMAGE_HEIGHT = 180;
 
@@ -55,6 +69,35 @@ function parseFragment(html: string): Document {
 
 function serializeFragment(doc: Document): string {
   return doc.body.innerHTML;
+}
+
+export function normalizeImageObjectPosition(
+  value: string | null | undefined,
+): ImageObjectPosition {
+  const normalized = value?.trim().toLowerCase().replace(/\s+/g, " ");
+  const aliases: Record<string, ImageObjectPosition> = {
+    left: "left center",
+    right: "right center",
+    top: "center top",
+    bottom: "center bottom",
+    "0% 0%": "left top",
+    "50% 0%": "center top",
+    "100% 0%": "right top",
+    "0% 50%": "left center",
+    "50% 50%": "center center",
+    "100% 50%": "right center",
+    "0% 100%": "left bottom",
+    "50% 100%": "center bottom",
+    "100% 100%": "right bottom",
+  };
+  if (normalized && normalized in aliases) return aliases[normalized];
+  if (
+    normalized &&
+    IMAGE_OBJECT_POSITION_VALUES.includes(normalized as ImageObjectPosition)
+  ) {
+    return normalized as ImageObjectPosition;
+  }
+  return "center center";
 }
 
 function cleanAlt(value: string | undefined): string {
@@ -148,6 +191,29 @@ function replaceImageSrc(
 
   image.setAttribute("src", newSrc);
   if (options.alt) image.setAttribute("alt", cleanAlt(options.alt));
+  return serializeFragment(doc);
+}
+
+export function updateImageFitInSlideHtml(
+  content: string,
+  src: string,
+  updates: {
+    objectFit?: "cover" | "contain";
+    objectPosition?: ImageObjectPosition;
+  },
+): string {
+  const doc = parseFragment(content);
+  const image = Array.from(
+    doc.body.querySelectorAll<HTMLImageElement>("img"),
+  ).find((candidate) => candidate.getAttribute("src") === src);
+  if (!image) return content;
+
+  if (updates.objectFit) {
+    image.style.setProperty("object-fit", updates.objectFit);
+  }
+  if (updates.objectPosition) {
+    image.style.setProperty("object-position", updates.objectPosition);
+  }
   return serializeFragment(doc);
 }
 
