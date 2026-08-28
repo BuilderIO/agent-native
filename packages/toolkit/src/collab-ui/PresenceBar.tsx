@@ -163,6 +163,11 @@ function AgentAvatar({
 }) {
   injectStyles();
   const integratedEditingBadge = active && !isFollowing && !showAgentEditingDot;
+  const tooltipLabel = isFollowing
+    ? "Following AI — click to stop"
+    : active
+      ? "AI is editing"
+      : "AI agent";
 
   return (
     <div
@@ -178,33 +183,33 @@ function AgentAvatar({
         }),
       }}
     >
-      <div
-        style={{
-          ...baseAvatarStyle,
-          backgroundColor: AGENT_COLOR,
-          marginLeft: 0,
-          animation: active ? "_anPresencePulse 2s infinite" : undefined,
-          cursor: onClick ? "pointer" : "default",
-          boxShadow: isFollowing
-            ? `0 0 0 2px #3b82f6, 0 0 0 4px #fff`
-            : undefined,
-        }}
-        title={
-          isFollowing
-            ? "Following AI — click to stop"
-            : active
-              ? "AI is editing"
-              : "AI agent"
-        }
-        onClick={onClick}
-        tabIndex={onClick ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onClick?.();
-        }}
-        role={onClick ? "button" : undefined}
-      >
-        A
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            style={{
+              ...baseAvatarStyle,
+              backgroundColor: AGENT_COLOR,
+              marginLeft: 0,
+              animation: active ? "_anPresencePulse 2s infinite" : undefined,
+              cursor: onClick ? "pointer" : "default",
+              boxShadow: isFollowing
+                ? // guard:allow-raw-color -- existing follow-mode ring color
+                  `0 0 0 2px #3b82f6, 0 0 0 4px #fff`
+                : undefined,
+            }}
+            aria-label={tooltipLabel}
+            onClick={onClick}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") onClick?.();
+            }}
+            role={onClick ? "button" : undefined}
+          >
+            AI
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
+      </Tooltip>
       {active && !isFollowing && (
         <AgentEditingChip
           showDot={showAgentEditingDot}
