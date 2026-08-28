@@ -123,7 +123,7 @@ function DbSyncSetup() {
       if (isOwnEvent) return;
 
       if (data.source === "app-state") {
-        qc.invalidateQueries({ queryKey: ["navigate-command"] });
+        void qc.invalidateQueries({ queryKey: ["navigate-command"] });
       }
     },
   });

@@ -9,21 +9,21 @@ import { docsI18nCatalog } from "../../i18n";
 import { TemplateShowcase } from "./template-showcase";
 
 const EXPECTED_APP_HREFS = [
-  "/apps/clips",
-  "/apps/design",
-  "/apps/slides",
-  "/apps/analytics",
-  "/apps/calendar",
-  "/apps/mail",
-  "/apps/assets",
-  "/apps/content",
+  "/apps/clips/",
+  "/apps/design/",
+  "/apps/slides/",
+  "/apps/analytics/",
+  "/apps/calendar/",
+  "/apps/mail/",
+  "/apps/assets/",
+  "/apps/content/",
 ];
 
 const REMOVED_APP_HREFS = [
-  "/apps/chat",
-  "/apps/dispatch",
-  "/apps/forms",
-  "/apps/plan",
+  "/apps/chat/",
+  "/apps/dispatch/",
+  "/apps/forms/",
+  "/apps/plan/",
 ];
 
 afterEach(() => {
@@ -98,6 +98,6 @@ describe("TemplateShowcase", () => {
 
     expect(
       screen.getByRole("link", { name: "Browse apps" }).getAttribute("href"),
-    ).toBe("/apps");
+    ).toBe("/apps/");
   });
 });

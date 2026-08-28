@@ -23,13 +23,18 @@ import { useFormResponses } from "@/hooks/use-responses";
 import { normalizeFields } from "@/lib/normalize-fields";
 import { cn } from "@/lib/utils";
 
-type SortKey = "_submitted" | string; // string = field id
+type SortKey = "_submitted" | (string & {}); // string = field id
 type SortDir = "asc" | "desc";
 
 function valueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
   if (Array.isArray(val)) return val.join(", ");
-  return String(val);
+  return typeof val === "string" ||
+    typeof val === "number" ||
+    typeof val === "boolean" ||
+    typeof val === "bigint"
+    ? String(val)
+    : JSON.stringify(val);
 }
 
 /** Drop the protocol for a cleaner table cell; the full URL stays the link href. */
@@ -85,7 +90,9 @@ function compareValues(a: unknown, b: unknown): number {
 
 export function ResponsesPage() {
   const t = useT();
-  const { formatDate, formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { id } = useParams<{ id: string }>();
   const { data: form } = useForm(id!);
   const { data, isLoading, error, refetch } = useFormResponses(id!);

@@ -48,7 +48,7 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
       toast.error("Failed to reset preference");
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey });
     },
   });
 

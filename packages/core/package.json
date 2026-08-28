@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.175.5",
+  "version": "0.176.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -204,6 +204,7 @@
     "./file-upload": "./dist/file-upload/index.js",
     "./file-upload/actions/upload-image": "./dist/file-upload/actions/upload-image.js",
     "./private-blob": "./dist/private-blob/index.js",
+    "./agent/tool-result-images": "./dist/agent/tool-result-images.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",
     "./agent/context-xray/actions/context-pin": "./dist/agent/context-xray/actions/context-pin.js",
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",
@@ -389,6 +390,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@mozilla/readability": "0.6.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@noble/hashes": "^2.3.0",
     "@radix-ui/react-popover": "catalog:",
     "@radix-ui/react-select": "catalog:",
     "@radix-ui/react-tooltip": "catalog:",

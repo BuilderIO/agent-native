@@ -296,17 +296,26 @@ function dashboardReferenceMatch(
 
   return {
     record: {
-      id: String(row.id ?? ""),
+      id: typeof row.id === "string" ? row.id : (JSON.stringify(row.id) ?? ""),
       kind: row.kind === "explorer" ? "explorer" : "sql",
-      name: String(row.name ?? "Untitled dashboard"),
+      name:
+        typeof row.name === "string"
+          ? row.name
+          : (JSON.stringify(row.name) ?? "Untitled dashboard"),
       description: typeof row.description === "string" ? row.description : null,
-      ownerEmail: String(row.ownerEmail ?? ""),
+      ownerEmail:
+        typeof row.ownerEmail === "string"
+          ? row.ownerEmail
+          : (JSON.stringify(row.ownerEmail) ?? ""),
       orgId: typeof row.orgId === "string" ? row.orgId : null,
       visibility:
         row.visibility === "public" || row.visibility === "org"
           ? row.visibility
           : "private",
-      updatedAt: String(row.updatedAt ?? ""),
+      updatedAt:
+        typeof row.updatedAt === "string"
+          ? row.updatedAt
+          : (JSON.stringify(row.updatedAt) ?? ""),
       matchedFields,
     },
     score,

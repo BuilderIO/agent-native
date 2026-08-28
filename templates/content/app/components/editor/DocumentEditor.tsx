@@ -353,7 +353,7 @@ type PendingDocumentSave = {
     title: string,
     content: string,
     options?: DocumentSaveOptions,
-  ) => unknown | Promise<unknown>;
+  ) => Promise<unknown>;
   canEditWhenQueued: boolean;
   expectedLocalSourceRevision?: string | null;
   timeout: ReturnType<typeof setTimeout>;
@@ -586,6 +586,24 @@ function DocumentEditorBody({
     });
   }, [documentId, t]);
   const updateDocument = useUpdateDocument();
+  const handleToggleFavorite = useCallback(
+    (nextFavorite: boolean) => {
+      updateDocument.mutate(
+        { id: documentId, isFavorite: nextFavorite },
+        {
+          onError: (error) => {
+            toast.error(t("sidebar.failedUpdateFavorite"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
+    },
+    [documentId, t, updateDocument],
+  );
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
@@ -715,7 +733,7 @@ function DocumentEditorBody({
       } else {
         await deleteDocument.mutateAsync({ id: documentId });
       }
-      navigate("/", { replace: true, flushSync: true });
+      void navigate("/", { replace: true, flushSync: true });
     } catch (error) {
       toast.error(t("sidebar.failedDeletePage"), {
         description:
@@ -831,7 +849,7 @@ function DocumentEditorBody({
   );
   const handleOpenNotionPageLink = useCallback(
     (linkedDocumentId: string) => {
-      navigate(`/page/${linkedDocumentId}`, { flushSync: true });
+      void navigate(`/page/${linkedDocumentId}`, { flushSync: true });
     },
     [navigate],
   );
@@ -861,7 +879,7 @@ function DocumentEditorBody({
   const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = session?.email
     ? {
-        name: emailToName(session.email),
+        name: session.name?.trim() || emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
         avatarUrl: currentUserAvatarUrl ?? undefined,
@@ -1191,7 +1209,7 @@ function DocumentEditorBody({
         queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
           mergeDocumentIntoDocumentCache(old, fileFirstDocument),
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         return fileFirstDocument;
@@ -1282,7 +1300,7 @@ function DocumentEditorBody({
           if (result.ok) result.unsubscribe();
           return;
         }
-        if (result.ok) stop = result.unsubscribe;
+        if (result.ok) stop = () => result.unsubscribe();
       },
     );
     return () => {
@@ -1977,7 +1995,7 @@ function DocumentEditorBody({
         (candidate) => candidate.filesDocumentId === filesDocumentId,
       );
       if (!space) {
-        navigate(`/page/${targetId}`, { flushSync: true });
+        void navigate(`/page/${targetId}`, { flushSync: true });
         return;
       }
       void workspaceSelectionQueueRef
@@ -2143,6 +2161,8 @@ function DocumentEditorBody({
               deleteDocument.isPending || deleteContentDatabase.isPending
             }
             onDelete={handleDeleteDocument}
+            isFavorite={document.isFavorite}
+            onToggleFavorite={handleToggleFavorite}
             utilityPanel={utilityPanel}
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}

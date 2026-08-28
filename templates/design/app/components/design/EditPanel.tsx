@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TweakDefinition } from "@shared/api";
+import { alphaToOpacity, parseCssColor } from "@shared/color-utils";
 import {
   listInteractionStates,
   readResolvedStateStyles,
@@ -13,6 +14,7 @@ import {
   IconDeviceMobile,
   IconExternalLink,
   IconFrame,
+  IconGridDots,
   IconPhoto,
   IconPlus,
   IconRefresh,
@@ -65,6 +67,7 @@ import {
   type DocumentColorSourceFile,
   extractDocumentColorPalette,
   selectionColorValues,
+  selectionDisplayHex,
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
@@ -78,7 +81,10 @@ import {
   deriveLockedAspectSize,
   interactionStateSelectionKey,
 } from "./edit-panel/element-identity";
-import { commitStylePatch } from "./edit-panel/field-primitives";
+import {
+  commitStylePatch,
+  ScrubStyleInput,
+} from "./edit-panel/field-primitives";
 import {
   averageGradientOpacity,
   buildGradientLayer,
@@ -108,6 +114,10 @@ import {
 } from "./edit-panel/layout-properties";
 import {
   ColorInput,
+  InspectorActionPairGrid,
+  InspectorActionRail,
+  InspectorGrid,
+  InspectorGridCell,
   PanelSection,
   PropInput,
   PropSelect,
@@ -149,7 +159,6 @@ import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
   ExportSettingsPanel,
   DesignColorPicker,
-  ScrubInput,
   type ExportSettingsValue,
   type FrameSizePreset,
   InteractionStatePanel,
@@ -167,6 +176,9 @@ import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
+
+// guard:allow-raw-color — authored selections need a concrete CSS color fallback.
+const DEFAULT_AUTHORED_COLOR = "#000000";
 
 export {
   alpineDataValueLiteral,
@@ -249,6 +261,9 @@ interface EditPanelProps {
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
+  /** Draws the inspector's canonical 28-column / 8px baseline overlay. */
+  inspectorGridDebug?: boolean;
+  onInspectorGridDebugChange?: (visible: boolean) => void;
   width?: number;
   /** Viewer mode exposes inspection and comments, never editing controls. */
   readOnly?: boolean;
@@ -697,7 +712,7 @@ function CreateComponentPopover({
           }}
         >
           <div className="space-y-1">
-            <h3 className="text-[13px] font-semibold text-foreground">
+            <h3 className="design-sidebar-context-title text-foreground">
               {"Create component" /* i18n-ignore design inspector action */}
             </h3>
             <p className="!text-[11px] leading-4 text-muted-foreground">
@@ -709,7 +724,7 @@ function CreateComponentPopover({
           <div className="space-y-1.5">
             <Label
               htmlFor="create-component-name"
-              className="!text-[11px] font-medium text-muted-foreground"
+              className="design-sidebar-field-label text-muted-foreground"
             >
               {"Component name" /* i18n-ignore design inspector label */}
             </Label>
@@ -902,7 +917,7 @@ function CodeInspectPanel({
       <div className="flex h-10 items-center justify-between gap-2 border-b border-border/90 px-3">
         <div className="flex min-w-0 items-center gap-1.5">
           <IconCode className="size-3.5 text-muted-foreground" />
-          <h3 className="truncate text-[13px] font-semibold text-foreground">
+          <h3 className="design-sidebar-context-title truncate text-foreground">
             {"Code & measurements" /* i18n-ignore design inspector heading */}
           </h3>
         </div>
@@ -926,19 +941,18 @@ function CodeInspectPanel({
         <PanelSection
           title={"Measurements" /* i18n-ignore design inspector section */}
         >
-          <div className="grid grid-cols-2 gap-2">
+          <InspectorGrid layout="pair-flow">
             {measurements.map(([label, value]) => (
-              <div
-                key={label}
-                className="flex items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px]"
-              >
-                <span className="text-muted-foreground">{label}</span>
-                <span className="font-mono text-foreground">
-                  {Math.round(Number(value))}px
-                </span>
-              </div>
+              <InspectorGridCell key={label} span={14}>
+                <div className="flex h-6 items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 text-[11px]">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-mono text-foreground">
+                    {Math.round(Number(value))}px
+                  </span>
+                </div>
+              </InspectorGridCell>
             ))}
-          </div>
+          </InspectorGrid>
         </PanelSection>
       ) : null}
 
@@ -946,14 +960,20 @@ function CodeInspectPanel({
         <PanelSection
           title={"Computed styles" /* i18n-ignore design inspector section */}
         >
-          <div className="space-y-1 text-[11px]">
+          <div className="space-y-2 text-[11px]">
             {styles.map(([label, value]) => (
-              <div key={label} className="flex justify-between gap-3">
-                <span className="text-muted-foreground">{label}</span>
-                <span className="max-w-[65%] truncate font-mono text-foreground">
-                  {value}
-                </span>
-              </div>
+              <InspectorGrid key={label} className="items-center">
+                <InspectorGridCell span={10}>
+                  <span className="truncate text-muted-foreground">
+                    {label}
+                  </span>
+                </InspectorGridCell>
+                <InspectorGridCell span={18}>
+                  <span className="block truncate text-right font-mono text-foreground">
+                    {value}
+                  </span>
+                </InspectorGridCell>
+              </InspectorGrid>
             ))}
           </div>
         </PanelSection>
@@ -1022,52 +1042,58 @@ function SelectionHeader({
   const isComponentSelection = elementIsComponentSelection(element);
 
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      {/* Node-type label. Rename lives in the layers panel and device sizing
-          lives elsewhere, so this is a plain non-interactive label. */}
-      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
-        <TypeIcon
-          className={cn(
-            "size-3.5 shrink-0",
-            isComponentSelection
-              ? "text-[var(--design-editor-component-color)]"
-              : "text-muted-foreground",
-          )}
-        />
-        <span className="truncate">{title}</span>
-      </div>
-      {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
-      <div className="flex shrink-0 items-center gap-0.5">
-        {showCreateComponentAction ? (
-          onCreateComponent && onCreateComponentOpenChange ? (
-            <CreateComponentPopover
-              open={createComponentOpen}
-              onOpenChange={onCreateComponentOpenChange}
-              defaultName={defaultComponentName}
-              onSubmit={onCreateComponent}
+    <div className="shrink-0 border-b border-border/90 px-2">
+      <InspectorGrid className="min-h-8 items-center" layout="header-actions">
+        {/* Node-type label. Rename lives in the layers panel and device sizing
+            lives elsewhere, so this is a plain non-interactive label. */}
+        <InspectorGridCell span={20}>
+          <div className="design-sidebar-context-title flex min-w-0 items-center gap-1.5 text-left text-foreground">
+            <TypeIcon
+              className={cn(
+                "size-3.5 shrink-0",
+                isComponentSelection
+                  ? "text-[var(--design-editor-component-color)]"
+                  : "text-muted-foreground",
+              )}
             />
-          ) : (
-            <SectionIconButton
-              label={
-                "Create component" /* i18n-ignore design inspector action */
-              }
-              disabled
-            >
-              <IconComponents className="size-3.5" />
-            </SectionIconButton>
-          )
-        ) : null}
-        {inspectCode ? (
-          <InspectCodePopover data={inspectCode} />
-        ) : (
-          <SectionIconButton
-            label={"Inspect code" /* i18n-ignore design inspector action */}
-            disabled
-          >
-            <IconCode className="size-3.5" />
-          </SectionIconButton>
-        )}
-      </div>
+            <span className="truncate">{title}</span>
+          </div>
+        </InspectorGridCell>
+        {/* Right-aligned quick actions: create-component + dev inspect (</>) */}
+        <InspectorGridCell span={8}>
+          <InspectorActionRail>
+            {showCreateComponentAction ? (
+              onCreateComponent && onCreateComponentOpenChange ? (
+                <CreateComponentPopover
+                  open={createComponentOpen}
+                  onOpenChange={onCreateComponentOpenChange}
+                  defaultName={defaultComponentName}
+                  onSubmit={onCreateComponent}
+                />
+              ) : (
+                <SectionIconButton
+                  label={
+                    "Create component" /* i18n-ignore design inspector action */
+                  }
+                  disabled
+                >
+                  <IconComponents className="size-3.5" />
+                </SectionIconButton>
+              )
+            ) : null}
+            {inspectCode ? (
+              <InspectCodePopover data={inspectCode} />
+            ) : (
+              <SectionIconButton
+                label={"Inspect code" /* i18n-ignore design inspector action */}
+                disabled
+              >
+                <IconCode className="size-3.5" />
+              </SectionIconButton>
+            )}
+          </InspectorActionRail>
+        </InspectorGridCell>
+      </InspectorGrid>
     </div>
   );
 }
@@ -1079,7 +1105,7 @@ function ScreenSelectionHeader({
 }) {
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+      <div className="design-sidebar-context-title flex min-w-0 items-center gap-1.5 text-left text-foreground">
         <IconFrame className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{screen.title}</span>
       </div>
@@ -1156,60 +1182,66 @@ function ScreenGeometryProperties({
 
   return (
     <PanelSection title={t("editPanel.sections.positionLayout")}>
-      <div className="space-y-1.5">
+      <div className="design-sidebar-property-group">
         <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-        <div className="grid grid-cols-2 gap-2">
-          <ScrubInput
-            label="X"
-            value={Math.round(screen.x)}
-            onChange={editable ? (value) => commit({ x: value }) : noop}
-            unit="px"
-            disabled={!editable}
-            inputClassName="h-6"
-          />
-          <ScrubInput
-            label="Y"
-            value={Math.round(screen.y)}
-            onChange={editable ? (value) => commit({ y: value }) : noop}
-            unit="px"
-            disabled={!editable}
-            inputClassName="h-6"
-          />
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <SubsectionLabel>
-            {"Size" /* i18n-ignore design inspector label */}
-          </SubsectionLabel>
-          {editable ? (
-            <ScreenSizePresetPicker
-              onPick={(preset) =>
-                commit({ width: preset.width, height: preset.height })
-              }
+        <InspectorActionPairGrid
+          className="items-center"
+          left={
+            <ScrubStyleInput
+              label="X"
+              value={`${Math.round(screen.x)}px`}
+              onChange={editable ? (value) => commit({ x: value }) : noop}
+              disabled={!editable}
+              inputClassName="h-6"
             />
-          ) : null}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <ScrubInput
-            label="W"
-            value={Math.round(screen.width)}
-            onChange={editable ? (value) => commit({ width: value }) : noop}
-            unit="px"
-            min={MIN_SCREEN_FRAME_SIZE_PX}
-            disabled={!editable}
-            inputClassName="h-6"
-          />
-          <ScrubInput
-            label="H"
-            value={Math.round(screen.height)}
-            onChange={editable ? (value) => commit({ height: value }) : noop}
-            unit="px"
-            min={MIN_SCREEN_FRAME_SIZE_PX}
-            disabled={!editable}
-            inputClassName="h-6"
-          />
-        </div>
+          }
+          right={
+            <ScrubStyleInput
+              label="Y"
+              value={`${Math.round(screen.y)}px`}
+              onChange={editable ? (value) => commit({ y: value }) : noop}
+              disabled={!editable}
+              inputClassName="h-6"
+            />
+          }
+        />
+      </div>
+      <div className="design-sidebar-property-group">
+        <SubsectionLabel>
+          {"Size" /* i18n-ignore design inspector label */}
+        </SubsectionLabel>
+        <InspectorActionPairGrid
+          className="items-center"
+          left={
+            <ScrubStyleInput
+              label="W"
+              value={`${Math.round(screen.width)}px`}
+              onChange={editable ? (value) => commit({ width: value }) : noop}
+              min={MIN_SCREEN_FRAME_SIZE_PX}
+              disabled={!editable}
+              inputClassName="h-6"
+            />
+          }
+          right={
+            <ScrubStyleInput
+              label="H"
+              value={`${Math.round(screen.height)}px`}
+              onChange={editable ? (value) => commit({ height: value }) : noop}
+              min={MIN_SCREEN_FRAME_SIZE_PX}
+              disabled={!editable}
+              inputClassName="h-6"
+            />
+          }
+          action={
+            editable ? (
+              <ScreenSizePresetPicker
+                onPick={(preset) =>
+                  commit({ width: preset.width, height: preset.height })
+                }
+              />
+            ) : null
+          }
+        />
       </div>
     </PanelSection>
   );
@@ -1221,73 +1253,119 @@ function InspectorTabsHeader({
   onActiveTabChange,
   trailing,
   commentsCount = 0,
+  inspectorGridDebug = false,
+  onInspectorGridDebugChange,
 }: {
   activeTab: InspectorTab;
   readOnly: boolean;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
   commentsCount?: number;
+  inspectorGridDebug?: boolean;
+  onInspectorGridDebugChange?: (visible: boolean) => void;
 }) {
   const t = useT();
 
   return (
-    <div className="flex min-h-8 min-w-0 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2 py-1">
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
-        className="min-w-0"
-      >
-        <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
-          {!readOnly ? (
-            <TabsTrigger
-              value="design"
-              aria-label={t("navigation.brand")}
-              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              {t("navigation.brand")}
-            </TabsTrigger>
-          ) : null}
-          <TabsTrigger
-            value="comments"
-            aria-label={
-              commentsCount > 0
-                ? t("review.commentsTab", { count: commentsCount })
-                : t("review.comments")
-            }
-            className="group h-6 min-w-0 rounded-md gap-1 px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+    <div className="h-8 min-w-0 shrink-0 border-b border-border/90 px-2">
+      <InspectorGrid className="h-full items-center" layout="header-actions">
+        <InspectorGridCell span={24}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
+            className="min-w-0"
           >
-            <span className="truncate">{t("review.comments")}</span>
-            {commentsCount > 0 ? (
-              <span
-                className={cn(
-                  "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
-                  "h-4 min-w-4 px-1 text-[9px]",
-                )}
+            <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
+              {!readOnly ? (
+                <TabsTrigger
+                  value="design"
+                  aria-label={t("navigation.brand")}
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                >
+                  {t("navigation.brand")}
+                </TabsTrigger>
+              ) : null}
+              <TabsTrigger
+                value="comments"
+                aria-label={
+                  commentsCount > 0
+                    ? t("review.commentsTab", { count: commentsCount })
+                    : t("review.comments")
+                }
+                className="design-sidebar-section-title group h-6 min-w-0 rounded-md gap-1 px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
               >
-                {commentsCount > 99 ? "99+" : commentsCount}
-              </span>
+                <span className="truncate">{t("review.comments")}</span>
+                {commentsCount > 0 ? (
+                  <span
+                    className={cn(
+                      "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
+                      "design-sidebar-meta h-4 min-w-4 px-1",
+                    )}
+                  >
+                    {commentsCount > 99 ? "99+" : commentsCount}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+              {!readOnly ? (
+                <TabsTrigger
+                  value="tweaks"
+                  aria-label={t("designEditor.tweaks")}
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                >
+                  {t("designEditor.tweaks")}
+                </TabsTrigger>
+              ) : (
+                <TabsTrigger
+                  value="code"
+                  aria-label={"Code" /* i18n-ignore design inspector tab */}
+                  className="design-sidebar-section-title h-6 rounded-md px-1.5 text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                >
+                  {"Code" /* i18n-ignore design inspector tab */}
+                </TabsTrigger>
+              )}
+            </TabsList>
+          </Tabs>
+        </InspectorGridCell>
+        <InspectorGridCell span={4}>
+          <InspectorActionRail>
+            {activeTab === "design" && onInspectorGridDebugChange ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                      inspectorGridDebug &&
+                        "bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-accent-color)]/20 hover:text-[var(--design-editor-accent-color)]",
+                    )}
+                    aria-label={
+                      inspectorGridDebug
+                        ? "Hide inspector grid" /* i18n-ignore design inspector debug action */
+                        : "Show inspector grid" /* i18n-ignore design inspector debug action */
+                    }
+                    aria-pressed={inspectorGridDebug}
+                    onClick={() =>
+                      onInspectorGridDebugChange(!inspectorGridDebug)
+                    }
+                  >
+                    <IconGridDots className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {
+                    inspectorGridDebug
+                      ? "Hide 28-column grid" /* i18n-ignore design inspector debug label */
+                      : "Show 28-column grid" /* i18n-ignore design inspector debug label */
+                  }
+                </TooltipContent>
+              </Tooltip>
             ) : null}
-          </TabsTrigger>
-          {!readOnly ? (
-            <TabsTrigger
-              value="tweaks"
-              aria-label={t("designEditor.tweaks")}
-              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              {t("designEditor.tweaks")}
-            </TabsTrigger>
-          ) : (
-            <TabsTrigger
-              value="code"
-              aria-label={"Code" /* i18n-ignore design inspector tab */}
-              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            >
-              {"Code" /* i18n-ignore design inspector tab */}
-            </TabsTrigger>
-          )}
-        </TabsList>
-      </Tabs>
-      {trailing ? <div className="shrink-0">{trailing}</div> : null}
+            {trailing ? <div className="shrink-0">{trailing}</div> : null}
+          </InspectorActionRail>
+        </InspectorGridCell>
+      </InspectorGrid>
     </div>
   );
 }
@@ -1500,12 +1578,12 @@ function ExportPreviewDisclosure({
   const label = "Preview"; // i18n-ignore design inspector label
 
   return (
-    <div>
+    <div className="min-h-4">
       <button
         type="button"
         onClick={() => setOpen((shown) => !shown)}
         aria-expanded={open}
-        className="flex cursor-pointer items-center gap-1 !text-[11px] font-medium text-muted-foreground hover:text-foreground"
+        className="design-sidebar-field-label flex h-4 cursor-pointer items-center gap-1 text-muted-foreground hover:text-foreground"
       >
         {open ? (
           <IconChevronDown className="size-3 shrink-0" />
@@ -1538,46 +1616,87 @@ function SelectionColorsProperties({
       title={"Selection colors" /* i18n-ignore design inspector label */}
     >
       {expanded ? (
-        <div className="space-y-1.5">
+        <InspectorGrid>
           {colors.map((color, index) => {
+            const parsed = parseCssColor(color.value);
+            const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
-              <DesignColorPicker
-                key={`${color.value}-${index}`}
-                // guard:allow-raw-color - neutral picker fallback for an invalid stored color
-                value={cssColorOrFallback(color.value, "#000000")}
-                className="w-full"
-                // PF12: per-tick drag preview vs. one authoritative commit
-                // on gesture-end — same split as ColorInput's setNext (see
-                // its PF12 comment above).
-                onChange={(value) =>
-                  onStyleChange(color.property, value, { phase: "preview" })
-                }
-                onChangeComplete={(value) =>
-                  onStyleChange(color.property, value, { phase: "commit" })
-                }
-              />
+              <InspectorGridCell key={`${color.value}-${index}`} span={28}>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+                      aria-label={color.value}
+                    >
+                      <span
+                        className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                        style={swatchStyle(color.value)}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
+                        {selectionDisplayHex(color.value)}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {opacity}%
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="left"
+                    align="start"
+                    sideOffset={8}
+                    className="w-80 p-0"
+                  >
+                    <DesignColorPicker
+                      value={cssColorOrFallback(
+                        color.value,
+                        DEFAULT_AUTHORED_COLOR,
+                      )}
+                      // PF12: per-tick drag preview vs. one authoritative
+                      // commit on gesture-end — same split as ColorInput's
+                      // setNext (see its PF12 comment above).
+                      onChange={(value) =>
+                        onStyleChange(color.property, value, {
+                          phase: "preview",
+                        })
+                      }
+                      onChangeComplete={(value) =>
+                        onStyleChange(color.property, value, {
+                          phase: "commit",
+                        })
+                      }
+                    />
+                  </PopoverContent>
+                </Popover>
+              </InspectorGridCell>
             );
           })}
-        </div>
+        </InspectorGrid>
       ) : (
-        <button
-          type="button"
-          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
-          onClick={() => setExpanded(true)}
-        >
-          <span className="truncate">
-            {"Show selection colors" /* i18n-ignore design inspector label */}
-          </span>
-          <div className="flex shrink-0 items-center -space-x-1">
-            {colors.slice(0, 3).map((color, index) => (
-              <span
-                key={`${color.value}-${index}`}
-                className="size-3.5 rounded-sm border border-[var(--design-editor-panel-bg)]"
-                style={swatchStyle(color.value)}
-              />
-            ))}
-          </div>
-        </button>
+        <InspectorGrid>
+          <InspectorGridCell span={28}>
+            <button
+              type="button"
+              className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left !text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
+              onClick={() => setExpanded(true)}
+            >
+              <span className="truncate">
+                {
+                  "Show selection colors" /* i18n-ignore design inspector label */
+                }
+              </span>
+              <div className="flex shrink-0 items-center -space-x-1">
+                {colors.slice(0, 3).map((color, index) => (
+                  <span
+                    key={`${color.value}-${index}`}
+                    className="size-3.5 rounded-sm border border-[var(--design-editor-panel-bg)]"
+                    style={swatchStyle(color.value)}
+                  />
+                ))}
+              </div>
+            </button>
+          </InspectorGridCell>
+        </InspectorGrid>
       )}
     </PanelSection>
   );
@@ -1603,6 +1722,8 @@ export const EditPanel = memo(function EditPanel({
   onScreenGeometryChange,
   pageStyles = {},
   headerTrailing,
+  inspectorGridDebug = false,
+  onInspectorGridDebugChange,
   width = 256,
   readOnly = false,
   activeTab = "design",
@@ -1983,8 +2104,8 @@ export const EditPanel = memo(function EditPanel({
     <TooltipProvider delayDuration={300} skipDelayDuration={400}>
       <div
         className={cn(
-          "shrink-0 bg-[var(--design-editor-panel-bg)]",
-          "flex h-full min-h-0 flex-col overflow-hidden",
+          "design-sidebar shrink-0 bg-[var(--design-editor-panel-bg)]",
+          "relative flex h-full min-h-0 flex-col overflow-hidden",
         )}
         style={{ width }}
       >
@@ -1994,6 +2115,8 @@ export const EditPanel = memo(function EditPanel({
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
           commentsCount={reviewCommentsCount}
+          inspectorGridDebug={inspectorGridDebug}
+          onInspectorGridDebugChange={onInspectorGridDebugChange}
         />
 
         {showFramePresets ? (
@@ -2111,7 +2234,7 @@ export const EditPanel = memo(function EditPanel({
               )}
 
               {aiActions ? (
-                <div className="border-b border-[var(--design-editor-control-border)] px-2 py-1.5">
+                <div className="px-2 py-1.5 shadow-[inset_0_-1px_var(--design-editor-control-border)]">
                   {aiActions}
                 </div>
               ) : null}
@@ -2295,29 +2418,42 @@ export const EditPanel = memo(function EditPanel({
           </>
         ) : resolvedActiveTab === "tweaks" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
-                {t("designEditor.tweaks")}
-              </h3>
-              {onRequestTweaks ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-                      aria-label={t("designEditor.addTweaks")}
-                      onClick={(event) =>
-                        handleRequestTweaks(event.currentTarget)
-                      }
-                    >
-                      <IconPlus className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
-                </Tooltip>
-              ) : null}
+            <div className="h-10 shrink-0 border-b border-border/90 px-2">
+              <InspectorGrid
+                className="h-full items-center"
+                layout="header-actions"
+              >
+                <InspectorGridCell span={24}>
+                  <h3 className="design-sidebar-context-title min-w-0 truncate text-foreground">
+                    {t("designEditor.tweaks")}
+                  </h3>
+                </InspectorGridCell>
+                <InspectorGridCell span={4}>
+                  <InspectorActionRail>
+                    {onRequestTweaks ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                            aria-label={t("designEditor.addTweaks")}
+                            onClick={(event) =>
+                              handleRequestTweaks(event.currentTarget)
+                            }
+                          >
+                            <IconPlus className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("designEditor.addTweaks")}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                  </InspectorActionRail>
+                </InspectorGridCell>
+              </InspectorGrid>
             </div>
 
             <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -2338,6 +2474,13 @@ export const EditPanel = memo(function EditPanel({
           />
         ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
+        ) : null}
+        {resolvedActiveTab === "design" && inspectorGridDebug ? (
+          <div
+            className="design-inspector-grid-debug-overlay"
+            data-inspector-grid-debug-overlay
+            aria-hidden="true"
+          />
         ) : null}
       </div>
     </TooltipProvider>

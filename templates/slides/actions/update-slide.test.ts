@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
-let mockFitCheckResult:
-  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
-  | undefined;
 
 // Captured by the Drizzle `update().set()` mock so tests can assert on the
 // persisted deck JSON + bumped updatedAt.
@@ -119,18 +116,11 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
 }));
 
-vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
-  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
-    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
-}));
-
 import action from "./update-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
   lastUpdateSet = undefined;
-  mockFitCheckResult = undefined;
   mockDeckRow = {
     id: "deck-1",
     title: "Deck",
@@ -257,13 +247,16 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: true, applied: false });
+    // Nothing matched, so nothing was written — and that must reach the
+    // runner as a throw. A returned value is stamped `completedSideEffect`
+    // and replayed to a resumed run as work already done.
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -280,14 +273,14 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      format: true,
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: true, applied: false });
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        format: true,
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(
       JSON.parse(mockDeckRow!.data as string).slides[0].animations,
@@ -342,15 +335,16 @@ describe("update-slide", () => {
       ],
     })) as Record<string, unknown>;
 
-    // The required find/replace matched and the batch is reported applied,
-    // but the optional image insert never found its marker and silently
-    // no-opped -- a caller trusting only the aggregate `applied` boolean has
-    // no way to tell the image was never inserted.
-    expect(result).toMatchObject({ ok: true, applied: true });
+    // The required find/replace matched, but the optional image insert never
+    // found its marker. The aggregate `applied` boolean cannot express that,
+    // so the result flags it explicitly — otherwise the agent reports the
+    // image as inserted.
+    expect(result).toMatchObject({ ok: true, applied: true, partial: true });
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
 
     expect(result.editResults).toEqual(["replace:first", "insert-after:0"]);
+    expect(String(result.message)).toContain("insert-after:0");
   });
 
   it("does not write a partial edit list when a later edit fails", async () => {
@@ -524,110 +518,43 @@ describe("update-slide", () => {
     );
   });
 
-  it("returns ok:false without writing when the find text is missing", async () => {
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+  it("throws without writing when the find text is missing", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "this text does not exist in the slide",
+        replace: "x",
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  it("returns layoutOverflow + auto-fix message when the patched slide still overflows", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
+  it("returns a pending fit check keyed to the persisted slide revision", async () => {
     const result = (await action.run({
       deckId: "deck-1",
       slideId: "slide-1",
-      fullContent: "<div>Tightened but still tall</div>",
+      fullContent: "<div>Updated</div>",
     })) as Record<string, unknown>;
 
     expect(result).toMatchObject({
       ok: true,
       deckId: "deck-1",
       slideId: "slide-1",
-      layoutOverflow: {
-        verticalOverflow: 225,
-        contentHeight: 645,
-        viewportHeight: 420,
+      layoutFit: {
+        status: "pending",
+        slideId: "slide-1",
       },
     });
-    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
-  });
-
-  it("omits layoutOverflow when the patched slide fits", async () => {
-    mockFitCheckResult = {
-      status: "fits",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 380,
-        viewportHeight: 420,
-        verticalOverflow: 0,
-        measuredAt: Date.now(),
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
       },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>Now fits</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
-    mockFitCheckResult = { status: "timeout" };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>Headless</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("does not consult fit-check when text-to-find is not present (early bail)", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    // When find is not found, the action returns ok: false BEFORE the
-    // fit-check. layoutOverflow must NOT appear.
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+    ).toMatchObject({
+      contentHash: result.contentHash,
+      layoutFitRevision: expect.any(String),
+    });
   });
 });

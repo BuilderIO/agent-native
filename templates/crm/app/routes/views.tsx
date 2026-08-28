@@ -371,7 +371,7 @@ function SavedViewSurface({
       onSaved();
       toast.success(t("views.savedToast"));
       if (branch === "new") {
-        navigate(`/views?view=${encodeURIComponent(saved.id)}`);
+        void navigate(`/views?view=${encodeURIComponent(saved.id)}`);
       } else {
         setParams(clearBoardDraft(params), { replace: true });
       }
@@ -628,7 +628,7 @@ function CreateSavedViewDialog() {
         audience: "personal",
       });
       setOpen(false);
-      navigate(`/views?view=${encodeURIComponent(saved.id)}`);
+      void navigate(`/views?view=${encodeURIComponent(saved.id)}`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("views.saveFailedToast"),

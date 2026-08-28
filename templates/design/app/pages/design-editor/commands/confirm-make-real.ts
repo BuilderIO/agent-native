@@ -79,12 +79,12 @@ export async function runConfirmMakeReal({
       });
       updateDesignMutation.mutate({ id, dataOperations } as any, {
         onSuccess: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },
         onError: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         },

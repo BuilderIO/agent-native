@@ -37,11 +37,17 @@ function setEmbeddedWindow(embedded: boolean) {
 function BuilderConnectProbe({
   enabled = true,
   popupUrl,
+  provisionAccount = false,
 }: {
   enabled?: boolean;
   popupUrl?: string;
+  provisionAccount?: boolean;
 }) {
-  const flow = useBuilderConnectFlow({ enabled, popupUrl });
+  const flow = useBuilderConnectFlow({
+    enabled,
+    popupUrl,
+    provisionAccount,
+  });
   return (
     <div>
       <button type="button" onClick={() => flow.start()}>
@@ -92,6 +98,7 @@ const refreshedConnectUrl = signedConnectUrl.replace(
   "_an_connect=signed",
   "_an_connect=refreshed",
 );
+const provisioningToken = "nonce.email.session.1700000000000.mac";
 
 const connectedBuilderStatus = {
   configured: true,
@@ -111,6 +118,13 @@ function expectedConnectUrl(url: string): string {
     source: "builder_connect_flow",
     flow: "connect_llm",
   });
+}
+
+function expectedProvisionedConnectUrl(url: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.set("_an_mode", "agent-native");
+  parsed.searchParams.set("_an_provision", provisioningToken);
+  return expectedConnectUrl(parsed.toString());
 }
 
 describe("useBuilderStatus", () => {
@@ -253,6 +267,104 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
     expect(container.textContent).not.toContain("Popup blocked");
+  });
+
+  it("marks the first-run popup for account provisioning", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(
+      expectedProvisionedConnectUrl(signedConnectUrl),
+    );
+  });
+
+  it("uses the click-time provisioning capability instead of a stale closure", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+        }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(
+      expectedProvisionedConnectUrl(signedConnectUrl),
+    );
+  });
+
+  it("keeps account provisioning dormant when the server does not advertise it", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
   });
 
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {
@@ -502,7 +614,84 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured");
   });
 
-  it("keeps polling when the callback succeeds but status has not confirmed credentials", async () => {
+  it("keeps polling when callback confirmation status is unknown", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockResolvedValue(new Response("unavailable", { status: 503 }));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: { type: "builder-connect-success" },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder connect",
+    );
+  });
+
+  it("ignores duplicate callback success messages", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus))
+      .mockResolvedValueOnce(jsonResponse({ configured: false }));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      const message = new MessageEvent("message", {
+        origin: "https://agent-workspace.builder.io",
+        data: { type: "builder-connect-success" },
+      });
+      window.dispatchEvent(message);
+      window.dispatchEvent(message);
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(container.textContent).toContain("configured idle resolved");
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder connect",
+    );
+  });
+
+  it("keeps polling when the callback status remains not configured", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -547,7 +736,16 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("not-configured connecting");
-    expect(container.textContent).not.toContain("couldn't confirm");
+    expect(container.textContent).not.toContain(
+      "Couldn't start Builder connect",
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    });
+
+    expect(container.textContent).toContain("not-configured idle");
+    expect(container.textContent).toContain("Didn't hear back from Builder");
   });
 
   it("keeps polling when the popup closes before status confirms credentials", async () => {

@@ -352,9 +352,11 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 
 ## Webhooks الوارد {#webhooks}
 
-ترفض معالجات خطاف الويب الوارد (Resend، وSendGrid، وSlack، وTelegram، وWhatsApp، وRecall.ai، وDeepgram، وZoom، وGoogle Docs Pub/Sub) الطلبات المزيفة بشكل افتراضي في الإنتاج: عندما يكون env var السري للتوقيع مفقودًا، يقوم المعالج بإرجاع 401 بدلاً من القبول والإرسال.
+ترفض معالجات خطاف الويب الوارد (Resend، وSendGrid، وSlack، وTelegram، وWhatsApp، وRecall.ai، وDeepgram، وZoom) الطلبات المزيفة بشكل افتراضي في الإنتاج: عندما يكون env var السري للتوقيع مفقودًا، يقوم المعالج بإرجاع 401 بدلاً من القبول والإرسال.
 
 كان هذا في السابق موقف "التحذير والقبول" - قم بتعيين السر الذي قد تفتقده، أو قم بإعادة الاشتراك في السلوك القديم باستخدام `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` للمطورين المحليين فقط. راجع [Messaging](/docs/messaging#env-vars) للتعرف على متغيرات سرية التوقيع لكل تكامل.
+
+لا تمر إشعارات `changes.watch` في Google Drive عبر بوابة المحول العامة؛ فهي طلبات مبهمة بلا نص. لذلك يسجل الإطار رمزًا عشوائيًا لكل قناة ويتحقق من رؤوس `X-Goog-Channel-ID` و`X-Goog-Channel-Token` و`X-Goog-Resource-ID` قبل جلب التغييرات. هذه إشعارات مباشرة من Drive وليست رسائل Pub/Sub، ولا تحمل رموز OIDC الخاصة بـ Pub/Sub.
 
 ## قائمة التحقق من الإنتاج {#production-checklist}
 

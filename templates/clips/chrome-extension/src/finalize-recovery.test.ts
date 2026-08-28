@@ -143,7 +143,12 @@ describe("finalize upload recovery", () => {
     const calls: Array<{ url: string; authorization?: string }> = [];
     const fetchImpl = async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({
-        url: String(url),
+        url:
+          url instanceof URL
+            ? url.toString()
+            : url instanceof Request
+              ? url.url
+              : url,
         authorization: (init?.headers as Record<string, string> | undefined)
           ?.Authorization,
       });
@@ -187,7 +192,12 @@ describe("finalize upload recovery", () => {
     const calls: Array<{ url: string; authorization?: string }> = [];
     const fetchImpl = async (url: RequestInfo | URL, init?: RequestInit) => {
       calls.push({
-        url: String(url),
+        url:
+          url instanceof URL
+            ? url.toString()
+            : url instanceof Request
+              ? url.url
+              : url,
         authorization: (init?.headers as Record<string, string> | undefined)
           ?.Authorization,
       });

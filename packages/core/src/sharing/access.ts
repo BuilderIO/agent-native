@@ -451,7 +451,7 @@ async function loadResourceForAccess(
   reg: ShareableResourceRegistration,
   resourceId: string,
   options: ResolveAccessOptions = {},
-): Promise<any | null> {
+): Promise<any> {
   const db = reg.getDb() as any;
   const useProjection =
     options.skipResourceBody === true &&

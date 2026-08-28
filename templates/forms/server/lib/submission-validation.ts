@@ -29,7 +29,12 @@ function optionToString(raw: unknown): string | null {
     if (typeof option.value === "string") return option.value;
     return "";
   }
-  return String(raw);
+  return typeof raw === "string" ||
+    typeof raw === "number" ||
+    typeof raw === "boolean" ||
+    typeof raw === "bigint"
+    ? String(raw)
+    : JSON.stringify(raw);
 }
 
 function optionList(options: unknown): string[] {

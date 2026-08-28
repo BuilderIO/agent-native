@@ -750,7 +750,6 @@ export function createAgentChatPlugin(
       // manager, then hydrate it after every live action registry has subscribed
       // to manager changes.
       const mcpManager = new McpClientManager(null);
-      setGlobalMcpManager(mcpManager);
       const mcpActionEntries: Record<string, ActionEntry> = {};
       let mcpInitializationPromise: Promise<void> | null = null;
       const initializeMcpManager = async (): Promise<void> => {
@@ -786,6 +785,7 @@ export function createAgentChatPlugin(
         }
         return mcpInitializationPromise;
       };
+      setGlobalMcpManager(mcpManager, ensureMcpInitialized);
       const getJobMcpActionEntries = async (
         job?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {
@@ -6420,7 +6420,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const waitUntil = event.req?.waitUntil;
             const runPromise = runAutomation().catch(() => {});
             if (typeof waitUntil === "function") {
-              waitUntil(runPromise);
+              void waitUntil(runPromise);
             }
             setResponseStatus(event, 202);
             return { ok: true, accepted: true, automationRunId };

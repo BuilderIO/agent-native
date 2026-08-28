@@ -251,9 +251,14 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
  * The protocol defaults to `https` in production (so a TLS-terminating proxy
  * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
-export function getOrigin(event: H3Event): string {
+export function getOrigin(
+  event: H3Event,
+  options: { useForwardedHost?: boolean } = {},
+): string {
   const headerHost =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+    options.useForwardedHost === false
+      ? getHeader(event, "host")
+      : getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
@@ -369,8 +374,9 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
  * as a 400.
  *
  * The intentional shape is exact-prefix:
- *   - Origin must equal `getOrigin(event)` — no Host-header injection
- *     reusing somebody else's registered redirect URI.
+ *   - Origin must equal the resolved request origin — no Host-header injection
+ *     reusing somebody else's registered redirect URI. Callers with a
+ *     separately verified origin may pass it as `expectedOrigin`.
  *   - Path must start with `${appBasePath}/_agent-native/` so we never
  *     hand auth codes to a public marketing or open-redirect endpoint
  *     on the same registered host.
@@ -382,6 +388,7 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
 export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
+  expectedOrigin = getOrigin(event),
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -391,7 +398,6 @@ export function isAllowedOAuthRedirectUri(
     return false;
   }
   // Must be same origin as our server.
-  const expectedOrigin = getOrigin(event);
   let expectedUrl: URL;
   try {
     expectedUrl = new URL(expectedOrigin);
@@ -805,6 +811,7 @@ export async function createOAuthSession(
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         origin: "google_oauth",
+        signupMethod: "google",
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
@@ -858,7 +865,7 @@ export function oauthCallbackResponse(
     appName?: string;
     desktopWebview?: boolean;
   },
-): Response | string | unknown | Promise<Response | string | unknown> {
+): unknown {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
   // clients. UA detection remains the fallback for ordinary mobile browsers.
   const mobile = opts.mobile || isMobile(event);
@@ -1001,11 +1008,11 @@ export function oauthCallbackResponse(
  *  callers pass `error.message` from a token-exchange or userinfo failure,
  *  which can echo upstream provider strings (and historically attacker-
  *  controlled query params via the `error_description` field). */
-export function oauthErrorPage(message: string): Response {
+export function oauthErrorPage(message: string, status = 400): Response {
   const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
-    400,
+    status,
   );
 }
 

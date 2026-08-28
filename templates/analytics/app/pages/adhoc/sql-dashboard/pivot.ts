@@ -30,6 +30,20 @@ function utcMsToDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+function pivotKey(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (value == null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "";
+}
+
 function fillMissingSeries(
   row: Record<string, unknown>,
   seriesKeys: string[],
@@ -87,9 +101,8 @@ export function pivotRows(
   const seenSeries = new Set<string>();
 
   for (const row of rows) {
-    const xRaw = row[xKey];
-    const x = xRaw instanceof Date ? xRaw.toISOString() : String(xRaw ?? "");
-    const series = String(row[seriesKey] ?? "");
+    const x = pivotKey(row[xKey]);
+    const series = pivotKey(row[seriesKey]);
     if (!series) continue;
 
     if (!seenSeries.has(series)) {
@@ -109,8 +122,7 @@ export function pivotRows(
   const orderedRows: Record<string, unknown>[] = [];
   const emitted = new Set<string>();
   for (const row of rows) {
-    const xRaw = row[xKey];
-    const x = xRaw instanceof Date ? xRaw.toISOString() : String(xRaw ?? "");
+    const x = pivotKey(row[xKey]);
     if (emitted.has(x)) continue;
     emitted.add(x);
     const bucket = byX.get(x);

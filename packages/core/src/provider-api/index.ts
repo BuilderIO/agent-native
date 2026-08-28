@@ -5578,6 +5578,13 @@ async function handleSaveToFile(
     );
   }
 
+  const scratchPath = isScratchWorkspacePath(filePath);
+  if (!ok && !scratchPath) {
+    throw new Error(
+      `Refusing to save a failed provider response to durable workspace file "${filePath}" (status ${status}). Use a scratch/... path for diagnostics.`,
+    );
+  }
+
   const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
   const meta = await writeWorkspaceFile(
     scope,
@@ -5600,9 +5607,7 @@ async function handleSaveToFile(
     preview: preview.length < responseText.length ? `${preview}…` : preview,
     // A durable (non-scratch) file renders a download card the moment it's
     // created — no separate show-workspace-file call needed to get a link.
-    ...(isScratchWorkspacePath(filePath)
-      ? {}
-      : { file: toWorkspaceFileCard(meta) }),
+    ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
   };
 }
 

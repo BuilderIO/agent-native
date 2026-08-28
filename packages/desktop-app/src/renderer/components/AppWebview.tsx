@@ -1308,7 +1308,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const titleTimers = new Set<ReturnType<typeof setTimeout>>();
       let disposed = false;
       const emitTitle = (candidate?: unknown) => {
-        const title = String(candidate ?? "").trim();
+        const title = typeof candidate === "string" ? candidate.trim() : "";
         if (title) onTitleChangeRef.current?.(title);
       };
       const emitCurrentTitle = (candidate?: string) => {
@@ -1914,7 +1914,7 @@ function useUrlCheck(url: string | undefined, enabled: boolean): PortStatus {
         if (!cancelled) setStatus("down");
       }
     }
-    check();
+    void check();
     return () => {
       cancelled = true;
     };

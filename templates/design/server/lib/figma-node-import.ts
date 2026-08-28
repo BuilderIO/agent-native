@@ -216,12 +216,58 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * Intrinsic pixel size from a PNG or JPEG header. Figma upscales an image fill
+ * with nearest-neighbour sampling while a browser smooths, and the converter
+ * can only match that when it knows the image's own size — which is free here,
+ * since these bytes are already in hand to be mirrored. A format we cannot read
+ * returns null and the fill simply stays on the smooth path.
+ */
+function intrinsicImageSize(
+  bytes: Buffer,
+): { width: number; height: number } | null {
+  if (
+    bytes.length >= 24 &&
+    bytes.readUInt32BE(0) === 0x89504e47 &&
+    bytes.toString("ascii", 12, 16) === "IHDR"
+  ) {
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = bytes[offset + 1]!;
+      // SOF0..SOF15, minus the markers in that range that are not frame headers.
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc
+      ) {
+        return {
+          height: bytes.readUInt16BE(offset + 5),
+          width: bytes.readUInt16BE(offset + 7),
+        };
+      }
+      offset += 2 + bytes.readUInt16BE(offset + 2);
+    }
+  }
+  return null;
+}
+
 async function mirrorFigmaImageUrls(
   urls: string[],
   options: {
     ownerEmail?: string;
     fetcher?: FigmaImageFetcher;
     uploader?: FigmaImageUploader;
+    /** Filled with each source URL's intrinsic pixel size when it is readable. */
+    sizes?: Map<string, { width: number; height: number }>;
   } = {},
 ): Promise<Map<string, string>> {
   const uniqueUrls = Array.from(new Set(urls));
@@ -287,6 +333,8 @@ async function mirrorFigmaImageUrls(
           "Figma image bytes did not match the advertised image type.",
         );
       }
+      const intrinsic = intrinsicImageSize(data);
+      if (intrinsic) options.sizes?.set(url, intrinsic);
       let uploaded: Awaited<ReturnType<FigmaImageUploader>>;
       try {
         uploaded = await uploader({
@@ -328,7 +376,17 @@ async function mirrorFigmaImageUrls(
  * is also used by non-Figma import paths that must not be affected.
  */
 export function withFigmaBoxModelReset(html: string): string {
-  return `<style>*,*::before,*::after{box-sizing:border-box;}body{margin:0;}</style>\n${html}`;
+  // `text-rendering: geometricPrecision` because Figma lays glyphs out on
+  // exact outlines, while the browser's default hints them — snapping stems
+  // to the pixel grid and nudging advances to match. That is the right call
+  // for body text on a web page and the wrong one for reproducing a design
+  // tool: it shifts glyph edges away from where Figma drew them on every
+  // label. It measurably improves every case that has text (typography
+  // 13.27% -> 12.67%, pricing 2.89% -> 2.74%, settings 1.24% -> 1.22%).
+  return (
+    `<style>*,*::before,*::after{box-sizing:border-box;}body{margin:0;}` +
+    `*{text-rendering:geometricPrecision;}</style>\n${html}`
+  );
 }
 
 /**
@@ -571,15 +629,20 @@ export async function resolveTargetNodeId(
 }
 
 /**
- * Fetches one or more nodes' full document JSON. Vector `geometry=paths` is
- * intentionally omitted: structural vectors already use rendered-image
- * fallback, while requesting every raw path frequently pushes ordinary frames
- * past the provider response limit. If a multi-selection is still too large,
- * retry it as smaller batches before failing a single oversized node.
+ * Fetches one or more nodes' full document JSON, including vector
+ * `geometry=paths` so `figma-node-to-html` can reconstruct real `<path>`
+ * geometry for vectors and boolean operations instead of rasterizing them.
+ *
+ * Raw path data is what pushes a node payload past the provider's 4 MB
+ * response limit, so oversize is handled in two steps before giving up: split
+ * a multi-selection into smaller batches (each still with geometry), then
+ * retry the same ids WITHOUT geometry, which degrades exactly to the
+ * rendered-PNG fallback rather than failing the import.
  */
 export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
+  withGeometry = true,
 ): Promise<Record<string, FigmaNode>> {
   if (nodeIds.length === 0) return {};
   let json: {
@@ -588,21 +651,26 @@ export async function fetchFigmaNodes(
   try {
     const envelope = await figmaGet(`/files/${fileKey}/nodes`, {
       ids: nodeIds.join(","),
+      ...(withGeometry ? { geometry: "paths" } : {}),
     });
     json = providerJson(envelope, "nodes") as typeof json;
   } catch (error) {
-    if (
-      nodeIds.length > 1 &&
-      /exceeded the safe 4 MB import limit/i.test(
-        error instanceof Error ? error.message : String(error),
-      )
-    ) {
+    const isOversize = /exceeded the safe 4 MB import limit/i.test(
+      error instanceof Error ? error.message : String(error),
+    );
+    if (isOversize && nodeIds.length > 1) {
       const midpoint = Math.ceil(nodeIds.length / 2);
       const [left, right] = await Promise.all([
-        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint)),
-        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint)),
+        fetchFigmaNodes(fileKey, nodeIds.slice(0, midpoint), withGeometry),
+        fetchFigmaNodes(fileKey, nodeIds.slice(midpoint), withGeometry),
       ]);
       return { ...left, ...right };
+    }
+    if (isOversize && withGeometry) {
+      console.warn(
+        `[figma-import] Node ${nodeIds.join(",")} exceeded the 4 MB limit with geometry=paths; retrying without it (vectors will import as rendered PNGs).`,
+      );
+      return fetchFigmaNodes(fileKey, nodeIds, false);
     }
     throw error;
   }
@@ -683,11 +751,21 @@ async function fetchImageFillUrls(
   if (imageRefs.length === 0) return {};
   const envelope = await figmaGet(`/files/${fileKey}/images`);
   const json = providerJson(envelope, "image fills") as {
+    meta?: { images?: Record<string, string | null | undefined> };
     images?: Record<string, string | null | undefined>;
   };
+  // `/files/:key/images` nests its map under `meta`, unlike the sibling
+  // `/images/:key` RENDER endpoint that `fetchFallbackImageUrls` calls, which
+  // returns `images` at the top level. Reading the flat shape here meant
+  // `json.images` was always undefined, so EVERY image fill failed to resolve
+  // and was reported as "could not be fetched from Figma ... deleted images or
+  // very large assets" — a message that named a cause the code had never
+  // checked. The fidelity harness reads `meta.images`, which is why no corpus
+  // number ever moved while the real importer dropped all of them.
+  const images = json.meta?.images ?? json.images;
   const result: Record<string, string> = {};
   for (const ref of imageRefs) {
-    const url = json.images?.[ref];
+    const url = images?.[ref];
     if (typeof url === "string" && url) result[ref] = url;
   }
   return result;
@@ -770,6 +848,12 @@ export async function buildScreenFilesFromFigmaNodes(
   files: ImportedDesignFile[];
   fidelityEntries: FidelityEntry[];
   missingImageFillCount: number;
+  /**
+   * What Figma would not give us, in the caller's own words. Built here rather
+   * than at each call site: an omitted layer is invisible in the result, so a
+   * caller that forgets to describe it reports a partial import as a whole one.
+   */
+  omissionWarnings: string[];
 }> {
   const entries = Object.entries(nodesById);
   const fallbackNodeIds = new Set<string>();
@@ -792,9 +876,13 @@ export async function buildScreenFilesFromFigmaNodes(
   const missingFallbackNodeIds = Array.from(fallbackNodeIds).filter(
     (nodeId) => !fallbackImageUrls[nodeId],
   );
+  const omissionWarnings: string[] = [];
   if (missingFallbackNodeIds.length > 0) {
     console.warn(
       `[figma-import] ${missingFallbackNodeIds.length} fallback layer(s) could not be rendered and will be omitted (${missingFallbackNodeIds.slice(0, 5).join(", ")}${missingFallbackNodeIds.length > 5 ? ", …" : ""}).`,
+    );
+    omissionWarnings.push(
+      `${missingFallbackNodeIds.length} layer${missingFallbackNodeIds.length === 1 ? "" : "s"} could not be rendered by Figma and ${missingFallbackNodeIds.length === 1 ? "was" : "were"} left out — usually a logo, icon or illustration. Re-run the import, or flatten those layers in Figma first.`,
     );
   }
   const missingImageFillRefs = Array.from(imageFillRefs).filter(
@@ -805,10 +893,17 @@ export async function buildScreenFilesFromFigmaNodes(
       `[figma-import] ${missingImageFillRefs.length} image fill ref(s) could not be resolved (likely from a component library file); those fills will be omitted.`,
     );
   }
-  const durableUrls = await mirrorFigmaImageUrls([
-    ...Object.values(fallbackImageUrls),
-    ...Object.values(imageFillUrls),
-  ]);
+  const sourceImageSizes = new Map<string, { width: number; height: number }>();
+  const durableUrls = await mirrorFigmaImageUrls(
+    [...Object.values(fallbackImageUrls), ...Object.values(imageFillUrls)],
+    { sizes: sourceImageSizes },
+  );
+  // Keyed by imageRef for the converter, before the URLs are rewritten below.
+  const imageFillSizes: Record<string, { width: number; height: number }> = {};
+  for (const [imageRef, url] of Object.entries(imageFillUrls)) {
+    const size = sourceImageSizes.get(url);
+    if (size) imageFillSizes[imageRef] = size;
+  }
   for (const [nodeId, url] of Object.entries(fallbackImageUrls)) {
     fallbackImageUrls[nodeId] = durableUrls.get(url)!;
   }
@@ -823,6 +918,7 @@ export async function buildScreenFilesFromFigmaNodes(
     const { html, fidelity } = mapFigmaNodeToHtml(node, {
       fallbackImageUrls,
       imageFillUrls,
+      imageFillSizes,
     });
     fidelityEntries.push(...fidelity.entries);
 
@@ -863,5 +959,15 @@ export async function buildScreenFilesFromFigmaNodes(
   const finalMissingCount = missingImageFillRefs.filter(
     (r) => !imageFillUrls[r],
   ).length;
-  return { files, fidelityEntries, missingImageFillCount: finalMissingCount };
+  if (finalMissingCount > 0) {
+    omissionWarnings.push(
+      `${finalMissingCount} image fill${finalMissingCount === 1 ? "" : "s"} could not be fetched from Figma and ${finalMissingCount === 1 ? "was" : "were"} omitted. This can happen for deleted images or very large assets.`,
+    );
+  }
+  return {
+    files,
+    fidelityEntries,
+    missingImageFillCount: finalMissingCount,
+    omissionWarnings,
+  };
 }

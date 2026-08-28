@@ -530,7 +530,7 @@ export function useAgentRouteState<
         navigateWithAgentChatViewTransition(navigate, path, resolvedOptions);
         return;
       }
-      runNavigate();
+      void runNavigate();
     },
   });
 }

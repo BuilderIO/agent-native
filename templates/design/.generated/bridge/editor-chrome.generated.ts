@@ -1382,6 +1382,40 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isDocumentRootElement(el) {
       return el === document.body || el === document.documentElement;
     }
+    window.__agentNativeEditorChrome = true;
+    var MIN_SELECTABLE_EXTENT_PX = 4;
+    var NON_SELECTABLE_TAGS = [
+      "script",
+      "style",
+      "template",
+      "link",
+      "meta",
+      "title",
+      "noscript",
+      "br"
+    ];
+    function selectableBounds(el) {
+      var rect = el.getBoundingClientRect();
+      var padX = rect.width < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+      var padY = rect.height < MIN_SELECTABLE_EXTENT_PX ? MIN_SELECTABLE_EXTENT_PX / 2 : 0;
+      return {
+        left: rect.left - padX,
+        top: rect.top - padY,
+        right: rect.right + padX,
+        bottom: rect.bottom + padY,
+        width: rect.width + padX * 2,
+        height: rect.height + padY * 2
+      };
+    }
+    function outermostSvgAncestor(el) {
+      var owner = el && el.ownerSVGElement;
+      if (!owner) return null;
+      var root = owner;
+      while (root.ownerSVGElement) {
+        root = root.ownerSVGElement;
+      }
+      return root;
+    }
     function isBoardRootMarqueeSurface(el) {
       if (!designCanvasBoardSurface || !el) return false;
       if (isDocumentRootElement(el)) return true;
@@ -1420,6 +1454,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function selectionTargetForHit(hit) {
       if (!hit || isDocumentRootElement(hit)) return hit;
+      var svgRoot = outermostSvgAncestor(hit);
+      if (svgRoot) return svgRoot;
       return hit;
     }
     function freshRuntimeNodeId(prefix) {
@@ -2003,23 +2039,30 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function collectSelectableElements() {
       var nodes = Array.prototype.slice.call(
-        document.querySelectorAll(
-          "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]"
-        )
+        document.body ? document.body.querySelectorAll("*") : []
       );
       var seen = /* @__PURE__ */ new Set();
       var elements = [];
       nodes.forEach(function(node) {
-        var target = selectionTargetForHit(node);
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || seen.has(target)) {
+        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
           return;
         }
-        var rect = target.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
+        var target = selectionTargetForHit(node);
+        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
+          return;
+        }
         seen.add(target);
         elements.push(target);
       });
       return elements;
+    }
+    function isPaddedAwayFromView(el) {
+      var rect = el.getBoundingClientRect();
+      if (rect.width >= MIN_SELECTABLE_EXTENT_PX && rect.height >= MIN_SELECTABLE_EXTENT_PX) {
+        return false;
+      }
+      var cs = window.getComputedStyle(el);
+      return cs.display === "none" || cs.visibility === "hidden";
     }
     function collectSelectableElementInfos() {
       return collectSelectableElements().map(function(target) {
@@ -3902,11 +3945,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
       if (!placedRotatedLocalBox) {
         var rect = el.getBoundingClientRect();
+        var box = selectableBounds(el);
         overlay.style.display = "block";
-        overlay.style.top = rect.top + "px";
-        overlay.style.left = rect.left + "px";
-        overlay.style.width = rect.width + "px";
-        overlay.style.height = rect.height + "px";
+        overlay.style.top = box.top + "px";
+        overlay.style.left = box.left + "px";
+        overlay.style.width = box.width + "px";
+        overlay.style.height = box.height + "px";
         overlay.style.transform = "";
       }
       if (overlay === selectionOverlay) {
@@ -4914,9 +4958,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.top = rect.top + "px";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
-      var hitElements = collectSelectableElements().filter(function(el) {
-        var bounds = el.getBoundingClientRect();
-        if (bounds.width <= 0 || bounds.height <= 0) return false;
+      if (!activeMarqueeSelection.candidates) {
+        activeMarqueeSelection.candidates = collectSelectableElements();
+      }
+      var hitElements = activeMarqueeSelection.candidates.filter(function(el) {
+        var bounds = selectableBounds(el);
+        if (bounds.left <= rect.left && bounds.top <= rect.top && bounds.right >= rect.right && bounds.bottom >= rect.bottom) {
+          return false;
+        }
         return rectsIntersect(rect, {
           left: bounds.left,
           top: bounds.top,
@@ -6163,6 +6212,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       rectangle: true,
       rect: true
     };
+    function isFreeformRelativeContainer(el) {
+      if (!el || el === document.body || el === document.documentElement) {
+        return false;
+      }
+      if (window.getComputedStyle(el).position === "static") return false;
+      var children = el.children;
+      if (children.length === 0) return false;
+      for (var i = 0; i < children.length; i += 1) {
+        if (isOverlayElement(children[i])) continue;
+        var childPosition = window.getComputedStyle(children[i]).position;
+        if (childPosition !== "absolute" && childPosition !== "fixed") {
+          return false;
+        }
+      }
+      return true;
+    }
     function isAbsolutePrimitiveContainer(el) {
       if (!el || el.nodeType !== 1) return false;
       if (BRIDGE_REPLACED_TAGS[(el.tagName || "").toLowerCase()]) return false;
@@ -6517,7 +6582,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               anchor: hit,
               placement: "inside",
               axis: parentFlowAxis(hit),
-              dropMode: isAbsolutePrimitiveContainer(hit) ? "absolute-container" : "flow-insert"
+              dropMode: isAbsolutePrimitiveContainer(hit) || isFreeformRelativeContainer(hit) ? "absolute-container" : "flow-insert"
             };
           }
           return {
@@ -6551,7 +6616,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           anchor: parent,
           placement: "inside",
           axis,
-          dropMode: isAbsolutePrimitiveContainer(parent) ? "absolute-container" : "flow-insert"
+          dropMode: isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent) ? "absolute-container" : "flow-insert"
         };
       }
       var beforeTarget = null;
@@ -6669,7 +6734,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           continue;
         }
         var parent = cursor.parentElement;
-        if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+        if (cursor !== document.body && (isAbsolutePrimitiveContainer(cursor) || isFreeformRelativeContainer(cursor))) {
           if (cursor === el.parentElement) return null;
           return {
             anchor: cursor,
@@ -8005,6 +8070,14 @@ export const editorChromeBridgeScript: string = `"use strict";
                 iframeY: cy,
                 viewportW: vw,
                 viewportH: vh,
+                // Without a size the host can only draw a 16px cursor dot, so
+                // the element being dragged is invisible once it leaves here.
+                elementRect: {
+                  left: reorderRect.left,
+                  top: reorderRect.top,
+                  width: reorderRect.width,
+                  height: reorderRect.height
+                },
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
               },
@@ -8017,6 +8090,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderReflow2();
             showTransformBadge("Move layer", cx, cy);
           } else {
+            crossScreenClaimedByHost = false;
             var rawTarget = resolveReorderOrFreeTarget2(
               cx,
               cy,
@@ -8043,11 +8117,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
           document.removeEventListener("pointercancel", onReorderEscape2, true);
+          window.removeEventListener("blur", onReorderEscape2, true);
+          document.removeEventListener(
+            "visibilitychange",
+            onReorderVisibilityChange2,
+            true
+          );
           document.removeEventListener("keydown", onReorderKeyDown2, true);
           document.removeEventListener("keyup", onReorderKeyUp2, true);
           clearActiveDragCancel(onReorderEscape2);
           clearReorderLift2();
           clearReorderReflow2();
+        }, onReorderVisibilityChange2 = function() {
+          if (document.visibilityState === "hidden") onReorderEscape2();
         }, onReorderEscape2 = function() {
           cleanupReorderDrag2();
           hideTransformBadge();
@@ -8080,14 +8162,20 @@ export const editorChromeBridgeScript: string = `"use strict";
           keepCurrentFlowParent = false;
           ev.preventDefault();
         }, onReorderUp2 = function(ev) {
+          if (!ev || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) {
+            onReorderEscape2();
+            return;
+          }
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
           var vw = window.innerWidth;
           var vh = window.innerHeight;
-          var cx = ev ? ev.clientX : 0;
-          var cy = ev ? ev.clientY : 0;
-          var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh;
+          var cx = ev.clientX;
+          var cy = ev.clientY;
+          var outsideOnDrop = cx < 0 || cy < 0 || cx > vw || cy > vh || // Claimed by the host: committing here too would write the node
+          // twice, from two different ideas of where it landed.
+          crossScreenClaimedByHost;
           if (!isGroupDrag) {
             window.parent.postMessage(
               {
@@ -8099,6 +8187,14 @@ export const editorChromeBridgeScript: string = `"use strict";
                 iframeY: cy,
                 viewportW: vw,
                 viewportH: vh,
+                // Without a size the host can only draw a 16px cursor dot, so
+                // the element being dragged is invisible once it leaves here.
+                elementRect: {
+                  left: reorderRect.left,
+                  top: reorderRect.top,
+                  width: reorderRect.width,
+                  height: reorderRect.height
+                },
                 pointerOffset: reorderPointerOffset,
                 styleSnapshot: reorderStyleSnapshot
               },
@@ -8182,7 +8278,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             });
           }
         };
-        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, containerIsSimplePacked = containerIsSimplePacked2, reorderMainGap = reorderMainGap2, clearReorderReflow = clearReorderReflow2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return member.getBoundingClientRect();
@@ -8215,6 +8311,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
         var reorderSelector = getSelector(reorderEl);
         var reorderSourceId = getSourceId(reorderEl);
+        crossScreenClaimedByHost = false;
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
         var reorderRect = reorderEl.getBoundingClientRect();
         var reorderPointerStart = pointerStartParam || e;
@@ -8236,6 +8333,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("pointercancel", onReorderEscape2, true);
+        window.addEventListener("blur", onReorderEscape2, true);
+        document.addEventListener(
+          "visibilitychange",
+          onReorderVisibilityChange2,
+          true
+        );
         document.addEventListener("keydown", onReorderKeyDown2, true);
         document.addEventListener("keyup", onReorderKeyUp2, true);
         setActiveDragCancel(onReorderEscape2);
@@ -8392,6 +8495,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           currentAutoLayoutTarget = null;
           hideInsertionGuide();
         } else {
+          crossScreenClaimedByHost = false;
           currentAutoLayoutTarget = !duplicatedForDrag && !bridgeSpaceKeyPressed ? autoLayoutInsertionTargetForPoint(
             dragEl,
             ev.clientX,
@@ -8497,7 +8601,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideSizeBadge();
         hideConstraintGuides();
         if (!dragEl) return;
-        var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
+        var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
           postCrossScreenDrag("end", dragEl, ev);
         }
@@ -8804,6 +8908,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           ev.clientX,
           ev.clientY
         );
+        var previewStyles = {
+          position: resizeEl.style.position,
+          left: resizeEl.style.left,
+          top: resizeEl.style.top
+        };
+        if (widthTouched) previewStyles.width = resizeEl.style.width;
+        if (heightTouched) previewStyles.height = resizeEl.style.height;
+        if (scaleToolEnabled && originBorderWidth > 0) {
+          previewStyles.borderWidth = resizeEl.style.borderWidth;
+        }
+        if (scaleToolEnabled && originFontSize > 0) {
+          previewStyles.fontSize = resizeEl.style.fontSize;
+        }
+        window.parent.postMessage(
+          {
+            type: "visual-style-change",
+            phase: "preview",
+            selector: getSelector(resizeEl),
+            styles: previewStyles,
+            payload: getElementInfo(resizeEl)
+          },
+          "*"
+        );
         refreshOverlays();
       }
       function cleanupResizeDrag() {
@@ -8829,6 +8956,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
+          var restoredComputed = window.getComputedStyle(resizeEl);
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              phase: "preview",
+              selector: getSelector(resizeEl),
+              styles: {
+                position: restoredComputed.position,
+                left: restoredComputed.left,
+                top: restoredComputed.top,
+                width: restoredComputed.width,
+                height: restoredComputed.height,
+                borderWidth: restoredComputed.borderWidth,
+                fontSize: restoredComputed.fontSize
+              },
+              payload: getElementInfo(resizeEl)
+            },
+            "*"
+          );
         }
         suppressNextShieldClickBriefly();
         refreshOverlays();
@@ -8867,6 +9013,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage(
           {
             type: "visual-style-change",
+            phase: "commit",
             selector: getSelector(resizeEl),
             styles,
             originalStyles: originalInlineStylesForPatch(resizeEl, styles),
@@ -9296,6 +9443,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (idx === -1) return null;
       return candidateKeys[(idx + 1) % candidateKeys.length];
     }
+    function isContainerBackgroundHit(el) {
+      if (!el || el === selectedEl) return false;
+      if (isDocumentRootElement(el)) return false;
+      if (outermostSvgAncestor(el) === el) return false;
+      return Boolean(el.firstElementChild);
+    }
+    var crossScreenClaimedByHost = false;
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
       if (e.button !== 0) return;
@@ -9303,7 +9457,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget)) {
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget)) {
         beginMarqueeSelection(e);
         return;
       }
@@ -9704,6 +9858,20 @@ export const editorChromeBridgeScript: string = `"use strict";
               );
             }
           });
+          return;
+        }
+        var pastedHtml = e.clipboardData ? e.clipboardData.getData("text/html") || "" : "";
+        var pastedText = e.clipboardData ? e.clipboardData.getData("text/plain") || "" : "";
+        if (/figma/i.test(pastedHtml) || /figma/i.test(pastedText)) {
+          window.parent.postMessage(
+            {
+              type: "figma-clipboard-paste",
+              content: "",
+              html: pastedHtml,
+              text: pastedText
+            },
+            "*"
+          );
         }
       },
       true
@@ -10372,6 +10540,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           statePreviewState
         );
         statePreviewElement = nextStatePreviewElement;
+        return;
+      }
+      if (e.data.type === "agent-native:cross-screen-claim") {
+        crossScreenClaimedByHost = Boolean(e.data.claimed);
         return;
       }
       if (e.data.type === "agent-native:cancel-active-drag") {

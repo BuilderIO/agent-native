@@ -6,6 +6,7 @@ import {
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
+  shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
 import {
   designGenerationDirectives,
@@ -61,8 +62,7 @@ export function runResumePendingGeneration({
     setHasPendingGeneration(false);
     return;
   }
-  const templateRefinement = Boolean(pending.templateId && files.length > 0);
-  if (files.length > 0 && !templateRefinement) return;
+  if (shouldSkipPendingGenerationResume(pending, files)) return;
 
   if (isPendingGenerationStale(pending)) {
     markGenerationStale();
@@ -78,7 +78,9 @@ export function runResumePendingGeneration({
   }
 
   const prompt =
-    pending.prompt?.trim() || `Create an initial design for ${design.title}.`;
+    pending.prompt && pending.prompt.trim().length > 0
+      ? pending.prompt
+      : `Create an initial design for ${design.title}.`;
   const uploadedFiles = Array.isArray(pending.files) ? pending.files : [];
   const fileContext = formatUploadedFileContext(uploadedFiles);
   const images = imageAttachmentsFromUploadedFiles(uploadedFiles);
@@ -150,19 +152,13 @@ export function runResumePendingGeneration({
       engine: pending.engine,
       effort: pending.effort,
     };
-    const runTabId = agentSubmit(
-      shouldSkipQuestions
-        ? `Generate design for "${design.title}": ${prompt}`
-        : `Create design: ${prompt}`,
-      context,
-      {
-        model: pending.model,
-        engine: pending.engine,
-        effort: pending.effort,
-        newTab: true,
-        images,
-      },
-    );
+    const runTabId = agentSubmit(prompt, context, {
+      model: pending.model,
+      engine: pending.engine,
+      effort: pending.effort,
+      newTab: true,
+      images,
+    });
     setGenerationChatTabId(runTabId);
     patchPendingGeneration(id, {
       runTabId,

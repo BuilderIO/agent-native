@@ -34,7 +34,9 @@ export const TextInputPopup: Component<TextInputPopupProps> = (props) => {
         style={{ background: props.color }}
       />
       <input
-        ref={inputRef}
+        ref={(element) => {
+          inputRef = element;
+        }}
         class="pp-text-input-popup__input"
         type="text"
         placeholder="Add text note..."

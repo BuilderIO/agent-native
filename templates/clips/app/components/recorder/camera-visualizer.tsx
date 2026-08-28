@@ -90,7 +90,8 @@ async function getCameraPermissionState(): Promise<CameraPermissionState> {
 
 async function friendlyCameraError(err: unknown): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
-  const message = err instanceof Error ? err.message : String(err ?? "");
+  const message =
+    err instanceof Error ? err.message : typeof err === "string" ? err : "";
   const combined = `${name} ${message}`;
   const permissionState = await getCameraPermissionState();
   const blockedByPolicy = isCameraBlockedByPolicy();

@@ -305,7 +305,7 @@ export interface CodeLayerNode {
   dataAttributes: Record<string, string>;
   classes: string[];
   textSnippet: string | null;
-  style: Partial<Record<VisualStyleProperty | string, string>>;
+  style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   styleTokens: StyleToken[];
   parentId?: string;
   children: string[];
@@ -413,7 +413,7 @@ export interface EditIntentTarget {
 export interface StyleEditIntent {
   kind: "style";
   target: EditIntentTarget;
-  property: VisualStyleProperty | string;
+  property: VisualStyleProperty | (string & {});
   value: string;
 }
 
@@ -633,7 +633,7 @@ export interface PatchNodeSummary {
   selector: string;
   tag: string;
   classes: string[];
-  style: Partial<Record<VisualStyleProperty | string, string>>;
+  style: Partial<Record<VisualStyleProperty | (string & {}), string>>;
   textSnippet: string | null;
 }
 
@@ -2252,7 +2252,12 @@ function projectionSourceKey(source: CodeLayerSource): string {
   const record = source as unknown as Record<string, unknown>;
   return Object.keys(source)
     .sort()
-    .map((field) => `${field}=${record[field] ?? ""}`)
+    .map((field) => {
+      const value = record[field];
+      const serialized =
+        typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+      return `${field}=${serialized}`;
+    })
     .join("\u0000");
 }
 

@@ -40,7 +40,9 @@ export function parseCursorMap(
   }
 
   try {
-    const parsed: unknown = JSON.parse(String(raw));
+    const parsed: unknown = JSON.parse(
+      typeof raw === "string" ? raw : JSON.stringify(raw),
+    );
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { ok: false };
     }

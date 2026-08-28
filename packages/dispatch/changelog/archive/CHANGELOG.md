@@ -1,3 +1,10 @@
+## 0.16.6
+
+### Patch Changes
+
+- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
+- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
+
 ## 0.16.5
 
 ### Patch Changes

@@ -1196,7 +1196,7 @@ export async function instrumentAgentLoop(opts: {
               state: "failed",
               code: cutOffReason,
               retryable: true,
-              message: `Agent run was cut off before finishing (${cutOffReason}).`,
+              message: `Agent run was cut off before finishing (${String(cutOffReason)}).`,
             }
           : undefined);
 
