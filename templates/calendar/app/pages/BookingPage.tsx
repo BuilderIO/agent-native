@@ -586,6 +586,16 @@ export default function BookingPage() {
                   <div className="text-muted-foreground">
                     {format(parseISO(selectedSlotRange.start), "h:mm a")} -{" "}
                     {format(parseISO(selectedSlotRange.end), "h:mm a")}
+                    {browserTimezone && (
+                      <span className="ml-1">
+                        (
+                        {timezoneAbbreviation(
+                          parseISO(selectedSlotRange.start),
+                          browserTimezone,
+                        )}
+                        )
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
