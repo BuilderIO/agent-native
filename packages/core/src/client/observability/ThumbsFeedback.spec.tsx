@@ -215,6 +215,7 @@ describe("ThumbsFeedback localization", () => {
     expect(formCall).toBeDefined();
     expect(JSON.parse(String(formCall?.[1]?.body))).toMatchObject({
       data: { feedback: "The answer used the wrong source." },
+      _t: expect.any(Number),
       _meta: {
         submitterEmail: "user@example.com",
         chatSessionIds: ["thread-1"],
@@ -222,15 +223,17 @@ describe("ThumbsFeedback localization", () => {
         clientSurface: "web",
       },
     });
+    expect(JSON.parse(String(formCall?.[1]?.body))._t).toBeGreaterThan(0);
   });
 
-  it("delivers shared feedback when observability fails and ignores duplicate submits", async () => {
+  it("retries failed observability without duplicating shared feedback", async () => {
     vi.stubEnv(
       "VITE_AGENT_NATIVE_FEEDBACK_URL",
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
     const fetchMock = vi.mocked(globalThis.fetch);
-    fetchMock.mockImplementation(async (input) => {
+    let observabilityAttempts = 0;
+    fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/api/forms/public/")) {
         return {
@@ -242,7 +245,15 @@ describe("ThumbsFeedback localization", () => {
         } as Response;
       }
       if (url.includes("/_agent-native/observability/feedback")) {
-        return { ok: false, status: 503 } as Response;
+        const body = JSON.parse(String(init?.body));
+        if (body.feedbackType === "text") observabilityAttempts += 1;
+        return {
+          ok: body.feedbackType !== "text" || observabilityAttempts > 1,
+          status:
+            body.feedbackType !== "text" || observabilityAttempts > 1
+              ? 200
+              : 503,
+        } as Response;
       }
       return { ok: true } as Response;
     });
@@ -300,6 +311,126 @@ describe("ThumbsFeedback localization", () => {
     expect(observabilityTextCalls).toHaveLength(1);
     expect(JSON.parse(String(formSubmitCalls[0]?.[1]?.body))).toMatchObject({
       _meta: { submitterEmail: "user@example.com" },
+    });
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+
+    act(() => textarea.form?.requestSubmit());
+    await vi.waitFor(() => {
+      const calls = fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/api/submit/"),
+      );
+      expect(calls).toHaveLength(1);
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, init]) =>
+            String(input).includes("/_agent-native/observability/feedback") &&
+            JSON.parse(String(init?.body)).feedbackType === "text",
+        ),
+      ).toHaveLength(2);
+    });
+    await vi.waitFor(() => {
+      expect(document.body.querySelector("textarea")).toBeNull();
+    });
+  });
+
+  it("retries failed shared feedback without duplicating observability", async () => {
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_FEEDBACK_URL",
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    const fetchMock = vi.mocked(globalThis.fetch);
+    let formAttempts = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/forms/public/")) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: "form-1",
+            fields: [{ id: "feedback", type: "textarea" }],
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/submit/")) {
+        formAttempts += 1;
+        if (formAttempts === 1) {
+          return {
+            ok: false,
+            status: 502,
+            text: async () => "Bad Gateway",
+          } as Response;
+        }
+      }
+      return { ok: true } as Response;
+    });
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const down = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs down"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    act(() => down.click());
+
+    const textarea = await vi.waitFor(() => {
+      const input = document.body.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+      expect(input).not.toBeNull();
+      return input!;
+    });
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set?.call(textarea, "The answer was not useful.");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.form?.requestSubmit();
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).includes("/api/submit/"),
+        ),
+      ).toHaveLength(1);
+    });
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).includes("/_agent-native/observability/feedback") &&
+          JSON.parse(String(init?.body)).feedbackType === "text",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+
+    act(() => textarea.form?.requestSubmit());
+    await vi.waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).includes("/api/submit/"),
+        ),
+      ).toHaveLength(2);
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, init]) =>
+            String(input).includes("/_agent-native/observability/feedback") &&
+            JSON.parse(String(init?.body)).feedbackType === "text",
+        ),
+      ).toHaveLength(1);
     });
     await vi.waitFor(() => {
       expect(document.body.querySelector("textarea")).toBeNull();

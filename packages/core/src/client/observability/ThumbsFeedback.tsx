@@ -19,6 +19,12 @@ export interface ThumbsFeedbackProps {
 
 type Selection = "up" | "down" | null;
 
+type TextFeedbackDelivery = {
+  value: string;
+  observabilityDelivered: boolean;
+  sharedFormDelivered: boolean;
+};
+
 export function ThumbsFeedback({
   threadId,
   runId,
@@ -33,7 +39,9 @@ export function ThumbsFeedback({
   const [textSubmitting, setTextSubmitting] = useState(false);
   const feedbackInputId = useId();
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
+  const feedbackOpenedAtRef = useRef(0);
   const textSubmissionInFlightRef = useRef(false);
+  const textFeedbackDeliveryRef = useRef<TextFeedbackDelivery | null>(null);
 
   const sendFeedback = useCallback(
     async (
@@ -78,52 +86,69 @@ export function ThumbsFeedback({
 
   const handleThumbsDown = useCallback(() => {
     if (selection === "down") {
-      setPopoverOpen((prev) => !prev);
+      const nextOpen = !popoverOpen;
+      if (nextOpen) feedbackOpenedAtRef.current = Date.now();
+      setPopoverOpen(nextOpen);
       return;
     }
+    feedbackOpenedAtRef.current = Date.now();
     setSelection("down");
     setPopoverOpen(true);
     void sendFeedback("thumbs_down").then((submitted) => {
       if (!submitted) setSelection(null);
     });
-  }, [selection, sendFeedback]);
+  }, [popoverOpen, selection, sendFeedback]);
 
   const handleTextFeedback = useCallback(() => {
     const value = textFeedback.trim();
     if (!value || textSubmissionInFlightRef.current) return;
+    const delivery =
+      textFeedbackDeliveryRef.current?.value === value
+        ? textFeedbackDeliveryRef.current
+        : {
+            value,
+            observabilityDelivered: false,
+            sharedFormDelivered: false,
+          };
+    textFeedbackDeliveryRef.current = delivery;
     textSubmissionInFlightRef.current = true;
     setTextSubmitting(true);
 
-    void Promise.allSettled([
-      sendFeedback("text", value),
-      submitFeedbackForm({
-        value,
-        chatSessionId: threadId,
-        activeRunId: runId,
-        submitterEmail: session?.email,
-      }),
-    ])
-      .then(([observability, sharedForm]) => {
-        if (sharedForm.status === "rejected") {
-          console.error(
-            "[ThumbsFeedback] shared feedback form submission failed",
-            sharedForm.reason,
-          );
-        }
+    const deliveries: Promise<void>[] = [];
+    if (!delivery.observabilityDelivered) {
+      deliveries.push(
+        sendFeedback("text", value).then((submitted) => {
+          delivery.observabilityDelivered = submitted;
+        }),
+      );
+    }
+    if (!delivery.sharedFormDelivered) {
+      deliveries.push(
+        submitFeedbackForm({
+          value,
+          openedAt: feedbackOpenedAtRef.current,
+          chatSessionId: threadId,
+          activeRunId: runId,
+          submitterEmail: session?.email,
+        })
+          .then(() => {
+            delivery.sharedFormDelivered = true;
+          })
+          .catch((reason) => {
+            console.error(
+              "[ThumbsFeedback] shared feedback form submission failed",
+              reason,
+            );
+          }),
+      );
+    }
 
-        const observabilitySubmitted =
-          observability.status === "fulfilled" && observability.value;
-        const sharedFormSubmitted =
-          sharedForm.status === "fulfilled" && sharedForm.value === "submitted";
-        const sharedFormUnavailable =
-          sharedForm.status === "fulfilled" &&
-          sharedForm.value === "unconfigured";
-        if (
-          !sharedFormSubmitted &&
-          !(sharedFormUnavailable && observabilitySubmitted)
-        ) {
+    void Promise.all(deliveries)
+      .then(() => {
+        if (!delivery.observabilityDelivered || !delivery.sharedFormDelivered) {
           return;
         }
+        textFeedbackDeliveryRef.current = null;
         setTextFeedback("");
         setPopoverOpen(false);
       })
