@@ -58,7 +58,7 @@ describe("desktop passive-access regressions", () => {
       "ipcMain.handle(IPC.IDENTITY_AUTHENTICATE",
     );
 
-    expect(signIn).toContain('resolveDesktopIdentityApp("dispatch")');
+    expect(signIn).toContain("resolveDesktopIdentityAuthority()");
     expect(signIn).not.toContain("resolveDesktopIdentityApp(activeAppId)");
 
     const resolver = between(
@@ -70,6 +70,13 @@ describe("desktop passive-access regressions", () => {
       'allowDisabled: appId === "dispatch" && isCanonical',
     );
     expect(resolver).toContain("allowDisabled?: boolean");
+    expect(main).toContain(
+      'return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });',
+    );
+    expect(main).not.toContain(
+      'refreshStatus(resolveDesktopIdentityApp("dispatch"))',
+    );
+    expect(main).toContain("retryAppSessionFanout()");
   });
 
   it("keeps remembered Content folder discovery metadata-only", () => {
