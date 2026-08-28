@@ -686,7 +686,7 @@ export default function EditorSidebar({
         }
       >
         <div
-          className="h-full min-h-0 space-y-1 overflow-y-auto overscroll-contain p-2"
+          className="h-full min-h-0 space-y-1 overflow-x-hidden overflow-y-auto overscroll-contain p-2"
           onScroll={(event) => {
             setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
           }}

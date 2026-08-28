@@ -93,6 +93,9 @@ describe("EditorSidebar thumbnail scroll cue", () => {
     const thumbnailScrollArea = container.querySelector<HTMLElement>(
       "[data-slides-thumbnail-scroll] > div",
     );
+    expect(thumbnailScrollArea?.classList.contains("overflow-x-hidden")).toBe(
+      true,
+    );
     expect(thumbnailPane?.dataset.slidesThumbnailScroll).toBe("top");
 
     act(() => {
