@@ -248,6 +248,13 @@ interface DeckContextType {
     updates: Partial<Omit<Slide, "id">>,
     options?: UpdateSlideOptions,
   ) => void;
+  updateSlides: (
+    deckId: string,
+    slideUpdates: {
+      slideId: string;
+      updates: Partial<Omit<Slide, "id">>;
+    }[],
+  ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
   deleteSlides: (deckId: string, slideIds: string[]) => void;
   duplicateSlide: (deckId: string, slideId: string) => string | undefined;
@@ -2995,6 +3002,47 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, setDecksLocal],
   );
 
+  const updateSlides = useCallback(
+    (
+      deckId: string,
+      slideUpdates: {
+        slideId: string;
+        updates: Partial<Omit<Slide, "id">>;
+      }[],
+    ) => {
+      const before = decksRef.current.find((d) => d.id === deckId);
+      if (!before) return;
+      const validUpdates = slideUpdates.filter(({ slideId }) =>
+        before.slides.some((slide) => slide.id === slideId),
+      );
+      if (validUpdates.length === 0) return;
+      const ops: PatchDeckOp[] = validUpdates.map(({ slideId, updates }) => ({
+        op: "patch-slide",
+        slideId,
+        fields: updates,
+      }));
+      const applyUpdates = (d: Deck) => {
+        if (d.id !== deckId) return d;
+        return {
+          ...d,
+          slides: d.slides.map((slide) => {
+            const update = validUpdates.find(
+              ({ slideId }) => slideId === slide.id,
+            );
+            return update ? { ...slide, ...update.updates } : slide;
+          }),
+          updatedAt: new Date().toISOString(),
+        };
+      };
+      markDeckDirty(deckId);
+      decksRef.current = decksRef.current.map(applyUpdates);
+      setDecksLocal((prev) => prev.map(applyUpdates));
+      for (const op of ops) enqueueDeckOp(deckId, op);
+      recordUndoBatch(before, ops, "Update slides");
+    },
+    [markDeckDirty, recordUndoBatch, setDecksLocal],
+  );
+
   const deleteSlide = useCallback(
     (deckId: string, slideId: string) => {
       markDeckDirty(deckId);
@@ -3301,6 +3349,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         addSlide,
         flushDeckSave,
         updateSlide,
+        updateSlides,
         deleteSlide,
         deleteSlides,
         duplicateSlide,

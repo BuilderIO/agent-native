@@ -166,6 +166,7 @@ export default function DeckEditor() {
     refreshOpenDeck,
     updateDeck,
     updateSlide,
+    updateSlides,
     deleteSlide,
     deleteSlides,
     pasteSlides,
@@ -1275,11 +1276,15 @@ export default function DeckEditor() {
   const handleToggleSkipSlide = useCallback(
     (slideIds: string[], skipped: boolean) => {
       if (!deck || !id) return;
-      for (const slide of selectedSlideIdsForAction(slideIds)) {
-        updateSlide(id, slide.id, { skipped });
-      }
+      updateSlides(
+        id,
+        selectedSlideIdsForAction(slideIds).map((slide) => ({
+          slideId: slide.id,
+          updates: { skipped },
+        })),
+      );
     },
-    [deck, id, selectedSlideIdsForAction, updateSlide],
+    [deck, id, selectedSlideIdsForAction, updateSlides],
   );
 
   // Command/Ctrl+C then Command/Ctrl+V on the slide rail copies/pastes the
