@@ -24,7 +24,11 @@ import {
 
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
-import { cookieDomainAttrs, getSession } from "../server/auth.js";
+import {
+  cookieDomainAttrs,
+  crossSiteCookieAttrs,
+  getSession,
+} from "../server/auth.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
@@ -323,8 +327,9 @@ export function createOnboardingPlugin(
           );
           if (completed?.completed === true) {
             deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
-              path: "/",
+              ...crossSiteCookieAttrs(event),
               ...cookieDomainAttrs(),
+              path: "/",
             });
             return { firstRun: false };
           }
@@ -342,8 +347,9 @@ export function createOnboardingPlugin(
             orgContext.orgId !== null && eligible?.orgId === orgContext.orgId;
           if (!firstRun) {
             deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
-              path: "/",
+              ...crossSiteCookieAttrs(event),
               ...cookieDomainAttrs(),
+              path: "/",
             });
           }
           return {
@@ -409,8 +415,9 @@ export function createOnboardingPlugin(
           { requestSource: "agent" },
         );
         deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
-          path: "/",
+          ...crossSiteCookieAttrs(event),
           ...cookieDomainAttrs(),
+          path: "/",
         });
         return { ok: true };
       }),

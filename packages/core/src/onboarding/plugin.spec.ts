@@ -16,6 +16,11 @@ vi.mock("../server/auth.js", () => ({
     const domain = process.env.COOKIE_DOMAIN;
     return domain ? { domain } : {};
   },
+  crossSiteCookieAttrs: () => ({
+    sameSite: "none",
+    secure: true,
+    partitioned: true,
+  }),
   getSession: (...args: any[]) => getSessionMock(...args),
 }));
 
@@ -304,6 +309,9 @@ describe("onboarding plugin routes", () => {
       `${FIRST_RUN_ONBOARDING_COOKIE}=`,
     );
     expect(finish.headers.get("set-cookie")).toContain("Domain=.example.com");
+    expect(finish.headers.get("set-cookie")).toContain("SameSite=None");
+    expect(finish.headers.get("set-cookie")).toContain("Secure");
+    expect(finish.headers.get("set-cookie")).toContain("Partitioned");
   });
 
   it("does not show first-run onboarding to a member of an existing organization", async () => {

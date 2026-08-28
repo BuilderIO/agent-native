@@ -4011,7 +4011,7 @@ function isReadMethod(event: H3Event): boolean {
  * dev keeps the default `SameSite=Lax`; `None` requires Secure, and
  * `Partitioned` only takes effect alongside `Secure`.
  */
-function crossSiteCookieAttrs(event: H3Event): {
+export function crossSiteCookieAttrs(event: H3Event): {
   sameSite: "lax" | "none";
   secure: boolean;
   partitioned?: boolean;
