@@ -14,7 +14,6 @@ import {
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
-  shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldHandleAgentSidebarToggle,
   shouldShowAgentPanelFullViewAction,
@@ -153,34 +152,12 @@ describe("AgentPanel header tab visibility", () => {
     );
   });
 
-  it("does not allow sidebar settings mode in page chat by default", () => {
-    expect(shouldAllowAgentChatSurfaceSettingsMode("page", undefined)).toBe(
-      false,
-    );
-    expect(shouldAllowAgentChatSurfaceSettingsMode("panel", undefined)).toBe(
-      true,
-    );
-    expect(shouldAllowAgentChatSurfaceSettingsMode("page", true)).toBe(true);
-  });
-
-  it("normalizes settings back to chat when settings mode is not allowed", () => {
-    expect(normalizeAgentPanelModeForSurface("settings", false)).toBe("chat");
-    expect(normalizeAgentPanelModeForSurface("settings", true)).toBe(
-      "settings",
-    );
-    expect(normalizeAgentPanelModeForSurface("resources", false)).toBe(
-      "resources",
-    );
-  });
-
-  it("normalizes every legacy sidebar mode back to chat on chat-only surfaces", () => {
-    expect(normalizeAgentPanelModeForSurface("resources", false, true)).toBe(
-      "chat",
-    );
-    expect(normalizeAgentPanelModeForSurface("cli", false, true)).toBe("chat");
-    expect(normalizeAgentPanelModeForSurface("settings", true, true)).toBe(
-      "chat",
-    );
+  it("normalizes legacy and unknown modes back to chat", () => {
+    expect(normalizeAgentPanelModeForSurface("settings")).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("unknown")).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("resources")).toBe("resources");
+    expect(normalizeAgentPanelModeForSurface("resources", true)).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("cli", true)).toBe("chat");
   });
 });
 
@@ -190,11 +167,10 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
   });
 
-  it("shows the full-view action for resources and settings when a page href exists", () => {
+  it("shows the full-view action for resources when a page href exists", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "resources")).toBe(
       true,
     );
-    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
   });
 
   it("keeps the full Agent page reachable from chat-only sidebars", () => {
@@ -232,9 +208,6 @@ describe("AgentPanel mode and full-view visibility", () => {
   it("hides the full-view action for CLI or a missing page href", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
     expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
-      false,
-    );
-    expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
       false,
     );
   });
@@ -419,6 +392,18 @@ describe("AgentChatSurface chrome defaults", () => {
 
     expect(panel.props.showHeader).toBe(false);
     expect(panel.props.showTabBar).toBe(false);
+    expect(panel.props).not.toHaveProperty("allowSettingsMode");
+  });
+
+  it("keeps settings out of every chat surface", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("SettingsPanel");
+    expect(source).not.toContain("allowSettingsMode");
+    expect(source).not.toContain('mode === "settings"');
+    expect(source).toContain('pathname: "/settings"');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

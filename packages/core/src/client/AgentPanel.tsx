@@ -26,7 +26,6 @@ import {
   IconMessageCircle,
   IconMessageDots,
   IconTerminal2,
-  IconSettings,
   IconLayoutSidebarRightCollapse,
   IconLayoutGrid,
   IconCheck,
@@ -222,13 +221,6 @@ const ResourcesPanel = lazy(() =>
   })),
 );
 
-// Lazy-load SettingsPanel to avoid bundling when not needed
-const SettingsPanel = lazy(() =>
-  import("./settings/index.js").then((m) => ({
-    default: m.SettingsPanel,
-  })),
-);
-
 // Lazy-load OnboardingPanel — only pulled in when onboarding is active.
 const OnboardingPanel = lazy(() =>
   import("./onboarding/OnboardingPanel.js").then((m) => ({
@@ -252,8 +244,8 @@ const SetupButton = lazy(() =>
 
 // The setup/onboarding checklist that used to appear above chat is disabled
 // for every app — setup (AI engine, image/video gen, asset storage, email,
-// GitHub, etc.) is surfaced in better places (the settings panel and the
-// per-feature setup affordances). Keep this off; do not re-enable globally.
+// GitHub, etc.) is surfaced in the settings pages and per-feature setup
+// affordances. Keep this off; do not re-enable globally.
 const SHOW_ONBOARDING = false;
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 const AgentSidebarOnboardingContext = React.createContext(false);
@@ -262,14 +254,13 @@ const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
 type ExecMode = "build" | "plan";
-type PanelMode = "chat" | "cli" | "resources" | "settings";
+type PanelMode = "chat" | "cli" | "resources";
 export function normalizeAgentPanelModeForSurface(
-  mode: PanelMode,
-  allowSettingsMode: boolean,
+  mode: string,
   chatOnly = false,
 ): PanelMode {
   if (chatOnly) return "chat";
-  return mode === "settings" && !allowSettingsMode ? "chat" : mode;
+  return mode === "cli" || mode === "resources" ? mode : "chat";
 }
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
@@ -587,7 +578,7 @@ export function shouldShowAgentPanelFullViewAction(
   return (
     Boolean(agentPageHref) &&
     currentPath !== agentPageHref &&
-    (isSidebar || mode === "resources" || mode === "settings")
+    (isSidebar || mode === "resources")
   );
 }
 
@@ -765,8 +756,6 @@ export interface AgentPanelProps extends Omit<
   isWideDrawer?: boolean;
   /** Called when the user returns the wide drawer to the normal layout. */
   onExitWideDrawer?: () => void;
-  /** URL of the app being developed (shown as "Open app in new tab" in settings). Set by frame. */
-  devAppUrl?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
   /** Restore the previously active chat thread on mount. Default: true. */
@@ -787,11 +776,9 @@ export interface AgentPanelProps extends Omit<
   showTabBar?: boolean;
   /** Show a compact New chat action in page chat when the main header is hidden. */
   showPageNewChatButton?: boolean;
-  /** Allow the sidebar settings view to render inside this panel. Default: true. */
-  allowSettingsMode?: boolean;
   /** Keep this surface on chat even when mode controls are hidden. */
   chatOnly?: boolean;
-  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  /** Optional link shown in Resources mode for the full Agent page. */
   agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
@@ -940,7 +927,6 @@ function AgentPanelInner({
   onSnapTo75Percent,
   isWideDrawer,
   onExitWideDrawer,
-  devAppUrl,
   storageKey,
   restoreActiveThread = true,
   scope,
@@ -951,7 +937,6 @@ function AgentPanelInner({
   chatNotice,
   showTabBar = true,
   showPageNewChatButton = false,
-  allowSettingsMode = true,
   chatOnly = false,
   agentPageHref,
   codeAccess,
@@ -1014,51 +999,27 @@ function AgentPanelInner({
   const [mode, setMode] = useState<PanelMode>(() => {
     try {
       const saved = localStorage.getItem(panelModeKey);
-      if (
-        saved === "chat" ||
-        saved === "cli" ||
-        saved === "resources" ||
-        saved === "settings"
-      )
-        return normalizeAgentPanelModeForSurface(
-          saved,
-          allowSettingsMode,
-          chatOnly,
-        );
+      return normalizeAgentPanelModeForSurface(saved ?? defaultMode, chatOnly);
     } catch {}
-    return normalizeAgentPanelModeForSurface(
-      defaultMode,
-      allowSettingsMode,
-      chatOnly,
-    );
+    return normalizeAgentPanelModeForSurface(defaultMode, chatOnly);
   });
   useEffect(() => {
     try {
       localStorage.setItem(panelModeKey, mode);
     } catch {}
   }, [mode, panelModeKey]);
-  const [settingsSection, setSettingsSection] = useState<{
-    section: string | null;
-    requestKey: number;
-  }>({ section: null, requestKey: 0 });
   const switchMode = useCallback(
     (m: PanelMode) => {
       startTransition(() =>
-        setMode(
-          normalizeAgentPanelModeForSurface(m, allowSettingsMode, chatOnly),
-        ),
+        setMode(normalizeAgentPanelModeForSurface(m, chatOnly)),
       );
     },
-    [allowSettingsMode, chatOnly],
+    [chatOnly],
   );
   useEffect(() => {
-    const nextMode = normalizeAgentPanelModeForSurface(
-      mode,
-      allowSettingsMode,
-      chatOnly,
-    );
+    const nextMode = normalizeAgentPanelModeForSurface(mode, chatOnly);
     if (nextMode !== mode) switchMode(nextMode);
-  }, [mode, allowSettingsMode, chatOnly, switchMode]);
+  }, [mode, chatOnly, switchMode]);
   const openRunThread = useCallback(
     (threadId: string, run?: AgentRun) => {
       switchMode("chat");
@@ -1105,32 +1066,29 @@ function AgentPanelInner({
   // Listen for mode changes from the frame parent (via AgentSidebar)
   useEffect(() => {
     function handler(e: Event) {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.mode) switchMode(detail.mode);
+      const requestedMode = (e as CustomEvent<{ mode?: unknown }>).detail?.mode;
+      if (
+        requestedMode === "chat" ||
+        requestedMode === "cli" ||
+        requestedMode === "resources"
+      ) {
+        switchMode(requestedMode);
+      }
     }
     window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
     return () =>
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
   }, [switchMode]);
 
-  // Open settings tab when requested (replaces the old popover open event)
+  // Open the canonical settings page when requested.
   useEffect(() => {
     function handleOpenSettings(event: Event) {
       const section = (event as CustomEvent<{ section?: string }>).detail
         ?.section;
-      setSettingsSection((prev) => ({
-        section: section ?? null,
-        requestKey: prev.requestKey + 1,
-      }));
-      if (!allowSettingsMode) {
-        void navigate({
-          pathname: "/settings",
-          hash: settingsRouteHashForSection(section),
-        });
-        switchMode("chat");
-        return;
-      }
-      switchMode("settings");
+      void navigate({
+        pathname: "/settings",
+        hash: settingsRouteHashForSection(section),
+      });
     }
     window.addEventListener(
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
@@ -1141,7 +1099,7 @@ function AgentPanelInner({
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [allowSettingsMode, navigate, switchMode]);
+  }, [navigate]);
 
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -1217,7 +1175,7 @@ function AgentPanelInner({
 
   const availableClis = useAvailableClis();
   const [selectedCli, selectCli] = useCliSelection(keyPrefix);
-  const { isDevMode, canToggle, setDevMode } = useDevMode(apiUrl);
+  const { isDevMode } = useDevMode(apiUrl);
   const effectiveAgentChatSurface = resolveAgentPanelChatSurface(
     assistantChatProps.agentChatSurface,
     isDesktopCodeSurfaceRequested(),
@@ -1272,14 +1230,6 @@ function AgentPanelInner({
       }
     }
   }, [isDevMode]);
-
-  const isLocalhost =
-    mounted &&
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1" ||
-      window.location.hostname === "::1");
-  const showDevToggle = canToggle && isLocalhost && isCodeEditingChatSurface;
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
@@ -1525,8 +1475,7 @@ function AgentPanelInner({
             <button
               className={cn(
                 "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                (headerMenuOpen || mode === "settings") &&
-                  "bg-accent text-foreground",
+                headerMenuOpen && "bg-accent text-foreground",
               )}
               aria-label={t("agentPanel.panelOptions")}
             >
@@ -1675,17 +1624,6 @@ function AgentPanelInner({
               </>
             )}
             {mode === "chat" && <ThinkingDisplayMenuItem />}
-            {allowSettingsMode && (
-              <DropdownMenuItem
-                onSelect={() => switchMode("settings")}
-                className={cn(
-                  mode === "settings" ? "font-medium" : "text-muted-foreground",
-                )}
-              >
-                <IconSettings size={14} className="shrink-0" />
-                {t("agentPanel.settings")}
-              </DropdownMenuItem>
-            )}
             {feedbackEnabled ? (
               <DropdownMenuItem
                 onSelect={(event) =>
@@ -1777,7 +1715,6 @@ function AgentPanelInner({
     [
       activeCliTab,
       addCliTab,
-      allowSettingsMode,
       availableClis,
       canUseCodeTools,
       closeHeaderMenuForOverlay,
@@ -2297,7 +2234,7 @@ function AgentPanelInner({
               `margin-left:auto;margin-right:auto;width:100%;}`,
           }}
         />
-        {/* Framework onboarding — appears above the chat/cli/settings tabs
+        {/* Framework onboarding — appears above the chat, CLI, and resources tabs
           so it's visible regardless of which tab the user is on. The panel
           hides itself once all required steps are done or the user dismisses
           it. */}
@@ -2442,30 +2379,6 @@ function AgentPanelInner({
               }
             >
               <ResourcesPanel />
-            </Suspense>
-          </div>
-        )}
-
-        {/* Settings / Setup view */}
-        {mode === "settings" && (
-          <div className="flex flex-col flex-1 min-h-0">
-            <Suspense
-              fallback={
-                <div className="p-3 space-y-2">
-                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                  <div className="h-10 w-full rounded-lg bg-muted animate-pulse" />
-                </div>
-              }
-            >
-              <SettingsPanel
-                isDevMode={isDevMode}
-                onToggleDevMode={() => setDevMode(!isDevMode)}
-                showDevToggle={showDevToggle}
-                devAppUrl={devAppUrl}
-                initialSection={settingsSection.section}
-                sectionRequestKey={settingsSection.requestKey}
-              />
             </Suspense>
           </div>
         )}
@@ -3032,13 +2945,6 @@ export function shouldDefaultAgentChatSurfacePageNewChatButton(
   return mode === "page";
 }
 
-export function shouldAllowAgentChatSurfaceSettingsMode(
-  mode: AgentChatSurfaceMode | undefined,
-  allowSettingsMode: boolean | undefined,
-): boolean {
-  return allowSettingsMode ?? mode !== "page";
-}
-
 /**
  * Reusable chat surface backed by AgentPanel internals.
  *
@@ -3069,10 +2975,6 @@ export function AgentChatSurface({
       showHeader={showHeader}
       showTabBar={showTabBar}
       isFullscreen={isFullscreen ?? pageMode}
-      allowSettingsMode={shouldAllowAgentChatSurfaceSettingsMode(
-        mode,
-        props.allowSettingsMode,
-      )}
       showPageNewChatButton={
         showPageNewChatButton ?? defaultShowPageNewChatButton
       }
@@ -3196,7 +3098,7 @@ export interface AgentSidebarProps {
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
-  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  /** Optional link shown in Resources mode for the full Agent page. */
   agentPageHref?: string;
   /** Suppress first-run onboarding while a deep-linked resource is open. */
   suppressFirstRunOnboarding?: boolean;
@@ -4084,7 +3986,6 @@ export function AgentSidebar({
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             thinkingDisplay={thinkingDisplay}
-            allowSettingsMode={false}
             chatOnly
           />
         </div>
