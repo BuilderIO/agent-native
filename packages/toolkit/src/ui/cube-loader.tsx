@@ -1,4 +1,4 @@
-import type { Ref } from "react";
+import { useCallback, type Ref } from "react";
 
 import { cn } from "../utils.js";
 
@@ -42,11 +42,15 @@ export function CubeLoader({
   const hasExplicitSize =
     size !== undefined || width !== undefined || height !== undefined;
   const ariaLabel = props["aria-label"] ?? (hasRole ? undefined : "Loading");
+  const setRefs = useCallback(
+    (svg: SVGSVGElement | null) => setCubeAnimationPhase(svg, ref),
+    [ref],
+  );
 
   return (
     <svg
       {...props}
-      ref={(svg) => setCubeAnimationPhase(svg, ref)}
+      ref={setRefs}
       role={hasRole ? props.role : "status"}
       aria-label={ariaLabel}
       width={width ?? size ?? 24}

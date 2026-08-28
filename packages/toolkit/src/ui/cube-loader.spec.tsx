@@ -1,30 +1,52 @@
-import { createElement, type ReactElement } from "react";
+// @vitest-environment happy-dom
+
+import { act } from "react";
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CubeLoader } from "./cube-loader.js";
 
 describe("CubeLoader", () => {
-  it("honors explicit sizing and decorative semantics", () => {
-    const loader = CubeLoader({
-      "aria-label": undefined,
-      role: undefined,
-      size: 10,
-    }) as ReactElement<Record<string, unknown>>;
+  let container: HTMLDivElement;
+  let root: Root;
 
-    expect(loader.props.width).toBe(10);
-    expect(loader.props.height).toBe(10);
-    expect(loader.props.className).not.toContain("size-4");
-    expect(loader.props.role).toBeUndefined();
-    expect(loader.props["aria-label"]).toBeUndefined();
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("honors explicit sizing and decorative semantics", () => {
+    const loader = renderToStaticMarkup(
+      createElement(CubeLoader, {
+        "aria-label": undefined,
+        role: undefined,
+        size: 10,
+      }),
+    );
+
+    expect(loader).toContain('width="10"');
+    expect(loader).toContain('height="10"');
+    expect(loader).not.toContain('class="size-4"');
+    expect(loader).not.toContain("role=");
+    expect(loader).not.toContain("aria-label=");
   });
 
   it("adds accessible defaults when role semantics are omitted", () => {
-    const loader = CubeLoader({}) as ReactElement<Record<string, unknown>>;
+    const loader = renderToStaticMarkup(createElement(CubeLoader));
 
-    expect(loader.props.role).toBe("status");
-    expect(loader.props["aria-label"]).toBe("Loading");
-    expect(loader.props.className).toContain("size-4");
+    expect(loader).toContain('role="status"');
+    expect(loader).toContain('aria-label="Loading"');
+    expect(loader).toContain('class="size-4"');
   });
 
   it("anchors its cells to the page timeline when mounted again", () => {
@@ -33,15 +55,19 @@ describe("CubeLoader", () => {
     );
   });
 
-  it("preserves a caller ref while anchoring its phase", () => {
+  it("preserves a caller ref without reattaching on rerenders", () => {
     const callerRef = vi.fn();
-    const loader = CubeLoader({ ref: callerRef }) as ReactElement<{
-      ref: (svg: SVGSVGElement | null) => void;
-    }>;
-    const svg = {} as SVGSVGElement;
 
-    loader.props.ref(svg);
+    act(() => {
+      root.render(<CubeLoader ref={callerRef} data-testid="first-render" />);
+    });
+    expect(callerRef).toHaveBeenCalledTimes(1);
+    expect(callerRef).toHaveBeenLastCalledWith(expect.any(SVGSVGElement));
 
-    expect(callerRef).toHaveBeenCalledWith(svg);
+    act(() => {
+      root.render(<CubeLoader ref={callerRef} data-testid="second-render" />);
+    });
+
+    expect(callerRef).toHaveBeenCalledTimes(1);
   });
 });
