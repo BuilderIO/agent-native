@@ -3684,6 +3684,7 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
         return { error: "Local development sign-in is unavailable" };
       }
       setFrameworkSessionCookie(event, session.token);
+      setFirstRunOnboardingCookie(event);
       await addSession(session.token, session.email);
       return authLoginResponse(event, session.token, session.email);
     } catch {
@@ -3776,6 +3777,7 @@ async function maybeAutoCreateDevSession(
     if (!result?.token) return null;
 
     setFrameworkSessionCookie(event, result.token);
+    setFirstRunOnboardingCookie(event);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
     // Emit the session cookie ON the 302 itself. Returning a bare
@@ -4038,6 +4040,7 @@ function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
 function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     httpOnly: false,
     path: "/",
     maxAge: FIRST_RUN_ONBOARDING_MAX_AGE,
@@ -4047,6 +4050,7 @@ function setFirstRunOnboardingCookie(event: H3Event): void {
 function clearFirstRunOnboardingCookie(event: H3Event): void {
   deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     path: "/",
   });
 }
