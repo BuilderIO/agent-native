@@ -1,3 +1,9 @@
+## 0.17.0
+
+### Minor Changes
+
+- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
+
 ## 0.16.7
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.7.16
+
+### Patch Changes
+
+- 1f8e13c: Route managed Google OAuth through the provider-aware root callback on standalone apps.
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.15
 
 ### Patch Changes
