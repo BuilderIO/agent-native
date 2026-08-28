@@ -95,6 +95,8 @@ describe("event guest note links", () => {
         htmlLink: "https://calendar.google.com/event/sample",
         attendees: [{ email: "guest@example.com" }],
         organizer: { email: "dana@example.com", displayName: "Dana Hill" },
+        createdAt: "2026-05-21T18:00:00.000Z",
+        updatedAt: "2026-05-21T18:00:00.000Z",
       },
       organizerEmail: "dana@example.com",
       message: "Moving this an hour later.",
