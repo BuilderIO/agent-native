@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { resolveConnectorSecret } from "../server/connectors/credentials.js";
@@ -350,7 +350,7 @@ export default defineAction({
         }
       }
       if (itemId && !recoveredApproval && !previouslyFinalized) {
-        await getDb()
+        const uncorrelatedClaim = await getDb()
           .update(triageDecisions)
           .set({
             outcome: "needs_manual",
@@ -368,14 +368,22 @@ export default defineAction({
               eq(triageDecisions.factoryId, factoryId),
               eq(triageDecisions.outcome, "auto_approval_claimed"),
             ),
-          );
-        await getDb()
-          .update(triageItems)
-          .set({
-            status: "reconciliation_required",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+          )
+          .returning({ id: triageDecisions.id });
+        if (uncorrelatedClaim[0]) {
+          await getDb()
+            .update(triageItems)
+            .set({
+              status: "reconciliation_required",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(
+              and(
+                orgFactoryScopedItemWhere(itemId, orgId, factoryId),
+                ne(triageItems.status, "auto_approved"),
+              ),
+            );
+        }
       }
       return {
         ok: true,
@@ -600,12 +608,18 @@ export default defineAction({
                 : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
           );
         } catch (error) {
-          if (error instanceof GitHubRequestError && !error.requestAttempted) {
+          if (
+            error instanceof GitHubRequestError &&
+            (!error.requestAttempted ||
+              (error.status !== null &&
+                error.status >= 400 &&
+                error.status < 500))
+          ) {
             await getDb()
               .update(triageDecisions)
               .set({
                 outcome: "needs_manual",
-                reason: `GitHub approval request was not attempted: ${error.message}`,
+                reason: `GitHub rejected the approval request definitively: ${error.message}`,
               })
               .where(
                 and(

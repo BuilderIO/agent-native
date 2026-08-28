@@ -83,6 +83,7 @@ export class GitHubRequestError extends Error {
   constructor(
     message: string,
     readonly requestAttempted: boolean,
+    readonly status: number | null = null,
   ) {
     super(message);
     this.name = "GitHubRequestError";
@@ -228,6 +229,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
         throw new GitHubRequestError(
           `GitHub API request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
           true,
+          response.status,
         );
       }
       if (response.status === 204 && options.allowEmpty) return undefined as T;

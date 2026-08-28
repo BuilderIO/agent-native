@@ -420,22 +420,24 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
 
 const SAFETY_FINDING_PATTERN =
   /\b(auth|authentication|credential|secret|permission|tenant|isolation|security|execution|sandbox|payment|billing|deployment|ssrf|rce|injection|vulnerability|exploit|unsafe|bypass|data loss)\b/i;
+const NON_FINDING_PATTERN =
+  /\b(no|not|without|resolved|fixed|safe|secure|good|clear|clean|none|zero|mitigated|false positive)\b/i;
 
 export function hasActiveCredibleSafetyFinding(
   reviews: readonly { state: string; body?: string | null }[],
   comments: readonly { body: string; isResolved?: boolean }[],
 ): boolean {
+  const isFinding = (body: string) =>
+    SAFETY_FINDING_PATTERN.test(body) && !NON_FINDING_PATTERN.test(body);
   return (
     reviews.some(
       (review) =>
         review.state === "commented" &&
         typeof review.body === "string" &&
-        SAFETY_FINDING_PATTERN.test(review.body),
+        isFinding(review.body),
     ) ||
     comments.some(
-      (comment) =>
-        comment.isResolved !== true &&
-        SAFETY_FINDING_PATTERN.test(comment.body),
+      (comment) => comment.isResolved !== true && isFinding(comment.body),
     )
   );
 }

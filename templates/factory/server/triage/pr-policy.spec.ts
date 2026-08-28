@@ -131,6 +131,12 @@ describe("pull-request governance", () => {
       isUltraScaryChange(["templates/factory/server/triage/pr-policy.ts"]),
     ).toBe(true);
     expect(
+      hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "No security issues found." }],
+        [],
+      ),
+    ).toBe(false);
+    expect(
       isUltraScaryChange(["templates/factory/server/triage/github-client.ts"]),
     ).toBe(true);
     expect(
