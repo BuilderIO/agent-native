@@ -486,14 +486,6 @@ export default function DeckEditor() {
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
   const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
-  useEffect(() => {
-    const handleToggleLayers = () => {
-      if (canEdit) toggleLayers();
-    };
-    window.addEventListener("slides:toggle-layers", handleToggleLayers);
-    return () =>
-      window.removeEventListener("slides:toggle-layers", handleToggleLayers);
-  }, [canEdit, toggleLayers]);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,

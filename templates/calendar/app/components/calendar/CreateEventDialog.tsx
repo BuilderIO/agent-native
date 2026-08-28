@@ -1150,6 +1150,37 @@ export function CreateEventPopover({
                     </SelectContent>
                   </Select>
                 </div>
+                {eventType === "default" && (
+                  <div className="flex items-center justify-between gap-3 py-1">
+                    <Label
+                      htmlFor="event-availability"
+                      className="text-sm text-muted-foreground"
+                    >
+                      {t("eventForm.showAs")}
+                    </Label>
+                    <Select
+                      value={availability}
+                      onValueChange={(value) =>
+                        setAvailability(value as Availability)
+                      }
+                    >
+                      <SelectTrigger
+                        id="event-availability"
+                        className="h-8 w-28 text-sm"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="opaque">
+                          {t("eventForm.busy")}
+                        </SelectItem>
+                        <SelectItem value="transparent">
+                          {t("eventForm.free")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 {videoProvider === "zoom" && !zoomStatus.data?.connected && (
                   <div className="ml-7 rounded-md border border-border/60 bg-muted/20 p-2">
                     <div className="flex items-center justify-between gap-2">
@@ -1483,75 +1514,37 @@ export function CreateEventPopover({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-availability" className="text-xs">
-                        {t("eventForm.showAs")}
-                      </Label>
-                      <Select
-                        value={
-                          eventType === "workingLocation"
-                            ? "transparent"
-                            : eventType === "default"
-                              ? availability
-                              : "opaque"
-                        }
-                        onValueChange={(value) =>
-                          setAvailability(value as Availability)
-                        }
-                        disabled={eventType !== "default"}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="event-visibility" className="text-xs">
+                      {t("eventForm.visibility")}
+                    </Label>
+                    <Select
+                      value={
+                        eventType === "workingLocation" ? "public" : visibility
+                      }
+                      onValueChange={(value) =>
+                        setVisibility(value as Visibility)
+                      }
+                      disabled={eventType === "workingLocation"}
+                    >
+                      <SelectTrigger
+                        id="event-visibility"
+                        className="h-8 text-sm"
                       >
-                        <SelectTrigger
-                          id="event-availability"
-                          className="h-8 text-sm"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="opaque">
-                            {t("eventForm.busy")}
-                          </SelectItem>
-                          <SelectItem value="transparent">
-                            {t("eventForm.free")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="event-visibility" className="text-xs">
-                        {t("eventForm.visibility")}
-                      </Label>
-                      <Select
-                        value={
-                          eventType === "workingLocation"
-                            ? "public"
-                            : visibility
-                        }
-                        onValueChange={(value) =>
-                          setVisibility(value as Visibility)
-                        }
-                        disabled={eventType === "workingLocation"}
-                      >
-                        <SelectTrigger
-                          id="event-visibility"
-                          className="h-8 text-sm"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="default">
-                            {t("eventForm.default")}
-                          </SelectItem>
-                          <SelectItem value="public">
-                            {t("eventForm.public")}
-                          </SelectItem>
-                          <SelectItem value="private">
-                            {t("eventForm.private")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">
+                          {t("eventForm.default")}
+                        </SelectItem>
+                        <SelectItem value="public">
+                          {t("eventForm.public")}
+                        </SelectItem>
+                        <SelectItem value="private">
+                          {t("eventForm.private")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-1.5">
