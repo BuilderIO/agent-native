@@ -242,15 +242,15 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-const MARKDOWN_IMAGE_PATTERN =
-  /!\[((?:\\.|[^\\\]])*)\]\(\s*(<[^>]+>|(?:\\.|[^)\s])+)(?:\s+("[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
 const HTML_IMAGE_START_PATTERN = /<img\b/gi;
 
 interface ImageSourceToken {
+  alt?: string;
   end: number;
   kind: "html" | "markdown";
   source: string;
   start: number;
+  title?: string;
 }
 
 function decodeMarkdownImageDestination(rawSource: string): string {
@@ -260,6 +260,277 @@ function decodeMarkdownImageDestination(rawSource: string): string {
   const decoded = parseFragment(`<span>${destination}</span>`).body
     .firstElementChild?.textContent;
   return (decoded ?? destination).replace(/\\([\\()])/g, "$1");
+}
+
+function isMarkdownCharacterEscaped(content: string, index: number): boolean {
+  let backslashes = 0;
+  for (
+    let cursor = index - 1;
+    cursor >= 0 && content[cursor] === "\\";
+    cursor -= 1
+  ) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+function findClosingMarkdownBracket(
+  content: string,
+  openIndex: number,
+): number {
+  let depth = 0;
+  for (let index = openIndex; index < content.length; index += 1) {
+    if (content[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (content[index] === "[") {
+      depth += 1;
+    } else if (content[index] === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function skipMarkdownWhitespace(content: string, start: number): number {
+  let index = start;
+  while (index < content.length && /\s/.test(content[index] ?? "")) {
+    index += 1;
+  }
+  return index;
+}
+
+interface MarkdownDestination {
+  end: number;
+  rawSource: string;
+}
+
+function parseMarkdownDestination(
+  content: string,
+  start: number,
+  endsAtClosingParenthesis: boolean,
+): MarkdownDestination | null {
+  if (content[start] === "<") {
+    for (let index = start + 1; index < content.length; index += 1) {
+      if (content[index] === "\\") {
+        index += 1;
+      } else if (content[index] === ">") {
+        return {
+          end: index + 1,
+          rawSource: content.slice(start, index + 1),
+        };
+      } else if (/\s/.test(content[index] ?? "")) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  let depth = 0;
+  let end = start;
+  for (; end < content.length; end += 1) {
+    const character = content[end];
+    if (character === "\\") {
+      end += 1;
+      continue;
+    }
+    if (/\s/.test(character ?? "")) break;
+    if (character === "(") {
+      depth += 1;
+    } else if (character === ")") {
+      if (depth === 0 && endsAtClosingParenthesis) break;
+      if (depth > 0) depth -= 1;
+    }
+  }
+
+  return end > start ? { end, rawSource: content.slice(start, end) } : null;
+}
+
+function parseMarkdownTitle(
+  content: string,
+  start: number,
+): { end: number; value: string } | null {
+  const opener = content[start];
+  if (opener === '"' || opener === "'") {
+    for (let index = start + 1; index < content.length; index += 1) {
+      if (content[index] === "\\") {
+        index += 1;
+      } else if (content[index] === opener) {
+        return {
+          end: index + 1,
+          value: content.slice(start + 1, index),
+        };
+      }
+    }
+    return null;
+  }
+
+  if (opener !== "(") return null;
+  let depth = 0;
+  for (let index = start; index < content.length; index += 1) {
+    if (content[index] === "\\") {
+      index += 1;
+    } else if (content[index] === "(") {
+      depth += 1;
+    } else if (content[index] === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return {
+          end: index + 1,
+          value: content.slice(start + 1, index),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeMarkdownReferenceLabel(value: string): string {
+  return value
+    .replace(/\\([\\[\]])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+interface MarkdownReferenceDefinition {
+  source: string;
+  title?: string;
+}
+
+function markdownReferenceDefinitions(
+  content: string,
+): Map<string, MarkdownReferenceDefinition> {
+  const definitions = new Map<string, MarkdownReferenceDefinition>();
+  let lineStart = 0;
+
+  while (lineStart < content.length) {
+    const newline = content.indexOf("\n", lineStart);
+    const lineEnd = newline === -1 ? content.length : newline;
+    const line = content.slice(lineStart, lineEnd).replace(/\r$/, "");
+    let cursor = 0;
+    while (cursor < 3 && line[cursor] === " ") cursor += 1;
+
+    const labelStart = cursor;
+    if (line[cursor] === "[") {
+      const labelEnd = findClosingMarkdownBracket(line, cursor);
+      if (labelEnd !== -1 && line[labelEnd + 1] === ":") {
+        cursor = skipMarkdownWhitespace(line, labelEnd + 2);
+        const destination = parseMarkdownDestination(line, cursor, false);
+        if (destination) {
+          cursor = skipMarkdownWhitespace(line, destination.end);
+          const parsedTitle = parseMarkdownTitle(line, cursor);
+          if (parsedTitle) {
+            cursor = skipMarkdownWhitespace(line, parsedTitle.end);
+          }
+          if (cursor === line.length) {
+            const label = normalizeMarkdownReferenceLabel(
+              line.slice(labelStart + 1, labelEnd),
+            );
+            if (label && !definitions.has(label)) {
+              definitions.set(label, {
+                source: decodeMarkdownImageDestination(destination.rawSource),
+                ...(parsedTitle ? { title: parsedTitle.value } : {}),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (newline === -1) break;
+    lineStart = newline + 1;
+  }
+
+  return definitions;
+}
+
+function markdownReferenceImageToken(
+  content: string,
+  start: number,
+  alt: string,
+  afterAlt: number,
+  definitions: Map<string, MarkdownReferenceDefinition>,
+): ImageSourceToken | null {
+  let label = alt;
+  let end = afterAlt;
+  if (content[afterAlt] === "[") {
+    const labelEnd = findClosingMarkdownBracket(content, afterAlt);
+    if (labelEnd === -1) return null;
+    label = content.slice(afterAlt + 1, labelEnd) || alt;
+    end = labelEnd + 1;
+  }
+
+  const definition = definitions.get(normalizeMarkdownReferenceLabel(label));
+  if (!definition) return null;
+  return {
+    alt,
+    end,
+    kind: "markdown",
+    source: definition.source,
+    start,
+    ...(definition.title ? { title: definition.title } : {}),
+  };
+}
+
+function markdownImageTokenAt(
+  content: string,
+  start: number,
+  definitions: Map<string, MarkdownReferenceDefinition>,
+): ImageSourceToken | null {
+  const altEnd = findClosingMarkdownBracket(content, start + 1);
+  if (altEnd === -1) return null;
+  const alt = content.slice(start + 2, altEnd);
+  const afterAlt = altEnd + 1;
+
+  if (content[afterAlt] === "(") {
+    const destination = parseMarkdownDestination(content, afterAlt + 1, true);
+    if (!destination) return null;
+    let cursor = skipMarkdownWhitespace(content, destination.end);
+    const parsedTitle = parseMarkdownTitle(content, cursor);
+    if (parsedTitle) {
+      cursor = skipMarkdownWhitespace(content, parsedTitle.end);
+    }
+    if (content[cursor] !== ")") return null;
+    return {
+      alt,
+      end: cursor + 1,
+      kind: "markdown",
+      source: decodeMarkdownImageDestination(destination.rawSource),
+      start,
+      ...(parsedTitle ? { title: parsedTitle.value } : {}),
+    };
+  }
+
+  return markdownReferenceImageToken(
+    content,
+    start,
+    alt,
+    afterAlt,
+    definitions,
+  );
+}
+
+function markdownImageSourceTokens(content: string): ImageSourceToken[] {
+  const definitions = markdownReferenceDefinitions(content);
+  const tokens: ImageSourceToken[] = [];
+  for (let start = 0; start < content.length - 1; start += 1) {
+    if (
+      content[start] !== "!" ||
+      content[start + 1] !== "[" ||
+      isMarkdownCharacterEscaped(content, start)
+    ) {
+      continue;
+    }
+    const token = markdownImageTokenAt(content, start, definitions);
+    if (token) {
+      tokens.push(token);
+      start = token.end - 1;
+    }
+  }
+  return tokens;
 }
 
 function htmlImageSourceTokens(content: string): ImageSourceToken[] {
@@ -299,17 +570,10 @@ function htmlImageSourceTokens(content: string): ImageSourceToken[] {
 }
 
 function imageSourceTokens(content: string): ImageSourceToken[] {
-  const tokens = htmlImageSourceTokens(content);
-  for (const match of content.matchAll(MARKDOWN_IMAGE_PATTERN)) {
-    const rawSource = match[2] as string;
-    const start = match.index ?? 0;
-    tokens.push({
-      end: start + match[0].length,
-      kind: "markdown",
-      source: decodeMarkdownImageDestination(rawSource),
-      start,
-    });
-  }
+  const tokens = [
+    ...htmlImageSourceTokens(content),
+    ...markdownImageSourceTokens(content),
+  ];
   return tokens.sort((a, b) => a.start - b.start);
 }
 
@@ -337,37 +601,16 @@ function markdownImageStyleDeclarations(updates: ImageStyleUpdates): string {
 
 function updateMarkdownImageAt(
   content: string,
-  src: string,
+  token: ImageSourceToken,
   updates: ImageStyleUpdates,
-  tokenStart: number,
 ): string {
-  let updated = false;
-  const nextContent = content.replace(
-    MARKDOWN_IMAGE_PATTERN,
-    (
-      match,
-      alt: string,
-      rawSrc: string,
-      rawTitle: string | undefined,
-      offset: number,
-    ) => {
-      if (
-        offset !== tokenStart ||
-        decodeMarkdownImageDestination(rawSrc) !== src
-      ) {
-        return match;
-      }
-
-      const markdownSrc = decodeMarkdownImageDestination(rawSrc);
-      const style = markdownImageStyleDeclarations(updates);
-      const title = rawTitle
-        ? ` title="${escapeHtmlAttribute(rawTitle.slice(1, -1))}"`
-        : "";
-      updated = true;
-      return `<img data-markdown-image="true" src="${escapeHtmlAttribute(markdownSrc)}" alt="${escapeHtmlAttribute(alt)}"${title} style="${style};">`;
-    },
-  );
-  return updated ? nextContent : content;
+  if (token.alt === undefined) return content;
+  const style = markdownImageStyleDeclarations(updates);
+  const title = token.title
+    ? ` title="${escapeHtmlAttribute(token.title)}"`
+    : "";
+  const replacement = `<img data-markdown-image="true" src="${escapeHtmlAttribute(token.source)}" alt="${escapeHtmlAttribute(token.alt)}"${title} style="${style};">`;
+  return content.slice(0, token.start) + replacement + content.slice(token.end);
 }
 
 function updateHtmlImageAt(
@@ -396,7 +639,7 @@ export function updateImageFitInSlideHtml(
     if (matchingImage++ !== Math.max(0, imageOccurrence)) continue;
     return token.kind === "html"
       ? updateHtmlImageAt(content, token, updates)
-      : updateMarkdownImageAt(content, src, updates, token.start);
+      : updateMarkdownImageAt(content, token, updates);
   }
   return content;
 }

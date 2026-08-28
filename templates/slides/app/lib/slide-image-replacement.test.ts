@@ -155,6 +155,38 @@ describe("slide image replacement", () => {
     expect(escapedImage?.getAttribute("src")).toBe(escapedSrc);
   });
 
+  it("matches Markdown destinations with balanced parentheses", () => {
+    const src = "https://cdn.example.com/chart_(final).png";
+    const img = firstImage(
+      updateImageFitInSlideHtml(`![Chart](${src})`, src, {
+        objectFit: "cover",
+        objectPosition: "right bottom",
+      }),
+    );
+
+    expect(img?.getAttribute("src")).toBe(src);
+    expect(img?.style.objectFit).toBe("cover");
+    expect(img?.style.objectPosition).toBe("right bottom");
+  });
+
+  it.each([
+    ["full reference", "![Chart][revenue]"],
+    ["collapsed reference", "![revenue][]"],
+    ["shortcut reference", "![revenue]"],
+  ])("matches %s Markdown images", (_label, imageMarkdown) => {
+    const src = "https://cdn.example.com/chart.png";
+    const img = firstImage(
+      updateImageFitInSlideHtml(`${imageMarkdown}\n\n[revenue]: ${src}`, src, {
+        objectFit: "cover",
+        objectPosition: "left top",
+      }),
+    );
+
+    expect(img?.getAttribute("src")).toBe(src);
+    expect(img?.style.objectFit).toBe("cover");
+    expect(img?.style.objectPosition).toBe("left top");
+  });
+
   it("matches Markdown images with escaped brackets in their alt text", () => {
     const src = "https://cdn.example.com/chart.png";
     const img = firstImage(
