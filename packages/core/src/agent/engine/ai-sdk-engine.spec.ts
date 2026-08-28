@@ -583,6 +583,24 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(engine.preserveCustomModels).toBe(true);
   });
 
+  it("passes arbitrary OpenRouter model ids through runtime execution", async () => {
+    const { streamText } = mockAiSdk();
+    const provider = vi.fn().mockReturnValue({ id: "openrouter-model" });
+    const createOpenRouter = vi.fn().mockReturnValue(provider);
+    vi.doMock("@openrouter/ai-sdk-provider", () => ({ createOpenRouter }));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const { normalizeModelForEngine } = await import("./registry.js");
+    const engine = createAISDKEngine("openrouter", { apiKey: "sk-or-test" });
+    const model = normalizeModelForEngine(engine, "z-ai/glm-5.3-flash");
+
+    await drain(engine.stream({ ...BASE_STREAM_OPTIONS, model }));
+
+    expect(engine.preserveCustomModels).toBe(true);
+    expect(provider).toHaveBeenCalledWith("z-ai/glm-5.3-flash");
+    expect(streamText).toHaveBeenCalled();
+  });
+
   // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
   // rejects `reasoning_effort` together with function tools on the legacy
   // Chat Completions surface — "Function tools with reasoning_effort are not
