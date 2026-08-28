@@ -9,6 +9,9 @@ type Workflow = Record<string, unknown>;
 const workflow = parse(
   readFileSync(".github/workflows/release-everything.yml", "utf8"),
 ) as Workflow;
+const autoPublishWorkflow = parse(
+  readFileSync(".github/workflows/auto-publish.yml", "utf8"),
+) as Workflow;
 const desktopWorkflow = parse(
   readFileSync(".github/workflows/desktop-release.yml", "utf8"),
 ) as Workflow;
@@ -130,6 +133,18 @@ describe("release everything workflow", () => {
     assert.match(source, /Promise\.allSettled/);
   });
 
+  it("isolates stable auto-publish lanes from nightly pushes", () => {
+    const group = String((autoPublishWorkflow.concurrency as Workflow).group);
+    assert.match(group, /github\.event_name == 'workflow_dispatch'/);
+    assert.match(group, /stable-preparation/);
+    assert.match(group, /stable-publication/);
+    assert.match(group, /stable-release/);
+
+    const source = String((coordinator.with as Workflow).script);
+    assert.match(source, /run\.event === "workflow_dispatch"/);
+    assert.match(source, /candidate\.event === run\.event/);
+  });
+
   it("survives auto-publish pending-run replacement", () => {
     const source = String((coordinator.with as Workflow).script);
 
@@ -152,7 +167,7 @@ describe("release everything workflow", () => {
     assert.match(source, /wasSupersededPendingRun/);
     assert.match(source, /retryIfSupersededPending/);
     assert.match(source, /candidate\.id !== run\.id/);
-    assert.match(source, /candidate\.event === "push"/);
+    assert.match(source, /candidate\.event === run\.event/);
     assert.match(source, /candidateCreatedAt >= runCreatedAt/);
     assert.match(source, /candidateCreatedAt <= runUpdatedAt/);
     assert.match(source, /Number\.isFinite\(runCreatedAt\)/);
