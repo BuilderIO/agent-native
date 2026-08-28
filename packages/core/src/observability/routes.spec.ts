@@ -10,6 +10,8 @@ const mockTrack = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) =>
     Object.fromEntries(event.url?.searchParams?.entries?.() ?? []),
@@ -66,6 +68,7 @@ function createEvent(path: string, method = "GET") {
     method,
     url: new URL(`http://app.test${path}`),
     context: {},
+    headers: {},
     _status: 200,
   };
 }
@@ -81,7 +84,7 @@ describe("observability routes", () => {
     mockGetObservabilityOverview.mockResolvedValue({ runs: 0 });
     mockGetTraceSummaries.mockResolvedValue([]);
     mockGetTraceSummary.mockResolvedValue(null);
-    mockInsertFeedback.mockResolvedValue(undefined);
+    mockInsertFeedback.mockResolvedValue(true);
   });
 
   it("handles HEAD like GET for read endpoints", async () => {
@@ -228,12 +231,15 @@ describe("observability routes", () => {
     });
     const handler = createObservabilityHandler() as any;
 
-    await handler(createEvent("/feedback", "POST"));
+    const event = createEvent("/feedback", "POST");
+    event.headers["idempotency-key"] = "feedback-key-1";
+    await handler(event);
 
     expect(mockInsertFeedback).toHaveBeenCalledWith(
       expect.objectContaining({
         feedbackType: "text",
         value: "the answer cited the wrong doc",
+        idempotencyKey: "feedback-key-1",
         userId: "alice@example.com",
       }),
     );
@@ -244,6 +250,27 @@ describe("observability routes", () => {
     // The first-party event stays content-free; the text itself is persisted
     // and, when a survey is configured, sent as the survey response.
     expect(JSON.stringify(properties)).not.toContain("wrong doc");
+  });
+
+  it("skips analytics for a duplicate idempotent delivery", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-1",
+      runId: "run-1",
+      feedbackType: "text",
+      value: "the answer cited the wrong doc",
+    });
+    mockInsertFeedback.mockResolvedValue(false);
+    const event = createEvent("/feedback", "POST");
+    event.headers["idempotency-key"] = "feedback-key-1";
+
+    await expect((createObservabilityHandler() as any)(event)).resolves.toEqual(
+      { id: expect.any(String) },
+    );
+
+    expect(mockInsertFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: "feedback-key-1" }),
+    );
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 
   it("passes a feedback type filter through to the SQL-backed list", async () => {
