@@ -1561,16 +1561,16 @@ export default function Index() {
       {loading ? (
         <>
           <div className="mb-4 flex items-center justify-end">
-            <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+            <div className="skeleton-shimmer h-3 w-16 rounded bg-muted" />
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="overflow-hidden rounded-xl bg-card">
-                  <div className="aspect-video animate-pulse bg-muted/50" />
+                  <div className="skeleton-shimmer aspect-video bg-muted/50" />
                   <div className="space-y-2 p-4">
-                    <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-                    <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+                    <div className="skeleton-shimmer h-4 w-3/4 rounded bg-muted" />
+                    <div className="skeleton-shimmer h-3 w-1/2 rounded bg-muted" />
                   </div>
                 </div>
               ))}
