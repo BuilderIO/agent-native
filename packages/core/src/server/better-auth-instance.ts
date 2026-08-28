@@ -59,6 +59,7 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -68,6 +69,7 @@ import {
   getRuntimeConfigReport,
 } from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
+import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -995,11 +997,42 @@ export interface BetterAuthInternalAdapter {
       id: string;
       email: string;
       name?: string;
+      image?: string | null;
       emailVerified?: boolean;
       onboardingRole?: string | null;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
+  listUsers?: (
+    limit?: number,
+    offset?: number,
+    sortBy?: { field: string; direction: "asc" | "desc" },
+    where?: Array<{
+      field: string;
+      value: string | number | boolean | string[] | number[] | Date | null;
+      operator?:
+        | "eq"
+        | "ne"
+        | "lt"
+        | "lte"
+        | "gt"
+        | "gte"
+        | "in"
+        | "not_in"
+        | "contains"
+        | "starts_with"
+        | "ends_with";
+      connector?: "AND" | "OR";
+      mode?: "sensitive" | "insensitive";
+    }>,
+  ) => Promise<
+    Array<{
+      id: string;
+      email: string;
+      name?: string;
+      image?: string | null;
+    }>
+  >;
   linkAccount: (account: {
     userId: string;
     providerId: string;
@@ -1008,14 +1041,23 @@ export interface BetterAuthInternalAdapter {
   createUser: (user: {
     email: string;
     name: string;
+    image?: string | null;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
+    override?: { expiresAt?: Date },
+    overrideAll?: boolean,
   ) => Promise<{ token: string }>;
+  deleteSession: (token: string) => Promise<void>;
   createOAuthUser?: (
-    user: { email: string; name: string; emailVerified?: boolean },
+    user: {
+      email: string;
+      name: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
     account: { providerId: string; accountId: string },
   ) => Promise<{ user: { id: string }; account: unknown }>;
   findAccountByProviderId: (
@@ -1169,6 +1211,7 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
       typeof ia.createSession === "function" &&
+      typeof ia.deleteSession === "function" &&
       typeof ia.findAccountByProviderId === "function"
     ) {
       return {
@@ -1182,10 +1225,129 @@ export async function getBetterAuthInternalAdapter(
   return undefined;
 }
 
+/**
+ * Run a password action with a Better Auth session for the framework's legacy
+ * session boundary, deleting a session created only for this operation.
+ */
+type BetterAuthActionSessionOverrides = {
+  auth?: BetterAuthInstance;
+  createSession?: typeof createBetterAuthSessionForEmail;
+  adapter?: BetterAuthInternalAdapter;
+};
+
+const BRIDGED_SESSION_TTL_MS = 60_000;
+const BRIDGED_SESSION_CLEANUP_TIMEOUT_MS = 5_000;
+// ponytail: the short TTL bounds cleanup leaks; add a durable retry queue if failures need stronger guarantees.
+
+export async function withBetterAuthActionSession<T>(
+  email: string,
+  requestHeaders: Headers,
+  action: (headers: Headers) => Promise<T>,
+  overrides?: BetterAuthActionSessionOverrides,
+): Promise<T> {
+  const auth = overrides?.auth ?? (await getBetterAuth());
+  const existingSession = await auth.api.getSession({
+    headers: requestHeaders,
+  });
+  if (existingSession) {
+    if (
+      existingSession.user.email.trim().toLowerCase() !==
+      email.trim().toLowerCase()
+    ) {
+      throw new Error("Authenticated user mismatch.");
+    }
+    return action(new Headers(requestHeaders));
+  }
+
+  const createSession =
+    overrides?.createSession ?? createBetterAuthSessionForEmail;
+  const session = await createSession(email, undefined, {
+    expiresAt: new Date(Date.now() + BRIDGED_SESSION_TTL_MS),
+  });
+  if (!session) throw new Error("Better Auth session is unavailable.");
+
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    const headers = new Headers(requestHeaders);
+    const authContext = await (
+      auth as unknown as {
+        $context: Promise<{
+          authCookies: {
+            sessionToken: { name: string };
+            sessionData?: { name: string };
+            dontRememberToken: { name: string };
+          };
+          secret: string;
+        }>;
+      }
+    ).$context;
+    const signCookieValue = (value: string) =>
+      crypto
+        .createHmac("sha256", authContext.secret)
+        .update(value)
+        .digest("base64");
+    const sessionCookieName = authContext.authCookies.sessionToken.name;
+    const sessionDataCookieName = authContext.authCookies.sessionData?.name;
+    const dontRememberTokenCookieName =
+      authContext.authCookies.dontRememberToken.name;
+    const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signCookieValue(session.token)}`)}`;
+    const dontRememberTokenCookie = `${dontRememberTokenCookieName}=${encodeURIComponent(`true.${signCookieValue("true")}`)}`;
+    const existingCookies = (headers.get("cookie") ?? "")
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName !== sessionCookieName &&
+          cookieName !== dontRememberTokenCookieName &&
+          (!sessionDataCookieName ||
+            (cookieName !== sessionDataCookieName &&
+              !cookieName.startsWith(`${sessionDataCookieName}.`)))
+        );
+      })
+      .filter(Boolean);
+    headers.set(
+      "cookie",
+      [...existingCookies, sessionCookie, dontRememberTokenCookie].join("; "),
+    );
+    outcome = { ok: true, value: await action(headers) };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+
+  try {
+    const adapter =
+      overrides?.adapter ?? (await getBetterAuthInternalAdapter());
+    if (!adapter)
+      throw new Error("Better Auth session cleanup is unavailable.");
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        adapter.deleteSession(session.token),
+        new Promise<never>((_, reject) => {
+          cleanupTimer = setTimeout(() => {
+            reject(new Error("Better Auth session cleanup timed out."));
+          }, BRIDGED_SESSION_CLEANUP_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+    }
+  } catch (error) {
+    console.error(
+      "[auth] failed to delete temporary Better Auth session",
+      error,
+    );
+  }
+
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
+}
+
 /** Create a real Better Auth session for an existing user without credentials. */
 export async function createBetterAuthSessionForEmail(
   email: string,
   config?: BetterAuthConfig,
+  options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
@@ -1193,7 +1355,9 @@ export async function createBetterAuthSessionForEmail(
     includeAccounts: false,
   });
   if (!existing) return null;
-  const session = await adapter.createSession(existing.user.id);
+  const session = options
+    ? await adapter.createSession(existing.user.id, true, options, true)
+    : await adapter.createSession(existing.user.id);
   return {
     email: existing.user.email,
     token: session.token,
@@ -1205,6 +1369,42 @@ export interface GoogleAuthIdentity {
   email: string;
   accountId: string;
   name?: string;
+  image?: string;
+}
+
+function googleProfileImage(identity: GoogleAuthIdentity): string | undefined {
+  return isGoogleProfileImageUrl(identity.image)
+    ? identity.image.trim()
+    : undefined;
+}
+
+async function syncGoogleProfile(
+  adapter: BetterAuthInternalAdapter,
+  existing: NonNullable<
+    Awaited<ReturnType<BetterAuthInternalAdapter["findUserByEmail"]>>
+  >,
+  email: string,
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  if (!adapter.updateUser) return;
+
+  const name = identity.name?.trim();
+  const image = googleProfileImage(identity);
+  const updates: {
+    name?: string;
+    image?: string;
+  } = {};
+  if (
+    name &&
+    isEmailDerivedName(existing.user.name, email) &&
+    existing.user.name?.trim() !== name
+  ) {
+    updates.name = name;
+  }
+  if (image && existing.user.image !== image) updates.image = image;
+  if (Object.keys(updates).length > 0) {
+    await adapter.updateUser(existing.user.id, updates);
+  }
 }
 
 /**
@@ -1247,6 +1447,13 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   };
 
   const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const image = googleProfileImage(identity);
+  const user = {
+    email,
+    name,
+    emailVerified: true,
+    ...(image ? { image } : {}),
+  };
   const findExisting = () =>
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
@@ -1259,16 +1466,17 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
+    await syncGoogleProfile(adapter, existing, email, identity);
     return false;
   }
 
   if (!existing) {
     if (adapter.createOAuthUser) {
       try {
-        await adapter.createOAuthUser(
-          { email, name, emailVerified: true },
-          { providerId: "google", accountId },
-        );
+        await adapter.createOAuthUser(user, {
+          providerId: "google",
+          accountId,
+        });
         return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
@@ -1288,15 +1496,12 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
+          await syncGoogleProfile(adapter, existing, email, identity);
           return false;
         }
       }
     } else {
-      const created = await adapter.createUser({
-        email,
-        name,
-        emailVerified: true,
-      });
+      const created = await adapter.createUser(user);
       await adapter.linkAccount({
         userId: created.id,
         providerId: "google",
@@ -1314,7 +1519,10 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return false;
+  if (alreadyLinked) {
+    await syncGoogleProfile(adapter, existing, email, identity);
+    return false;
+  }
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1338,6 +1546,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
+    await syncGoogleProfile(adapter, existing, email, identity);
     await reconcilePendingInvitations();
     return false;
   }
@@ -1346,6 +1555,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     providerId: "google",
     accountId,
   });
+  await syncGoogleProfile(adapter, existing, email, identity);
   return false;
 }
 

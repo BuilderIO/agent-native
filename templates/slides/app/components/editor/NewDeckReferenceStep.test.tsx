@@ -283,20 +283,37 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Last used deck");
   });
 
-  it("lists files attached to the prompt so the upload is visibly kept", () => {
-    renderStep({
-      promptSummary: "Some prompt",
-      promptFiles: [
-        {
-          path: "uploads/article-setup.pdf",
-          originalName: "Article Setup Requirements.pdf",
-          filename: "article-setup.pdf",
-          type: "application/pdf",
-          size: 1024,
-        },
-      ],
+  it("keeps the reference step locked until selection handling finishes", async () => {
+    let resolveSelection!: () => void;
+    const selection = new Promise<void>((resolve) => {
+      resolveSelection = resolve;
+    });
+    renderStep({ onSelect: () => selection });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     });
 
-    expect(screen.getByText("Article Setup Requirements.pdf")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    await act(async () => {
+      resolveSelection();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "New presentation" }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("does not render an Attached section on the reference step", () => {
+    renderStep({ promptSummary: "Some prompt" });
+
+    expect(screen.queryByText("Attached")).toBeNull();
   });
 });
