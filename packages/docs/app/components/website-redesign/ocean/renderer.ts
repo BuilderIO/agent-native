@@ -38,7 +38,13 @@ import {
   type IfftStage,
   type SimulationTargetName,
 } from "./ocean-graph";
+import { createParticleBudget } from "./particle-budget";
 import particlesWgsl from "./particles.wgsl";
+import {
+  POINTER_POSITION_EASING,
+  POINTER_STRENGTH_EASING,
+  projectPointerToOcean,
+} from "./pointer";
 import presentWgsl from "./present.wgsl";
 import spectrumWgsl from "./spectrum.wgsl";
 import { gaussianCoefficients, OCEAN_TUNING } from "./tuning";
@@ -76,6 +82,19 @@ export function createRenderer({
   let rebuilding = false;
   let resizePending = false;
   let releaseErrorListener: (() => void) | undefined;
+  const budget = createParticleBudget();
+  let lastFrameAt = 0;
+  // Continuous, and always behind budget.level while a downgrade ramps in.
+  let liveLevel = 0;
+  // Normalized device coordinates, eased on the frame clock rather than on
+  // pointermove: the lag is the effect, and mouse events do not arrive on a
+  // steady cadence.
+  let pointerX = 0;
+  let pointerY = 0;
+  let pointerStrength = 0;
+  let targetPointerX = 0;
+  let targetPointerY = 0;
+  let targetPointerStrength = 0;
 
   // Distinct from `ready`, which only means initialize() returned -- the frame
   // loop is registered by then but has not run. Callers that reveal the canvas
@@ -138,6 +157,7 @@ export function createRenderer({
       output,
       `fft-ocean-resize-${generation}`,
       currentColors,
+      liveLevel,
     );
     if (disposed) return;
     if (generation !== resizeGeneration) {
@@ -153,6 +173,9 @@ export function createRenderer({
     const previous = graph;
     graph = next;
     destroyGraph(previous);
+    // The frame either side of a rebuild straddles the allocation, not the
+    // steady-state draw cost.
+    budget.discardNextInterval();
   };
 
   const scheduleResize = () => {
@@ -219,6 +242,18 @@ export function createRenderer({
       (currentFrame) => {
         if (disposed || paused || !graph || !output) return;
         try {
+          const now = performance.now();
+          if (lastFrameAt) budget.record(now - lastFrameAt);
+          lastFrameAt = now;
+          easeParticleLevel(graph);
+          easePointer();
+          setPointerUniform(
+            graph,
+            output.size,
+            pointerX,
+            pointerY,
+            pointerStrength,
+          );
           setDynamics(graph, time.time * OCEAN_TUNING.simulation.timeScale);
           renderGraph(currentFrame, graph, output);
           if (!drewOnce) {
@@ -249,6 +284,45 @@ export function createRenderer({
    */
   function setPaused(next: boolean): void {
     paused = next;
+    // The first interval after a resume spans the whole scrolled-out stretch,
+    // which is not a frame this GPU was too slow to draw.
+    if (!next) budget.discardNextInterval();
+  }
+
+  // Walks the live level toward whatever the budget has decided, a fraction of
+  // a level per frame. The ramp is the point: the shader fades out exactly the
+  // particles the next whole level stops drawing, so a slow crossing reads as
+  // the field quietly getting sparser rather than a quarter of it blinking out.
+  function easeParticleLevel(current: OceanGraph): void {
+    const target = budget.level;
+    if (liveLevel >= target) return;
+    liveLevel = Math.min(
+      target,
+      liveLevel + OCEAN_TUNING.adaptive.levelEasePerFrame,
+    );
+    setParticleLevel(current, liveLevel);
+  }
+
+  function easePointer(): void {
+    pointerX += (targetPointerX - pointerX) * POINTER_POSITION_EASING;
+    pointerY += (targetPointerY - pointerY) * POINTER_POSITION_EASING;
+    pointerStrength +=
+      (targetPointerStrength - pointerStrength) * POINTER_STRENGTH_EASING;
+    // Snap the tail to zero so an off-screen cursor stops writing a uniform
+    // whose effect has already fallen below a pixel.
+    if (targetPointerStrength === 0 && pointerStrength < 0.001) {
+      pointerStrength = 0;
+    }
+  }
+
+  /**
+   * Aims the cursor deformation, in normalized device coordinates. Strength 0 lets
+   * it decay away rather than cutting it, so leaving the hero eases out.
+   */
+  function setPointer(ndcX: number, ndcY: number, strength: number): void {
+    targetPointerX = ndcX;
+    targetPointerY = ndcY;
+    targetPointerStrength = strength;
   }
 
   function setColors(next: OceanColors): void {
@@ -257,7 +331,7 @@ export function createRenderer({
     if (graph) setPresentColors(graph, next);
   }
 
-  return { ready, firstFrame, dispose, setColors, setPaused };
+  return { ready, firstFrame, dispose, setColors, setPaused, setPointer };
 }
 
 export type OceanRenderer = ReturnType<typeof createRenderer>;
@@ -267,10 +341,11 @@ export async function createGraph(
   output: Output,
   label: string,
   colors: OceanColors = DEFAULT_OCEAN_COLORS,
+  level = 0,
 ): Promise<OceanGraph> {
   const ownedTargets: Target[] = [];
   try {
-    const graph = buildGraph(gpu, output, label, colors, (value) => {
+    const graph = buildGraph(gpu, output, label, colors, level, (value) => {
       ownedTargets.push(value);
       return value;
     });
@@ -291,6 +366,7 @@ function buildGraph(
   output: Output,
   label: string,
   colors: OceanColors,
+  level: number,
   own: (value: Target) => Target,
 ) {
   const resolution = OCEAN_RESOLUTION;
@@ -389,6 +465,8 @@ function buildGraph(
   const particles = draw(gpu, {
     shader: particlesWgsl,
     vertices: 6,
+    // Overridden per draw call from `particleInstances` below, which the frame
+    // loop lowers when this GPU cannot hold the frame budget.
     instances: resolution * resolution,
     blend: {
       color: { src: "src-alpha", dst: "one" },
@@ -399,7 +477,7 @@ function buildGraph(
     u_displacement: displacement,
     u_normalFoam: simulation.normalFoam,
   });
-  setParticleConstants(particles, output);
+  setParticleConstants(particles, output, level);
   const brightEffect = configuredEffect(
     gpu,
     bloomBrightWgsl,
@@ -480,8 +558,53 @@ function buildGraph(
     },
     ifft,
     particles,
+    particleLevel: level,
+    particleInstances: particleInstanceCount(level),
+    pointerActive: false,
     needsInitialSpectrum: true,
   };
+}
+
+/**
+ * Powers of two only, and floored. The shader ranks particles by trailing zeros
+ * in their texel index, which is exactly the set a power-of-two stride keeps, so
+ * the particles that faded out at level n are the ones dropped at level n+1. A
+ * stride of 3 would drop a different set than the fade emptied and pop.
+ */
+export function particleStride(level: number): number {
+  return 2 ** Math.max(0, Math.floor(level));
+}
+
+function particleInstanceCount(level: number): number {
+  const gridSize = Math.max(
+    1,
+    Math.floor(OCEAN_RESOLUTION / particleStride(level)),
+  );
+  return gridSize * gridSize;
+}
+
+function particleWorld(level: number) {
+  const tuning = OCEAN_TUNING;
+  return [
+    tuning.simulation.worldSize,
+    tuning.simulation.displacementScale,
+    // Constant across every level. Scaling it up to keep the painted area
+    // constant is what makes a downgrade visible as chunkier water.
+    tuning.particles.pointSize,
+    particleStride(level),
+  ] as const;
+}
+
+/** Retunes the particle density in place. Allocates nothing. */
+export function setParticleLevel(graph: OceanGraph, level: number): void {
+  graph.particleLevel = level;
+  graph.particleInstances = particleInstanceCount(level);
+  graph.particles.set({
+    u: {
+      world: particleWorld(level),
+      density: [level, OCEAN_TUNING.adaptive.maxLevel, 0, 0],
+    },
+  });
 }
 
 export type OceanGraph = ReturnType<typeof buildGraph>;
@@ -559,13 +682,41 @@ export function setPresentColors(graph: OceanGraph, colors: OceanColors): void {
   graph.effects.present.set({ uniforms: presentUniforms(colors) });
 }
 
+/**
+ * Retunes the cursor deformation in place. Writes nothing once it has decayed
+ * and the shader is already ignoring it, so an untouched hero pays no uniform
+ * traffic for a feature nobody is using.
+ */
+function setPointerUniform(
+  graph: OceanGraph,
+  size: readonly [number, number],
+  ndcX: number,
+  ndcY: number,
+  strength: number,
+): void {
+  const world =
+    strength > 0 ? projectPointerToOcean(ndcX, ndcY, size) : undefined;
+  if (!world) {
+    if (!graph.pointerActive) return;
+    graph.pointerActive = false;
+    graph.particles.set({ u: { pointer: [0, 0, 0, 0] } });
+    return;
+  }
+  graph.pointerActive = true;
+  graph.particles.set({ u: { pointer: [world[0], world[1], strength, 0] } });
+}
+
 function setDynamics(graph: OceanGraph, timeSeconds: number): void {
   graph.effects.evolveSpectrum.set({
     u: { time: timeSeconds * OCEAN_TUNING.simulation.spectrumTimeScale },
   });
 }
 
-function setParticleConstants(particles: Draw, output: Output): void {
+function setParticleConstants(
+  particles: Draw,
+  output: Output,
+  level: number,
+): void {
   const camera = oceanCamera(output.size);
   const tuning = OCEAN_TUNING;
   particles.set({
@@ -573,18 +724,21 @@ function setParticleConstants(particles: Draw, output: Output): void {
       view: camera.view,
       projection: camera.projection,
       viewport: [output.size[0], output.size[1], 1, OCEAN_RESOLUTION],
-      world: [
-        tuning.simulation.worldSize,
-        tuning.simulation.displacementScale,
-        tuning.particles.pointSize,
-        0,
-      ],
+      world: particleWorld(level),
       fade: [
         tuning.particles.fadeNear,
         tuning.particles.fadeFar,
         tuning.particles.fadePower,
         0,
       ],
+      pointer: [0, 0, 0, 0],
+      pointerShape: [
+        tuning.particles.pointerRadius,
+        tuning.particles.pointerPush,
+        tuning.particles.pointerDepth,
+        tuning.particles.pointerRim,
+      ],
+      density: [level, tuning.adaptive.maxLevel, 0, 0],
       oceanColor: tuning.particles.oceanColor,
       neonColor: tuning.particles.neonColor,
       foamColor: tuning.particles.foamColor,
@@ -607,9 +761,12 @@ export function renderGraph(
   graph: OceanGraph,
   output: Output,
 ): void {
-  const pass = (target: Output, drawable: Draw | Effect) =>
+  const pass = (target: Output, drawable: Draw | Effect, instances?: number) =>
     currentFrame.pass({ target, clear: TRANSPARENT }, (encoder) =>
-      encoder.draw(drawable),
+      encoder.draw(
+        drawable,
+        instances === undefined ? undefined : { instances },
+      ),
     );
   if (graph.needsInitialSpectrum) {
     pass(graph.simulation.noise, graph.effects.noise);
@@ -621,7 +778,7 @@ export function renderGraph(
     pass(stage.output, stage.effect);
   }
   pass(graph.simulation.normalFoam, graph.effects.normals);
-  pass(graph.scene, graph.particles);
+  pass(graph.scene, graph.particles, graph.particleInstances);
   pass(graph.bloom.bright, graph.effects.bright);
   for (const level of graph.bloom.levels) {
     pass(level.horizontal, level.horizontalEffect);

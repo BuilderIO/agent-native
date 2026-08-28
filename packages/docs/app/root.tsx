@@ -7,12 +7,7 @@ import {
 import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-} from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import {
   Links,
   Meta,
@@ -449,9 +444,8 @@ export default function Root() {
   // each time. Suspense added two of those swaps (fallback in its old position,
   // then in the boundary's) before the real subtree. Resolving the chunk first
   // and swapping once leaves one.
-  const [AgentSidebar, setAgentSidebar] = useState<AgentSidebarComponent | null>(
-    null,
-  );
+  const [AgentSidebar, setAgentSidebar] =
+    useState<AgentSidebarComponent | null>(null);
   const mounted = AgentSidebar !== null;
   const pendingHydrationScrollTopRef = useRef<number | null>(null);
 

@@ -3,8 +3,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { HeroBackground } from "./hero-background";
-
 const { oceanMount, shaderMount } = vi.hoisted(() => ({
   oceanMount: vi.fn(),
   shaderMount: vi.fn(),
@@ -18,11 +16,31 @@ vi.mock("./hero-shader-background", () => ({
 }));
 
 vi.mock("./ocean/hero-ocean-background", () => ({
-  HeroOceanBackground: (props: { onError: (error: unknown) => void }) => {
+  HeroOceanBackground: (props: {
+    onError: (error: unknown) => void;
+    introPlayed?: boolean;
+    onFirstFrame?: () => void;
+  }) => {
     oceanMount(props);
     return <div data-testid="ocean" />;
   },
 }));
+
+/**
+ * The probe result and the intro-played flag are deliberately module scope, so
+ * every test needs its own copy of the module or the first test's GPU decides
+ * the rest of the file.
+ */
+async function loadHero() {
+  vi.resetModules();
+  const { HeroBackground } = await import("./hero-background");
+  return HeroBackground;
+}
+
+async function renderHero() {
+  const HeroBackground = await loadHero();
+  return render(<HeroBackground />);
+}
 
 function stubReducedMotion(matches: boolean) {
   const listeners = new Set<() => void>();
@@ -73,13 +91,13 @@ afterEach(() => {
 describe("HeroBackground", () => {
   it("renders the ocean when an adapter is available", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    render(<HeroBackground />);
+    await renderHero();
     expect(await screen.findByTestId("ocean")).toBeDefined();
   });
 
   it("never flashes the halftone before the ocean", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    render(<HeroBackground />);
+    await renderHero();
 
     // The halftone is the fallback, not a placeholder. Painting it for the
     // few hundred ms before the ocean arrives reads as a different background
@@ -91,14 +109,14 @@ describe("HeroBackground", () => {
 
   it("renders the halftone fallback when WebGPU is absent", async () => {
     removeGpu();
-    render(<HeroBackground />);
+    await renderHero();
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
   it("treats a null adapter as unsupported rather than as a device", async () => {
     stubGpu(async () => null);
-    render(<HeroBackground />);
+    await renderHero();
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
@@ -107,14 +125,14 @@ describe("HeroBackground", () => {
     stubGpu(async () => {
       throw new Error("adapter exploded");
     });
-    render(<HeroBackground />);
+    await renderHero();
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
-  it("renders no background at all while the probe is in flight", () => {
+  it("renders no background at all while the probe is in flight", async () => {
     stubGpu(() => new Promise(() => {}));
-    render(<HeroBackground />);
+    await renderHero();
     expect(screen.queryByTestId("halftone")).toBeNull();
     expect(screen.queryByTestId("ocean")).toBeNull();
   });
@@ -123,7 +141,7 @@ describe("HeroBackground", () => {
     stubReducedMotion(true);
     const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
     stubGpu(requestAdapter);
-    render(<HeroBackground />);
+    await renderHero();
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
     expect(requestAdapter).not.toHaveBeenCalled();
   });
@@ -131,7 +149,7 @@ describe("HeroBackground", () => {
   it("demotes to the fallback when reduced motion turns on mid-session", async () => {
     const motion = stubReducedMotion(false);
     stubGpu(async () => ({ name: "adapter" }));
-    render(<HeroBackground />);
+    await renderHero();
     await screen.findByTestId("ocean");
 
     motion.fire(true);
@@ -140,11 +158,57 @@ describe("HeroBackground", () => {
 
   it("demotes to the fallback when the renderer fails after a good probe", async () => {
     stubGpu(async () => ({ name: "adapter" }));
-    render(<HeroBackground />);
+    await renderHero();
     await screen.findByTestId("ocean");
 
     const { onError } = oceanMount.mock.calls.at(-1)![0];
     onError(new Error("device lost"));
     await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
+  });
+
+  it("goes straight back to the ocean on a remount, with no probing gap", async () => {
+    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
+    stubGpu(requestAdapter);
+    const HeroBackground = await loadHero();
+
+    const first = render(<HeroBackground />);
+    await screen.findByTestId("ocean");
+    first.unmount();
+
+    // Present on the very first render of the second mount: going back through
+    // `probing` would render nothing, which reads as the hero blanking out.
+    render(<HeroBackground />);
+    expect(screen.queryByTestId("ocean")).not.toBeNull();
+    expect(requestAdapter).toHaveBeenCalledTimes(1);
+  });
+
+  it("retires the intro fade after the first drawn frame", async () => {
+    stubGpu(async () => ({ name: "adapter" }));
+    const HeroBackground = await loadHero();
+
+    const first = render(<HeroBackground />);
+    await screen.findByTestId("ocean");
+    expect(oceanMount.mock.calls.at(-1)![0].introPlayed).toBe(false);
+    oceanMount.mock.calls.at(-1)![0].onFirstFrame();
+    first.unmount();
+
+    render(<HeroBackground />);
+    expect(oceanMount.mock.calls.at(-1)![0].introPlayed).toBe(true);
+  });
+
+  it("does not demote a remount when the previous mount's GPU died", async () => {
+    stubGpu(async () => ({ name: "adapter" }));
+    const HeroBackground = await loadHero();
+
+    const first = render(<HeroBackground />);
+    await screen.findByTestId("ocean");
+    oceanMount.mock.calls.at(-1)![0].onError(new Error("device lost"));
+    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
+    first.unmount();
+
+    // The demotion is a fact about this device, so a remount must not retry it.
+    render(<HeroBackground />);
+    expect(screen.queryByTestId("halftone")).not.toBeNull();
+    expect(screen.queryByTestId("ocean")).toBeNull();
   });
 });

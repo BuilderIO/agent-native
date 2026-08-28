@@ -6,12 +6,6 @@
  * them separate makes a reframe a readable diff against the example rather
  * than a rewrite of it.
  */
-export interface AdaptiveLevel {
-  /** Draw every nth texel on each axis. 1 is the full 512x512 field. */
-  readonly stride: number;
-  readonly pointSizeScale: number;
-}
-
 export interface OceanTuning {
   readonly simulation: {
     readonly oceanSize: number;
@@ -30,6 +24,27 @@ export interface OceanTuning {
     readonly fadeNear: number;
     readonly fadeFar: number;
     readonly fadePower: number;
+    /**
+     * Gaussian sigma of the cursor's well, in world units. The deformation is
+     * effectively gone by about three times this, which is the point: a long
+     * falloff tail touches the whole field at once and reads as an overlay.
+     */
+    readonly pointerRadius: number;
+    /**
+     * Lateral parting, as a fraction of the distance from the cursor. Wave
+     * features here are about one world unit tall, so much above this smears
+     * the pattern sideways instead of displacing water.
+     */
+    readonly pointerPush: number;
+    /**
+     * World-space depth of the well under the cursor. Sized against the wave
+     * amplitude the crest shading is calibrated for -- particles.wgsl ramps
+     * `crest` over a height of -0.5 to 1.5 -- so far above that reads as a
+     * crater rather than a dent.
+     */
+    readonly pointerDepth: number;
+    /** Height of the ring thrown up around the well, relative to its depth. */
+    readonly pointerRim: number;
     readonly oceanColor: readonly [number, number, number, number];
     readonly neonColor: readonly [number, number, number, number];
     readonly foamColor: readonly [number, number, number, number];
@@ -37,16 +52,20 @@ export interface OceanTuning {
   /**
    * How the field thins out on a GPU that cannot hold the frame budget. The
    * simulation is never touched: OCEAN_RESOLUTION is pinned to 2^9 by the IFFT
-   * stage table, so only the draw thins, by sampling every nth texel.
+   * stage table, so only the draw thins.
+   *
+   * The level is continuous, and each whole level quarters the particle count by
+   * doubling the draw stride. Particles fade out over the level below the one
+   * that drops them, so by the time the instance count actually falls the
+   * particles it removes are already fully transparent. Point size never
+   * changes -- growing the survivors to hold the painted area constant is
+   * exactly the "it got chunkier" tell this avoids.
    */
   readonly adaptive: {
-    /**
-     * Stepped through in order and never back up: settling on a thinner field
-     * beats oscillating between two densities on the viewer's screen.
-     * pointSizeScale holds painted area roughly constant, since the count falls
-     * as the square of the stride and the area grows as the square of the scale.
-     */
-    readonly levels: readonly AdaptiveLevel[];
+    /** Whole levels available. 2 means stride 1, 2, 4: 262k, 65k, 16k particles. */
+    readonly maxLevel: number;
+    /** Level movement per frame. The ramp is meant to be too slow to notice. */
+    readonly levelEasePerFrame: number;
     /** The deliberate 30fps draw cap, as a frame interval. */
     readonly frameBudgetMs: number;
     /** How far past the budget the median has to sit before stepping down. */
@@ -105,6 +124,14 @@ const UPSTREAM_TUNING: OceanTuning = {
     fadeNear: 60,
     fadeFar: 250,
     fadePower: 3.2,
+    // Ours, not upstream's: the example has no pointer interaction at all.
+    // Sized so the rim clears the wave band the crest shading ramps over and
+    // the wall of the well is steep enough for the tilted normals to show:
+    // ~3.3 world units of relief across 22, against ~1-unit waves.
+    pointerRadius: 22,
+    pointerPush: 0.05,
+    pointerDepth: 2.5,
+    pointerRim: 1.5,
     oceanColor: [
       0.003035269835488375, 0.003035269835488375, 0.003035269835488375, 0,
     ],
@@ -112,14 +139,9 @@ const UPSTREAM_TUNING: OceanTuning = {
     foamColor: [1, 1, 1, 0],
   },
   adaptive: {
-    // 262k -> 65k -> 29k -> 16k particles. Stride 4 is the floor: thinner than
-    // that and the field stops reading as water and starts reading as a grid.
-    levels: [
-      { stride: 1, pointSizeScale: 1 },
-      { stride: 2, pointSizeScale: 2 },
-      { stride: 3, pointSizeScale: 3 },
-      { stride: 4, pointSizeScale: 4 },
-    ],
+    maxLevel: 2,
+    // ~1.4s per level at the 30fps cap.
+    levelEasePerFrame: 1 / 42,
     frameBudgetMs: 1000 / 30,
     overshootRatio: 1.25,
     sampleWindow: 30,
