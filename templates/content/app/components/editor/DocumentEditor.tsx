@@ -827,6 +827,7 @@ function DocumentEditorBody({
       sourceId: hydrationContext.sourceId,
       documentId,
       limit: 1,
+      retryFailed: hydration.status === "error",
     });
   }, [
     canEdit,

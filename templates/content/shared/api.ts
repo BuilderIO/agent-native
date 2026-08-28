@@ -1495,6 +1495,7 @@ export interface ProcessBuilderBodyHydrationRequest {
   sourceId: string;
   documentId?: string;
   limit?: number;
+  retryFailed?: boolean;
 }
 
 export interface ProcessBuilderBodyHydrationResponse {
@@ -1503,4 +1504,5 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
+  nextAttemptAt: string | null;
 }

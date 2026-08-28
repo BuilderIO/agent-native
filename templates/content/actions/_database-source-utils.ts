@@ -1539,6 +1539,8 @@ type BuilderBodyHydrationEnqueueRequest = {
   entry: BuilderCmsSourceEntry;
   now: string;
   priority?: number;
+  preserveItemEvidence?: boolean;
+  resetAttempts?: boolean;
 };
 
 async function enqueueBuilderBodyHydrations(
@@ -1619,14 +1621,19 @@ async function enqueueBuilderBodyHydrations(
           ? existing!.sourceEntryJson
           : requestEntryJson,
         priority: Math.min(existing?.priority ?? priority, priority),
-        attempts: sourceEntryChanged ? 0 : (existing?.attempts ?? 0),
-        lastAttemptedAt: sourceEntryChanged
-          ? null
-          : (existing?.lastAttemptedAt ?? null),
+        attempts:
+          request.resetAttempts || sourceEntryChanged
+            ? 0
+            : (existing?.attempts ?? 0),
+        lastAttemptedAt:
+          request.resetAttempts || sourceEntryChanged
+            ? null
+            : (existing?.lastAttemptedAt ?? null),
         lastError: null,
-        nextAttemptAt: sourceEntryChanged
-          ? null
-          : (existing?.nextAttemptAt ?? null),
+        nextAttemptAt:
+          request.resetAttempts || sourceEntryChanged
+            ? null
+            : (existing?.nextAttemptAt ?? null),
         createdAt: existing?.createdAt ?? request.now,
         updatedAt: request.now,
       });
@@ -1658,7 +1665,10 @@ async function enqueueBuilderBodyHydrations(
           .returning()),
       );
     }
-    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+    const pendingItemIds = uniqueRequests
+      .filter((request) => !request.preserveItemEvidence)
+      .map((request) => request.databaseItemId);
+    for (const idChunk of chunks(pendingItemIds, idChunkSize())) {
       await tx
         .update(schema.contentDatabaseItems)
         .set({
@@ -1670,6 +1680,85 @@ async function enqueueBuilderBodyHydrations(
     }
     return upsertedRows;
   });
+}
+
+async function reenqueueRetryableBuilderBodyHydration(args: {
+  sourceId: string;
+  documentId?: string | null;
+  now: string;
+}) {
+  const rows = await getDb()
+    .select({
+      source: schema.contentDatabaseSources,
+      item: schema.contentDatabaseItems,
+      sourceRow: schema.contentDatabaseSourceRows,
+      document: schema.documents,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
+      ),
+    )
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseSourceRows.databaseItemId,
+      ),
+    )
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseSourceRows.documentId),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+        args.documentId
+          ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
+          : undefined,
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        isNull(schema.contentDatabaseBodyHydrationQueue.id),
+      ),
+    );
+  await enqueueBuilderBodyHydrations(
+    rows.flatMap((row) => {
+      const entry = builderEntryFromSourceRow({
+        row: row.sourceRow,
+        sourceTable: row.source.sourceTable,
+        fallbackTitle: row.document.title,
+      });
+      if (!entry) return [];
+      return [
+        {
+          sourceId: args.sourceId,
+          ownerEmail: row.item.ownerEmail,
+          orgId: row.item.orgId,
+          databaseItemId: row.item.id,
+          documentId: row.item.documentId,
+          sourceTable: row.source.sourceTable,
+          entry,
+          now: args.now,
+          priority: args.documentId
+            ? BUILDER_BODY_HYDRATION_OPEN_PRIORITY
+            : BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY,
+          preserveItemEvidence: true,
+          resetAttempts: true,
+        },
+      ];
+    }),
+  );
 }
 
 export async function enqueueBuilderBodyHydrationForItems(args: {
@@ -2793,11 +2882,19 @@ export async function processBuilderBodyHydrationQueue(args: {
   limit?: number | null;
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
+  retryFailed?: boolean;
 }) {
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
   const now = new Date().toISOString();
-  if (args.documentId) {
+  if (args.retryFailed) {
+    await reenqueueRetryableBuilderBodyHydration({
+      sourceId: args.sourceId,
+      documentId: args.documentId,
+      now,
+    });
+  }
+  if (args.documentId && !args.retryFailed) {
     await enqueueStaleBuilderBodyHydrationForOpenDocument({
       sourceId: args.sourceId,
       documentId: args.documentId,
@@ -3176,7 +3273,12 @@ export async function processBuilderBodyHydrationQueue(args: {
     },
   );
   const [remaining] = await db
-    .select({ count: sql<number>`COUNT(*)` })
+    .select({
+      count: sql<number>`COUNT(*)`,
+      nextAttemptAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL THEN ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} END)`,
+    })
     .from(schema.contentDatabaseBodyHydrationQueue)
     .where(
       eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
@@ -3187,6 +3289,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
+    nextAttemptAt: remaining?.nextAttemptAt ?? null,
   };
 }
 

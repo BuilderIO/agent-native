@@ -5,6 +5,7 @@ import {
   builderBodyHydrationMutationMadeProgress,
   builderBodyHydrationPumpKey,
   builderBodyHydrationProgressKey,
+  builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "./builder-body-hydration-pump";
 
@@ -92,6 +93,7 @@ describe("Builder body hydration pump", () => {
         succeeded: 0,
         failed: 8,
         remaining: 6,
+        nextAttemptAt: null,
       }),
     ).toBe(false);
   });
@@ -104,6 +106,7 @@ describe("Builder body hydration pump", () => {
         succeeded: 1,
         failed: 7,
         remaining: 6,
+        nextAttemptAt: null,
       }),
     ).toBe(true);
     expect(
@@ -113,8 +116,27 @@ describe("Builder body hydration pump", () => {
         succeeded: 0,
         failed: 6,
         remaining: 0,
+        nextAttemptAt: null,
       }),
     ).toBe(true);
+  });
+
+  it("keeps a backoff batch alive until its durable next attempt", () => {
+    const result = {
+      sourceId: "builder-source",
+      processed: 1,
+      succeeded: 0,
+      failed: 1,
+      remaining: 1,
+      nextAttemptAt: "2026-08-28T18:00:30.000Z",
+    };
+    expect(builderBodyHydrationMutationMadeProgress(result)).toBe(true);
+    expect(
+      builderBodyHydrationRetryDelayMs(
+        result,
+        Date.parse("2026-08-28T18:00:00.000Z"),
+      ),
+    ).toBe(30_000);
   });
 
   it("stops when no queued or hydrating bodies remain", () => {

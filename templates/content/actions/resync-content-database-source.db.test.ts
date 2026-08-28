@@ -85,7 +85,8 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           model !== "collection-large-597" &&
           model !== "collection-canonical-hash-repair" &&
           model !== "collection-same-version-conflict" &&
-          model !== "collection-hydration-empty-terminal"
+          model !== "collection-hydration-empty-terminal" &&
+          model !== "collection-explicit-retry"
         ) {
           return null;
         }
@@ -5052,6 +5053,132 @@ it("hydrates a provider-confirmed empty Builder body with terminal evidence", as
   expect(after.error).toBeNull();
   expect(after.reason).toBe("empty_body");
   expect(after.providerStatus).toBe("http_200");
+  expect(after.attemptCount).toBe(1);
+  expect(after.retryable).toBe(0);
+  expect(after.queued).toBeNull();
+});
+
+it("explicitly retries a terminal retryable Builder hydration while preserving evidence until processing", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_explicit_retry";
+  const databaseDocId = "doc_db_explicit_retry";
+  const documentId = "doc_explicit_retry";
+  const itemId = "item_explicit_retry";
+  const sourceId = "src_explicit_retry";
+  const sourceRowId = "entry_explicit_retry";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB explicit retry",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Explicit retry",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB explicit retry",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-explicit-retry",
+    sourceTable: "collection-explicit-retry",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "error",
+    bodyHydrationError: "Builder request timed out.",
+    bodyHydrationReason: "transient_read_failure",
+    bodyHydrationProviderStatus: "network_error",
+    bodyHydrationAttemptCount: 5,
+    bodyHydrationRetryable: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_explicit_retry",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-explicit-retry/${sourceRowId}`,
+    sourceDisplayKey: "Explicit retry",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Explicit retry",
+      "data.url": "/blog/explicit-retry",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    }),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    documentId,
+    limit: 1,
+    retryFailed: true,
+  });
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      reason: schema.contentDatabaseItems.bodyHydrationReason,
+      attemptCount: schema.contentDatabaseItems.bodyHydrationAttemptCount,
+      retryable: schema.contentDatabaseItems.bodyHydrationRetryable,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+
+  expect(result).toMatchObject({
+    processed: 1,
+    succeeded: 1,
+    failed: 0,
+    remaining: 0,
+    nextAttemptAt: null,
+  });
+  expect(after.content).toContain("Live opened row body from Builder.");
+  expect(after.status).toBe("hydrated");
+  expect(after.error).toBeNull();
+  expect(after.reason).toBeNull();
   expect(after.attemptCount).toBe(1);
   expect(after.retryable).toBe(0);
   expect(after.queued).toBeNull();

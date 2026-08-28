@@ -231,6 +231,7 @@ import {
 import {
   builderBodyHydrationMutationMadeProgress,
   builderBodyHydrationPumpKey,
+  builderBodyHydrationRetryDelayMs,
   shouldPumpBuilderBodyHydration,
 } from "../builder-body-hydration-pump";
 import { BuilderBodySyncingNotice } from "../BuilderBodySyncingNotice";
@@ -1035,6 +1036,7 @@ function DatabaseTable({
   const builderContinuationFailureRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
+  const builderHydrationWakeTimersRef = useRef(new Map<string, number>());
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const builderReviewGenerationRef = useRef(0);
   const builderReviewSessionRef = useRef<BuilderReviewSession | null>(null);
@@ -1350,7 +1352,11 @@ function DatabaseTable({
         onSuccess?: (result: ProcessBuilderBodyHydrationResponse) => void;
         onError?: () => void;
       } = {},
-      request: { documentId?: string; limit?: number } = {},
+      request: {
+        documentId?: string;
+        limit?: number;
+        retryFailed?: boolean;
+      } = {},
     ) => {
       if (
         !acquireDatabaseSourceOperation(hydrationSourceInFlightRef, sourceId)
@@ -1368,14 +1374,25 @@ function DatabaseTable({
             },
             onError: options.onError,
             onSettled: () => {
-              if (
-                !request.documentId &&
-                result &&
-                builderBodyHydrationMutationMadeProgress(result) &&
-                result.remaining > 0
-              ) {
-                pump();
-                return;
+              if (!request.documentId && result && result.remaining > 0) {
+                const retryDelayMs = builderBodyHydrationRetryDelayMs(result);
+                if (retryDelayMs !== null) {
+                  const existingTimer =
+                    builderHydrationWakeTimersRef.current.get(sourceId);
+                  if (existingTimer !== undefined) {
+                    window.clearTimeout(existingTimer);
+                  }
+                  const timer = window.setTimeout(() => {
+                    builderHydrationWakeTimersRef.current.delete(sourceId);
+                    pump();
+                  }, retryDelayMs);
+                  builderHydrationWakeTimersRef.current.set(sourceId, timer);
+                  return;
+                }
+                if (builderBodyHydrationMutationMadeProgress(result)) {
+                  pump();
+                  return;
+                }
               }
               releaseDatabaseSourceOperation(
                 hydrationSourceInFlightRef,
@@ -1389,6 +1406,16 @@ function DatabaseTable({
       return true;
     },
     [processBuilderBodies.mutate],
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of builderHydrationWakeTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      builderHydrationWakeTimersRef.current.clear();
+    },
+    [],
   );
 
   useEffect(() => {
@@ -3199,7 +3226,9 @@ function DatabaseTable({
           const targetSourceId = sourceId ?? source?.id;
           if (targetSourceId) runSourceRefresh(targetSourceId);
         }}
-        onHydrateBuilderBodies={(sourceId) => runBuilderHydration(sourceId)}
+        onHydrateBuilderBodies={(sourceId) =>
+          runBuilderHydration(sourceId, {}, { retryFailed: true })
+        }
         onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
