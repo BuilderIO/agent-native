@@ -79,6 +79,16 @@ export interface GitHubComment {
   htmlUrl: string;
 }
 
+export class GitHubRequestError extends Error {
+  constructor(
+    message: string,
+    readonly requestAttempted: boolean,
+  ) {
+    super(message);
+    this.name = "GitHubRequestError";
+  }
+}
+
 interface JsonResponse {
   ok: boolean;
   status: number;
@@ -200,23 +210,35 @@ export function createGitHubClient(options: GitHubClientOptions) {
     init: RequestInit = {},
     options: { allowEmpty?: boolean } = {},
   ): Promise<T> {
-    const response = (await fetchImpl(`${baseUrl}${path}`, {
-      ...init,
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${await token()}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...Object.fromEntries(new Headers(init.headers).entries()),
-      },
-    })) as JsonResponse;
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 500);
-      throw new Error(
-        `GitHub API request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
+    let requestAttempted = false;
+    try {
+      const authorization = `Bearer ${await token()}`;
+      requestAttempted = true;
+      const response = (await fetchImpl(`${baseUrl}${path}`, {
+        ...init,
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: authorization,
+          "X-GitHub-Api-Version": "2022-11-28",
+          ...Object.fromEntries(new Headers(init.headers).entries()),
+        },
+      })) as JsonResponse;
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 500);
+        throw new GitHubRequestError(
+          `GitHub API request failed: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`,
+          true,
+        );
+      }
+      if (response.status === 204 && options.allowEmpty) return undefined as T;
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof GitHubRequestError) throw error;
+      throw new GitHubRequestError(
+        error instanceof Error ? error.message : "GitHub request failed",
+        requestAttempted,
       );
     }
-    if (response.status === 204 && options.allowEmpty) return undefined as T;
-    return (await response.json()) as T;
   }
 
   return {

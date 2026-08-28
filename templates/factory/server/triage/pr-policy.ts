@@ -230,48 +230,64 @@ export function hasCurrentPullRequestApproval(
     author: string;
     state: string;
     commitSha?: string | null;
+    htmlUrl?: string | null;
     observedAt: string;
   }[],
   headSha: string,
 ): boolean {
-  const latestByAuthor = new Map<
+  return currentPullRequestApproval(reviews, headSha) !== null;
+}
+
+export function currentPullRequestApproval(
+  reviews: readonly {
+    author: string;
+    state: string;
+    commitSha?: string | null;
+    htmlUrl?: string | null;
+    observedAt: string;
+  }[],
+  headSha: string,
+): { commitSha: string; htmlUrl?: string | null } | null {
+  const approvalByAuthor = new Map<
     string,
     {
-      state: string;
       commitSha?: string | null;
-      observedAt: string;
-      order: number;
+      htmlUrl?: string | null;
     }
   >();
-  reviews.forEach((review, order) => {
-    const author = review.author.trim().toLowerCase();
-    if (!author) return;
-    const previous = latestByAuthor.get(author);
-    if (
-      !previous ||
-      Date.parse(review.observedAt) > Date.parse(previous.observedAt) ||
-      (review.observedAt === previous.observedAt && order > previous.order)
-    ) {
-      latestByAuthor.set(author, {
-        state: review.state,
-        commitSha: review.commitSha,
-        observedAt: review.observedAt,
-        order,
-      });
-    }
-  });
-  if (
-    [...latestByAuthor.values()].some(
-      (review) => review.state === "approved" && !review.commitSha,
+  reviews
+    .map((review, order) => ({ review, order }))
+    .sort(
+      (left, right) =>
+        Date.parse(left.review.observedAt) -
+          Date.parse(right.review.observedAt) || left.order - right.order,
     )
-  ) {
+    .forEach(({ review }) => {
+      const author = review.author.trim().toLowerCase();
+      if (!author) return;
+      if (review.state === "approved") {
+        approvalByAuthor.set(author, {
+          commitSha: review.commitSha,
+          htmlUrl: review.htmlUrl,
+        });
+      } else if (
+        review.state === "changes_requested" ||
+        review.state === "pending" ||
+        review.state === "dismissed"
+      ) {
+        approvalByAuthor.delete(author);
+      }
+    });
+  if ([...approvalByAuthor.values()].some((review) => !review.commitSha)) {
     throw new Error(
       "Pull-request approval evidence is missing a commit SHA; reconciliation is required before approval.",
     );
   }
-  return [...latestByAuthor.values()].some(
-    (review) => review.state === "approved" && review.commitSha === headSha,
+  const approval = [...approvalByAuthor.values()].find(
+    (review): review is { commitSha: string; htmlUrl?: string | null } =>
+      review.commitSha === headSha,
   );
+  return approval ?? null;
 }
 
 export function hasCurrentBlockingPullRequestReview(

@@ -21,6 +21,7 @@ const reviewSchema: z.ZodType<PullRequestReviewObservation> = z.object({
   author: z.string().min(1),
   state: z.enum(["approved", "changes_requested", "commented", "pending"]),
   commitSha: z.string().max(128).nullable().optional(),
+  htmlUrl: z.string().url().nullable().optional(),
   observedAt: z.string().datetime(),
 });
 

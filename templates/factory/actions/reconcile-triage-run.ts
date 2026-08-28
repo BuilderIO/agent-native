@@ -33,6 +33,7 @@ const reviewSchema = z.object({
     "dismissed",
   ]),
   commitSha: z.string().max(128).nullable().optional(),
+  htmlUrl: z.string().url().nullable().optional(),
   observedAt: z.string().datetime(),
 });
 const checkSchema = z.object({

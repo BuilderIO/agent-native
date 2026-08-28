@@ -309,6 +309,25 @@ describe("pull-request governance", () => {
           },
           {
             author: "reviewer",
+            state: "commented",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T11:00:00Z",
+          },
+        ],
+        "head-1",
+      ),
+    ).toBe(true);
+    expect(
+      hasCurrentPullRequestApproval(
+        [
+          {
+            author: "reviewer",
+            state: "approved",
+            commitSha: "head-1",
+            observedAt: "2026-08-19T10:00:00Z",
+          },
+          {
+            author: "reviewer",
             state: "dismissed",
             commitSha: "head-1",
             observedAt: "2026-08-19T11:00:00Z",

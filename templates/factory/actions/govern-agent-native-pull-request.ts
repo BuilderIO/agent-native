@@ -25,7 +25,10 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { createAiServicesGitReadClient } from "../server/triage/ai-services-git.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
-import { createGitHubClient } from "../server/triage/github-client.js";
+import {
+  GitHubRequestError,
+  createGitHubClient,
+} from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
   parseTriageMetadata,
@@ -34,8 +37,8 @@ import {
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import {
   decidePullRequestGovernance,
+  currentPullRequestApproval,
   hasCurrentBlockingPullRequestReview,
-  hasCurrentPullRequestApproval,
 } from "../server/triage/pr-policy.js";
 
 function repositoryRef(value: string): { owner: string; repo: string } {
@@ -220,7 +223,11 @@ export default defineAction({
         `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
       );
     }
-    if (hasCurrentPullRequestApproval(snapshot.reviews, snapshot.headSha)) {
+    const currentApproval = currentPullRequestApproval(
+      snapshot.reviews,
+      snapshot.headSha,
+    );
+    if (currentApproval) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -237,6 +244,7 @@ export default defineAction({
         },
         factoryId,
       );
+      let recoveredApproval = false;
       if (itemId) {
         const decisionId = stableId(
           "pr-governance",
@@ -244,7 +252,7 @@ export default defineAction({
           itemId,
           snapshot.headSha,
         );
-        await getDb()
+        const recovered = await getDb()
           .update(triageDecisions)
           .set({ outcome: "auto_approve" })
           .where(
@@ -255,9 +263,38 @@ export default defineAction({
               eq(triageDecisions.factoryId, factoryId),
               eq(triageDecisions.outcome, "auto_approval_claimed"),
             ),
-          );
+          )
+          .returning({ id: triageDecisions.id });
+        if (recovered[0]) {
+          recoveredApproval = true;
+          const latestItem = (
+            await getDb()
+              .select({ metadataJson: triageItems.metadataJson })
+              .from(triageItems)
+              .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
+              .limit(1)
+          )[0];
+          if (!latestItem) {
+            throw new Error(
+              "Factory item disappeared during approval recovery.",
+            );
+          }
+          const metadata = parseTriageMetadata(latestItem.metadataJson);
+          metadata.autoApprovedAt = new Date().toISOString();
+          metadata.autoApprovalUrl =
+            currentApproval.htmlUrl ?? pullRequest.htmlUrl;
+          metadata.autoApprovalHeadSha = snapshot.headSha;
+          await getDb()
+            .update(triageItems)
+            .set({
+              metadataJson: serializeTriageMetadata(metadata),
+              status: "auto_approved",
+              updatedAt: new Date().toISOString(),
+            })
+            .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
+        }
       }
-      if (itemId) {
+      if (itemId && !recoveredApproval) {
         await getDb()
           .update(triageItems)
           .set({
@@ -466,15 +503,40 @@ export default defineAction({
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
-        const approval = await github.approvePullRequest(
-          repository,
-          pullRequestNumber,
-          governance.trustException
-            ? `Factory auto-approved under the verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
-            : governance.ownerException
-              ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
-              : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
-        );
+        let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
+        try {
+          approval = await github.approvePullRequest(
+            repository,
+            pullRequestNumber,
+            governance.trustException
+              ? `Factory auto-approved under the verified ${governance.trustException} trust exception; ordinary check and review states remain recorded.`
+              : governance.ownerException
+                ? `Factory auto-approved under the verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
+                : "Factory auto-approved under verified BuilderIO membership; ordinary check and review states remain recorded.",
+          );
+        } catch (error) {
+          if (error instanceof GitHubRequestError && !error.requestAttempted) {
+            await getDb()
+              .update(triageDecisions)
+              .set({
+                outcome: "needs_manual",
+                reason: `GitHub approval request was not attempted: ${error.message}`,
+              })
+              .where(
+                and(
+                  eq(
+                    triageDecisions.id,
+                    stableId("pr-governance", orgId, itemId, snapshot.headSha),
+                  ),
+                  eq(triageDecisions.itemId, itemId),
+                  eq(triageDecisions.orgId, orgId),
+                  eq(triageDecisions.factoryId, factoryId),
+                  eq(triageDecisions.outcome, "auto_approval_claimed"),
+                ),
+              );
+          }
+          throw error;
+        }
         approvalUrl = approval.htmlUrl;
         const latestItem = (
           await getDb()
