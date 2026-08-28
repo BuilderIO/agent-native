@@ -71,7 +71,7 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
-const SHIPPING_CHURN_RE = /\b(?:don['’]?t|do not|only|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|only|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
+const SHIPPING_CHURN_RE = /\b(?:don['’]?t|do not|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:origin\/)?main)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
 
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
@@ -82,6 +82,7 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not run ship:push on a clean or merely behind branch."],
   [false, "The build completed successfully."],
   [false, "The branch contains a useful chore commit."],
+  [false, "Only commit relevant changes."],
 ];
 
 if (process.argv.includes("--self-test")) {

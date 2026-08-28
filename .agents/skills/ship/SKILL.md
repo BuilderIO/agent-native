@@ -327,9 +327,10 @@ branch, stay on it.
 ## Important
 
 - **Multiple agents run concurrently.** There will often be locally changed
-  files you didn't generate. This is normal. Include those paths in the next
-  complete branch snapshot. Don't revert or overwrite other agents' work; fix
-  real bugs if CI or review feedback flags them.
+  files you didn't generate. This is normal. Include a path in a later branch
+  snapshot only when it belongs to the same actionable fix; otherwise preserve
+  it for its owner and report it. Don't revert or overwrite other agents' work;
+  fix real bugs if CI or review feedback flags them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.

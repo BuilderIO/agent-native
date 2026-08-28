@@ -73,9 +73,10 @@ can change within minutes, so re-check before every actionable push.
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. **Publish any intentional
-   actionable fix first (Step 0)**, after verifying the dirty paths all belong
-   to that fix; then prefer a **merge** over a rebase —
+2. If `CONFLICTING`: bring `main` in and resolve. First inspect the worktree;
+   do not run the merge until `git status --short` is empty. **Publish any
+   intentional actionable fix first (Step 0)**, after verifying the dirty paths
+   all belong to that fix; then prefer a **merge** over a rebase —
    `git fetch origin main && git merge --no-edit
    origin/main` — because this branch is shared with concurrent agents and a
    rebase would rewrite history and require a force-push that can clobber their
