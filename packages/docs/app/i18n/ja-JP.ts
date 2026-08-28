@@ -63,6 +63,7 @@ const jaJP = {
     dialogLabel: "ドキュメントを検索",
     placeholder: "ドキュメントを検索...",
     empty: "入力してすべてのドキュメントを検索",
+    toggleChatSidebar: "チャットサイドバーを切り替え",
     loadError: "検索を読み込めませんでした。もう一度お試しください。",
     retry: "もう一度試す",
     noResults: "「{{query}}」の結果はありません",
