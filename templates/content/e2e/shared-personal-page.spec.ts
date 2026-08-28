@@ -62,6 +62,22 @@ async function getAction(
   );
 }
 
+async function requestGetAction(
+  page: Page,
+  name: string,
+  data: Record<string, string>,
+): Promise<{ ok: boolean; status: number; result: ActionResult }> {
+  const response = await page.request.get(`/_agent-native/actions/${name}`, {
+    params: data,
+    headers: ACTION_HEADERS,
+  });
+  return {
+    ok: response.ok(),
+    status: response.status(),
+    result: (await response.json().catch(() => ({}))) as ActionResult,
+  };
+}
+
 async function getCollabState(page: Page, documentId: string) {
   const response = await page.request.get(
     `/_agent-native/collab/${documentId}/state`,
@@ -81,6 +97,11 @@ async function getStableCollabState(page: Page, documentId: string) {
     previous = current;
   }
   throw new Error("collaboration state did not settle");
+}
+
+async function crossFailureDurabilityBoundary(page: Page) {
+  await page.evaluate(() => globalThis.dispatchEvent(new Event("pagehide")));
+  await page.waitForTimeout(1_000);
 }
 
 async function registerRecipient(
@@ -136,6 +157,12 @@ test("an editor can read and edit one shared Personal page without gaining its p
     });
     const documentId = String(pageResult.id);
     createdIds.push(documentId);
+    const ownerDocument = await requestGetAction(owner, "get-document", {
+      id: documentId,
+    });
+    const privateContainerId = String(
+      ownerDocument.result.databaseMembership.databaseDocumentId,
+    );
     const siblingResult = await runAction(owner, "create-document", {
       title: `${marker} private sibling`,
       content: `${marker} private sibling body`,
@@ -178,6 +205,17 @@ test("an editor can read and edit one shared Personal page without gaining its p
           }),
         ]),
       );
+    const containerShares = await getAction(owner, "list-resource-shares", {
+      resourceType: "document",
+      resourceId: privateContainerId,
+    });
+    expect(containerShares.ok).toBe(true);
+    expect(
+      containerShares.result.shares.some(
+        (share: { principalId?: string }) =>
+          share.principalId === recipientEmail,
+      ),
+    ).toBe(false);
 
     await recipient.goto(`/page/${documentId}`, {
       waitUntil: "domcontentloaded",
@@ -202,6 +240,11 @@ test("an editor can read and edit one shared Personal page without gaining its p
     });
     expect(sharedRead.ok).toBe(true);
     expect(sharedRead.result.content).toContain(editedBody);
+    await recipient.reload({ waitUntil: "domcontentloaded" });
+    await expect(recipient.locator(".ProseMirror")).toContainText(marker);
+    await expect(recipient.locator(".ProseMirror")).toContainText(
+      "recipient edit",
+    );
     await owner.reload({ waitUntil: "domcontentloaded" });
     await expect(owner.locator(".ProseMirror")).toContainText(marker);
     await expect(owner.locator(".ProseMirror")).toContainText("recipient edit");
@@ -215,6 +258,11 @@ test("an editor can read and edit one shared Personal page without gaining its p
     });
     expect(siblingRead.ok).toBe(false);
     expect([403, 404]).toContain(siblingRead.status);
+    const containerRead = await getAction(recipient, "get-document", {
+      id: privateContainerId,
+    });
+    expect(containerRead.ok).toBe(false);
+    expect([403, 404]).toContain(containerRead.status);
 
     const recipientDocuments = await getAction(recipient, "list-documents", {});
     expect(recipientDocuments.ok).toBe(true);
@@ -223,6 +271,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
     );
     expect(visibleIds).toContain(documentId);
     expect(visibleIds).not.toContain(siblingId);
+    expect(visibleIds).not.toContain(privateContainerId);
 
     for (const status of [403, 404, 500]) {
       await test.step(`collaboration ${status} fails closed and recovers explicitly`, async () => {
@@ -247,6 +296,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
           "contenteditable",
           "false",
         );
+        await crossFailureDurabilityBoundary(recipient);
         const unchanged = await getAction(owner, "get-document", {
           id: documentId,
         });
@@ -287,6 +337,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
       "contenteditable",
       "false",
     );
+    await crossFailureDurabilityBoundary(recipient);
     const unchanged = await getAction(owner, "get-document", {
       id: documentId,
     });
@@ -326,6 +377,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
       await expect(
         recipient.locator('[data-block-fields-state="error"]'),
       ).toBeVisible();
+      await crossFailureDurabilityBoundary(recipient);
       propertyFailureActive = false;
       await recipient.getByRole("button", { name: "Retry" }).click();
       await expect(
