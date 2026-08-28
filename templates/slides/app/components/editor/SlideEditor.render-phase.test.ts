@@ -69,4 +69,27 @@ describe("SlideEditor render-phase safety", () => {
       "const block = findSmartBlock(target, slideContent);",
     );
   });
+
+  it("records arrange selection before replacing the live slide DOM", () => {
+    const start = source.indexOf("const handleArrangeSelected");
+    const end = source.indexOf("const handleToggleList", start);
+    const arrangeBody = source.slice(start, end);
+
+    expect(arrangeBody.indexOf("selectElementForStyling")).toBeLessThan(
+      arrangeBody.indexOf("onUpdateSlideRef.current"),
+    );
+  });
+
+  it("keeps portaled context-menu presses from clearing canvas selection", () => {
+    const start = source.indexOf("const handleCanvasBackgroundPointerDown");
+    const end = source.indexOf("const handleSlideContextMenu", start);
+    const pointerDownBody = source.slice(start, end);
+
+    expect(pointerDownBody).toContain(
+      'target?.closest("[data-radix-menu-content]")',
+    );
+    expect(pointerDownBody.indexOf("data-radix-menu-content")).toBeLessThan(
+      pointerDownBody.indexOf("clearCanvasSelection"),
+    );
+  });
 });

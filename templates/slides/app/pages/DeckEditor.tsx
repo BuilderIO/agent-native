@@ -118,13 +118,23 @@ import {
   usePendingDeckUnloadGuard,
 } from "@/lib/pending-deck-changes";
 import type { SelectedAnimationTarget } from "@/lib/slide-animation-elements";
+import {
+  getSlideClipboardStorageKey,
+  normalizeSlideClipboard,
+  readSlideClipboard,
+  resolveSlideClipboardForPaste,
+  writeSlideClipboard,
+} from "@/lib/slide-clipboard";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import {
   insertDroppedImageIntoSlideHtml,
   replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
-import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
+import {
+  shouldActivateRectangleTool,
+  shouldActivateTextTool,
+} from "@/lib/text-tool-shortcut";
 
 type EditorSidePanel = "comments" | null;
 
@@ -1043,32 +1053,35 @@ export default function DeckEditor() {
   );
 
   useEffect(() => {
-    const handleTextToolShortcut = (event: KeyboardEvent) => {
-      if (
-        !shouldActivateTextTool(event, {
-          canEdit,
-          activeElement: document.activeElement,
-          blockingSurfaceOpen: Boolean(
-            document.querySelector(
-              "[role='dialog'], [role='menu'], [role='listbox']",
-            ),
+    const handleSlideToolShortcut = (event: KeyboardEvent) => {
+      const options = {
+        canEdit,
+        activeElement: document.activeElement,
+        blockingSurfaceOpen: Boolean(
+          document.querySelector(
+            "[role='dialog'], [role='menu'], [role='listbox']",
           ),
-        })
-      ) {
+        ),
+      };
+
+      if (shouldActivateTextTool(event, options)) {
+        event.preventDefault();
+        setDrawMode(false);
+        setPinMode(false);
+        setShapeType(null);
+        setTextBoxMode(true);
         return;
       }
 
+      if (!shouldActivateRectangleTool(event, options)) return;
       event.preventDefault();
-      setDrawMode(false);
-      setPinMode(false);
-      setShapeType(null);
-      setTextBoxMode(true);
+      selectShape("rectangle");
     };
 
-    document.addEventListener("keydown", handleTextToolShortcut);
+    document.addEventListener("keydown", handleSlideToolShortcut);
     return () =>
-      document.removeEventListener("keydown", handleTextToolShortcut);
-  }, [canEdit]);
+      document.removeEventListener("keydown", handleSlideToolShortcut);
+  }, [canEdit, selectShape]);
 
   useEffect(() => {
     const handleCommentShortcut = (event: KeyboardEvent) => {
@@ -1170,26 +1183,122 @@ export default function DeckEditor() {
   ]);
 
   // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
-  // rail's right-click Cut/Copy/Paste menu. Holds full slide snapshots
-  // (rather than ids) so paste still works after Cut has removed the originals.
-  const slideClipboardRef = useRef<Slide[] | null>(null);
+  // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
+  // (rather than just an id) so paste still works after Cut has already
+  // removed the original slide from the deck.
+  const slideClipboardRef = useRef<Slide | null>(null);
+  const slideClipboardSlidesRef = useRef<Slide[] | null>(null);
+  const slideClipboardScopeRef = useRef<string | null>(null);
+  const slideClipboardPersistenceFailedRef = useRef(false);
   // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
   // rail's right-click "Paste" menu item is an explicit click with no
   // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
   // long ago the copy happened.
   const slideClipboardArmedAtRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+  const slideClipboardStorageKey = session?.email
+    ? getSlideClipboardStorageKey(session.email)
+    : null;
+
+  const syncSlideClipboard = useCallback(() => {
+    if (!slideClipboardStorageKey) {
+      if (
+        slideClipboardRef.current !== null &&
+        slideClipboardScopeRef.current === null
+      ) {
+        setHasSlideClipboard(true);
+        return slideClipboardRef.current;
+      }
+      slideClipboardRef.current = null;
+      slideClipboardScopeRef.current = null;
+      slideClipboardPersistenceFailedRef.current = false;
+      slideClipboardArmedAtRef.current = null;
+      setHasSlideClipboard(false);
+      return null;
+    }
+    const result = readSlideClipboard(slideClipboardStorageKey);
+    const cachedSlide = slideClipboardRef.current;
+    const cachedCopiedAt = slideClipboardArmedAtRef.current;
+    const isPendingSessionClipboard =
+      cachedSlide !== null && slideClipboardScopeRef.current === null;
+    const slide = resolveSlideClipboardForPaste(
+      result,
+      cachedSlide,
+      slideClipboardScopeRef.current,
+      slideClipboardStorageKey,
+      cachedCopiedAt,
+      slideClipboardPersistenceFailedRef.current,
+    );
+    const usedCachedClipboard = slide !== null && slide === cachedSlide;
+    slideClipboardRef.current = slide;
+    slideClipboardScopeRef.current = slideClipboardStorageKey;
+    slideClipboardArmedAtRef.current = usedCachedClipboard
+      ? cachedCopiedAt
+      : result.status === "ready"
+        ? result.copiedAt
+        : null;
+    if (
+      isPendingSessionClipboard &&
+      usedCachedClipboard &&
+      cachedCopiedAt !== null
+    ) {
+      slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+        slideClipboardStorageKey,
+        slide,
+        cachedCopiedAt,
+      );
+    } else if (!usedCachedClipboard) {
+      slideClipboardPersistenceFailedRef.current = false;
+    }
+    setHasSlideClipboard(slide !== null);
+    return slide;
+  }, [slideClipboardStorageKey]);
+
+  useEffect(() => {
+    syncSlideClipboard();
+    if (!slideClipboardStorageKey) return;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === slideClipboardStorageKey) syncSlideClipboard();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [slideClipboardStorageKey, syncSlideClipboard]);
+
+  const saveSlideToClipboard = useCallback(
+    (slide: Slide) => {
+      const copiedAt = Date.now();
+      const snapshot = normalizeSlideClipboard(slide);
+      if (!snapshot) return;
+      slideClipboardRef.current = snapshot;
+      slideClipboardScopeRef.current = slideClipboardStorageKey;
+      slideClipboardArmedAtRef.current = copiedAt;
+      setHasSlideClipboard(true);
+      if (slideClipboardStorageKey) {
+        slideClipboardPersistenceFailedRef.current = !writeSlideClipboard(
+          slideClipboardStorageKey,
+          snapshot,
+          copiedAt,
+        );
+      } else {
+        slideClipboardPersistenceFailedRef.current = false;
+      }
+    },
+    [slideClipboardStorageKey],
+  );
 
   const copySlides = useCallback(
     (slideIds: string[]) => {
       const selected = new Set(slideIds);
       const slides = deck?.slides.filter((slide) => selected.has(slide.id));
       if (!slides?.length) return;
-      slideClipboardRef.current = slides;
-      slideClipboardArmedAtRef.current = Date.now();
-      setHasSlideClipboard(true);
+      slideClipboardSlidesRef.current = slides.length > 1 ? slides : null;
+      if (slides.length === 1) saveSlideToClipboard(slides[0]);
+      else {
+        slideClipboardArmedAtRef.current = Date.now();
+        setHasSlideClipboard(true);
+      }
     },
-    [deck],
+    [deck, saveSlideToClipboard],
   );
 
   const cutSlides = useCallback(
@@ -1197,17 +1306,25 @@ export default function DeckEditor() {
       if (!deck || !id) return;
       const slides = selectedSlideIdsForAction(slideIds);
       if (!slides.length || slides.length >= deck.slides.length) return;
-      slideClipboardRef.current = slides;
-      slideClipboardArmedAtRef.current = Date.now();
-      setHasSlideClipboard(true);
+      slideClipboardSlidesRef.current = slides;
+      if (slides.length === 1) saveSlideToClipboard(slides[0]);
+      else {
+        slideClipboardArmedAtRef.current = Date.now();
+        setHasSlideClipboard(true);
+      }
       deleteSlideIds(slideIds);
     },
-    [deck, id, selectedSlideIdsForAction, deleteSlideIds],
+    [deck, deleteSlideIds, id, saveSlideToClipboard, selectedSlideIdsForAction],
   );
 
   const pasteSlideAfter = useCallback(
     (targetSlideId: string) => {
-      const clipboard = slideClipboardRef.current;
+      const clipboard =
+        slideClipboardSlidesRef.current ??
+        (() => {
+          const slide = syncSlideClipboard();
+          return slide ? [slide] : null;
+        })();
       if (!clipboard || !id) return;
       const newIds = pasteSlides(
         id,
@@ -1220,7 +1337,7 @@ export default function DeckEditor() {
         setActiveSlideId(newIds[newIds.length - 1] ?? null);
       }
     },
-    [id, pasteSlides],
+    [id, pasteSlides, syncSlideClipboard],
   );
 
   // Handlers backing the slide rail's right-click menu.
