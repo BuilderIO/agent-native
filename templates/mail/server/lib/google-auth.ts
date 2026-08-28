@@ -182,8 +182,7 @@ async function getValidAccessToken(
   }
 
   const { clientId, clientSecret } = await getOAuth2Credentials(owner);
-  const redirectUri = "http://localhost:8080/_agent-native/google/callback";
-  const oauth2 = createOAuth2Client(clientId, clientSecret, redirectUri);
+  const oauth2 = createOAuth2Client(clientId, clientSecret, "");
   let refreshed;
   try {
     refreshed = await oauth2.refreshToken(tokens.refresh_token);
@@ -235,9 +234,8 @@ export async function getAuthUrl(
   const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const uri =
     redirectUri ||
-    (origin
-      ? `${origin}/_agent-native/google/callback`
-      : "http://localhost:8080/_agent-native/google/callback");
+    (origin ? `${origin}/_agent-native/google/callback` : undefined);
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
@@ -288,9 +286,8 @@ export async function exchangeCode(
   const { clientId, clientSecret } = await getOAuth2Credentials(owner);
   const uri =
     redirectUri ||
-    (origin
-      ? `${origin}/_agent-native/google/callback`
-      : "http://localhost:8080/_agent-native/google/callback");
+    (origin ? `${origin}/_agent-native/google/callback` : undefined);
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
   const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokenResponse = await oauth2.getToken(code);
 

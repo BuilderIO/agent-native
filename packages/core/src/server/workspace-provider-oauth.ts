@@ -35,14 +35,12 @@ import { resolveSecret } from "./credential-provider.js";
 import {
   decodeOAuthState,
   encodeOAuthState,
-  getAppBasePath,
   getAppUrl,
   oauthErrorPage,
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
 } from "./google-oauth.js";
 import { runWithRequestContext } from "./request-context.js";
-import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 export type GenericWorkspaceOAuthProvider =
   | "figma"
@@ -104,10 +102,7 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
 export function shouldUseRootGoogleOAuthCallback(
   provider: GenericWorkspaceOAuthProvider,
 ): boolean {
-  return (
-    isGoogleWorkspaceOAuthProvider(provider) &&
-    (isWorkspaceOAuthCallbackRelayEnabled() || getAppBasePath() === "")
-  );
+  return isGoogleWorkspaceOAuthProvider(provider);
 }
 
 export async function hasWorkspaceProviderOAuthCredentials(
@@ -224,6 +219,7 @@ export async function handleWorkspaceProviderOAuthStart(
     useRootGoogleCallback
       ? "/_agent-native/google/callback"
       : workspaceProviderOAuthPath(providerId, "callback"),
+    { allowRootCallback: useRootGoogleCallback },
   );
   if (!redirectUri) {
     return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");

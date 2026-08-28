@@ -785,6 +785,20 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
           echo "Health check passed: ${url%/}/_agent-native/health"
 
+      # Google reports redirect_uri_mismatch only after the browser leaves the
+      # app. Probe the exact live client/path pair here so a deploy cannot
+      # publish a callback that the Google Console does not accept. Draft
+      # deploy URLs are intentionally excluded because they are not registered
+      # OAuth origins; production and beta publish through this same path.
+      - name: Verify Google OAuth redirect registration
+        if: >-
+          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template != '@agent-native/docs' &&
+          steps.target.outputs.source_template != 'macros'
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: pnpm check:google-redirect-uris -- --host "$HOST" --paths root
+
       # An unknown URL must still be storable. When it is not, every dead link
       # and crawler miss re-invokes the render function, and Netlify runs one
       # request per container — so a single site's regression drains the

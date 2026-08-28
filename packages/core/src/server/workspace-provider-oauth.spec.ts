@@ -52,9 +52,9 @@ describe("workspace provider OAuth", () => {
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
   });
 
-  it("uses the root Google callback for every standalone managed provider", () => {
-    vi.stubEnv("APP_BASE_PATH", "");
-    vi.stubEnv("VITE_APP_BASE_PATH", "");
+  it("uses the root Google callback for every managed provider", () => {
+    vi.stubEnv("APP_BASE_PATH", "/calendar");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/calendar");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
