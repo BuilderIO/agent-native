@@ -9,6 +9,7 @@ import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
+import { hashSlideContent } from "@shared/slide-fit";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -59,6 +60,16 @@ type GranularOp =
     };
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+
+type PersistedResultHandler = (
+  results: readonly unknown[],
+  slideWriteSequences: ReadonlyMap<string, number>,
+) => void;
+
+type PendingPersistedResultHandler = {
+  handler: PersistedResultHandler;
+  slideWriteSequences: Map<string, number>;
+};
 
 /** Slide payload for an `add-slide` op. `imageLoading` is transient UI state
  * and must not persist; everything else on the slide has to survive the round
@@ -408,6 +419,11 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
+const pendingPersistedResultHandlers = new Map<
+  string,
+  PendingPersistedResultHandler[]
+>();
+const slideLocalWriteSequences = new Map<string, Map<string, number>>();
 
 // Bumped on every local write enqueued for a deck. A deck read that spans a
 // local write is stale for that deck no matter what the pending state looks
@@ -551,7 +567,7 @@ async function persistDeckOps(
   ops: GranularOp[],
   signal?: AbortSignal,
   options?: { keepalive?: boolean },
-) {
+): Promise<unknown[]> {
   if (options?.keepalive) {
     const actionsBase = agentNativePath("/_agent-native/actions");
     if (ops[0].op === "full-replace") {
@@ -579,41 +595,136 @@ async function persistDeckOps(
         signal,
       );
     }
-    return;
+    return [];
   }
 
+  const results: unknown[] = [];
   if (ops[0].op === "full-replace") {
     // Legacy full-deck write — used by undo/redo and setDeckSlides.
     // `callAction` bounds it so a stalled save can't wedge `inFlightSaves`
     // forever (its `finally` cleanup below only runs once this await
     // settles; an AbortError from the timeout still reaches it).
     const deck = ops[0].deck;
-    await callAction(
-      "save-deck",
-      { deckId, deck: deckPayload(deck) },
-      { method: "PUT", signal },
+    results.push(
+      await callAction<unknown>(
+        "save-deck",
+        { deckId, deck: deckPayload(deck) },
+        { method: "PUT", signal },
+      ),
     );
     const trailingOps = ops.slice(1) as PatchDeckOp[];
     if (trailingOps.length > 0) {
-      await callAction(
-        "patch-deck",
-        {
-          deckId,
-          operations: trailingOps,
-        },
-        { signal },
+      results.push(
+        await callAction<unknown>(
+          "patch-deck",
+          {
+            deckId,
+            operations: trailingOps,
+          },
+          { signal },
+        ),
       );
     }
   } else {
-    await callAction(
-      "patch-deck",
-      {
-        deckId,
-        operations: ops as PatchDeckOp[],
-      },
-      { signal },
+    results.push(
+      await callAction<unknown>(
+        "patch-deck",
+        {
+          deckId,
+          operations: ops as PatchDeckOp[],
+        },
+        { signal },
+      ),
     );
   }
+  return results;
+}
+
+function layoutFitSlideIdsForOp(op: GranularOp): string[] {
+  if (op.op === "add-slide") return [op.slideId];
+  if (
+    op.op === "patch-slide" &&
+    (op.fields.content !== undefined ||
+      op.fields.layout !== undefined ||
+      op.fields.excalidrawData !== undefined)
+  ) {
+    return [op.slideId];
+  }
+  if (op.op === "full-replace") {
+    return op.deck.slides.map((slide) => slide.id);
+  }
+  return [];
+}
+
+function nextSlideWriteSequence(deckId: string, slideId: string): number {
+  const sequences = slideLocalWriteSequences.get(deckId) ?? new Map();
+  const next = (sequences.get(slideId) ?? 0) + 1;
+  sequences.set(slideId, next);
+  slideLocalWriteSequences.set(deckId, sequences);
+  return next;
+}
+
+function currentSlideWriteSequence(
+  deckId: string,
+  slideId: string,
+): number | undefined {
+  return slideLocalWriteSequences.get(deckId)?.get(slideId);
+}
+
+type PersistedLayoutFitRevision = {
+  slideId: string;
+  contentHash: string;
+  layoutFitRevision: string;
+};
+
+function persistedLayoutFitRevisions(
+  results: readonly unknown[],
+): Map<string, PersistedLayoutFitRevision> {
+  const revisions = new Map<string, PersistedLayoutFitRevision>();
+  for (const result of results) {
+    if (!result || typeof result !== "object") continue;
+    const record = result as Record<string, unknown>;
+    const layoutFit = record.layoutFit;
+    if (layoutFit && typeof layoutFit === "object") {
+      const fit = layoutFit as Record<string, unknown>;
+      const entries = Array.isArray(fit.slides) ? fit.slides : [fit];
+      for (const entry of entries) {
+        if (!entry || typeof entry !== "object") continue;
+        const value = entry as Record<string, unknown>;
+        if (
+          typeof value.slideId === "string" &&
+          typeof value.contentHash === "string" &&
+          typeof value.layoutFitRevision === "string"
+        ) {
+          revisions.set(value.slideId, {
+            slideId: value.slideId,
+            contentHash: value.contentHash,
+            layoutFitRevision: value.layoutFitRevision,
+          });
+        }
+      }
+    }
+
+    if (Array.isArray(record.slides)) {
+      for (const slide of record.slides) {
+        if (!slide || typeof slide !== "object") continue;
+        const value = slide as Record<string, unknown>;
+        if (
+          typeof value.id === "string" &&
+          typeof value.layoutFitRevision === "string"
+        ) {
+          revisions.set(value.id, {
+            slideId: value.id,
+            contentHash: hashSlideContent(
+              typeof value.content === "string" ? value.content : "",
+            ),
+            layoutFitRevision: value.layoutFitRevision,
+          });
+        }
+      }
+    }
+  }
+  return revisions;
 }
 
 /**
@@ -643,6 +754,9 @@ function drainPendingDeckOps(
 
   const ops = pendingOpsQueue.get(deckId) ?? [];
   pendingOpsQueue.delete(deckId);
+  const persistedResultHandlers =
+    pendingPersistedResultHandlers.get(deckId) ?? [];
+  pendingPersistedResultHandlers.delete(deckId);
   if (ops.length === 0) {
     notifySaveListeners();
     return Promise.resolve();
@@ -660,8 +774,11 @@ function drainPendingDeckOps(
   const isCurrentGeneration = () =>
     (deckSaveGenerations.get(deckId) ?? 0) === generation;
   const next = persistDeckOps(deckId, ops, controller?.signal, options)
-    .then(() => {
+    .then((results) => {
       if (!isCurrentGeneration()) return;
+      for (const { handler, slideWriteSequences } of persistedResultHandlers) {
+        handler(results, slideWriteSequences);
+      }
       onSaveSuccess?.(ops);
       deckSaveRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
@@ -678,6 +795,16 @@ function drainPendingDeckOps(
         deckId,
         pending[0]?.op === "full-replace" ? pending : [...ops, ...pending],
       );
+      const pendingHandlers = pendingPersistedResultHandlers.get(deckId) ?? [];
+      const handlers =
+        pending[0]?.op === "full-replace"
+          ? pendingHandlers
+          : [...persistedResultHandlers, ...pendingHandlers];
+      if (handlers.length > 0) {
+        pendingPersistedResultHandlers.set(deckId, handlers);
+      } else {
+        pendingPersistedResultHandlers.delete(deckId);
+      }
       const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
       deckSaveRetryAttempts.set(deckId, attempt);
       immediateFlushRequests.delete(deckId);
@@ -761,9 +888,14 @@ function enqueueDeckOp(
     persistence?: "debounced" | "immediate";
     coalesceContent?: boolean;
     onSaveSuccess?: (ops: GranularOp[]) => void;
+    onPersisted?: PersistedResultHandler;
   },
 ) {
   deckLocalWriteSeq.set(deckId, (deckLocalWriteSeq.get(deckId) ?? 0) + 1);
+  const slideWriteSequences = new Map<string, number>();
+  for (const slideId of layoutFitSlideIdsForOp(op)) {
+    slideWriteSequences.set(slideId, nextSlideWriteSequence(deckId, slideId));
+  }
   const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
   if (
@@ -783,6 +915,7 @@ function enqueueDeckOp(
       : op;
     // Discard any accumulated granular ops — this is a wholesale replacement
     pendingOpsQueue.set(deckId, [queuedOp]);
+    pendingPersistedResultHandlers.delete(deckId);
   } else {
     const queue = pendingOpsQueue.get(deckId) ?? [];
     const previous = queue[queue.length - 1];
@@ -801,6 +934,15 @@ function enqueueDeckOp(
       queue.push(op);
     }
     pendingOpsQueue.set(deckId, queue);
+  }
+
+  if (options?.onPersisted && slideWriteSequences.size > 0) {
+    const handlers = pendingPersistedResultHandlers.get(deckId) ?? [];
+    handlers.push({
+      handler: options.onPersisted,
+      slideWriteSequences,
+    });
+    pendingPersistedResultHandlers.set(deckId, handlers);
   }
 
   if (options?.persistence === "immediate") {
@@ -823,8 +965,16 @@ function enqueueDeckOp(
 function saveDeckToAPI(
   deck: Deck,
   onSaveSuccess?: (ops: GranularOp[]) => void,
+  onPersisted?: PersistedResultHandler,
 ) {
-  enqueueDeckOp(deck.id, { op: "full-replace", deck }, { onSaveSuccess });
+  enqueueDeckOp(
+    deck.id,
+    { op: "full-replace", deck },
+    {
+      onSaveSuccess,
+      onPersisted,
+    },
+  );
 }
 
 /**
@@ -851,6 +1001,7 @@ function discardPendingDeckOps(deckId: string) {
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);
   pendingOpsQueue.delete(deckId);
+  pendingPersistedResultHandlers.delete(deckId);
   deckSaveRetryAttempts.delete(deckId);
   failedSaveDecks.delete(deckId);
   immediateFlushRequests.delete(deckId);
@@ -1851,6 +2002,58 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     setDecks(updater);
   }, []);
 
+  const reconcilePersistedLayoutFit = useCallback(
+    (
+      deckId: string,
+      results: readonly unknown[],
+      slideWriteSequences: ReadonlyMap<string, number>,
+    ) => {
+      const revisions = persistedLayoutFitRevisions(results);
+      if (revisions.size === 0) return;
+      setDecks((prev) => {
+        let changed = false;
+        const next = prev.map((deck) => {
+          if (deck.id !== deckId) return deck;
+          let deckChanged = false;
+          const slides = deck.slides.map((slide) => {
+            const revision = revisions.get(slide.id);
+            const expectedSequence = slideWriteSequences.get(slide.id);
+            if (
+              !revision ||
+              expectedSequence === undefined ||
+              currentSlideWriteSequence(deckId, slide.id) !== expectedSequence
+            ) {
+              return slide;
+            }
+            // The sequence guards A → B → A and layout-only writes. During an
+            // inline edit, the DOM draft may not be in React state yet, so the
+            // in-flight write is the safe exception to the hash check.
+            if (
+              revision.contentHash !== hashSlideContent(slide.content) &&
+              !hasPendingWriteForSlide(deckId, slide.id)
+            ) {
+              return slide;
+            }
+            if (slide.layoutFitRevision === revision.layoutFitRevision) {
+              return slide;
+            }
+            deckChanged = true;
+            return {
+              ...slide,
+              layoutFitRevision: revision.layoutFitRevision,
+            };
+          });
+          if (!deckChanged) return deck;
+          changed = true;
+          return { ...deck, slides };
+        });
+        if (changed) decksRef.current = next;
+        return changed ? next : prev;
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     decksRef.current = decks;
   }, [decks]);
@@ -1889,6 +2092,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
               { op: "full-replace", deck: op.deck },
               {
                 onSaveSuccess: captureReplacedSlideDeleteTombstones(op.deck),
+                onPersisted: (results, slideWriteSequences) =>
+                  reconcilePersistedLayoutFit(
+                    op.deckId,
+                    results,
+                    slideWriteSequences,
+                  ),
               },
             );
           } else {
@@ -1898,7 +2107,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             } else if (granular.op === "add-slide") {
               clearSlideDeleteTombstone(deckId, granular.slideId);
             }
-            enqueueDeckOp(deckId, granular);
+            enqueueDeckOp(deckId, granular, {
+              onPersisted: (results, slideWriteSequences) =>
+                reconcilePersistedLayoutFit(
+                  deckId,
+                  results,
+                  slideWriteSequences,
+                ),
+            });
           }
         }
       },
@@ -1972,7 +2188,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         return [...prev, updated];
       });
     },
-    [clearDeckDeleteTombstones],
+    [
+      captureReplacedSlideDeleteTombstones,
+      clearDeckDeleteTombstones,
+      reconcilePersistedLayoutFit,
+    ],
   );
 
   // Re-fetch the deck list and diff it against local state (added/removed
@@ -2413,7 +2633,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           decksRef.current.find((d) => d.id === id),
           deck,
         );
-        saveDeckToAPI(deck, captureReplacedSlideDeleteTombstones(deck));
+        saveDeckToAPI(
+          deck,
+          captureReplacedSlideDeleteTombstones(deck),
+          (results, slideWriteSequences) =>
+            reconcilePersistedLayoutFit(id, results, slideWriteSequences),
+        );
       }
     }
   }, [
@@ -2421,6 +2646,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     decks,
     loading,
     markReplacedSlideOmissions,
+    reconcilePersistedLayoutFit,
   ]);
 
   // Listen for deck changes through the shared framework sync transport. A
@@ -2880,12 +3106,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         afterSlideId,
         fields: addSlideFields(newSlide),
       };
-      enqueueDeckOp(deckId, op, addOptions);
+      enqueueDeckOp(deckId, op, {
+        ...addOptions,
+        onPersisted: (results, slideWriteSequences) =>
+          reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
+      });
       if (before) recordUndo(before, op, { label: "Add slide" });
 
       return newSlide.id;
     },
-    [markDeckDirty, recordUndo, setDecksLocal],
+    [markDeckDirty, reconcilePersistedLayoutFit, recordUndo, setDecksLocal],
   );
 
   const updateSlide = useCallback(
@@ -2953,6 +3183,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       enqueueDeckOp(deckId, op, {
         persistence: options?.persistence,
         coalesceContent: options?.preserveLocalState,
+        onPersisted: (results, slideWriteSequences) =>
+          reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
       });
       if (before && !options?.preserveLocalState) {
         // Coalesce a burst of edits to the SAME slide's SAME field-set into one
@@ -2966,7 +3198,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [markDeckDirty, recordUndo, setDecksLocal],
+    [markDeckDirty, recordUndo, reconcilePersistedLayoutFit, setDecksLocal],
   );
 
   const deleteSlide = useCallback(
@@ -3029,11 +3261,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         afterSlideId: slideId,
         fields: addSlideFields(copiedSlide),
       };
-      enqueueDeckOp(deckId, op);
+      enqueueDeckOp(deckId, op, {
+        onPersisted: (results, slideWriteSequences) =>
+          reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
+      });
       recordUndo(before, op, { label: "Duplicate slide" });
       return copiedSlide.id;
     },
-    [markDeckDirty, recordUndo, setDecksLocal],
+    [markDeckDirty, reconcilePersistedLayoutFit, recordUndo, setDecksLocal],
   );
 
   const pasteSlide = useCallback(
@@ -3061,11 +3296,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         afterSlideId,
         fields: addSlideFields(newSlide),
       };
-      enqueueDeckOp(deckId, op);
+      enqueueDeckOp(deckId, op, {
+        onPersisted: (results, slideWriteSequences) =>
+          reconcilePersistedLayoutFit(deckId, results, slideWriteSequences),
+      });
       recordUndo(before, op, { label: "Paste slide" });
       return newSlide.id;
     },
-    [markDeckDirty, recordUndo, setDecksLocal],
+    [markDeckDirty, reconcilePersistedLayoutFit, recordUndo, setDecksLocal],
   );
 
   const reorderSlides = useCallback(
@@ -3146,7 +3384,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           enqueueDeckOp(
             deckId,
             { op: "full-replace", deck: next },
-            { onSaveSuccess },
+            {
+              onSaveSuccess,
+              onPersisted: (results, slideWriteSequences) =>
+                reconcilePersistedLayoutFit(
+                  deckId,
+                  results,
+                  slideWriteSequences,
+                ),
+            },
           );
           return next;
         }),
@@ -3163,6 +3409,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       captureReplacedSlideDeleteTombstones,
       markDeckDirty,
       markReplacedSlideOmissions,
+      reconcilePersistedLayoutFit,
       setDecksLocal,
     ],
   );

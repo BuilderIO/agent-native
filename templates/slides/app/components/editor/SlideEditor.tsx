@@ -1482,7 +1482,7 @@ export default function SlideEditor({
         horizontalOverflow: info.horizontalOverflow,
       });
     },
-    [slide.id, slide.content, deckId],
+    [slide.id, slide.content, slide.layoutFitRevision, deckId],
   );
 
   const handleAskAgentToFixLayout = useCallback(() => {

@@ -40,6 +40,7 @@ import {
 import {
   createLayoutFitRevision,
   hashSlideContent,
+  slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
 
 // ---------------------------------------------------------------------------
@@ -349,11 +350,14 @@ export function applyOperation(deck: any, op: Operation): void {
       if (idx === -1) return; // slide was concurrently deleted — ignore
       const slide = slides[idx];
       const fields = op.fields;
+      const previousFitFields = {
+        content: slide.content,
+        layout: slide.layout,
+        excalidrawData: slide.excalidrawData,
+      };
       if (fields.content !== undefined) {
         const nextContent = normalizeSlidePadding(fields.content);
-        const contentChanged = String(slide.content ?? "") !== nextContent;
         slide.content = nextContent;
-        if (contentChanged) slide.layoutFitRevision = createLayoutFitRevision();
       }
       if (fields.notes !== undefined) slide.notes = fields.notes;
       if (fields.background !== undefined) slide.background = fields.background;
@@ -368,6 +372,9 @@ export function applyOperation(deck: any, op: Operation): void {
       if (fields.transition !== undefined) slide.transition = fields.transition;
       if (fields.animations !== undefined) slide.animations = fields.animations;
       if (fields.skipped !== undefined) slide.skipped = fields.skipped;
+      if (slideFitRenderFieldsChanged(previousFitFields, slide)) {
+        slide.layoutFitRevision = createLayoutFitRevision();
+      }
       break;
     }
 
@@ -699,8 +706,45 @@ export default defineAction({
         });
       }
 
+      const layoutFitSlideIds = new Set<string>();
       for (const op of operations) {
+        const previousSlide =
+          op.op === "patch-slide" || op.op === "add-slide"
+            ? (
+                deck.slides as Array<{
+                  id?: string;
+                  content?: unknown;
+                  layout?: unknown;
+                  excalidrawData?: unknown;
+                }>
+              ).find((slide) => slide.id === op.slideId)
+            : undefined;
+        const previousFitFields = previousSlide
+          ? {
+              content: previousSlide.content,
+              layout: previousSlide.layout,
+              excalidrawData: previousSlide.excalidrawData,
+            }
+          : null;
         applyOperation(deck, op);
+        if (op.op === "add-slide" && !previousSlide) {
+          layoutFitSlideIds.add(op.slideId);
+        } else if (op.op === "patch-slide" && previousFitFields) {
+          const nextSlide = (
+            deck.slides as Array<{
+              id?: string;
+              content?: unknown;
+              layout?: unknown;
+              excalidrawData?: unknown;
+            }>
+          ).find((slide) => slide.id === op.slideId);
+          if (
+            nextSlide &&
+            slideFitRenderFieldsChanged(previousFitFields, nextSlide)
+          ) {
+            layoutFitSlideIds.add(op.slideId);
+          }
+        }
       }
       if (isAgentCaller) {
         clearOmittedAnimationsForAgentContentPatches(deck, operations, {
@@ -893,20 +937,10 @@ export default defineAction({
         notifyClients(deckId);
       }
 
-      // Only slides whose HTML actually changed can newly overflow. The editor
+      // Only slides whose rendered geometry actually changed can newly overflow. The editor
       // measures these asynchronously; return their hashes so a later
       // get-layout-overflows call can reject stale browser measurements.
-      const contentChangedSlideIds = [
-        ...new Set(
-          operations.flatMap((operation) =>
-            operation.op === "add-slide" ||
-            (operation.op === "patch-slide" &&
-              operation.fields.content !== undefined)
-              ? [operation.slideId]
-              : [],
-          ),
-        ),
-      ];
+      const layoutFitSlideIdList = [...layoutFitSlideIds];
       const finalSlides: Array<{
         id?: unknown;
         content?: unknown;
@@ -917,11 +951,11 @@ export default defineAction({
         deckId,
         updatedAt: now,
         updatedSlideIds,
-        ...(contentChangedSlideIds.length
+        ...(layoutFitSlideIdList.length
           ? {
               layoutFit: {
                 status: "pending" as const,
-                slides: contentChangedSlideIds.map((slideId) => {
+                slides: layoutFitSlideIdList.map((slideId) => {
                   const slide = finalSlides.find((s) => s.id === slideId);
                   return {
                     slideId,

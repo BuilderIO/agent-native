@@ -173,6 +173,44 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].content).toBe("<p>Updated1</p>");
     expect(deck.slides[1].content).toBe("<p>Updated2</p>");
   });
+
+  it("invalidates fit for layout and Excalidraw changes, not notes", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content: "<p>Slide</p>",
+          layout: "content",
+          notes: "old",
+          layoutFitRevision: "old-revision",
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { notes: "new" },
+    });
+    expect(deck.slides[0].layoutFitRevision).toBe("old-revision");
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { layout: "statement" },
+    });
+    const layoutRevision = deck.slides[0].layoutFitRevision;
+    expect(layoutRevision).toEqual(expect.any(String));
+    expect(layoutRevision).not.toBe("old-revision");
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { excalidrawData: '{"elements":[]}' },
+    });
+    expect(deck.slides[0].layoutFitRevision).toEqual(expect.any(String));
+    expect(deck.slides[0].layoutFitRevision).not.toBe(layoutRevision);
+  });
 });
 
 describe("applyOperation — delete-slide", () => {
@@ -1035,6 +1073,44 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
       actor: "agent",
+    });
+  });
+
+  it("returns pending fit metadata for layout-only and Excalidraw patches", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { layout: "statement" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { excalidrawData: '{"elements":[]}' },
+          },
+        ],
+      },
+      {},
+    )) as Record<string, unknown>;
+
+    expect(result.layoutFit).toMatchObject({
+      status: "pending",
+      slides: [
+        {
+          slideId: "slide-1",
+          contentHash: hashSlideContent("<div>One</div>"),
+          layoutFitRevision: expect.any(String),
+        },
+        {
+          slideId: "slide-2",
+          contentHash: hashSlideContent("<div>Two</div>"),
+          layoutFitRevision: expect.any(String),
+        },
+      ],
     });
   });
 

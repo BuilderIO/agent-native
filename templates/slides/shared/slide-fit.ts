@@ -35,6 +35,31 @@ export function createLayoutFitRevision(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** Return whether a slide mutation can change the rendered fit geometry. */
+export function slideFitRenderFieldsChanged(
+  previous: {
+    content?: unknown;
+    layout?: unknown;
+    excalidrawData?: unknown;
+  },
+  next: {
+    content?: unknown;
+    layout?: unknown;
+    excalidrawData?: unknown;
+  },
+): boolean {
+  return (
+    (typeof previous.content === "string" ? previous.content : "") !==
+      (typeof next.content === "string" ? next.content : "") ||
+    (typeof previous.layout === "string" ? previous.layout : "content") !==
+      (typeof next.layout === "string" ? next.layout : "content") ||
+    (typeof previous.excalidrawData === "string"
+      ? previous.excalidrawData
+      : "") !==
+      (typeof next.excalidrawData === "string" ? next.excalidrawData : "")
+  );
+}
+
 /** Match both the source HTML and the write that produced it. */
 export function slideFitMeasurementMatchesSlide(
   measurement:

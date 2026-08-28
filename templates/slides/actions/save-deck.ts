@@ -23,7 +23,10 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
-import { createLayoutFitRevision } from "../shared/slide-fit.js";
+import {
+  createLayoutFitRevision,
+  slideFitRenderFieldsChanged,
+} from "../shared/slide-fit.js";
 import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
@@ -188,7 +191,7 @@ function firstSlideContent(deck: DeckPayload): string | null {
   return typeof content === "string" ? content : null;
 }
 
-function stampChangedSlideRevisions(
+export function stampChangedSlideRevisions(
   previousData: string | null | undefined,
   nextDeck: DeckPayload,
 ): void {
@@ -204,10 +207,7 @@ function stampChangedSlideRevisions(
 
   for (const slide of nextSlides) {
     const prior = previousSlides.find((candidate) => candidate.id === slide.id);
-    const content = typeof slide.content === "string" ? slide.content : "";
-    const priorContent =
-      typeof prior?.content === "string" ? prior.content : "";
-    if (!prior || priorContent !== content) {
+    if (!prior || slideFitRenderFieldsChanged(prior, slide)) {
       slide.layoutFitRevision = createLayoutFitRevision();
     } else if (typeof prior.layoutFitRevision === "string") {
       slide.layoutFitRevision = prior.layoutFitRevision;
