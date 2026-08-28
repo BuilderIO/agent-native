@@ -525,7 +525,7 @@ export default function BookingPage() {
                 <Button
                   variant="link"
                   size="sm"
-                  className="font-normal text-muted-foreground hover:text-foreground"
+                  className="text-xs font-normal text-[#00B5FF] hover:text-[#33C4FF]"
                   onClick={() => setShowTimeZones((prev) => !prev)}
                 >
                   {showTimeZones
