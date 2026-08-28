@@ -378,12 +378,21 @@ function insertLineBreak(editable: HTMLElement) {
   const range = selection.getRangeAt(0);
 
   const textLeafFor = (node: Node) => {
+    if (!editable.contains(node)) return null;
     let element = node instanceof HTMLElement ? node : node.parentElement;
     while (element && element !== editable) {
       if (isTextLeaf(element)) return element;
       element = element.parentElement;
     }
-    return isTextLeaf(editable) ? editable : null;
+    const canUseEditableFallback =
+      isTextLeaf(editable) ||
+      (editable.tagName !== "IMG" &&
+        !editable.classList.contains("fmd-img-placeholder") &&
+        (editable.classList.contains("fmd-text-box") ||
+          Array.from(editable.children).every((child) =>
+            isInlineTextElement(child),
+          )));
+    return canUseEditableFallback ? editable : null;
   };
 
   const startLeaf = textLeafFor(range.startContainer);
