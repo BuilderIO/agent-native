@@ -1007,11 +1007,11 @@ export function oauthCallbackResponse(
  *  callers pass `error.message` from a token-exchange or userinfo failure,
  *  which can echo upstream provider strings (and historically attacker-
  *  controlled query params via the `error_description` field). */
-export function oauthErrorPage(message: string): Response {
+export function oauthErrorPage(message: string, status = 400): Response {
   const safe = escapeHtml(message);
   return htmlResponse(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connection failed</title></head><body style="background:#111;color:#ccc;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;flex-direction:column;text-align:center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg><p style="font-size:16px;margin:0 0 12px 0;color:#ddd">${safe}</p><p style="font-size:13px;color:#888;margin:0"><a href="/" style="color:#888;text-decoration:underline;text-underline-offset:3px">Back to login</a></p></body></html>`,
-    400,
+    status,
   );
 }
 

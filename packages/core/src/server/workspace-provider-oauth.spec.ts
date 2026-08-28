@@ -948,6 +948,9 @@ describe("oauthStartFailure", () => {
       "Google Drive OAuth client credentials are not configured.",
     );
     expect(result).toBeInstanceOf(Response);
+    // The page carries the caller's status, not the renderer's default 400 —
+    // a missing credential is a 503 whether the caller reads HTML or JSON.
+    expect((result as Response).status).toBe(503);
     const body = await (result as Response).text();
     expect(body).toContain("Google Drive OAuth client credentials");
     expect(body).toContain("<!DOCTYPE html>");

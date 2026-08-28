@@ -159,7 +159,7 @@ export function oauthStartFailure(
   setResponseStatus(event, status);
   const accept = getRequestHeader(event, "accept") ?? "";
   if (!accept.includes("text/html")) return { error: message };
-  return oauthErrorPage(message);
+  return oauthErrorPage(message, status);
 }
 
 export async function handleWorkspaceProviderOAuthStart(
