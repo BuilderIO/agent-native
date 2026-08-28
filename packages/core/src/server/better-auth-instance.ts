@@ -1746,7 +1746,14 @@ async function createBetterAuthInstance(
         email,
         magicLinkUrl: deliveredMagicLinkUrl,
       });
-      await sendEmail({ to: email, subject, html, text, appSender });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        appSender,
+        disableClickTracking: true,
+      });
     },
   });
 
@@ -1786,6 +1793,7 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
         });
       },
@@ -1819,6 +1827,7 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
         });
       },
