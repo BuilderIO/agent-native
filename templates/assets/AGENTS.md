@@ -12,9 +12,9 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 - `creative-context` for cross-app source reuse, pinned packs, provenance, and
   context opt-out.
 - `library-management` for kits, collections, access, imports, and duplication.
-- `asset-generation` and `image-generation` for generation paths, presets,
+- `asset-generation` and `image-generation` for generation paths, templates,
   composer mentions, reference boards, and embedded text.
-- `logo-composite` for canonical logo compositing and preset skeletons.
+- `logo-composite` for canonical logo compositing and template skeletons.
 - `assets-navigation` for routes, tabs, chat surfaces, and `navigate` targets.
 - `agent-engines` for model and engine configuration.
 - `a2a-assets` for MCP/A2A callers, skill install paths, and host rendering.
@@ -38,12 +38,15 @@ Read the relevant skill in `.agents/skills/` before deeper work:
 - Preserve provenance and metadata for generated or imported assets.
 - Use `view-screen` when the active library, selected asset, picker, generation,
   or embed target is unclear.
-- Image work is preset-first. Follow the `creative-context` reuse ladder, then
-  check `list-generation-presets` and generate with a matching `presetId`
+- Image work is template-first. Follow the `creative-context` reuse ladder,
+  then check `list-templates` and generate with a matching `templateId`
   instead of ad hoc settings; see `image-generation`.
-- When a `preset` is tagged, the server embeds its brand style brief into your
-  message inside a `<tagged-generation-presets>` block. Internalize that brief,
-  then pass the `presetId` instead of restating its saved settings as args.
+- Templates are global or associated with one brand kit. Only associated
+  templates can pin images, skeleton plates, or a canonical logo.
+- When a `template` is tagged, the server embeds its brief inside a
+  `<tagged-templates>` block. Internalize it, then pass the `templateId`
+  instead of restating saved settings as args. `*-generation-preset` actions
+  are deprecated aliases for existing threads.
 - Keep inline previews and picker outputs lightweight; fetch full asset details
   through actions when needed.
 - Use framework sharing/collaboration primitives for ownable assets.
@@ -55,7 +58,8 @@ Read the relevant skill in `.agents/skills/` before deeper work:
   `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`,
   the embedded picker uses
   `{ view: "picker", mediaType, libraryId, query, prompt, aspectRatio }`, and the
-  preset editor uses `{ view: "preset", libraryId, presetId }`.
+  template gallery uses `{ view: "templates" }`, and an editor uses
+  `{ view: "template", templateId }`. Legacy preset navigation still resolves.
 - `creative-context` holds
   `{ contextMode, selectedContextId, currentPackId, pinnedPackId }`. Respect
   `contextMode: "off"` without silently restoring a pack.
@@ -71,7 +75,7 @@ Uncommon actions stay discoverable through `tool-search`.
 
 | Action | Purpose |
 | --- | --- |
-| `navigate` | Move the UI to a picker, library, generation, asset, preset, or settings surface |
+| `navigate` | Move the UI to a picker, library, template, generation, asset, or settings surface |
 | `view-screen` | Read current navigation, selection, and visible ids |
 | `list-libraries` / `match-library` | Find or disambiguate a brand kit |
 | `duplicate-library` | Make a private copy of a Brand Kit |
@@ -79,8 +83,9 @@ Uncommon actions stay discoverable through `tool-search`.
 | `import-asset-from-url` | Ingest external brand or blog imagery as a reference asset |
 | `import-style-from-url` | Render a website and merge its design.md-style visual language into a library or collection |
 | `set-canonical-logo` | Pin the kit's pixel-perfect logo |
-| `list-generation-presets` | List repeatable output formats before generating |
-| `create-generation-preset` / `update-generation-preset` | Author preset format, references, `includeLogo`, skeleton |
+| `list-templates` / `get-template` | Find accessible reusable generation recipes |
+| `create-template` / `update-template` | Author a global or brand-kit template |
+| `associate-template` / `duplicate-template` | Move a template's scope or copy it into a kit |
 | `generate-image` / `generate-image-batch` | Generate image candidates (synchronous) |
 | `generate-video` | Generate video, then poll `refresh-generation-run` |
 | `refine-image` / `edit-image` / `restyle-image` | Iterate on an existing asset |

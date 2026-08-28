@@ -4,6 +4,7 @@ import {
   backgroundCssValue,
   formatValue,
   horizontalAlignPatch,
+  mergeSlideStyleSnapshots,
   resolveHorizontalAlignment,
   resolveVerticalAlignment,
   rotationTransform,
@@ -107,5 +108,27 @@ describe("slide background parsing", () => {
 
   it("passes raw CSS colors through", () => {
     expect(backgroundCssValue("#abcdef")).toBe("#abcdef");
+  });
+});
+
+describe("multi-selection style snapshots", () => {
+  it("keeps a common text snapshot and marks mixed controls", () => {
+    const merged = mergeSlideStyleSnapshots([
+      snapshot({ fontSize: 40, fontWeight: "700" }),
+      snapshot({ fontSize: 32, fontWeight: "700" }),
+    ]);
+
+    expect(merged?.fontSize).toBe(40);
+    expect(merged?.mixedTextStyles).toEqual(["fontSize"]);
+    expect(merged?.isAbsolute).toBe(false);
+  });
+
+  it("does not expose one style toolbar for mixed object kinds", () => {
+    expect(
+      mergeSlideStyleSnapshots([
+        snapshot(),
+        snapshot({ isText: false, isImage: true, tagName: "IMG" }),
+      ]),
+    ).toBeNull();
   });
 });

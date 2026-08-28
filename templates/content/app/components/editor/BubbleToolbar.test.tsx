@@ -365,7 +365,7 @@ describe("BubbleToolbar", () => {
 
     root = createRoot(toolbarElement);
     act(() => root!.render(<BubbleToolbar editor={editor!} />));
-    act(() => editor!.commands.setHeading({ level: 5 }));
+    void act(() => editor!.commands.setHeading({ level: 5 }));
 
     const trigger = toolbarElement.querySelector<HTMLButtonElement>(
       'button[aria-label="editor.slash.turnInto: editor.heading5"]',

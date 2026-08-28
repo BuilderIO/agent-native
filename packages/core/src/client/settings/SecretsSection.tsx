@@ -566,7 +566,7 @@ function SecretCard({
                     value={value}
                     onChange={setValue}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") handleSave();
+                      if (event.key === "Enter") void handleSave();
                     }}
                     placeholder={
                       secret.status === "set"

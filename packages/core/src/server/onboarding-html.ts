@@ -1132,20 +1132,18 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const authMode = opts.authMode ?? "password";
   const magicLinkMode = authMode === "magic-link";
   const simplifiedAuth = opts.initialPrompt === true;
-  // In a Google-only app, Google is the sole sign-in method, so always render
-  // a working button — never gate it on env vars detected at render time. The
-  // login page is a public, CDN-cacheable shell served to everyone (per-user
-  // and per-config state is resolved client-side after load), so baking a
-  // "not configured" message in here would freeze that error into the cache
-  // for every visitor. A genuinely misconfigured server instead surfaces a
-  // clear error at click time via the auth API.
-  const renderGoogleButton = showGoogle || googleOnly;
+  const renderGoogleButton = showGoogle;
   const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
   const workspaceRuntime = isWorkspaceRuntime();
+  const trackingApp =
+    getAppConfig().app.slug ??
+    getAppConfig().app.template ??
+    getAppConfig().app.id ??
+    "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -1212,6 +1210,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const t = (key: keyof typeof EN_AUTH_COPY) => defaultAuthCopy[key];
   const i18nAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n="${key}"` : "";
+  const googleUnavailableHtml =
+    googleOnly && !showGoogle
+      ? `<p class="google-error show" id="google-err" role="status"${i18nAttr("googleNotConfigured")}>${esc(t("googleNotConfigured"))}</p>`
+      : "";
   const i18nAriaAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
     key ? ` data-i18n-aria-label="${key}"` : "";
   const i18nPlaceholderAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
@@ -2274,8 +2276,7 @@ ${
   .auth-mode-link { text-decoration: none; }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
-  .magic-link-submit { display: none; }
-  .magic-link-submit.is-visible { display: block; }
+  .magic-link-submit { display: block; }
   .magic-link-success { display: none; }
   .magic-link-success.is-visible { display: block; }
   .magic-link-success-copy {
@@ -2410,6 +2411,7 @@ ${marketingPanelHtml}
 ${identitySsoHtml}
 ${localDevHtml}
 <div id="full-auth-options" class="full-auth-options">
+${googleUnavailableHtml}
 ${
   renderGoogleButton
     ? `
@@ -2541,6 +2543,38 @@ ${signInJourneyInlineScript()}
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
     var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
+    var __AN_AUTH_APP = ${JSON.stringify(trackingApp)};
+    function __anTrackAuth(name, properties) {
+      try {
+        var config = window.__AGENT_NATIVE_CONFIG__ || {};
+        if (!config.agentNativeAnalyticsPublicKey) return;
+        var anonymousId = '';
+        // coercion-ok: privacy-restricted storage means this public event cannot be attributed
+        try { anonymousId = localStorage.getItem('agent-native.anonymous_id') || ''; } catch (e) {}
+        if (!anonymousId) return;
+        var sessionId = '';
+        // coercion-ok: privacy-restricted storage means this public event has no session id
+        try { sessionId = sessionStorage.getItem('agent-native.session_id') || ''; } catch (e) {}
+        var body = JSON.stringify({
+          publicKey: config.agentNativeAnalyticsPublicKey,
+          event: name,
+          properties: Object.assign({ app: __AN_AUTH_APP }, properties || {}),
+          anonymousId: anonymousId,
+          sessionId: sessionId || undefined,
+          timestamp: new Date().toISOString()
+        });
+        var endpoint = config.agentNativeAnalyticsEndpoint || 'https://analytics.agent-native.com/track';
+        if (navigator.sendBeacon && navigator.sendBeacon(endpoint, body)) return;
+        fetch(endpoint, {
+          method: 'POST',
+          body: body,
+          keepalive: true,
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' }
+        // coercion-ok: analytics delivery is best effort and cannot block auth
+        }).catch(function() {});
+      // coercion-ok: analytics delivery is best effort and cannot block auth
+      } catch (e) {}
+    }
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
     }
@@ -3637,8 +3671,7 @@ ${
       var button = document.getElementById('magic-link-submit');
       if (!emailInput || !button) return;
       var isValid = __anIsValidAuthEmail(emailInput.value);
-      button.classList.toggle('is-visible', isValid);
-      button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      button.disabled = !isValid;
       var googleButton = document.getElementById('google-btn');
       if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
     }
@@ -3924,7 +3957,7 @@ ${
         initial = 'login';
       } else if (path === '/signup' || path.endsWith('/signup')) {
         initial = 'signup';
-      } else {
+      } else if (__AN_AUTH_MODE !== 'magic-link') {
         var stored = localStorage.getItem(TAB_STORAGE_KEY);
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
@@ -4000,6 +4033,7 @@ ${
       __anShowEmailValidationError(emailInput, msg);
       return;
     }
+    __anTrackAuth('auth.signup_clicked', { surface: 'signup', method: 'magic_link', auth_view: __anAuthView });
     var originalLabel = btn.textContent;
     btn.disabled = true;
     __anMagicLinkInFlight = isDesktopMagicLink;
@@ -4072,6 +4106,7 @@ ${
         __anShowEmailValidationError(emailInput, msg);
         return;
       }
+      __anTrackAuth('auth.signup_clicked', { surface: 'signup', method: 'password', auth_view: __anAuthView });
       var res = await fetch(__anPath('/_agent-native/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4097,11 +4132,25 @@ ${
           __anRedirectToSignedInApp();
           return;
         }
+        var loginData;
+        try {
+          loginData = await loginRes.json();
+        } catch (error) {
+          console.warn('[auth] Could not parse sign-in response', error);
+        }
+        var loginError = __anAuthErrorText(loginData, __anT('registrationFailed'));
+        if (loginRes.status === 403 && /not verified|verification/i.test(loginError)) {
           btn.disabled = false;
           btn.textContent = originalLabel;
           showVerificationStep(email, pass);
           return;
         }
+        msg.textContent = loginError;
+        msg.classList.add('show', 'error');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        return;
+      }
       msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
@@ -4248,6 +4297,7 @@ ${
   renderGoogleButton
     ? `
     async function signInWithGoogle() {
+    __anTrackAuth(__anAuthView === 'login' ? 'auth.login_clicked' : 'auth.signup_clicked', { surface: __anAuthView === 'login' ? 'login' : 'signup', method: 'google', auth_view: __anAuthView });
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     var ret = __anResumeHref();
@@ -4316,6 +4366,13 @@ ${
   `
     : ""
 }
+  if (__anAuthView === 'signup' || __anAuthView === 'magicLink' || __anAuthView === 'googleOnly') {
+    __anTrackAuth('auth.signup_viewed', {
+      surface: 'signup',
+      auth_mode: __AN_AUTH_MODE,
+      auth_view: __anAuthView
+    });
+  }
 </script>
 </body>
 </html>`;

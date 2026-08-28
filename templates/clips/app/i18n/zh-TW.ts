@@ -607,6 +607,8 @@ const messages = {
     macSublabel: "通用（Apple Silicon + Intel）",
     windowsSublabel: "64 位 MSI 安裝程式",
     downloadFor: "下載 {{platform}}",
+    downloadStarted: "下載已開始",
+    downloadAgain: "沒有成功？請再次下載",
     alsoFor: "也可用於 {{platform}}",
     backToLibrary: "返回媒體庫",
     clipsDesktop: "Clips 桌面版",

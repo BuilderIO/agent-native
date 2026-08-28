@@ -21,7 +21,9 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
 vi.mock("@agent-native/core/server", () => ({
+  getRequestRunContext: () => ({ caller: "mcp" }),
   getRequestUserEmail: () => "author@example.com",
+  getRequestUserName: () => "Authenticated Profile Name",
 }));
 vi.mock("../server/lib/comment-notifications.js", () => ({
   notifyDocumentComment: vi.fn(async () => false),

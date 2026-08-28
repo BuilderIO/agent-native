@@ -617,7 +617,10 @@ export default function AppSettings({
   }, []);
 
   const handleEnvironmentLaneToggle = useCallback(async (beta: boolean) => {
-    const setLane = window.electronAPI?.identity?.setEnvironmentLane;
+    const setLane = window.electronAPI?.identity
+      ? (lane: "beta" | "production") =>
+          window.electronAPI!.identity!.setEnvironmentLane(lane)
+      : undefined;
     if (!setLane) return;
     setEnvironmentLane(await setLane(beta ? "beta" : "production"));
     // Every mounted webview is already pointed at the old origin, so the
@@ -729,12 +732,12 @@ export default function AppSettings({
     const api = window.electronAPI?.mcpServers;
     if (!api) return null;
     return {
-      list: api.list,
-      create: api.create,
-      delete: api.delete,
-      reconnect: api.reconnect,
-      test: api.test,
-      testExisting: api.testExisting,
+      list: (...args) => api.list(...args),
+      create: (...args) => api.create(...args),
+      delete: (...args) => api.delete(...args),
+      reconnect: (...args) => api.reconnect(...args),
+      test: (...args) => api.test(...args),
+      testExisting: (...args) => api.testExisting(...args),
     };
   }, []);
 
@@ -1694,7 +1697,9 @@ export function AddAppDialog({
     setFolderError("");
     setFolderWarning("");
     try {
-      const picker = window.electronAPI?.appConfig?.chooseLocalFolder;
+      const picker = window.electronAPI?.appConfig
+        ? () => window.electronAPI!.appConfig!.chooseLocalFolder()
+        : undefined;
       if (!picker) {
         setFolderError("Folder picker is only available in Desktop.");
         return;

@@ -54,7 +54,7 @@ function clipIdFromPath(pathname: string): string | null {
 }
 
 function escapeHtmlAttribute(value: string): string {
-  return value.replace(/[&<>\"']/g, (character) => {
+  return value.replace(/[&<>"']/g, (character) => {
     switch (character) {
       case "&":
         return "&amp;";
@@ -62,7 +62,7 @@ function escapeHtmlAttribute(value: string): string {
         return "&lt;";
       case ">":
         return "&gt;";
-      case '\"':
+      case '"':
         return "&quot;";
       case "'":
         return "&#39;";

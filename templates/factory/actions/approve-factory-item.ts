@@ -232,10 +232,13 @@ function parseGuardResults(
     }
     return {
       passed: (entry as { passed: boolean }).passed,
-      reason: String(
-        (entry as { reason?: unknown }).reason ??
-          "Guard did not provide a reason.",
-      ),
+      reason:
+        typeof (entry as { reason?: unknown }).reason === "object"
+          ? JSON.stringify((entry as { reason?: unknown }).reason)
+          : String(
+              (entry as { reason?: string | number | boolean | bigint })
+                .reason ?? "Guard did not provide a reason.",
+            ),
     };
   });
 }

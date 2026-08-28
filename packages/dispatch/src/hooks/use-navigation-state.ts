@@ -108,7 +108,7 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
         markAgentChatHomeHandoff("dispatch");
       }
     }
-    navigate(nextPath);
+    void navigate(nextPath);
     qc.setQueryData(["navigate-command"], null);
   }, [extensions, location.pathname, navCommand, navigate, qc]);
 }

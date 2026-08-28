@@ -137,11 +137,17 @@ function ev(opts: {
   path?: string;
   body?: any;
   host?: string;
+  acceptLanguage?: string;
 }): any {
   return {
     method: opts.method ?? "GET",
     body: opts.body,
-    headers: { host: opts.host ?? "mail.agent-native.com" },
+    headers: {
+      host: opts.host ?? "mail.agent-native.com",
+      ...(opts.acceptLanguage
+        ? { "accept-language": opts.acceptLanguage }
+        : {}),
+    },
     node: { req: { url: opts.path ?? "/" } },
     path: opts.path ?? "/",
     url: { pathname: (opts.path ?? "/").split("?")[0] },
@@ -212,6 +218,32 @@ describe("handleMcpConnect", () => {
       );
     });
 
+    it("localizes the shared guide copy from the request language", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/");
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain("Tu URL de MCP");
+      expect(body).toContain("Conexiones existentes");
+      expect(body).not.toContain("Existing connections");
+      expect(body).not.toContain("Signed in as");
+      expect(body).toContain('id="mcp-guide-tab-claude"');
+      expect(body).toContain('aria-labelledby="mcp-guide-tab-claude"');
+    });
+
+    it("uses a validated locale from the Settings connect link", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({ path: "/?locale=es-ES", acceptLanguage: "en-US" }),
+        "/",
+      );
+      const body = await res.text();
+      expect(body).toContain("Abre Customize → Connectors en Claude.");
+      expect(body).not.toContain("Open Customize → Connectors in Claude.");
+      expect(body).toContain('<html lang="es-ES" dir="ltr">');
+    });
+
     it("shows the device user_code when present and well-formed", async () => {
       getSessionMock.mockResolvedValue({ email: "u@example.com" });
       const res = await handleMcpConnect(
@@ -220,23 +252,30 @@ describe("handleMcpConnect", () => {
       );
       const body = await res.text();
       expect(body).toContain("ABCD-2345");
-      expect(body).toContain("Authorize this device");
+      expect(body).toContain("Authorize device");
       expect(body).not.toContain("From your terminal");
       expect(body).not.toContain("Connect an external agent");
       expect(body).not.toContain(">None<");
       expect(body).toContain("Authorizing device...");
       expect(body).toContain(
-        'showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized")',
+        'showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized)',
       );
       expect(body).toContain(
-        'showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected")',
+        'showMsg(COPY.connectedDescription, "ok", COPY.connected)',
+      );
+      expect(body).toContain(
+        "if (response.status === 404) return COPY.unknownDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 410) return COPY.expiredDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 409) return COPY.alreadyUsedDeviceCode;",
       );
       expect(body).toContain(".msg-title");
       expect(body).toContain(".msg-copy");
       expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
-      expect(body).not.toContain("Your MCP URL");
-      expect(body).not.toContain("Advanced options");
     });
   });
 

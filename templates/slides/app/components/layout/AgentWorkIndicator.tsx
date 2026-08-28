@@ -99,33 +99,52 @@ function useAgentSidebarVisible() {
 export function AgentWorkIndicator() {
   const t = useT();
   const [running, setRunning] = useState(false);
-  const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runningSourcesRef = useRef(new Set<string>());
+  const stopDebounceRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
   const sidebarVisible = useAgentSidebarVisible();
 
   useEffect(() => {
-    const clearStopDebounce = () => {
-      if (stopDebounceRef.current !== null) {
-        clearTimeout(stopDebounceRef.current);
-        stopDebounceRef.current = null;
+    const legacySource = "__legacy__";
+    const clearStopDebounce = (source: string) => {
+      const timer = stopDebounceRef.current.get(source);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        stopDebounceRef.current.delete(source);
       }
     };
+    const syncRunning = () => setRunning(runningSourcesRef.current.size > 0);
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (typeof detail?.isRunning === "boolean") {
-        clearStopDebounce();
+        const source =
+          typeof detail.tabId === "string" && detail.tabId.trim()
+            ? detail.tabId
+            : legacySource;
+        clearStopDebounce(source);
         if (detail.isRunning) {
-          setRunning(true);
+          runningSourcesRef.current.add(source);
+          syncRunning();
+        } else if (detail.reason === "stopped") {
+          runningSourcesRef.current.delete(source);
+          syncRunning();
         } else {
-          stopDebounceRef.current = setTimeout(() => {
-            stopDebounceRef.current = null;
-            setRunning(false);
+          const timer = setTimeout(() => {
+            stopDebounceRef.current.delete(source);
+            runningSourcesRef.current.delete(source);
+            syncRunning();
           }, CHAT_STOP_DEBOUNCE_MS);
+          stopDebounceRef.current.set(source, timer);
         }
       }
     };
     window.addEventListener("agentNative.chatRunning", handler);
     return () => {
-      clearStopDebounce();
+      for (const timer of stopDebounceRef.current.values()) {
+        clearTimeout(timer);
+      }
+      stopDebounceRef.current.clear();
       window.removeEventListener("agentNative.chatRunning", handler);
     };
   }, []);

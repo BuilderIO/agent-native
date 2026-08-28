@@ -583,7 +583,8 @@ function FeedbackPopoverButton({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter")
+                    void submit();
                 }}
                 placeholder={resolvedPlaceholder}
                 rows={5}

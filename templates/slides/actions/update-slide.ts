@@ -25,12 +25,11 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
-import { hashSlideContent } from "../shared/slide-fit.js";
-import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
-  awaitLayoutFitCheck,
-  formatOverflowForTool,
-} from "./_await-fit-check.js";
+  createLayoutFitRevision,
+  hashSlideContent,
+} from "../shared/slide-fit.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
@@ -97,7 +96,7 @@ function storedCreativeContext(value: unknown): {
 
 export default defineAction({
   description:
-    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default.",
+    "Atomically patch a slide's HTML like a code editor: send several exact edits against the current source, optionally format it with Prettier, and sync the result live to open editors. Prefer edits over fullContent so unrelated markup is not regenerated. Use baseContentHash from get-deck to reject stale patches. Content edits clear existing click-reveal metadata; use patch-deck with the complete animations list when the edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously, and get-layout-overflows can check the returned contentHash plus layoutFitRevision later.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),
@@ -354,6 +353,8 @@ export default defineAction({
         }
       }
 
+      if (applied) slide.layoutFitRevision = createLayoutFitRevision();
+
       // Animation targets are paths into the persisted HTML. A content edit
       // can keep every path valid while changing which visual element lives at
       // that path, so preserving the old list would reveal the wrong content.
@@ -471,6 +472,7 @@ export default defineAction({
           slide,
           slideIndex,
           contentHash: hashSlideContent(String(slide.content ?? "")),
+          layoutFitRevision: slide.layoutFitRevision,
           contextMode,
           contextPackId: validated.contextPackId,
           reuseLabels: slideReuseLabels,
@@ -484,32 +486,39 @@ export default defineAction({
         slide,
         slideIndex,
         contentHash: hashSlideContent(String(slide.content ?? "")),
+        layoutFitRevision: slide.layoutFitRevision,
       };
     });
 
+    // ─── Non-write exits must THROW, not return ───────────────────────────
+    //
+    // Returning any value — `{ ok: false }` included — is indistinguishable
+    // from a successful write to everything above this action. `isError` is
+    // set only from the runner's catch, so a returned no-op is stamped
+    // `completedSideEffect: true` and the journal later replays it to a
+    // resumed run under "Already completed (do NOT re-run these — their side
+    // effects already happened)". It is also invisible to the repeat
+    // breakers, which is how one production thread ran 20 consecutive
+    // identical "text not found" calls without one firing. Throwing is the
+    // only channel that says "the deck was not modified", and it is already
+    // this file's idiom for the stale-hash rejection above.
     if (rmw.notFound) {
-      return {
-        ok: false,
-        message: `Text not found in slide: "${find!.slice(0, 60)}". Use get-deck with this slideId to see the current slide HTML.`,
-      };
+      throw new Error(
+        `Nothing was written: text not found in slide: "${find!.slice(0, 60)}". Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`,
+      );
     }
 
     const { applied, editResults } = rmw;
+    const unmatched = (editResults ?? []).filter((entry) =>
+      entry.endsWith(":0"),
+    );
     if (!applied) {
-      return {
-        ok: true,
-        deckId,
-        slideId,
-        applied: false,
-        editResults,
-        contentHash: rmw.contentHash,
-        deepLink: deckDeepLink(deckId),
-      };
+      throw new Error(
+        unmatched.length
+          ? `Nothing was written: ${unmatched.join(", ")} matched no text in the slide. Current slide contentHash is ${rmw.contentHash}; call get-deck with this slideId and rebase the patch against the current HTML.`
+          : `Nothing was written: the result is identical to the current slide content (contentHash ${rmw.contentHash}). The slide already says what this edit would have made it say.`,
+      );
     }
-
-    // Start the freshness window after the SQL write and before notifying the
-    // editor. This keeps a fast render from being rejected as stale.
-    const fitSince = Date.now();
 
     // Best-effort presence: light the agent up on this slide in open editors
     // and drop a lingering "AI edited" highlight. Never blocks or fails the
@@ -531,23 +540,25 @@ export default defineAction({
       `update-slide: deck=${deckId} slide=${slideId} ${edits ? `edits=${edits.length}` : find !== undefined ? `find="${find.slice(0, 40)}"` : "fullContent"} applied=${applied}`,
     );
 
-    // Wait briefly for the editor to re-render and measure. If the patched
-    // slide still overflows, surface the new measurement so the agent can
-    // tighten further. Timeout = no editor open / nothing to measure.
-    const fit = await awaitLayoutFitCheck(
-      slideId,
-      fitSince,
-      4000,
-      hashSlideContent(rmw.slide?.content ?? ""),
-    );
-
     const base = {
       ok: true,
       deckId,
       slideId,
       applied,
       editResults,
+      ...(unmatched.length
+        ? {
+            partial: true,
+            message: `Applied, but ${unmatched.join(", ")} matched no text and was skipped — do not report those parts as done.`,
+          }
+        : {}),
       contentHash: rmw.contentHash,
+      layoutFit: {
+        status: "pending" as const,
+        slideId,
+        contentHash: rmw.contentHash,
+        layoutFitRevision: rmw.layoutFitRevision,
+      },
       deepLink: deckDeepLink(deckId),
       ...(rmw.contextMode
         ? {
@@ -557,21 +568,6 @@ export default defineAction({
           }
         : {}),
     };
-
-    if (fit.status === "overflows") {
-      return {
-        ...base,
-        layoutOverflow: {
-          verticalOverflow: fit.measurement.verticalOverflow,
-          horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
-          contentWidth: fit.measurement.contentWidth,
-          contentHeight: fit.measurement.contentHeight,
-          viewportWidth: fit.measurement.viewportWidth,
-          viewportHeight: fit.measurement.viewportHeight,
-        },
-        message: formatOverflowForTool(deckId, fit.measurement),
-      };
-    }
 
     return base;
   },

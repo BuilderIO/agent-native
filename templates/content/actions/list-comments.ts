@@ -1,5 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import { resolveUserProfileName } from "@agent-native/core/user-profile";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -54,6 +56,7 @@ export default defineAction({
         ),
       )
       .orderBy(asc(schema.documentComments.createdAt));
+    const profiles = await getUserProfiles(rows.map((row) => row.authorEmail));
 
     const mapped = rows.map((row) => ({
       id: row.id,
@@ -68,7 +71,11 @@ export default defineAction({
         row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
       mentions: parseMentions(row.mentionsJson),
       author_email: row.authorEmail,
-      author_name: row.authorName,
+      author_name: resolveUserProfileName(
+        row.authorEmail,
+        row.authorName,
+        profiles.get(row.authorEmail.toLowerCase())?.name,
+      ),
       resolved: row.resolved,
       created_at: row.createdAt,
       updated_at: row.updatedAt,

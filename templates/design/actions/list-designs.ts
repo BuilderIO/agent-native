@@ -1,6 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
+import { resolveUserProfileName } from "@agent-native/core/user-profile";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -166,6 +168,11 @@ export default defineAction({
       }
     }
 
+    const profiles =
+      args.compact === "true"
+        ? new Map()
+        : await getUserProfiles(rows.map((row) => row.ownerEmail));
+
     const items = rows.map((row) => {
       if (args.compact === "true") {
         return {
@@ -182,6 +189,11 @@ export default defineAction({
         designSystemId: row.designSystemId,
         visibility: row.visibility,
         ownerEmail: row.ownerEmail,
+        ownerName: resolveUserProfileName(
+          row.ownerEmail,
+          null,
+          profiles.get(row.ownerEmail.toLowerCase())?.name,
+        ),
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

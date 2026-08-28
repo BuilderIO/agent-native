@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -115,8 +119,16 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
 
-    const derived = displayNameFromEmail(email).trim();
-    const name = derived || "AI Agent";
+    const requestName = getRequestRunContext()
+      ? undefined
+      : getRequestUserName()?.trim();
+    let name: string;
+    if (requestName) {
+      name = requestName;
+    } else {
+      const derived = displayNameFromEmail(email).trim();
+      name = derived || "AI Agent";
+    }
 
     const mentions = parseMentions(args.mentions);
     const mentionsJson = mentions.length > 0 ? JSON.stringify(mentions) : null;

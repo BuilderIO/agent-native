@@ -66,7 +66,9 @@ const statusColors: Record<string, string> = {
 
 export function FormsListPage() {
   const t = useT();
-  const { formatDate, formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatDate = formatters.formatDate.bind(formatters);
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const navigate = useNavigate();
   const [view, setView] = useState<"active" | "archive">("active");
   const {
@@ -147,7 +149,7 @@ export function FormsListPage() {
         {
           onSuccess: (newForm) => {
             toast.success(t("forms.duplicated"));
-            navigate(`/forms/${newForm.id}`);
+            void navigate(`/forms/${newForm.id}`);
           },
         },
       );
@@ -528,7 +530,7 @@ export function FormsListPage() {
                     toggleSelection(form.id);
                     return;
                   }
-                  navigate(formHref);
+                  void navigate(formHref);
                 }}
                 onKeyDown={(e) => {
                   if (
@@ -540,7 +542,7 @@ export function FormsListPage() {
                       toggleSelection(form.id);
                       return;
                     }
-                    navigate(formHref);
+                    void navigate(formHref);
                   }
                 }}
               >
@@ -617,7 +619,7 @@ export function FormsListPage() {
                             <DropdownMenuItem
                               onClick={(e) => {
                                 e.stopPropagation();
-                                navigate(`/forms/${form.id}/responses`);
+                                void navigate(`/forms/${form.id}/responses`);
                               }}
                             >
                               <IconChartBar className="h-4 w-4 me-2" />
@@ -665,7 +667,7 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate(`/forms/${form.id}`);
+                                    void navigate(`/forms/${form.id}`);
                                   }}
                                 >
                                   <IconExternalLink className="h-4 w-4 me-2" />
@@ -678,7 +680,9 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    navigate(`/forms/${form.id}/responses`);
+                                    void navigate(
+                                      `/forms/${form.id}/responses`,
+                                    );
                                   }}
                                 >
                                   <IconChartBar className="h-4 w-4 me-2" />
@@ -698,7 +702,7 @@ export function FormsListPage() {
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDuplicate(form);
+                                    void handleDuplicate(form);
                                   }}
                                 >
                                   <IconCopy className="h-4 w-4 me-2" />

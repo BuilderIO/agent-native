@@ -303,6 +303,10 @@ function optionById(property: DocumentProperty, id: string | null) {
   );
 }
 
+function propertyText(value: unknown) {
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+}
+
 export function displayValue(property: DocumentProperty, t?: TFunction) {
   const value = property.value;
   const type = property.definition.type;
@@ -330,7 +334,7 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   }
 
   if (type === "created_time" || type === "last_edited_time") {
-    return <span>{formatDateTime(String(value))}</span>;
+    return <span>{formatDateTime(propertyText(value))}</span>;
   }
 
   if (type === "person") {
@@ -348,11 +352,11 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   }
 
   if (type === "created_by" || type === "last_edited_by") {
-    return <PersonPill value={String(value)} />;
+    return <PersonPill value={propertyText(value)} />;
   }
 
   if (type === "place") {
-    return <PlacePill value={String(value)} />;
+    return <PlacePill value={propertyText(value)} />;
   }
 
   if (type === "files_media") {
@@ -392,11 +396,11 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   }
 
   if (type === "select" || type === "status") {
-    const option = optionById(property, String(value));
+    const option = optionById(property, propertyText(value));
     return option ? (
       <OptionPill option={option} />
     ) : (
-      <span>{String(value)}</span>
+      <span>{propertyText(value)}</span>
     );
   }
 
@@ -421,7 +425,7 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
     );
   }
 
-  return <span>{String(value)}</span>;
+  return <span>{propertyText(value)}</span>;
 }
 
 function OptionPill({ option }: { option: DocumentPropertyOption }) {
@@ -1087,10 +1091,10 @@ export function PropertyManagementPopover({
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
     onSuccess: () => {
-      bindQueryClient.invalidateQueries({
+      void bindQueryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      bindQueryClient.invalidateQueries({
+      void bindQueryClient.invalidateQueries({
         queryKey: [
           "action",
           "list-document-properties",
@@ -2814,7 +2818,7 @@ function ScalarValueEditor({
       ? property.value.slice(0, 10)
       : property.value === null || Array.isArray(property.value)
         ? ""
-        : String(property.value);
+        : propertyText(property.value);
   const [value, setValue] = useState(initialValue);
   const scalarValueInputRef = useRef<HTMLInputElement>(null);
 

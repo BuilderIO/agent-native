@@ -290,6 +290,28 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     sql: {},
     run: expireJwksKeysAfterAuthSecretRotation,
   },
+  {
+    version: 5,
+    name: "better-auth-add-onboarding-role",
+    sql: {
+      postgres: `
+        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "onboarding_role" TEXT
+      `,
+      sqlite: `
+        ALTER TABLE user ADD COLUMN IF NOT EXISTS onboarding_role TEXT
+      `,
+    },
+  },
+  {
+    version: 5,
+    name: "better-auth-user-lower-email-index",
+    sql: {
+      postgres:
+        'CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON "user" (LOWER(email))',
+      sqlite:
+        "CREATE INDEX IF NOT EXISTS better_auth_user_lower_email_idx ON user (LOWER(email))",
+    },
+  },
 ];
 
 export async function runBetterAuthMigrations(

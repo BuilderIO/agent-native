@@ -12,13 +12,23 @@ import {
   type RgbaColor,
 } from "@shared/color-utils";
 import type { ShaderDescriptor } from "@shared/shader-presets";
-import { IconChevronDown, IconColorPicker } from "@tabler/icons-react";
+import {
+  IconChevronDown,
+  IconCircleOff as IconNoneFill,
+  IconColorPicker,
+  IconDroplet as IconShaderFill,
+  IconGrain as IconNoiseFill,
+  IconGridPattern as IconPatternFill,
+  IconPhoto as IconImageFill,
+  IconSquareFilled as IconSolid,
+  IconVideo as IconVideoFill,
+} from "@tabler/icons-react";
 import {
   useEffect,
   useMemo,
   useRef,
   useState,
-  type JSX,
+  type ElementType,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
@@ -274,34 +284,10 @@ const DEFAULT_LABELS: DesignColorPickerLabels = {
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
 const CHECKER_A = "#e5e5e5";
 // guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_B = "#f5f5f5";
-const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
+const CHECKER_B = "#ffffff";
+const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
 
 // ─── Paint-type icon SVGs (Tabler style, distinct per type) ────────────────────
-
-function IconSolid({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect
-        x="4"
-        y="4"
-        width="16"
-        height="16"
-        rx="2"
-        fill="currentColor"
-        stroke="none"
-      />
-    </svg>
-  );
-}
 
 function IconLinearGradient({ className }: { className?: string }) {
   return (
@@ -447,150 +433,12 @@ function IconDiamondGradient({ className }: { className?: string }) {
   );
 }
 
-function IconImageFill({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="m3 16 5-5 4 4 3-3 6 6" />
-      <circle cx="8.5" cy="8.5" r="1.5" />
-    </svg>
-  );
-}
-
-function IconVideoFill({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      {/* Frame border */}
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      {/* Play triangle — filled, no stroke for clarity at small size */}
-      <polygon points="10,9 10,15 16,12" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function IconNoneFill({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <circle cx="12" cy="12" r="9" />
-      <line x1="5.636" y1="5.636" x2="18.364" y2="18.364" />
-    </svg>
-  );
-}
-
-function IconShaderFill({ className }: { className?: string }) {
-  // Droplet — the design editor uses a teardrop for shader/blur-type fills.
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <defs>
-        <linearGradient id="shader-ico" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0.25" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M12 3c3.5 4 6 7 6 10a6 6 0 0 1-12 0c0-3 2.5-6 6-10z"
-        fill="url(#shader-ico)"
-        stroke="currentColor"
-        strokeOpacity="0.7"
-      />
-    </svg>
-  );
-}
-
-function IconNoiseFill({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      stroke="none"
-      className={className}
-    >
-      <rect
-        x="3.5"
-        y="3.5"
-        width="17"
-        height="17"
-        rx="2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.6}
-        strokeOpacity="0.6"
-      />
-      {[
-        [7, 7],
-        [11, 6.5],
-        [15, 8],
-        [8, 10.5],
-        [13, 11],
-        [16.5, 11.5],
-        [6.5, 13],
-        [10, 14],
-        [14, 13.5],
-        [9, 16.5],
-        [13, 16.5],
-        [16, 15.5],
-      ].map(([cx, cy], index) => (
-        <circle key={index} cx={cx} cy={cy} r="0.9" />
-      ))}
-    </svg>
-  );
-}
-
-function IconPatternFill({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <rect x="3.5" y="3.5" width="17" height="17" rx="2" strokeOpacity="0.6" />
-      <path d="M3.5 9h17M3.5 15h17M9 3.5v17M15 3.5v17" strokeOpacity="0.85" />
-    </svg>
-  );
-}
-
 // ─── Paint type definitions (only supported types rendered) ────────────────────
 
 const PAINT_TYPES: Array<{
   type: DesignPaintType;
   label: string;
-  Icon: (props: { className?: string }) => JSX.Element;
+  Icon: ElementType<{ className?: string }>;
 }> = [
   { type: "solid", label: "Solid", Icon: IconSolid }, // i18n-ignore paint type label
   { type: "linear", label: "Linear", Icon: IconLinearGradient }, // i18n-ignore paint type label
@@ -830,7 +678,7 @@ export function DesignColorPicker({
             toCssColor(color) || "#000000",
           )
         : null,
-    [color.r, color.g, color.b, color.a, effectivePaintType],
+    [color, effectivePaintType],
   );
   const activeGradient: GradientValue | null = GRADIENT_TYPES.has(
     effectivePaintType,
@@ -842,7 +690,7 @@ export function DesignColorPicker({
     const nextHex = toDisplayHex(color);
     hexDraftRef.current = nextHex;
     setHexDraft(nextHex);
-  }, [color.r, color.g, color.b]);
+  }, [color]);
 
   useEffect(() => {
     if (open) {
@@ -1679,8 +1527,8 @@ export function DesignColorPicker({
                             disabled={disabled}
                             backgroundImage={alphaTrackBackground(fieldColor)}
                             backgroundColor={CHECKER_B}
-                            backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
-                            backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
+                            backgroundSize="100% 100%, 8px 8px"
+                            backgroundPosition="0 0, 0 0"
                             onChange={(next) => {
                               if (activeGradient) {
                                 emitStopColor({
@@ -1895,7 +1743,7 @@ function ColorModelPill({
         onClick={() => setMenuOpen((o) => !o)}
         className={cn(
           "flex h-6 w-[4.5rem] items-center gap-0.5 rounded px-1.5",
-          "!text-[11px] font-semibold text-foreground",
+          "design-sidebar-section-title text-foreground",
           "bg-transparent border-0 shadow-none",
           "hover:bg-[var(--design-editor-control-bg)]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -2587,10 +2435,10 @@ function swatchStyle(value: string): {
   const parsed = parseCssColorExtended(value);
   if (parsed && parsed.a < 1) {
     return {
-      backgroundImage: `${CHECKERBOARD_IMAGE}, linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)})`,
+      backgroundImage: `linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)}), ${CHECKERBOARD_IMAGE}`,
       backgroundColor: CHECKER_B,
-      backgroundSize: "8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%",
-      backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0, 0 0",
+      backgroundSize: "100% 100%, 8px 8px",
+      backgroundPosition: "0 0, 0 0",
     };
   }
   if (parsed) return { backgroundColor: rgbaToCss(parsed) };
@@ -2608,7 +2456,8 @@ function swatchStyle(value: string): {
 }
 
 function alphaTrackBackground(color: RgbaColor): string {
-  return `${CHECKERBOARD_IMAGE}, linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1))`;
+  // guard:allow-raw-color — dynamic alpha gradient must use the selected RGB values.
+  return `linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1)), ${CHECKERBOARD_IMAGE}`;
 }
 
 export function rgbaToHsv(color: RgbaColor): HsvaColor {
@@ -2700,7 +2549,9 @@ export function expandHexShorthand(value: string): string {
   if (/^[0-9a-f]$/i.test(trimmed)) return trimmed.repeat(6);
   if (/^[0-9a-f]{2}$/i.test(trimmed)) return trimmed.repeat(3);
   if (/^[0-9a-f]{3}$/i.test(trimmed)) {
-    return [...trimmed].map((digit) => digit.repeat(2)).join("");
+    return Array.from(trimmed)
+      .map((digit) => digit.repeat(2))
+      .join("");
   }
   return trimmed;
 }

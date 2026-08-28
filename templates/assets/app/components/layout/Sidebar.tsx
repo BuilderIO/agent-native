@@ -25,6 +25,7 @@ import {
   IconSearch,
   IconSettings,
   IconShare3,
+  IconTemplate,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -41,6 +42,7 @@ import { cn } from "@/lib/utils";
 const baseNavItems = [
   { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
+  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
 ];
 
 const bottomNavItems = [
@@ -450,7 +452,10 @@ export function Sidebar() {
                     location.pathname.startsWith("/brand-kits/") ||
                     location.pathname.startsWith("/image/") ||
                     location.pathname.startsWith("/asset/")
-                  : location.pathname.startsWith(item.href);
+                  : item.href === "/templates"
+                    ? location.pathname === "/templates" ||
+                      location.pathname.startsWith("/templates/")
+                    : location.pathname.startsWith(item.href);
             const link = (
               <Link
                 key={item.href}
