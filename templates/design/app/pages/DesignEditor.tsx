@@ -403,6 +403,7 @@ import {
   updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import {
@@ -3553,14 +3554,20 @@ function DesignEditor() {
     },
     [creativeContextState, t],
   );
-  const resolvePromptDesignSystemId = useCallback(
-    () =>
-      design?.designSystemId ??
-      defaultSystem?.id ??
-      designSystems[0]?.id ??
-      null,
-    [defaultSystem?.id, design?.designSystemId, designSystems],
-  );
+  const resolvePromptDesignSystemId = useCallback(() => {
+    if (design?.designSystemId) return design.designSystemId;
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  }, [defaultSystem, design?.designSystemId, designSystems]);
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined

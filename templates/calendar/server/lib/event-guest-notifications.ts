@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/server";
 
 import type { CalendarEvent, DeleteEventScope } from "../../shared/api.js";
+import { dateKeyInTimezone } from "../../shared/timezone.js";
 import {
   CALENDAR_EVENT_CANCELLATION_NOTE_EMAIL_ID,
   CALENDAR_EVENT_UPDATE_NOTE_EMAIL_ID,
@@ -69,6 +70,16 @@ function safeTimeZone(event: CalendarEvent): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function eventDateKey(event: CalendarEvent): string | undefined {
+  if (!event.start) return undefined;
+  if (event.allDay || /^\d{4}-\d{2}-\d{2}$/.test(event.start)) {
+    return event.start.slice(0, 10);
+  }
+  const timezone = safeTimeZone(event);
+  if (!timezone) return event.start.slice(0, 10);
+  return dateKeyInTimezone(new Date(event.start), timezone);
 }
 
 function formatWhen(event: CalendarEvent): string {
@@ -198,7 +209,7 @@ export async function sendEventGuestNotificationNote({
       view: "calendar",
       params: {
         eventId: event.id,
-        date: event.start ? event.start.slice(0, 10) : undefined,
+        date: eventDateKey(event),
       },
     }),
     getAppProductionUrl(),

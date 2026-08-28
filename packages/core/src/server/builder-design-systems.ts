@@ -1182,7 +1182,7 @@ export async function hydrateBuilderDesignSystemReference(
     docs.push(...response.docs);
     completionConfirmed ||= response.completionConfirmed;
     builderStatus = response.status ?? builderStatus;
-    if (response.docs.length < pageSize) break;
+    if (response.docs.length < pageSize || options.minimal) break;
     page += 1;
     if (pageNumber === MAX_BUILDER_DOC_PAGES - 1) {
       throw new Error(

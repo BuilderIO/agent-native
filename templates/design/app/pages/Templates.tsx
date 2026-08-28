@@ -47,6 +47,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
 type TemplateCategory =
@@ -122,6 +123,20 @@ export default function Templates() {
   const builtIns = filtered.filter((template) => template.isBuiltIn);
   const userTemplates = filtered.filter((template) => !template.isBuiltIn);
 
+  const resolveDefaultDesignSystemId = (): string | null => {
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  };
+
   const resolveTemplateDesignSystemId = (
     template: DesignTemplateSummary,
   ): string | null => {
@@ -131,7 +146,7 @@ export default function Templates() {
     ) {
       return template.designSystemId;
     }
-    return defaultSystem?.id ?? designSystems[0]?.id ?? null;
+    return resolveDefaultDesignSystemId();
   };
 
   const setSelectedTemplateParam = (templateId: string | null) => {
@@ -165,13 +180,13 @@ export default function Templates() {
       template.designSystemId &&
         designSystems.some((system) => system.id === template.designSystemId)
         ? template.designSystemId
-        : (defaultSystem?.id ?? designSystems[0]?.id ?? null),
+        : resolveDefaultDesignSystemId(),
     );
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
   }, [
-    defaultSystem?.id,
+    defaultSystem,
     designSystems,
     designSystemsLoading,
     linkedTemplateId,

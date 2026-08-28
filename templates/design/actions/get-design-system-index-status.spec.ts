@@ -58,6 +58,7 @@ describe("get-design-system-index-status", () => {
     });
     expect(mocks.hydrate).toHaveBeenCalledWith(
       expect.objectContaining({ builderJobId: "job-1" }),
+      { page: 0, pageSize: 1, minimal: true },
     );
   });
 

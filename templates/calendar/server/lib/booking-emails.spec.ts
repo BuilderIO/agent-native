@@ -121,4 +121,38 @@ describe("event guest note links", () => {
       }),
     );
   });
+
+  it("uses the event timezone when the instant crosses a UTC date boundary", async () => {
+    vi.clearAllMocks();
+
+    vi.mocked(isEmailConfigured).mockResolvedValue(true);
+
+    await sendEventGuestNotificationNote({
+      event: {
+        id: "google-midnight",
+        title: "Late review",
+        description: "",
+        start: "2026-05-22T00:30:00.000Z",
+        end: "2026-05-22T01:00:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        endTimeZone: "America/Los_Angeles",
+        location: "",
+        allDay: false,
+        source: "google",
+        attendees: [{ email: "guest@example.com" }],
+        organizer: { email: "dana@example.com", displayName: "Dana Hill" },
+        createdAt: "2026-05-21T18:00:00.000Z",
+        updatedAt: "2026-05-21T18:00:00.000Z",
+      },
+      organizerEmail: "dana@example.com",
+      message: "Moving this an hour later.",
+      kind: "update",
+    });
+
+    expect(vi.mocked(buildDeepLink)).toHaveBeenCalledWith({
+      app: "calendar",
+      view: "calendar",
+      params: { eventId: "google-midnight", date: "2026-05-21" },
+    });
+  });
 });

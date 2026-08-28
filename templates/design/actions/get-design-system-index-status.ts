@@ -31,7 +31,11 @@ export default defineAction({
       return { id, isBuilderBacked: false, status: "not-builder-backed" };
     }
 
-    const hydrated = await hydrateBuilderDesignSystemReference(reference);
+    const hydrated = await hydrateBuilderDesignSystemReference(reference, {
+      page: 0,
+      pageSize: 1,
+      minimal: true,
+    });
     return {
       id,
       isBuilderBacked: true,

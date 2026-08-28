@@ -85,6 +85,7 @@ import {
   writeStoredDesignFilter,
   type DesignFilter,
 } from "@/lib/design-filter";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -268,10 +269,19 @@ export default function Index() {
     setSelectedDesignIds(new Set());
   }, [designsData, page, totalPages]);
 
-  const resolveDefaultDesignSystemId = useCallback(
-    () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
-    [defaultSystem?.id, designSystems],
-  );
+  const resolveDefaultDesignSystemId = useCallback(() => {
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  }, [defaultSystem, designSystems]);
 
   const syncSelectedTemplate = useCallback(
     (templateId: string | null) => {
