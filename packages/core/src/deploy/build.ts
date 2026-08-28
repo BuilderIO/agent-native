@@ -1986,7 +1986,7 @@ const STATIC_SHELL_LOADING_MARKUP = [
         }
       </style></div>`,
 ].join("");
-const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var labels=${JSON.stringify(LOADING_LABELS)};var index=Math.floor(Math.random()*labels.length);window.__agentNativeLoadingLabelIndex=index;var label=document.querySelector('[data-agent-native-loading-label]');if(label)label.textContent=labels[index];})();</script>`;
+const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var now=window.performance.now();var loader=document.querySelector('[data-agent-native-cube-loader]');if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650+650)+'ms');var labels=${JSON.stringify(LOADING_LABELS)};var index=Math.floor(Math.random()*labels.length);window.__agentNativeLoadingLabelIndex=index;var label=document.querySelector('[data-agent-native-loading-label]');if(label){label.textContent=labels[index];label.style.animationDelay='-'+now%2600+'ms';}})();</script>`;
 
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,

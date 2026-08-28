@@ -7,7 +7,7 @@ function setCubeAnimationPhase(svg: SVGSVGElement | null) {
   if (!svg || typeof window === "undefined") return;
   svg.style.setProperty(
     "--an-cube-loader-phase",
-    `${window.performance.now() % CUBE_ANIMATION_DURATION_MS}ms`,
+    `${(window.performance.now() % CUBE_ANIMATION_DURATION_MS) + CUBE_ANIMATION_DURATION_MS}ms`,
   );
 }
 
