@@ -256,22 +256,22 @@ export default function AgentRoute() {
 
 共享頁面目前提供兩個群組共十二個分頁：
 
-| 群組      | 分頁              | 顯示內容                                                                                                                                                                    |
-| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resources | **Files**         | 用於個人或組織檔案的現有 `ResourcesPanel`                                                                                                                                   |
-| Resources | **Instructions**  | 常駐的 AGENTS.md 樣式規則                                                                                                                                                   |
-| Resources | **Agents**        | 自訂子代理設定檔                                                                                                                                                            |
-| Resources | **Memory**        | 長期記憶筆記                                                                                                                                                                |
-| Resources | **Skills**        | 可重複使用的工作流程                                                                                                                                                        |
-| Resources | **Learnings**     | 隨時間累積的修正和模式                                                                                                                                                      |
-| Resources | **Remote agents** | 連接至其他 agent-native 應用程式的 A2A 連線（取代先前 Connections 分頁的顯示內容）                                                                                          |
-| Agent     | **Snapshots**     | 範圍預覽、token 預算、依來源/治理/來源分組的有序系統區塊，以及最新的即時對話串快照。從「Context」更名；舊的 `#context` 連結會重新導向至此。                                 |
-| Agent     | **Connections**   | 僅限 MCP 伺服器管理                                                                                                                                                         |
-| Agent     | **Automations**   | 個人和組織的排程/事件自動化，含暫停/恢復、詳細資訊和刪除流程。穩定的相容性 URL 仍為 `/agent#jobs`。                                                                         |
-| Agent     | **Settings**      | 代理模型、API 金鑰、限制、語音和自動化設定                                                                                                                                  |
-| Agent     | **Access**        | 應用程式 MCP URL、可用時的 A2A 代理卡，以及 Claude、ChatGPT、Cursor、Claude Code、Codex 和其他用戶端的共用設定指南。連結至 `/mcp/connect` 以進行完整連線流程和 token 備援。 |
+| 群組      | 分頁              | 顯示內容                                                                                                                                                                                                  |
+| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 用於個人或組織檔案的現有 `ResourcesPanel`                                                                                                                                                                 |
+| Resources | **Instructions**  | 常駐的 AGENTS.md 樣式規則                                                                                                                                                                                 |
+| Resources | **Agents**        | 自訂子代理設定檔                                                                                                                                                                                          |
+| Resources | **Memory**        | 長期記憶筆記                                                                                                                                                                                              |
+| Resources | **Skills**        | 可重複使用的工作流程                                                                                                                                                                                      |
+| Resources | **Learnings**     | 隨時間累積的修正和模式                                                                                                                                                                                    |
+| Resources | **Remote agents** | 連接至其他 agent-native 應用程式的 A2A 連線（取代先前 Connections 分頁的顯示內容）                                                                                                                        |
+| Agent     | **Snapshots**     | 範圍預覽、token 預算、依來源/治理/來源分組的有序系統區塊，以及最新的即時對話串快照。從「Context」更名；舊的 `#context` 連結會重新導向至此。                                                               |
+| Agent     | **Connections**   | 僅限 MCP 伺服器管理                                                                                                                                                                                       |
+| Agent     | **Automations**   | 個人和組織的排程/事件自動化，含暫停/恢復、詳細資訊和刪除流程。穩定的相容性 URL 仍為 `/agent#jobs`。                                                                                                       |
+| Agent     | **Settings**      | 代理模型、API 金鑰、限制、語音和自動化設定                                                                                                                                                                |
+| Agent     | **MCP**           | 應用程式 MCP URL、可用時的 A2A 代理卡，以及 Claude、ChatGPT、Cursor、Claude Code、Codex 和其他用戶端的共用設定指南。可在 **Settings → MCP** 中找到，或使用 `/mcp/connect` 進行完整連線流程和 token 備援。 |
 
-該頁面僅顯示個人（`user` 範圍）資料。目前沒有組織層級的切換。它是現有元件和存取控制的薄殼，而非新的管理主控台：Connections 描述應用程式可以呼叫的內容；Access 描述外部用戶端如何連接至它。
+該頁面僅顯示個人（`user` 範圍）資料。目前沒有組織層級的切換。它是現有元件和存取控制的薄殼，而非新的管理主控台：Connections 描述應用程式可以呼叫的內容；MCP 描述外部用戶端如何連接至它。
 
 尚未包含：
 
