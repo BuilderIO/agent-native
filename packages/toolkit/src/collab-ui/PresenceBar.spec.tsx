@@ -46,7 +46,7 @@ describe("PresenceBar", () => {
   it("shows AI initials with an editing tooltip", () => {
     vi.useFakeTimers();
     act(() => {
-      root.render(<PresenceBar activeUsers={[]} agentPresent />);
+      root.render(<PresenceBar activeUsers={[]} agentActive agentPresent />);
     });
 
     const avatar = container.querySelector<HTMLElement>(
@@ -64,5 +64,10 @@ describe("PresenceBar", () => {
         .querySelector('[data-agent-native-tooltip="true"]')
         ?.textContent?.includes("AI is editing"),
     ).toBe(true);
+
+    act(() => {
+      root.render(<PresenceBar activeUsers={[]} agentPresent />);
+    });
+    expect(container.querySelector('[aria-label="AI agent"]')).not.toBeNull();
   });
 });

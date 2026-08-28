@@ -165,7 +165,9 @@ function AgentAvatar({
   const integratedEditingBadge = active && !isFollowing && !showAgentEditingDot;
   const tooltipLabel = isFollowing
     ? "Following AI — click to stop"
-    : "AI is editing";
+    : active
+      ? "AI is editing"
+      : "AI agent";
 
   return (
     <div
