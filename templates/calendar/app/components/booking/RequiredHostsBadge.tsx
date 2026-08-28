@@ -90,7 +90,7 @@ export function RequiredHostsBadge({
         </span>
       </PopoverAnchor>
       <PopoverContent
-        className="w-64 p-3"
+        className="w-[calc(100vw-2rem)] max-w-sm p-3 sm:w-80"
         onOpenAutoFocus={(event) => {
           if (!pinned) event.preventDefault();
         }}
