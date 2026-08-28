@@ -81,6 +81,7 @@ export interface AgentNativeHostSession {
 
 export interface AgentNativeClientActionRuntime {
   requestId?: string;
+  signal?: AbortSignal;
   origin: string;
   context: AgentNativeHostContext;
   session: AgentNativeHostSession;
