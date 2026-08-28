@@ -656,7 +656,7 @@ export function appendAgentChatContextToMessage(
 ): string {
   const trimmedContext = context.trim();
   if (!trimmedContext) return message;
-  return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
+  return `${message}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
 function normalizeStringArray(value: unknown): string[] | undefined {

@@ -673,7 +673,7 @@ export default function PromptPopover({
       }
       try {
         retainFiles(allFiles);
-        await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        await onSubmit(text, [...uploaded, ...pickedAssets], options);
         commitFiles(allFiles);
         setPickedAssets([]);
         setSelectedUploadFiles([]);

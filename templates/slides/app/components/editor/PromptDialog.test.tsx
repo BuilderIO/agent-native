@@ -82,7 +82,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
           data-testid="prompt-composer"
           disabled={props.disabled}
           onClick={() =>
-            void props.onSubmit("make a deck", [promptFile], [], {})
+            void props.onSubmit("  make a deck  \n", [promptFile], [], {})
           }
         >
           Prompt composer
@@ -157,6 +157,41 @@ describe("createPromptChatAttachments", () => {
     );
 
     expect(result).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+      {
+        type: "file",
+        name: "pasted-text-1.txt",
+        contentType: "text/plain",
+        displayOnly: true,
+        text: "outline",
+      },
+    ]);
+  });
+
+  it("can prepare attachment descriptors before uploads start", async () => {
+    await expect(
+      createPromptChatAttachments(
+        [
+          {
+            name: "reference.pdf",
+            contentType: "application/pdf",
+          },
+          {
+            name: "pasted-text-1.txt",
+            contentType: "text/plain",
+            file: new File(["outline"], "pasted-text-1.txt", {
+              type: "text/plain",
+            }),
+          },
+        ],
+        [],
+      ),
+    ).resolves.toEqual([
       {
         type: "file",
         name: "reference.pdf",
@@ -520,15 +555,49 @@ describe("PromptPopover import mode", () => {
     );
     await waitFor(() => {
       expect(onSubmit).toHaveBeenCalledWith(
-        "make a deck",
+        "  make a deck  \n",
         [expect.objectContaining({ originalName: "large.pdf" })],
         expect.objectContaining({
           commit: expect.any(Function),
           discard: expect.any(Function),
+          attachments: [],
         }),
       );
     });
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("hands off signed-out prompts before uploading files", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const onBeforeUpload = vi.fn(() => false);
+    const onSubmit = vi.fn();
+
+    render(
+      <PromptPopover
+        open
+        centered
+        onOpenChange={vi.fn()}
+        title="New presentation"
+        onSubmit={onSubmit}
+        onSkip={vi.fn()}
+        skipLabel="Skip prompt"
+        onBeforeUpload={onBeforeUpload}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Prompt composer" }));
+
+    await waitFor(() => {
+      expect(onBeforeUpload).toHaveBeenCalledWith(
+        "  make a deck  \n",
+        [expect.objectContaining({ name: "large.pdf" })],
+        undefined,
+        [],
+      );
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("starts uploading when a prompt attachment is added and reuses it on submit", async () => {

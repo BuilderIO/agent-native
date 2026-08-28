@@ -20736,13 +20736,11 @@ function DesignEditor() {
             startedAt,
           });
           setHasPendingGeneration(true);
-          const runTabId = agentSubmit(
-            shouldSkipQuestions
-              ? `Generate design for "${design.title}": ${prompt}`
-              : `Prepare design questions for "${design.title}": ${prompt}`,
-            context,
-            { ...agentOptions, newTab: true, images },
-          );
+          const runTabId = agentSubmit(prompt, context, {
+            ...agentOptions,
+            newTab: true,
+            images,
+          });
           setGenerationChatTabId(runTabId);
           patchPendingGeneration(id, {
             prompt,
