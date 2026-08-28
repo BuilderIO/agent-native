@@ -16,13 +16,17 @@ to the shared checkout or require that an agent publish from the root checkout.
 ## Branch-wide Snapshot Rule
 
 During `/babysit-pr`, the PR remains the unit of review and the shared checkout
-is the branch snapshot. At the first tick, record the status. Every later tick
-must publish all nonignored local work with `corepack pnpm ship:push`; the helper
-excludes `learnings.md`, `bridge/**`, and `data/**`. Never revert, stash,
-overwrite, or absorb concurrent work.
+is the branch snapshot. At the first tick, record the status and publish the
+requested initial work when it has not already been published. On later ticks,
+inspect the tree before every push. Run `corepack pnpm ship:push` only when the
+current branch contains an actionable change required by failing CI, PR
+feedback, a real merge conflict, or an explicit user request. A clean tree,
+`origin/main` drift, queued checks, or a timer tick is not a reason to commit
+or push. Never publish unrelated concurrent work, and never revert, stash, or
+overwrite it.
 
-When the branch is actively changing, publish a coherent snapshot for no more
-than two minutes, then push it to the existing PR so CI and review agents can
+When an actionable fix is actively changing, publish one coherent snapshot
+once it is ready, then push it to the existing PR so CI and review agents can
 work in parallel. The final clean-tree and merge-soak gates still apply before
 merging, except when the user explicitly invokes `/ship-now`.
 
@@ -53,20 +57,23 @@ git diff --name-only
 git log --oneline origin/$(git branch --show-current)..HEAD
 ```
 
-Run `corepack pnpm ship:push` after the status check to commit and push all
-nonignored local work. If the tree is clean but the branch has unpushed commits,
-push those commits directly.
+After the status check, run `corepack pnpm ship:push` only when the dirty or
+unpushed work is the intentional fix for a concrete CI failure, PR feedback,
+merge conflict, or explicit user request. If the tree is clean and already
+pushed, do nothing. If it is clean with unpushed commits, push them directly
+only when those commits are already an intentional actionable fix; never create
+a new maintenance commit merely to make the branch look current.
 
 Every tick starts here, no exceptions: on an active shared branch local files
-can change within minutes, so re-check before every push.
+can change within minutes, so re-check before every actionable push.
 
 **Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work gets lost. If you see local changes you don't recognize, preserve them for their owner; do not hide them in a stash or commit them here.
 
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. **Publish the complete
-   current snapshot first (Step 0)**, then prefer a **merge** over a rebase —
+2. If `CONFLICTING`: bring `main` in and resolve. **Publish any intentional
+   actionable fix first (Step 0)**, then prefer a **merge** over a rebase —
    `git fetch origin main && git merge --no-edit
    origin/main` — because this branch is shared with concurrent agents and a
    rebase would rewrite history and require a force-push that can clobber their
@@ -74,7 +81,8 @@ can change within minutes, so re-check before every push.
    with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm
    install --lockfile-only` against the merged `package.json`), complete the
    merge commit, and push (a normal push, never `--force`). This resets the soak
-   timer. Only rebase if the user explicitly asks for a linear history.
+   timer. Do not merge `origin/main` again while the PR remains conflict-free.
+   Only rebase if the user explicitly asks for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 ## Latest-feedback handoff

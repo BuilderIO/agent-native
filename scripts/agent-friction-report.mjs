@@ -89,6 +89,15 @@ if (process.argv.includes("--self-test")) {
 
 const PATTERNS = [
   {
+    // Added 2026-08-27 after the PR queue exposed routine main merges and
+    // generic ship commits as a measurable source of CI churn.
+    key: "shipping-churn",
+    label: "Had to stop routine ship commits or main merges",
+    fixedBy:
+      ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
+    re: /\b(?:don['’]?t|do not|only|stop)\b[^.!?]{0,180}\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- ])?commits?|(?:push|commit)(?:ing)?\s+(?:up|and)?\s*(?:commits?|changes?))\b|\b(?:merge(?:d|s)?\s+(?:origin\/)?main|chore(?:\s+|[- ])?commits?)\b[^.!?]{0,180}\b(?:unless|only|unnecessary|necessary|clear)\b/i,
+  },
+  {
     key: "branch-moves",
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",

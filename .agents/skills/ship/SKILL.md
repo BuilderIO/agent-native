@@ -69,8 +69,12 @@ branch and read the remote sha back.
 
 Treat these as an immediate call to it: `/ship`, "ship our latest local
 changes", or "push up my local changes". Push the first coherent branch
-snapshot before long validation so CI and review can start, then publish later
-snapshots as local work arrives.
+snapshot before long validation so CI and review can start. After that first
+handoff, publish a later snapshot only when it contains an actionable change
+required by failing CI, PR feedback, a real merge conflict, or an explicit user
+request. Do not run `ship:push` on a clean or merely behind branch, and do not
+create a maintenance or `chore: publish branch work` commit just to refresh
+`main`, restart checks, or satisfy a babysit tick.
 
 ## Deployment split
 
@@ -268,9 +272,12 @@ branch, stay on it.
    current branch. PRs are ready for review by default, not drafts. Do not put
    `codex`, `[codex]`, or similar agent labels in the title/body.
 
-   For every later safe slice, update this same PR immediately after pushing;
-   do not create a second PR or wait for prep to finish before handing the
-   slice to CI and review.
+   For every later safe slice that fixes failing CI, addresses PR feedback,
+   resolves a real merge conflict, or implements an explicit user request,
+   update this same PR immediately after pushing. Do not create a second PR or
+   wait for prep to finish before handing the slice to CI and review. A clean
+   tree, `origin/main` drift, queued checks, or a timer tick is not a safe
+   slice and must not produce a commit or push.
 
 6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
