@@ -575,6 +575,7 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,

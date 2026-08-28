@@ -1,7 +1,8 @@
 import {
-  BUILDER_OAUTH_SCOPE,
+  BUILDER_PUBLISH_MCP_RESOURCE,
   resolveBuilderCredential,
   resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
 } from "@agent-native/core/server";
 
 import type {
@@ -445,19 +446,20 @@ function appendUniqueBuilderEntries(
   return appended;
 }
 
-function builderMcpEndpoint() {
+function builderMcpEndpoint(
+  source: BuilderRequestAuthorization["source"] | undefined,
+) {
+  if (source === "oauth") return BUILDER_PUBLISH_MCP_RESOURCE;
   return (
-    process.env.BUILDER_CMS_MCP_ENDPOINT ??
-    "https://cdn.builder.io/api/v1/mcp/builder-content"
+    process.env.BUILDER_CMS_MCP_ENDPOINT ?? BUILDER_PUBLISH_MCP_RESOURCE
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderCmsAuthorizationToken() {
-  const authorization = await resolveBuilderRequestAuthorization({
-    requiredScope: BUILDER_OAUTH_SCOPE,
+async function readBuilderCmsAuthorization() {
+  return resolveBuilderRequestAuthorization({
+    oauthResource: "publish",
     legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
   });
-  return authorization?.token ?? null;
 }
 
 function parseBuilderMcpToolJson(value: unknown) {
@@ -799,9 +801,10 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   offset?: number;
   fetchImpl: FetchLike;
   privateKey: string;
+  endpoint: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
-  const endpoint = builderMcpEndpoint();
+  const endpoint = args.endpoint;
   const connection = await initializeBuilderMcp({
     endpoint,
     privateKey: args.privateKey,
@@ -1204,7 +1207,8 @@ export async function readBuilderCmsContentEntry(args: {
   entryId: string;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsSourceEntry | null> {
-  const privateKey = await readBuilderCmsAuthorizationToken();
+  const authorization = await readBuilderCmsAuthorization();
+  const privateKey = authorization?.token ?? null;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (!publicKey && !privateKey) {
     throw new Error(
@@ -1213,7 +1217,7 @@ export async function readBuilderCmsContentEntry(args: {
   }
 
   if (!publicKey && privateKey) {
-    const endpoint = builderMcpEndpoint();
+    const endpoint = builderMcpEndpoint(authorization?.source);
     const connection = await initializeBuilderMcp({
       endpoint,
       privateKey,
@@ -1279,9 +1283,9 @@ export async function listBuilderCmsModels(
 ): Promise<BuilderCmsModelsResponse> {
   const fetchedAt = new Date().toISOString();
   const fetchImpl = args.fetchImpl ?? fetch;
-  let privateKey: string | null;
+  let authorization: BuilderRequestAuthorization | null;
   try {
-    privateKey = await readBuilderCmsAuthorizationToken();
+    authorization = await readBuilderCmsAuthorization();
   } catch (error) {
     return {
       state: "error",
@@ -1293,6 +1297,7 @@ export async function listBuilderCmsModels(
           : "Builder authorization could not be resolved.",
     };
   }
+  const privateKey = authorization?.token ?? null;
   if (!privateKey) {
     return {
       state: "unconfigured",
@@ -1304,7 +1309,7 @@ export async function listBuilderCmsModels(
   }
 
   try {
-    const endpoint = builderMcpEndpoint();
+    const endpoint = builderMcpEndpoint(authorization?.source);
     const connection = await initializeBuilderMcp({
       endpoint,
       privateKey,
@@ -1380,9 +1385,9 @@ export async function readBuilderCmsContentEntries(args: {
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const fetchImpl = args.fetchImpl ?? fetch;
-  let privateKey: string | null;
+  let authorization: BuilderRequestAuthorization | null;
   try {
-    privateKey = await readBuilderCmsAuthorizationToken();
+    authorization = await readBuilderCmsAuthorization();
   } catch (error) {
     return {
       state: "error",
@@ -1404,6 +1409,7 @@ export async function readBuilderCmsContentEntries(args: {
       },
     };
   }
+  const privateKey = authorization?.token ?? null;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
   if (args.requirePrivateKey === true && !privateKey) {
     return {
@@ -1461,6 +1467,7 @@ export async function readBuilderCmsContentEntries(args: {
           offset: args.offset,
           fetchImpl,
           privateKey,
+          endpoint: builderMcpEndpoint(authorization?.source),
         }),
         args.fieldPaths,
         args.rawData,

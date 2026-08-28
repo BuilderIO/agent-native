@@ -18,7 +18,7 @@ import {
 vi.mock("@agent-native/core/server", () => ({
   resolveBuilderCredential: vi.fn(),
   resolveBuilderRequestAuthorization: vi.fn(),
-  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  BUILDER_PUBLISH_MCP_RESOURCE: "https://mcp.builder.io/mcp/publish",
 }));
 
 const resolveBuilderCredentialMock = vi.mocked(resolveBuilderCredential);
@@ -183,6 +183,7 @@ describe("Builder CMS read client", () => {
   });
 
   it("lists Builder models with OAuth-only request authorization", async () => {
+    process.env.BUILDER_CMS_MCP_ENDPOINT = "https://attacker.example.com/mcp";
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
@@ -240,11 +241,58 @@ describe("Builder CMS read client", () => {
       "BUILDER_PRIVATE_KEY",
     );
     expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(
+      fetchImpl.mock.calls.every(
+        ([input]) => String(input) === "https://mcp.builder.io/mcp/publish",
+      ),
+    ).toBe(true);
     expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
       headers: expect.objectContaining({
         authorization: "Bearer oauth-access-token",
       }),
     });
+  });
+
+  it("keeps the endpoint override for intentional legacy credentials", async () => {
+    process.env.BUILDER_CMS_MCP_ENDPOINT = "https://legacy.example.com/mcp";
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "legacy-private-key",
+      authorization: "Bearer legacy-private-key",
+      source: "legacy",
+      legacyCredentialKey: "BUILDER_PRIVATE_KEY",
+    });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { content: [{ type: "text", text: '{"models":[]}' }] },
+          }),
+          { status: 200 },
+        ),
+      );
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "live", models: [] });
+    expect(
+      fetchImpl.mock.calls.every(
+        ([input]) => String(input) === "https://legacy.example.com/mcp",
+      ),
+    ).toBe(true);
   });
 
   it("reports an expired OAuth grant as an error instead of unconfigured", async () => {

@@ -10,6 +10,9 @@ import {
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialMock = vi.hoisted(() => vi.fn());
+const listRemoteServersMock = vi.hoisted(() => vi.fn());
+const toHttpServerConfigAsyncMock = vi.hoisted(() => vi.fn());
+const readMcpOAuthCredentialsMock = vi.hoisted(() => vi.fn());
 const CredentialStoreUnavailableErrorMock = vi.hoisted(
   () =>
     class CredentialStoreUnavailableError extends Error {
@@ -33,12 +36,40 @@ vi.mock("./credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
   resolveBuilderCredential: resolveBuilderCredentialMock,
 }));
+vi.mock("../mcp-client/remote-store.js", () => ({
+  listRemoteServers: listRemoteServersMock,
+  toHttpServerConfigAsync: toHttpServerConfigAsyncMock,
+}));
+vi.mock("../mcp-client/oauth-client.js", () => ({
+  readMcpOAuthCredentials: readMcpOAuthCredentialsMock,
+}));
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
 }));
 
 const ASSETS_WRITE = "builder:assets:write";
+const PUBLISH_ISSUER = "https://mcp.builder.io";
+
+function publishCredentials(issuer = PUBLISH_ISSUER) {
+  return {
+    serverUrl: "https://mcp.builder.io/mcp/publish",
+    clientInformation: { client_id: "builder-client", issuer },
+    discoveryState: {
+      authorizationServerUrl: issuer,
+      authorizationServerMetadata: { issuer },
+      resourceMetadata: {
+        resource: "https://mcp.builder.io/mcp/publish",
+        authorization_servers: [issuer],
+      },
+    },
+    tokens: {
+      access_token: "publish-oauth-token",
+      scope: "mcp:publish:read",
+      issuer,
+    },
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,6 +78,9 @@ beforeEach(() => {
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderCredentialMock.mockResolvedValue(null);
+  listRemoteServersMock.mockResolvedValue([]);
+  toHttpServerConfigAsyncMock.mockResolvedValue({});
+  readMcpOAuthCredentialsMock.mockResolvedValue(null);
 });
 
 describe("resolveBuilderApiAuthorization", () => {
@@ -160,6 +194,123 @@ describe("resolveBuilderApiAuthorization", () => {
 });
 
 describe("resolveBuilderRequestAuthorization", () => {
+  it("uses the org-scoped Publish MCP grant for database reads", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-1");
+    listRemoteServersMock.mockImplementation(async (scope, scopeId) =>
+      scope === "org" && scopeId === "org-1"
+        ? [
+            {
+              id: "builder-publish",
+              name: "Builder.io",
+              url: "https://mcp.builder.io/mcp/publish",
+              oauthSecretKey: "builder-publish-oauth",
+            },
+          ]
+        : [],
+    );
+    toHttpServerConfigAsyncMock.mockResolvedValue({
+      headers: { Authorization: "Bearer publish-oauth-token" },
+    });
+    readMcpOAuthCredentialsMock.mockResolvedValue(publishCredentials());
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).resolves.toEqual({
+      token: "publish-oauth-token",
+      authorization: "Bearer publish-oauth-token",
+      source: "oauth",
+    });
+    expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back when Publish OAuth custody needs reconnecting", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-1");
+    listRemoteServersMock.mockResolvedValue([
+      {
+        id: "builder-publish",
+        name: "Builder.io",
+        url: "https://mcp.builder.io/mcp/publish",
+        oauthSecretKey: "builder-publish-oauth",
+      },
+    ]);
+    readMcpOAuthCredentialsMock.mockResolvedValue(publishCredentials());
+    toHttpServerConfigAsyncMock.mockResolvedValue({ headers: {} });
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-key");
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).rejects.toThrow(/Publish access expired/);
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a personal Publish grant instead of consuming or bypassing it", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-1");
+    listRemoteServersMock.mockImplementation(async (scope) =>
+      scope === "user"
+        ? [
+            {
+              id: "personal-builder-publish",
+              name: "Builder.io",
+              url: "https://mcp.builder.io/mcp/publish",
+              oauthSecretKey: "personal-builder-publish-oauth",
+            },
+          ]
+        : [],
+    );
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-key");
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).rejects.toThrow(/connected only for this user/);
+    expect(readMcpOAuthCredentialsMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an OAuth token whose issuer is not the Builder Publish issuer", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-1");
+    listRemoteServersMock.mockResolvedValue([
+      {
+        id: "builder-publish",
+        name: "Builder.io",
+        url: "https://mcp.builder.io/mcp/publish",
+        oauthSecretKey: "builder-publish-oauth",
+      },
+    ]);
+    readMcpOAuthCredentialsMock.mockResolvedValue(
+      publishCredentials("https://attacker.example.com"),
+    );
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-key");
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).rejects.toThrow(/needs re-authorizing/);
+    expect(toHttpServerConfigAsyncMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Publish grant that also carries write scope", async () => {
+    getRequestOrgIdMock.mockReturnValue("org-1");
+    listRemoteServersMock.mockResolvedValue([
+      {
+        id: "builder-publish",
+        name: "Builder.io",
+        url: "https://mcp.builder.io/mcp/publish",
+        oauthSecretKey: "builder-publish-oauth",
+      },
+    ]);
+    const credentials = publishCredentials();
+    credentials.tokens.scope = "mcp:publish:read mcp:publish:write";
+    readMcpOAuthCredentialsMock.mockResolvedValue(credentials);
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-key");
+
+    await expect(
+      resolveBuilderRequestAuthorization({ oauthResource: "publish" }),
+    ).rejects.toThrow(/needs re-authorizing/);
+    expect(toHttpServerConfigAsyncMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
   it("returns OAuth provenance for Settings and authenticated provider reads", async () => {
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     getBuilderOAuthSessionMock.mockResolvedValue({
