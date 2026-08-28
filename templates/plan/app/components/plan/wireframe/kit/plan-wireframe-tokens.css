@@ -125,18 +125,3 @@
 .plan-wf[data-skeleton="true"] {
   --radius: 7px;
 }
-
-@media (prefers-reduced-motion: no-preference) {
-  .plan-wf[data-skeleton="true"] {
-    animation: plan-skeleton-pulse 1.6s ease-in-out infinite;
-  }
-}
-@keyframes plan-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
