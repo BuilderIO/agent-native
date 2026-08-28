@@ -168,6 +168,39 @@ describe("slide image replacement", () => {
     expect(image?.getAttribute("style")).toContain("width: 512px");
   });
 
+  it("keeps fit and position edits on a pending upload", () => {
+    const preview = {
+      previewSrc: "blob:crop",
+      replaceSrc: null,
+      alt: "crop.png",
+      position: { x: 200, y: 120 },
+      objectId: "crop-object",
+    };
+    const withPreview = applyOptimisticImagePreview(
+      `<div class="fmd-slide"><h1>Keep this</h1></div>`,
+      preview,
+    );
+    const editedContent = updateImageFitInSlideHtml(
+      withPreview,
+      preview.previewSrc,
+      { objectFit: "cover", objectPosition: "right bottom" },
+    );
+    const editedPreview = captureOptimisticImagePreview(editedContent, preview);
+    const persisted = stripOptimisticImagePreviews(editedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(persisted, editedPreview),
+      preview.previewSrc,
+      "/uploads/crop.png",
+    );
+    const image = firstImage(completed);
+
+    expect(completed).toContain("Keep this");
+    expect(image?.style.objectFit).toBe("cover");
+    expect(image?.style.objectPosition).toBe("right bottom");
+  });
+
   it("replaces a clicked placeholder target with an uploaded image", () => {
     const html = `<div class="fmd-slide"><div class="fmd-img-placeholder" style="width: 100%; height: 100%;">Hero image</div></div>`;
     const updated = replaceImageTargetInSlideHtml(

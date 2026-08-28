@@ -1054,8 +1054,13 @@ export default function DeckEditor() {
     ) => {
       if (!id || !currentSlideRef.current) return;
       const slide = currentSlideRef.current;
-      const currentContent =
-        latestSlideContentRef.current.get(slide.id) ?? slide.content;
+      const pendingForSlide = pendingImagePreviewsRef.current.filter(
+        (preview) => preview.slideId === slide.id,
+      );
+      const currentContent = pendingForSlide.reduce(
+        (content, preview) => applyOptimisticImagePreview(content, preview),
+        latestSlideContentRef.current.get(slide.id) ?? slide.content,
+      );
       const updatedContent = updateImageFitInSlideHtml(
         currentContent,
         imgSrc,
@@ -1063,10 +1068,29 @@ export default function DeckEditor() {
         imageOccurrence,
       );
       if (updatedContent !== currentContent) {
-        updateSlideContent(slide.id, updatedContent);
+        const updatedPreviews = pendingForSlide.map((preview) => ({
+          ...captureOptimisticImagePreview(updatedContent, preview),
+          slideId: preview.slideId,
+        }));
+        if (updatedPreviews.length > 0) {
+          updatePendingImagePreviews((current) =>
+            current.map((preview) => {
+              const updated = updatedPreviews.find(
+                (candidate) => candidate.previewSrc === preview.previewSrc,
+              );
+              return updated ?? preview;
+            }),
+          );
+        }
+        updateSlideContent(
+          slide.id,
+          updatedPreviews.length > 0
+            ? stripOptimisticImagePreviews(updatedContent, updatedPreviews)
+            : updatedContent,
+        );
       }
     },
-    [updateSlideContent],
+    [updatePendingImagePreviews, updateSlideContent],
   );
 
   const handleClipboardImagePaste = useCallback(
