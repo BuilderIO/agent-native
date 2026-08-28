@@ -207,6 +207,35 @@ describe("HeroOceanBackground", () => {
     renderer.firstFrame = Promise.resolve();
   });
 
+  it("reports the first drawn frame so the caller can retire the intro", async () => {
+    const onFirstFrame = vi.fn();
+    render(
+      <HeroOceanBackground onError={vi.fn()} onFirstFrame={onFirstFrame} />,
+    );
+    await waitFor(() => expect(onFirstFrame).toHaveBeenCalled());
+  });
+
+  it("skips the fade once the intro has already played this page load", async () => {
+    let drawFirstFrame: () => void = () => {};
+    renderer.firstFrame = new Promise<void>((resolve) => {
+      drawFirstFrame = resolve;
+    });
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} introPlayed />,
+    );
+    const box = container.firstElementChild as HTMLElement;
+
+    // Already opaque before the GPU has drawn, and with no transition: an empty
+    // canvas is indistinguishable from the page background, while replaying the
+    // fade is the flash this guard exists to prevent.
+    expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)");
+    expect(box.style.transition).toHaveLength(0);
+
+    drawFirstFrame();
+    await waitFor(() => expect(createRenderer).toHaveBeenCalled());
+    renderer.firstFrame = Promise.resolve();
+  });
+
   it("reports a construction failure to the caller instead of throwing", async () => {
     const onError = vi.fn();
     createRenderer.mockImplementationOnce(() => {

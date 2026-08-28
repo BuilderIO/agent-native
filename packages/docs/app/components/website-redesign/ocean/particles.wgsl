@@ -38,8 +38,13 @@ fn quadCorner(vertexIndex: u32) -> vec2f {
   @builtin(instance_index) instanceIndex: u32,
 ) -> VertexOut {
   let resolution = max(1u, u32(u.viewport.w));
-  let i = instanceIndex % resolution;
-  let j = instanceIndex / resolution;
+  // The simulation always runs at full resolution; a stride above 1 thins only
+  // the draw, and the instance count on the CPU side uses the same floored
+  // division. Disagree there and the field grows a seam.
+  let stride = max(1u, u32(u.world.w));
+  let gridSize = max(1u, resolution / stride);
+  let i = (instanceIndex % gridSize) * stride;
+  let j = (instanceIndex / gridSize) * stride;
   let particleRef = vec2f(f32(i), f32(j)) / f32(resolution);
   let texCoord = vec2u(i, j);
 

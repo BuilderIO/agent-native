@@ -8,8 +8,6 @@ import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chun
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  lazy,
-  Suspense,
   useState,
   useEffect,
   useLayoutEffect,
@@ -55,10 +53,13 @@ import appCss from "./global.css?url";
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
-const LazyAgentSidebar = lazy(async () => {
-  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
-  return { default: AgentSidebar };
-});
+type AgentSidebarComponent = Awaited<
+  ReturnType<typeof importAgentSidebar>
+>["AgentSidebar"];
+
+function importAgentSidebar() {
+  return import("@agent-native/core/client/agent-chat");
+}
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
 
@@ -442,14 +443,38 @@ export default function Root() {
         defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
       }),
   );
-  const [mounted, setMounted] = useState(false);
+  // The component, not a `mounted` flag behind `lazy()`. React reconciles by
+  // position, so every parent chain the page content passes through unmounts and
+  // rebuilds it -- and the hero rebuilds its GPU context and replays its intro
+  // each time. Suspense added two of those swaps (fallback in its old position,
+  // then in the boundary's) before the real subtree. Resolving the chunk first
+  // and swapping once leaves one.
+  const [AgentSidebar, setAgentSidebar] = useState<AgentSidebarComponent | null>(
+    null,
+  );
+  const mounted = AgentSidebar !== null;
   const pendingHydrationScrollTopRef = useRef<number | null>(null);
 
   useEffect(() => {
     pendingHydrationScrollTopRef.current = window.location.hash
       ? null
       : getManagedScrollTop();
-    setMounted(true);
+
+    let cancelled = false;
+    void importAgentSidebar()
+      .then((module) => {
+        if (!cancelled) setAgentSidebar(() => module.AgentSidebar);
+      })
+      .catch((error: unknown) => {
+        // Keep the sidebar-less shell rather than mounting a subtree that will
+        // only throw again. Usually a chunk left stale by a deploy, which the
+        // shared recovery reloads; anything else has to stay visible.
+        if (!recoverFromStaleChunkError(error)) console.error(error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -490,13 +515,15 @@ export default function Root() {
   return (
     <QueryClientProvider client={queryClient}>
       <DocsI18nProvider>
-        <RootShell mounted={mounted} />
+        <RootShell AgentSidebar={AgentSidebar} />
       </DocsI18nProvider>
     </QueryClientProvider>
   );
 }
 
-function RootShell({ mounted }: { mounted: boolean }) {
+type RootShellProps = { AgentSidebar: AgentSidebarComponent | null };
+
+function RootShell({ AgentSidebar }: RootShellProps) {
   const t = useT();
   const content = (
     <DocsChrome>
@@ -515,13 +542,14 @@ function RootShell({ mounted }: { mounted: boolean }) {
     </div>
   );
 
-  if (!mounted) return fallback;
-
+  // Two fixed child slots, so the content's ancestor chain changes exactly once
+  // -- when the sidebar arrives -- instead of also shifting position inside the
+  // fragment on the way there.
   return (
     <>
-      <AgentNativeRouteWarmup />
-      <Suspense fallback={fallback}>
-        <LazyAgentSidebar
+      {AgentSidebar ? <AgentNativeRouteWarmup /> : null}
+      {AgentSidebar ? (
+        <AgentSidebar
           storageKey="docs"
           position="right"
           defaultOpen={false}
@@ -535,8 +563,10 @@ function RootShell({ mounted }: { mounted: boolean }) {
           ]}
         >
           {content}
-        </LazyAgentSidebar>
-      </Suspense>
+        </AgentSidebar>
+      ) : (
+        fallback
+      )}
     </>
   );
 }

@@ -46,7 +46,7 @@ export function FeaturesActions() {
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe77f7df4d30242f19b5a06734894d77c"
           alt={diagramAlt}
           crossOrigin="anonymous"
-          sizes="(max-width: 1400px) 100vw, 1400px"
+          sizes="(max-width: 1300px) 100vw, 1300px"
           loading="lazy"
           decoding="async"
         />
@@ -55,7 +55,7 @@ export function FeaturesActions() {
           src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc95a9b87994647dea864d262117b3dfb"
           alt={diagramAlt}
           crossOrigin="anonymous"
-          sizes="(max-width: 1400px) 100vw, 1400px"
+          sizes="(max-width: 1300px) 100vw, 1300px"
           loading="lazy"
           decoding="async"
         />

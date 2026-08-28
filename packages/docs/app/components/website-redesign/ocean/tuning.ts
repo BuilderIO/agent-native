@@ -6,6 +6,12 @@
  * them separate makes a reframe a readable diff against the example rather
  * than a rewrite of it.
  */
+export interface AdaptiveLevel {
+  /** Draw every nth texel on each axis. 1 is the full 512x512 field. */
+  readonly stride: number;
+  readonly pointSizeScale: number;
+}
+
 export interface OceanTuning {
   readonly simulation: {
     readonly oceanSize: number;
@@ -27,6 +33,28 @@ export interface OceanTuning {
     readonly oceanColor: readonly [number, number, number, number];
     readonly neonColor: readonly [number, number, number, number];
     readonly foamColor: readonly [number, number, number, number];
+  };
+  /**
+   * How the field thins out on a GPU that cannot hold the frame budget. The
+   * simulation is never touched: OCEAN_RESOLUTION is pinned to 2^9 by the IFFT
+   * stage table, so only the draw thins, by sampling every nth texel.
+   */
+  readonly adaptive: {
+    /**
+     * Stepped through in order and never back up: settling on a thinner field
+     * beats oscillating between two densities on the viewer's screen.
+     * pointSizeScale holds painted area roughly constant, since the count falls
+     * as the square of the stride and the area grows as the square of the scale.
+     */
+    readonly levels: readonly AdaptiveLevel[];
+    /** The deliberate 30fps draw cap, as a frame interval. */
+    readonly frameBudgetMs: number;
+    /** How far past the budget the median has to sit before stepping down. */
+    readonly overshootRatio: number;
+    /** Frames per decision. Wide enough that one hitch cannot move the median. */
+    readonly sampleWindow: number;
+    /** Startup frames to ignore: first-frame compilation is not steady state. */
+    readonly warmupFrames: number;
   };
   readonly camera: {
     readonly eye: readonly [number, number, number];
@@ -82,6 +110,20 @@ const UPSTREAM_TUNING: OceanTuning = {
     ],
     neonColor: [1, 1, 1, 0],
     foamColor: [1, 1, 1, 0],
+  },
+  adaptive: {
+    // 262k -> 65k -> 29k -> 16k particles. Stride 4 is the floor: thinner than
+    // that and the field stops reading as water and starts reading as a grid.
+    levels: [
+      { stride: 1, pointSizeScale: 1 },
+      { stride: 2, pointSizeScale: 2 },
+      { stride: 3, pointSizeScale: 3 },
+      { stride: 4, pointSizeScale: 4 },
+    ],
+    frameBudgetMs: 1000 / 30,
+    overshootRatio: 1.25,
+    sampleWindow: 30,
+    warmupFrames: 30,
   },
   camera: {
     // Gallery reframe: the docs canvas is much taller than front's hero strip.
@@ -154,6 +196,7 @@ const HERO_OVERRIDES: Overrides = {
 export const OCEAN_TUNING: OceanTuning = {
   simulation: { ...UPSTREAM_TUNING.simulation, ...HERO_OVERRIDES.simulation },
   particles: { ...UPSTREAM_TUNING.particles, ...HERO_OVERRIDES.particles },
+  adaptive: { ...UPSTREAM_TUNING.adaptive, ...HERO_OVERRIDES.adaptive },
   camera: { ...UPSTREAM_TUNING.camera, ...HERO_OVERRIDES.camera },
   present: { ...UPSTREAM_TUNING.present, ...HERO_OVERRIDES.present },
   bloom: { ...UPSTREAM_TUNING.bloom, ...HERO_OVERRIDES.bloom },
