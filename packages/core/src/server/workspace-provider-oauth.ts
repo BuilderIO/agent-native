@@ -143,15 +143,18 @@ export function createWorkspaceProviderOAuthHandler(
 }
 
 /**
- * Fails the OAuth start in whatever form the caller can actually read.
+ * Fails an OAuth step in whatever form the caller can actually read.
  *
- * `startWorkspaceProviderOAuth` reaches this endpoint by navigating the top
- * window, and onboarding cards link straight to it, so a bare `{ error }` body
- * replaces whatever the user was looking at — a deck, a settings page — with
- * raw JSON and no way back. Anything that asks for HTML gets the same error
- * page the OAuth callbacks already use; a programmatic caller still gets JSON.
+ * Both ends of this flow are top-level browser navigations —
+ * `startWorkspaceProviderOAuth` assigns `window.location`, onboarding cards
+ * link straight to `/start`, and the provider redirects the browser to
+ * `/callback` — so a bare `{ error }` body replaces whatever the user was
+ * looking at with raw JSON and no way back. On the callback that lands them
+ * there *after* they have already consented. Anything asking for HTML gets the
+ * error page the sign-in callbacks already use; a programmatic caller still
+ * gets JSON and the same status.
  */
-export function oauthStartFailure(
+export function oauthFlowFailure(
   event: H3Event,
   status: number,
   message: string,
@@ -175,7 +178,7 @@ export async function handleWorkspaceProviderOAuthStart(
   );
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
   if (!requestedScope) {
-    return oauthStartFailure(
+    return oauthFlowFailure(
       event,
       400,
       "OAuth connection scope must be user, organization, or app.",
@@ -187,11 +190,11 @@ export async function handleWorkspaceProviderOAuthStart(
     requestedScope,
   );
   if (!orgContext) {
-    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
+    return oauthFlowFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
   const orgId = orgContext.orgId;
   if (!orgId) {
-    return oauthStartFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
+    return oauthFlowFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
   const provider = requiredProvider(providerId);
   const salesforceLoginUrl =
@@ -199,7 +202,7 @@ export async function handleWorkspaceProviderOAuthStart(
       ? resolveSalesforceOAuthLoginUrl(text(query.environment))
       : undefined;
   if (providerId === "salesforce" && !salesforceLoginUrl) {
-    return oauthStartFailure(
+    return oauthFlowFailure(
       event,
       400,
       "Salesforce environment must be production or sandbox.",
@@ -215,21 +218,21 @@ export async function handleWorkspaceProviderOAuthStart(
       : workspaceProviderOAuthPath(providerId, "callback"),
   );
   if (!redirectUri) {
-    return oauthStartFailure(event, 400, "Invalid OAuth redirect URI.");
+    return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
   }
   if (useRootGoogleCallback) {
     let parsedRedirectUri: URL;
     try {
       parsedRedirectUri = new URL(redirectUri);
     } catch {
-      return oauthStartFailure(event, 400, "Invalid OAuth redirect URI.");
+      return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
     }
     if (
       parsedRedirectUri.pathname !== "/_agent-native/google/callback" ||
       parsedRedirectUri.search ||
       parsedRedirectUri.hash
     ) {
-      return oauthStartFailure(
+      return oauthFlowFailure(
         event,
         400,
         "Google workspace OAuth must use the shared callback.",
@@ -242,7 +245,7 @@ export async function handleWorkspaceProviderOAuthStart(
       const [clientId, clientSecret] =
         await resolveProviderClientCredentials(providerId);
       if (!clientId || !clientSecret) {
-        return oauthStartFailure(
+        return oauthFlowFailure(
           event,
           503,
           `${provider.label} OAuth client credentials are not configured.`,
@@ -322,8 +325,7 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (!session?.email) return unauthorized(event);
   const flow = readStoredFlow(event, providerId);
   if (!flow || !isWorkspaceProviderOAuthScope(flow.scope)) {
-    setResponseStatus(event, 400);
-    return { error: "OAuth state is invalid or expired." };
+    return oauthFlowFailure(event, 400, "OAuth state is invalid or expired.");
   }
   const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
@@ -331,24 +333,29 @@ export async function handleWorkspaceProviderOAuthCallback(
     flow.scope,
   );
   if (!orgContext) {
-    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
+    return oauthFlowFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
   const orgId = orgContext.orgId;
   if (!orgId) {
-    setResponseStatus(event, 403);
-    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
+    return oauthFlowFailure(event, 403, WORKSPACE_OAUTH_ADMIN_ERROR);
   }
   const query = getQuery(event);
   const code = text(query.code);
   const stateParam = text(query.state);
   const providerError = text(query.error);
   if (providerError) {
-    setResponseStatus(event, 400);
-    return { error: "OAuth authorization was not completed." };
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth authorization was not completed.",
+    );
   }
   if (!code || !stateParam) {
-    setResponseStatus(event, 400);
-    return { error: "OAuth callback is missing code or state." };
+    return oauthFlowFailure(
+      event,
+      400,
+      "OAuth callback is missing code or state.",
+    );
   }
   deleteCookie(event, flowCookieName(providerId), { path: "/" });
   const state = decodeOAuthState(stateParam, "");
@@ -362,8 +369,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       sessionOrgId: orgId,
     })
   ) {
-    setResponseStatus(event, 400);
-    return { error: "OAuth state is invalid or expired." };
+    return oauthFlowFailure(event, 400, "OAuth state is invalid or expired.");
   }
   const provider = requiredProvider(providerId);
   return runWithRequestContext(
@@ -372,10 +378,11 @@ export async function handleWorkspaceProviderOAuthCallback(
       const [clientId, clientSecret] =
         await resolveProviderClientCredentials(providerId);
       if (!clientId || !clientSecret) {
-        setResponseStatus(event, 503);
-        return {
-          error: `${provider.label} OAuth client credentials are not configured.`,
-        };
+        return oauthFlowFailure(
+          event,
+          503,
+          `${provider.label} OAuth client credentials are not configured.`,
+        );
       }
       const tokens = await exchangeWorkspaceProviderOAuthCode({
         providerId,
@@ -1256,13 +1263,16 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 function methodNotAllowed(event: H3Event) {
-  setResponseStatus(event, 405);
-  return { error: "Method not allowed" };
+  return oauthFlowFailure(event, 405, "Method not allowed");
 }
 
+/**
+ * Losing the session mid-flow is the most likely way a real user reaches this,
+ * and it happens on a navigation — so it needs the same readable page as every
+ * other failure here rather than a bare 401 body.
+ */
 function unauthorized(event: H3Event) {
-  setResponseStatus(event, 401);
-  return { error: "Authentication required" };
+  return oauthFlowFailure(event, 401, "Authentication required");
 }
 
 async function requireWorkspaceProviderOAuthAccess(

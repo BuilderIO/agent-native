@@ -17,7 +17,7 @@ import {
   isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
-  oauthStartFailure,
+  oauthFlowFailure,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
   resolveSalesforceOAuthLoginUrl,
@@ -930,7 +930,7 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
  * page the user was on — a deck, a settings screen — with raw JSON and no way
  * back.
  */
-describe("oauthStartFailure", () => {
+describe("oauthFlowFailure", () => {
   // Minimal h3-v2 shape: a real Request so `getRequestHeader` reads a real
   // header bag, and a `res` so `setResponseStatus` has somewhere to write.
   const event = (accept?: string) =>
@@ -942,7 +942,7 @@ describe("oauthStartFailure", () => {
     }) as never;
 
   it("renders an error page for a browser navigation", async () => {
-    const result = oauthStartFailure(
+    const result = oauthFlowFailure(
       event("text/html,application/xhtml+xml"),
       503,
       "Google Drive OAuth client credentials are not configured.",
@@ -957,16 +957,16 @@ describe("oauthStartFailure", () => {
   });
 
   it("keeps returning JSON to a programmatic caller", () => {
-    const result = oauthStartFailure(event("application/json"), 400, "nope");
+    const result = oauthFlowFailure(event("application/json"), 400, "nope");
     expect(result).toEqual({ error: "nope" });
   });
 
   it("treats a request with no Accept header as programmatic", () => {
-    expect(oauthStartFailure(event(), 400, "nope")).toEqual({ error: "nope" });
+    expect(oauthFlowFailure(event(), 400, "nope")).toEqual({ error: "nope" });
   });
 
   it("escapes the message rather than trusting it as markup", async () => {
-    const result = oauthStartFailure(
+    const result = oauthFlowFailure(
       event("text/html"),
       400,
       "<img src=x onerror=alert(1)>",
