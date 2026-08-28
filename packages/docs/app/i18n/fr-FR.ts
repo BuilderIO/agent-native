@@ -518,7 +518,7 @@ const frFR = {
       community: "Communauté",
       legal: "Mentions légales",
       docs: "Documentation",
-      actions: "Actions",
+      download: "Télécharger",
       apps: "Apps",
       privacyPolicy: "Politique de confidentialité",
       saasTerms: "Conditions SaaS",

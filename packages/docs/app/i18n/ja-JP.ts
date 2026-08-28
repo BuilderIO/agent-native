@@ -517,7 +517,7 @@ const jaJP = {
       community: "コミュニティ",
       legal: "法的情報",
       docs: "ドキュメント",
-      actions: "アクション",
+      download: "ダウンロード",
       apps: "アプリ",
       privacyPolicy: "プライバシーポリシー",
       saasTerms: "SaaS 利用規約",
