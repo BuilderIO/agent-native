@@ -46,6 +46,8 @@ export interface SendEmailArgs {
   subject: string;
   html: string;
   text?: string;
+  /** Keep security-sensitive links out of provider click-tracking redirects. */
+  disableClickTracking?: boolean;
   from?: string;
   /**
    * Display-name-only override. Keeps the configured (domain-verified) sending
@@ -371,6 +373,11 @@ async function deliverEmail(
         : undefined,
     ].filter((value): value is string => Boolean(value));
     if (categories.length) sgPayload.categories = categories;
+    if (args.disableClickTracking) {
+      sgPayload.tracking_settings = {
+        click_tracking: { enable: false },
+      };
+    }
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;
