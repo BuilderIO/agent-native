@@ -514,7 +514,7 @@ const arSA = {
       community: "المجتمع",
       legal: "قانوني",
       docs: "الوثائق",
-      actions: "الإجراءات",
+      download: "تنزيل",
       apps: "التطبيقات",
       privacyPolicy: "سياسة الخصوصية",
       saasTerms: "شروط SaaS",
