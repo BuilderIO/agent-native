@@ -25,14 +25,27 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadPage.loadError": "Could not load the latest desktop installer.",
       "downloadPage.retry": "Retry",
       "downloadPage.unavailable": "Installer unavailable for this platform",
+      "downloadPage.allPlatforms": "All platforms",
       "downloadPage.stable": "Stable",
       "downloadPage.nightly": "Nightly",
-      "downloadPage.switchToNightly": "Switch to Nightly builds",
-      "downloadPage.switchToStable": "Switch to stable builds",
       "downloadPage.runFromSource": "Or run from source",
       "downloadPage.runFromSourceBody": "Run locally.",
       "downloadPage.platforms.mac.primary": "Download for Apple Silicon",
       "downloadPage.platforms.mac.alternative": "Intel Mac",
+      "downloadPage.platforms.mac.gridPrimary": "Apple Silicon",
+      "downloadPage.platforms.mac.gridAlternative": "Intel",
+      "downloadPage.platforms.windows.primary": "Download for Windows",
+      "downloadPage.platforms.windows.alternative": "ARM64",
+      "downloadPage.platforms.windows.gridPrimary": "x64 installer",
+      "downloadPage.platforms.windows.gridAlternative": "Arm64 installer",
+      "downloadPage.platforms.linux.primary": "Download Linux archive",
+      "downloadPage.platforms.linux.appImage": "Download AppImage",
+      "downloadPage.platforms.linux.deb": "Download .deb",
+      "downloadPage.platforms.linux.gridPrimary": "x86_64",
+      "downloadPage.platforms.linux.gridAppImage": "Universal",
+      "downloadPage.platforms.linux.gridDeb": "Debian / Ubuntu",
+      "common.copyCommand": "Copy command",
+      "common.copied": "Copied",
     };
     return messages[key] ?? key;
   },
@@ -115,13 +128,12 @@ describe("DownloadPage", () => {
     expect(screen.queryByText(nightlyManifest.version)).toBeNull();
     expect(screen.queryByRole("link", { name: /GitHub/i })).toBeNull();
     expect(
-      screen.getByRole("switch").parentElement?.querySelector("span:last-child")
-        ?.className,
-    ).not.toContain("text-blue");
+      screen
+        .getByRole("radio", { name: "Stable" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
 
-    fireEvent.click(
-      screen.getByRole("switch", { name: "Switch to Nightly builds" }),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: "Nightly" }));
 
     expect(
       screen.getByRole("heading", { name: "Download Agent-Native Nightly" }),
@@ -130,7 +142,12 @@ describe("DownloadPage", () => {
       screen
         .getByRole("heading", { name: "Download Agent-Native Nightly" })
         .querySelector("span")?.className,
-    ).toContain("text-blue-600");
+    ).toContain("b-text-eyebrow");
+    expect(
+      screen
+        .getByRole("radio", { name: "Nightly" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     await waitFor(() => {
       expect(
         screen
@@ -142,9 +159,7 @@ describe("DownloadPage", () => {
       "/api/desktop-latest.json?channel=nightly",
     );
 
-    fireEvent.click(
-      screen.getByRole("switch", { name: "Switch to stable builds" }),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: "Stable" }));
 
     expect(
       screen.getByRole("heading", { name: "Download Agent-Native" }),

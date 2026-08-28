@@ -1072,6 +1072,10 @@ const messages = {
       "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
     resume: "再開",
     discardRecording: "録画を破棄",
+    restart: "録画をやり直す",
+    restartShortcut: "やり直す (⌥⇧R)",
+    restartQuestion: "新しい録画を開始しますか?",
+    restartConfirm: "やり直す",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",

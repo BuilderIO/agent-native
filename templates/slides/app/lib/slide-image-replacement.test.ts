@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureOptimisticImagePreview,
   createPlaceholderImageTarget,
   hasOptimisticImagePreview,
   imageOccurrenceInRenderedSlide,
@@ -54,7 +55,7 @@ describe("slide image replacement", () => {
     ).toBe(html);
   });
 
-  it("rebases an optimistic preview onto the latest slide content", () => {
+  it("keeps a queued slide edit when upload completion beats the next render", () => {
     const preview = {
       previewSrc: "blob:preview",
       replaceSrc: null,
@@ -64,9 +65,15 @@ describe("slide image replacement", () => {
     };
     const latest = `<div class="fmd-slide"><h1>Edited while uploading</h1></div>`;
     const withPreview = applyOptimisticImagePreview(latest, preview);
+    const completed = replaceOptimisticImagePreview(
+      withPreview,
+      preview.previewSrc,
+      "/uploads/final.png",
+    );
 
-    expect(withPreview).toContain("Edited while uploading");
-    expect(hasOptimisticImagePreview(withPreview, "blob:preview")).toBe(true);
+    expect(completed).toContain("Edited while uploading");
+    expect(completed).toContain('src="/uploads/final.png"');
+    expect(hasOptimisticImagePreview(completed, "blob:preview")).toBe(false);
     expect(applyOptimisticImagePreview(withPreview, preview)).toBe(withPreview);
   });
 
@@ -101,6 +108,97 @@ describe("slide image replacement", () => {
     expect(persisted).toContain("Edited copy");
     expect(persisted).toContain('src="/old.png"');
     expect(persisted).not.toContain("blob:replacement");
+  });
+
+  it("keeps moved and resized geometry when the upload replaces a preview", () => {
+    const preview = {
+      previewSrc: "blob:edited",
+      replaceSrc: null,
+      objectId: "preview-object",
+      position: { x: 200, y: 120 },
+    };
+    const editedContent = `<div class="fmd-slide"><img src="blob:edited" alt="photo.png" data-slide-object-id="preview-object" style="position: absolute; left: 123px; top: 87px; width: 512px; height: 300px; object-fit: contain;"></div>`;
+    const editedPreview = captureOptimisticImagePreview(editedContent, preview);
+    const withoutPreview = stripOptimisticImagePreviews(editedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(withoutPreview, editedPreview),
+      "blob:edited",
+      "/uploads/photo.png",
+    );
+    const image = firstImage(completed);
+
+    expect(withoutPreview).not.toContain("blob:edited");
+    expect(image?.getAttribute("src")).toBe("/uploads/photo.png");
+    expect(image?.getAttribute("style")).toContain("left: 123px");
+    expect(image?.getAttribute("style")).toContain("top: 87px");
+    expect(image?.getAttribute("style")).toContain("width: 512px");
+    expect(image?.getAttribute("style")).toContain("height: 300px");
+  });
+
+  it("keeps placeholder uploads resolvable after edited content is persisted", () => {
+    const replaceSrc = createPlaceholderImageTarget(0, "Hero image");
+    const preview = {
+      previewSrc: "blob:placeholder",
+      replaceSrc,
+      alt: "hero.png",
+    };
+    const editedContent = `<div class="fmd-slide"><img src="blob:placeholder" alt="hero.png" data-slide-object-id="placeholder-object" style="position: absolute; left: 123px; top: 87px; width: 512px; height: 300px; object-fit: contain;"></div>`;
+    const editedPreview = captureOptimisticImagePreview(editedContent, preview);
+    const persisted = stripOptimisticImagePreviews(editedContent, [
+      editedPreview,
+    ]);
+    const withPreview = applyOptimisticImagePreview(persisted, editedPreview);
+    const completed = replaceOptimisticImagePreview(
+      withPreview,
+      preview.previewSrc,
+      "/uploads/hero.png",
+    );
+    const image = firstImage(completed);
+
+    expect(persisted).toContain('class="fmd-img-placeholder"');
+    expect(persisted).toContain("Hero image");
+    expect(persisted).not.toContain("blob:placeholder");
+    expect(image?.getAttribute("src")).toBe("/uploads/hero.png");
+    expect(image?.getAttribute("data-slide-object-id")).toBe(
+      "placeholder-object",
+    );
+    expect(image?.getAttribute("style")).toContain("left: 123px");
+    expect(image?.getAttribute("style")).toContain("width: 512px");
+  });
+
+  it("keeps fit and position edits on a pending upload", () => {
+    const preview = {
+      previewSrc: "blob:crop",
+      replaceSrc: null,
+      alt: "crop.png",
+      position: { x: 200, y: 120 },
+      objectId: "crop-object",
+    };
+    const withPreview = applyOptimisticImagePreview(
+      `<div class="fmd-slide"><h1>Keep this</h1></div>`,
+      preview,
+    );
+    const editedContent = updateImageFitInSlideHtml(
+      withPreview,
+      preview.previewSrc,
+      { objectFit: "cover", objectPosition: "right bottom" },
+    );
+    const editedPreview = captureOptimisticImagePreview(editedContent, preview);
+    const persisted = stripOptimisticImagePreviews(editedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(persisted, editedPreview),
+      preview.previewSrc,
+      "/uploads/crop.png",
+    );
+    const image = firstImage(completed);
+
+    expect(completed).toContain("Keep this");
+    expect(image?.style.objectFit).toBe("cover");
+    expect(image?.style.objectPosition).toBe("right bottom");
   });
 
   it("replaces a clicked placeholder target with an uploaded image", () => {

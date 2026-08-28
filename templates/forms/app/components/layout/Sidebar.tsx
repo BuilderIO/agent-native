@@ -3,12 +3,11 @@ import {
   focusAgentChat,
   navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconArrowUp,
@@ -267,21 +266,10 @@ export function Sidebar() {
               className="flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-[background-color,box-shadow,transform] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
               data-sidebar-brand-toggle
             >
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
+              <AgentNativeIcon
+                size={28}
                 aria-hidden="true"
-                width={28}
-                height={16}
-                className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={28}
-                height={16}
-                className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+                className="h-4 w-7 shrink-0 text-black dark:text-white"
               />
             </button>
           </TooltipTrigger>
@@ -404,21 +392,10 @@ export function Sidebar() {
                 onClick={handleBrandClick}
                 data-sidebar-brand-toggle
               >
-                <img
-                  src={appPath("/agent-native-icon-light.svg")}
-                  alt=""
+                <AgentNativeIcon
+                  size={28}
                   aria-hidden="true"
-                  width={28}
-                  height={16}
-                  className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-                />
-                <img
-                  src={appPath("/agent-native-icon-dark.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  width={28}
-                  height={16}
-                  className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+                  className="h-4 w-7 shrink-0 text-black dark:text-white"
                 />
                 <span className="truncate">{t("navigation.brand")}</span>
               </button>
