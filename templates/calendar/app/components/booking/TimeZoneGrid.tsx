@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconPlus, IconX } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import {
   getTimezoneCity,
@@ -49,6 +49,7 @@ export function TimeZoneGrid({
   const t = useT();
   const [extraTimezones, setExtraTimezones] = useState<string[]>([]);
   const [addingTimezone, setAddingTimezone] = useState(false);
+  const [hoveredSlot, setHoveredSlot] = useState<string | null>(null);
   // Resolved after mount only — the browser's timezone can differ from the
   // server's, so computing it during render would cause a hydration mismatch.
   const [browserTimezone, setBrowserTimezone] = useState<string | null>(null);
@@ -108,10 +109,15 @@ export function TimeZoneGrid({
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto">
-        <div className="min-w-max space-y-1.5">
+        <div
+          className="grid items-center gap-x-1 gap-y-1.5"
+          style={{
+            gridTemplateColumns: `10rem repeat(${slots.length}, minmax(4.5rem, 1fr))`,
+          }}
+        >
           {rows.map((row) => (
-            <div key={row.id} className="flex items-center gap-3">
-              <div className="flex w-40 shrink-0 items-center justify-between gap-1 pr-2">
+            <Fragment key={row.id}>
+              <div className="flex min-w-0 items-center justify-between gap-1 pr-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{row.label}</p>
                   <p className="truncate text-xs text-muted-foreground">
@@ -135,24 +141,34 @@ export function TimeZoneGrid({
                   </button>
                 )}
               </div>
-              <div className="flex gap-2">
-                {slots.map((slot) => {
-                  const isSelected = selectedSlot === slot.start;
-                  return (
-                    <Button
-                      key={slot.start}
-                      type="button"
-                      size="sm"
-                      variant={isSelected ? "default" : "outline"}
-                      className={cn("min-w-[84px]")}
-                      onClick={() => onSelect(slot.start)}
-                    >
-                      {formatInTimeZone(slot.start, row.timezone)}
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
+              {slots.map((slot) => {
+                const isSelected = selectedSlot === slot.start;
+                const isHovered = hoveredSlot === slot.start;
+                return (
+                  <button
+                    key={slot.start}
+                    type="button"
+                    onClick={() => onSelect(slot.start)}
+                    onMouseEnter={() => setHoveredSlot(slot.start)}
+                    onMouseLeave={() =>
+                      setHoveredSlot((prev) =>
+                        prev === slot.start ? null : prev,
+                      )
+                    }
+                    className={cn(
+                      "rounded-md px-2 py-1.5 text-center text-sm transition-colors",
+                      isSelected
+                        ? "bg-primary font-medium text-primary-foreground"
+                        : isHovered
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground hover:bg-muted/60",
+                    )}
+                  >
+                    {formatInTimeZone(slot.start, row.timezone)}
+                  </button>
+                );
+              })}
+            </Fragment>
           ))}
         </div>
       </div>
