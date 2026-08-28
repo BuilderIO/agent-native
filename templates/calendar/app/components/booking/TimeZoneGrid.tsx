@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconPlus, IconX } from "@tabler/icons-react";
-import { Fragment, useEffect, useState } from "react";
+import { IconChevronRight, IconPlus, IconX } from "@tabler/icons-react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import {
   getTimezoneCity,
@@ -70,6 +70,33 @@ export function TimeZoneGrid({
     }
   }, []);
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  // Re-checks whenever the slot/row count changes the content width, not
+  // just on scroll — e.g. switching dates can flip between fitting and
+  // overflowing without the user ever scrolling.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    function updateScrollState() {
+      if (!el) return;
+      setCanScrollLeft(el.scrollLeft > 4);
+      setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+    }
+
+    updateScrollState();
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    const resizeObserver = new ResizeObserver(updateScrollState);
+    resizeObserver.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateScrollState);
+      resizeObserver.disconnect();
+    };
+  }, [slots.length, hosts.length, extraTimezones.length]);
+
   const rows: TimeZoneGridHost[] = [
     ...(browserTimezone
       ? [
@@ -116,69 +143,80 @@ export function TimeZoneGrid({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-x-auto">
-        <div
-          className="grid items-center gap-x-1 gap-y-1.5"
-          style={{
-            gridTemplateColumns: `10rem repeat(${slots.length}, minmax(5.5rem, 1fr))`,
-          }}
-        >
-          {rows.map((row) => (
-            <Fragment key={row.id}>
-              <div className="flex min-w-0 items-center justify-between gap-1 pr-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{row.label}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {row.timezone}
-                  </p>
-                </div>
-                {row.id !== "you" && extraTimezones.includes(row.timezone) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onExtraTimezonesChange(
-                        extraTimezones.filter((tz) => tz !== row.timezone),
-                      )
-                    }
-                    className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    aria-label={t("bookingLinks.removeTimeZone", {
-                      timezone: row.timezone,
-                    })}
-                  >
-                    <IconX className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-              {slots.map((slot) => {
-                const isSelected = selectedSlot === slot.start;
-                const isHovered = hoveredSlot === slot.start;
-                return (
-                  <button
-                    key={slot.start}
-                    type="button"
-                    onClick={() => onSelect(slot.start)}
-                    onMouseEnter={() => setHoveredSlot(slot.start)}
-                    onMouseLeave={() =>
-                      setHoveredSlot((prev) =>
-                        prev === slot.start ? null : prev,
-                      )
-                    }
-                    className={cn(
-                      "whitespace-nowrap rounded-md px-2 py-1.5 text-center text-sm transition-colors",
-                      isSelected
-                        ? "bg-primary font-medium text-primary-foreground"
-                        : isHovered
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:bg-muted/60",
+      <div className="relative">
+        <div ref={scrollContainerRef} className="overflow-x-auto">
+          <div
+            className="grid items-center gap-x-1 gap-y-1.5"
+            style={{
+              gridTemplateColumns: `10rem repeat(${slots.length}, minmax(5.5rem, 1fr))`,
+            }}
+          >
+            {rows.map((row) => (
+              <Fragment key={row.id}>
+                <div className="flex min-w-0 items-center justify-between gap-1 pr-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{row.label}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {row.timezone}
+                    </p>
+                  </div>
+                  {row.id !== "you" &&
+                    extraTimezones.includes(row.timezone) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onExtraTimezonesChange(
+                            extraTimezones.filter((tz) => tz !== row.timezone),
+                          )
+                        }
+                        className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label={t("bookingLinks.removeTimeZone", {
+                          timezone: row.timezone,
+                        })}
+                      >
+                        <IconX className="h-3.5 w-3.5" />
+                      </button>
                     )}
-                  >
-                    {formatInTimeZone(slot.start, row.timezone)}
-                  </button>
-                );
-              })}
-            </Fragment>
-          ))}
+                </div>
+                {slots.map((slot) => {
+                  const isSelected = selectedSlot === slot.start;
+                  const isHovered = hoveredSlot === slot.start;
+                  return (
+                    <button
+                      key={slot.start}
+                      type="button"
+                      onClick={() => onSelect(slot.start)}
+                      onMouseEnter={() => setHoveredSlot(slot.start)}
+                      onMouseLeave={() =>
+                        setHoveredSlot((prev) =>
+                          prev === slot.start ? null : prev,
+                        )
+                      }
+                      className={cn(
+                        "whitespace-nowrap rounded-md px-2 py-1.5 text-center text-sm transition-colors",
+                        isSelected
+                          ? "bg-primary font-medium text-primary-foreground"
+                          : isHovered
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:bg-muted/60",
+                      )}
+                    >
+                      {formatInTimeZone(slot.start, row.timezone)}
+                    </button>
+                  );
+                })}
+              </Fragment>
+            ))}
+          </div>
         </div>
+        {canScrollLeft && (
+          <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
+        )}
+        {canScrollRight && (
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-background to-transparent pr-0.5">
+            <IconChevronRight className="h-4 w-4 animate-pulse text-muted-foreground" />
+          </div>
+        )}
       </div>
       {addingTimezone ? (
         <div className="flex items-center gap-2">
