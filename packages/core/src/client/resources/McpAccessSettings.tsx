@@ -101,10 +101,15 @@ export function McpAccessSettings({
     const origin = window.location.origin;
     const baseUrl = new URL(appPath("/"), origin).toString().replace(/\/$/, "");
     const hostname = window.location.hostname || "app";
-    const metaSiteName = document
-      .querySelector('meta[property="og:site_name"]')
-      ?.getAttribute("content")
-      ?.trim();
+    const metaSiteName = [
+      'meta[name="application-name"]',
+      'meta[name="apple-mobile-web-app-title"]',
+      'meta[property="og:site_name"]',
+    ]
+      .map((selector) =>
+        document.querySelector(selector)?.getAttribute("content")?.trim(),
+      )
+      .find(Boolean);
     const hostnameGuess =
       hostname !== "localhost" && hostname !== "127.0.0.1"
         ? hostname.split(".")[0]

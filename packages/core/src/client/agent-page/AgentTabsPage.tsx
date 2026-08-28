@@ -469,7 +469,7 @@ export type AgentPageExtraTabFactory = (
 export interface AgentTabsPageProps {
   /**
    * Human-readable app name used in the MCP tab's connect instructions
-   * (e.g. "name it Mail"). Falls back to the `og:site_name` meta tag, then a
+   * (e.g. "name it Mail"). Falls back to standard app-title metadata, then a
    * hostname-derived guess — never `document.title`, which this page owns.
    */
   appName?: string;

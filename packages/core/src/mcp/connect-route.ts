@@ -1061,6 +1061,13 @@ function renderConnectPage(params: {
     return { ok: res.ok, status: res.status, data: data };
   }
 
+  function deviceAuthorizationError(response) {
+    if (response.status === 404) return COPY.unknownDeviceCode;
+    if (response.status === 410) return COPY.expiredDeviceCode;
+    if (response.status === 409) return COPY.alreadyUsedDeviceCode;
+    return COPY.couldNotAuthorize;
+  }
+
   async function loadTokens() {
     var listEl = document.getElementById("tokenList");
     try {
@@ -1127,7 +1134,7 @@ function renderConnectPage(params: {
         var a = await postJson("/device/authorize", { user_code: USER_CODE });
         if (!a.ok) {
           resetButtonLoading(btn);
-          showMsg(COPY.couldNotAuthorize);
+          showMsg(deviceAuthorizationError(a));
           return;
         }
         showMsg(COPY.finishingConnection, "ok", COPY.deviceAuthorized);

@@ -29,6 +29,9 @@ export interface McpConnectMessages {
   authorizingDevice: string;
   creatingToken: string;
   couldNotAuthorize: string;
+  unknownDeviceCode: string;
+  expiredDeviceCode: string;
+  alreadyUsedDeviceCode: string;
   finishingConnection: string;
   deviceAuthorized: string;
   connected: string;
@@ -69,6 +72,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "Authorizing device...",
     creatingToken: "Creating token...",
     couldNotAuthorize: "Could not authorize this device code.",
+    unknownDeviceCode:
+      "This device code isn't recognized. Restart the connection from your terminal.",
+    expiredDeviceCode:
+      "This device code has expired. Restart the connection from your terminal.",
+    alreadyUsedDeviceCode:
+      "This device code was already used. Restart the connection from your terminal.",
     finishingConnection:
       "Finishing connection… you can return to your terminal.",
     deviceAuthorized: "Device authorized",
@@ -109,6 +118,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "Autorizando dispositivo...",
     creatingToken: "Creando token...",
     couldNotAuthorize: "No se pudo autorizar este código de dispositivo.",
+    unknownDeviceCode:
+      "No se reconoce este código de dispositivo. Reinicia la conexión desde tu terminal.",
+    expiredDeviceCode:
+      "Este código de dispositivo ha caducado. Reinicia la conexión desde tu terminal.",
+    alreadyUsedDeviceCode:
+      "Este código de dispositivo ya se usó. Reinicia la conexión desde tu terminal.",
     finishingConnection: "Terminando la conexión… puedes volver a tu terminal.",
     deviceAuthorized: "Dispositivo autorizado",
     connected: "Conectado",
@@ -148,6 +163,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "Autorisation de l’appareil...",
     creatingToken: "Création du jeton...",
     couldNotAuthorize: "Impossible d’autoriser ce code d’appareil.",
+    unknownDeviceCode:
+      "Ce code d’appareil n’est pas reconnu. Recommencez la connexion depuis votre terminal.",
+    expiredDeviceCode:
+      "Ce code d’appareil a expiré. Recommencez la connexion depuis votre terminal.",
+    alreadyUsedDeviceCode:
+      "Ce code d’appareil a déjà été utilisé. Recommencez la connexion depuis votre terminal.",
     finishingConnection:
       "Connexion en cours… vous pouvez retourner à votre terminal.",
     deviceAuthorized: "Appareil autorisé",
@@ -188,6 +209,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "Gerät wird autorisiert...",
     creatingToken: "Token wird erstellt...",
     couldNotAuthorize: "Dieser Gerätecode konnte nicht autorisiert werden.",
+    unknownDeviceCode:
+      "Dieser Gerätecode wurde nicht erkannt. Starte die Verbindung in deinem Terminal neu.",
+    expiredDeviceCode:
+      "Dieser Gerätecode ist abgelaufen. Starte die Verbindung in deinem Terminal neu.",
+    alreadyUsedDeviceCode:
+      "Dieser Gerätecode wurde bereits verwendet. Starte die Verbindung in deinem Terminal neu.",
     finishingConnection:
       "Verbindung wird abgeschlossen… du kannst zu deinem Terminal zurückkehren.",
     deviceAuthorized: "Gerät autorisiert",
@@ -228,6 +255,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "Autorizando dispositivo...",
     creatingToken: "Criando token...",
     couldNotAuthorize: "Não foi possível autorizar este código de dispositivo.",
+    unknownDeviceCode:
+      "Este código de dispositivo não foi reconhecido. Reinicie a conexão pelo terminal.",
+    expiredDeviceCode:
+      "Este código de dispositivo expirou. Reinicie a conexão pelo terminal.",
+    alreadyUsedDeviceCode:
+      "Este código de dispositivo já foi usado. Reinicie a conexão pelo terminal.",
     finishingConnection:
       "Concluindo a conexão… você pode voltar ao seu terminal.",
     deviceAuthorized: "Dispositivo autorizado",
@@ -267,6 +300,9 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "正在授权设备...",
     creatingToken: "正在创建令牌...",
     couldNotAuthorize: "无法授权此设备代码。",
+    unknownDeviceCode: "无法识别此设备代码。请从终端重新开始连接。",
+    expiredDeviceCode: "此设备代码已过期。请从终端重新开始连接。",
+    alreadyUsedDeviceCode: "此设备代码已使用过。请从终端重新开始连接。",
     finishingConnection: "正在完成连接…你可以返回终端。",
     deviceAuthorized: "设备已授权",
     connected: "已连接",
@@ -305,6 +341,9 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "正在授權裝置...",
     creatingToken: "正在建立權杖...",
     couldNotAuthorize: "無法授權此裝置代碼。",
+    unknownDeviceCode: "無法辨識此裝置代碼。請從終端機重新開始連線。",
+    expiredDeviceCode: "此裝置代碼已過期。請從終端機重新開始連線。",
+    alreadyUsedDeviceCode: "此裝置代碼已使用過。請從終端機重新開始連線。",
     finishingConnection: "正在完成連線…你可以返回終端機。",
     deviceAuthorized: "裝置已授權",
     connected: "已連線",
@@ -343,6 +382,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "デバイスを承認中...",
     creatingToken: "トークンを作成中...",
     couldNotAuthorize: "このデバイスコードを承認できませんでした。",
+    unknownDeviceCode:
+      "このデバイスコードは認識されません。ターミナルから接続をやり直してください。",
+    expiredDeviceCode:
+      "このデバイスコードは期限切れです。ターミナルから接続をやり直してください。",
+    alreadyUsedDeviceCode:
+      "このデバイスコードはすでに使用されています。ターミナルから接続をやり直してください。",
     finishingConnection:
       "接続を完了しています…ターミナルに戻ることができます。",
     deviceAuthorized: "デバイスを承認しました",
@@ -383,6 +428,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "기기 승인 중...",
     creatingToken: "토큰 생성 중...",
     couldNotAuthorize: "이 기기 코드를 승인할 수 없습니다.",
+    unknownDeviceCode:
+      "이 기기 코드를 인식할 수 없습니다. 터미널에서 연결을 다시 시작하세요.",
+    expiredDeviceCode:
+      "이 기기 코드가 만료되었습니다. 터미널에서 연결을 다시 시작하세요.",
+    alreadyUsedDeviceCode:
+      "이 기기 코드는 이미 사용되었습니다. 터미널에서 연결을 다시 시작하세요.",
     finishingConnection: "연결을 완료하는 중… 터미널로 돌아가도 됩니다.",
     deviceAuthorized: "기기 승인됨",
     connected: "연결됨",
@@ -421,6 +472,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "डिवाइस को अनुमति दी जा रही है...",
     creatingToken: "Token बनाया जा रहा है...",
     couldNotAuthorize: "इस डिवाइस कोड को अनुमति नहीं दी जा सकी।",
+    unknownDeviceCode:
+      "यह डिवाइस कोड पहचाना नहीं गया। अपने टर्मिनल से कनेक्शन फिर शुरू करें।",
+    expiredDeviceCode:
+      "यह डिवाइस कोड समाप्त हो गया है। अपने टर्मिनल से कनेक्शन फिर शुरू करें।",
+    alreadyUsedDeviceCode:
+      "यह डिवाइस कोड पहले ही इस्तेमाल हो चुका है। अपने टर्मिनल से कनेक्शन फिर शुरू करें।",
     finishingConnection: "कनेक्शन पूरा हो रहा है… आप terminal पर लौट सकते हैं।",
     deviceAuthorized: "डिवाइस को अनुमति दी गई",
     connected: "कनेक्टेड",
@@ -459,6 +516,12 @@ export const MCP_CONNECT_MESSAGES: Record<LocaleCode, McpConnectMessages> = {
     authorizingDevice: "جارٍ تخويل الجهاز...",
     creatingToken: "جارٍ إنشاء الرمز...",
     couldNotAuthorize: "تعذر تخويل رمز الجهاز هذا.",
+    unknownDeviceCode:
+      "لم يتم التعرف على رمز الجهاز هذا. أعد بدء الاتصال من جهازك الطرفي.",
+    expiredDeviceCode:
+      "انتهت صلاحية رمز الجهاز هذا. أعد بدء الاتصال من جهازك الطرفي.",
+    alreadyUsedDeviceCode:
+      "تم استخدام رمز الجهاز هذا من قبل. أعد بدء الاتصال من جهازك الطرفي.",
     finishingConnection: "جارٍ إنهاء الاتصال… يمكنك العودة إلى الطرفية.",
     deviceAuthorized: "تم تخويل الجهاز",
     connected: "متصل",

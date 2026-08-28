@@ -263,6 +263,15 @@ describe("handleMcpConnect", () => {
       expect(body).toContain(
         'showMsg(COPY.connectedDescription, "ok", COPY.connected)',
       );
+      expect(body).toContain(
+        "if (response.status === 404) return COPY.unknownDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 410) return COPY.expiredDeviceCode;",
+      );
+      expect(body).toContain(
+        "if (response.status === 409) return COPY.alreadyUsedDeviceCode;",
+      );
       expect(body).toContain(".msg-title");
       expect(body).toContain(".msg-copy");
       expect(body).toContain('btn.setAttribute("aria-busy", "true")');

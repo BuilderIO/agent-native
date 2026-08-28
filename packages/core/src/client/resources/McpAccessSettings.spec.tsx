@@ -50,4 +50,29 @@ describe("McpAccessSettings localization", () => {
     );
     expect(connectLink?.getAttribute("href")).toContain("locale=es-ES");
   });
+
+  it("uses the app title metadata when no app name is provided", async () => {
+    const meta = document.createElement("meta");
+    meta.name = "apple-mobile-web-app-title";
+    meta.content = "Mail";
+    document.head.appendChild(meta);
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    try {
+      expect(container.textContent).toContain("name it Mail");
+    } finally {
+      meta.remove();
+    }
+  });
 });
