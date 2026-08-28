@@ -45,7 +45,7 @@ describe("release everything workflow", () => {
     });
     assert.deepEqual(workflow.permissions, {
       actions: "write",
-      contents: "read",
+      contents: "write",
       "pull-requests": "read",
     });
   });
@@ -60,6 +60,14 @@ describe("release everything workflow", () => {
     assert.match(source, /waitForStablePackagePublish/);
     assert.match(source, /Stable package release preparation/);
     assert.match(source, /90 \* 60_000/);
+    assert.match(
+      source,
+      /const coordinatorDeadline = startedAt \+ 355 \* 60_000/,
+    );
+    assert.match(
+      source,
+      /Math\.min\(coordinatorDeadline, Date\.now\(\) \+ timeoutMs\)/,
+    );
     assert.match(source, /async function getRemoteTagSha\(tag\)/);
     assert.match(source, /github\.rest\.git\.getTag/);
     assert.match(
@@ -69,6 +77,13 @@ describe("release everything workflow", () => {
     assert.match(source, /github\.paginate\(github\.rest\.repos\.listReleases/);
     assert.match(source, /release\.tag_name\.startsWith\(tagPrefix\)/);
     assert.match(source, /candidate\[2\] \+= 1/);
+    assert.match(
+      source,
+      /async function reserveStableVersion\(tagPrefix, baseVersion, sourceSha\)/,
+    );
+    assert.match(source, /github\.rest\.git\.createRef/);
+    assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
+    assert.match(source, /error\.status !== 422/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,

@@ -21,7 +21,7 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  contents: write
   pull-requests: read
 
 concurrency:
@@ -47,9 +47,12 @@ jobs:
             const apiVersion = "2026-03-10";
             const releaseType = process.env.RELEASE_TYPE;
             const startedAt = Date.now();
+            const coordinatorDeadline = startedAt + 355 * 60_000;
             const pollIntervalMs = 15_000;
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const phaseDeadline = (timeoutMs) =>
+              Math.min(coordinatorDeadline, Date.now() + timeoutMs);
 
             async function readJsonAt(ref, path) {
               const response = await github.rest.repos.getContent({
@@ -165,6 +168,25 @@ jobs:
               return formatStableVersion(candidate);
             }
 
+            async function reserveStableVersion(tagPrefix, baseVersion, sourceSha) {
+              for (let attempt = 0; attempt < 20; attempt += 1) {
+                const version = await nextStableVersion(tagPrefix, baseVersion);
+                try {
+                  await github.rest.git.createRef({
+                    owner,
+                    repo,
+                    ref: `refs/tags/${tagPrefix}${version}`,
+                    sha: sourceSha,
+                  });
+                  return version;
+                } catch (error) {
+                  if (error.status !== 422) throw error;
+                  core.warning(`Stable tag ${tagPrefix}${version} was reserved concurrently; retrying.`);
+                }
+              }
+              throw new Error(`Could not reserve a stable ${tagPrefix} version after 20 attempts.`);
+            }
+
             async function getFirstParentSha(ref) {
               const response = await github.rest.repos.getCommit({
                 owner,
@@ -179,7 +201,7 @@ jobs:
             }
 
             async function waitForRun(run, label, timeoutMs) {
-              const deadline = Date.now() + timeoutMs;
+              const deadline = phaseDeadline(timeoutMs);
               let lastStatus = "";
               let lastLoggedAt = 0;
               while (Date.now() < deadline) {
@@ -226,7 +248,7 @@ jobs:
             }
 
             async function waitForReleasePullRequest(previousNumbers) {
-              const deadline = Date.now() + 30 * 60_000;
+              const deadline = phaseDeadline(30 * 60_000);
               while (Date.now() < deadline) {
                 const candidates = (await listReleasePullRequests())
                   .filter(isStableReleasePullRequest)
@@ -251,7 +273,7 @@ jobs:
             }
 
             async function waitForReleaseMerge(pr) {
-              const deadline = Date.now() + 45 * 60_000;
+              const deadline = phaseDeadline(45 * 60_000);
               while (Date.now() < deadline) {
                 const current = (await github.rest.pulls.get({
                   owner,
@@ -274,7 +296,7 @@ jobs:
             }
 
             async function waitForStablePackagePublish(mergeSha, packageTag, requireMergeTag) {
-              const deadline = Date.now() + 120 * 60_000;
+              const deadline = phaseDeadline(120 * 60_000);
               while (Date.now() < deadline) {
                 const response = await github.rest.actions.listWorkflowRuns({
                   owner,
@@ -370,13 +392,15 @@ jobs:
               "scripts/netlify-production-sites.json",
             );
             // Private desktop packages do not advance in the npm release commit.
-            const desktopVersion = await nextStableVersion(
+            const desktopVersion = await reserveStableVersion(
               "v",
               stableVersion(desktopPackage.version, "Desktop app"),
+              releaseSha,
             );
-            const clipsVersion = await nextStableVersion(
+            const clipsVersion = await reserveStableVersion(
               "clips-v",
               stableVersion(clipsPackage.version, "Clips desktop app"),
+              releaseSha,
             );
             core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
             const productionSites = Object.entries(sitesManifest)
