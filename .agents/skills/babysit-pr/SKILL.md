@@ -16,8 +16,10 @@ to the shared checkout or require that an agent publish from the root checkout.
 ## Branch-wide Snapshot Rule
 
 During `/babysit-pr`, the PR remains the unit of review and the shared checkout
-is the branch snapshot. At the first tick, record the status and publish the
-requested initial work when it has not already been published. On later ticks,
+is the branch snapshot. At the first tick, record dirty paths and unpushed
+commits; publish the requested initial work only after verifying that every
+candidate belongs to this PR's requested fix. If unrelated or incomplete
+concurrent work is present, preserve it for its owner and wait. On later ticks,
 inspect the tree before every push. Run `corepack pnpm ship:push` only when the
 current branch contains an actionable change required by failing CI, PR
 feedback, a real merge conflict, or an explicit user request. A clean tree,
@@ -73,10 +75,12 @@ can change within minutes, so re-check before every actionable push.
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. First inspect the worktree;
-   do not run the merge until `git status --short` is empty. **Publish any
-   intentional actionable fix first (Step 0)**, after verifying the dirty paths
-   all belong to that fix; then prefer a **merge** over a rebase —
+2. If `CONFLICTING`: bring `main` in and resolve. First inspect the worktree
+   and unpushed commits; do not run the merge until both `git status --short`
+   and `git log --oneline origin/$(git branch --show-current)..HEAD` are empty.
+   **Publish any intentional actionable fix first (Step 0)**, after verifying
+   every dirty path and unpushed commit belongs to that fix; then prefer a
+   **merge** over a rebase —
    `git fetch origin main && git merge --no-edit
    origin/main` — because this branch is shared with concurrent agents and a
    rebase would rewrite history and require a force-push that can clobber their

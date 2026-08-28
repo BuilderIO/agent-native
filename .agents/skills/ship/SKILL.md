@@ -19,21 +19,22 @@ Ship the complete nonignored current-branch snapshot end-to-end: commit and
 push it, open or update a ready PR, run `/babysit-pr`, merge when its normal
 gates are satisfied, then run `/new-branch` after the merge lands.
 
-`/ship` means all nonignored local changes on the current branch. The shared
-checkout is the source of truth, so include concurrent-session changes in the
-same branch snapshot. The checkpoint helper excludes `learnings.md`,
-`bridge/**`, and `data/**`.
+`/ship` means all nonignored local changes belonging to the requested work on
+the current branch. The shared checkout is the source of truth, but unrelated
+or incomplete concurrent work stays with its owner and is not part of this PR
+snapshot. The checkpoint helper excludes `learnings.md`, `bridge/**`, and
+`data/**`.
 
 ## Non-Negotiable Shipping Invariant
 
-`/ship` ships the complete nonignored branch snapshot, not a hand-selected
-subset of dirty paths. At the start of the flow, record the status and publish
-the requested initial work with the checkpoint helper. Before any later
-actionable push, verify that every dirty or unpushed path belongs to that same
-fix; the helper stages the whole nonignored tree, so do not run it when the
-checkout mixes unrelated or incomplete concurrent work. Preserve those paths
-for their owner and report them instead. Never revert, stash, or overwrite
-concurrent work.
+`/ship` ships the complete nonignored snapshot of the requested work, not a
+hand-selected subset of that work. At the start of the flow, record the status
+and every unpushed commit, then verify that every candidate path and commit
+belongs to the requested fix before invoking the checkpoint helper. If the
+checkout mixes unrelated or incomplete concurrent work, do not run the helper:
+preserve those paths for their owner and report them instead. Apply the same
+ownership check before every later actionable push. Never revert, stash, or
+overwrite concurrent work.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
@@ -228,9 +229,10 @@ branch, stay on it.
    shared/platform-managed worktrees; ship the branch belonging to this
    worktree.
 
-2. **Check local changes**: run `git status --short` and `git diff --stat` to
-   establish the branch snapshot. Multiple agents may have added work; include
-   those paths in the complete nonignored snapshot.
+2. **Check local changes**: run `git status --short`, `git diff --stat`, and
+   `git log --oneline origin/$(git branch --show-current)..HEAD` to establish
+   the branch snapshot. Multiple agents may have added work; include a path or
+   unpushed commit only after confirming it belongs to this requested fix.
 
    Then confirm the base is current, before validating or pushing anything. A
    worktree can be created from a stale ref, and its local `main` ref is stale
@@ -251,12 +253,14 @@ branch, stay on it.
    current `origin/main` only when GitHub reports `CONFLICTING` (or a local
    merge proves a real conflict blocks shipment). In that case, merge
    `origin/main` once, resolve it, push, and wait for the new checks. Before
-   that merge, the worktree must be clean. If dirty paths are all part of the
-   same actionable fix, publish them first; if any unrelated or incomplete
-   concurrent work overlaps the checkout, preserve it and wait for its owner
-   to clear it rather than stashing, restoring, or forcing the merge. Do not
-   repeat the merge while the PR is mergeable or checks are merely pending. A
-   behind count alone never justifies a merge commit.
+   that merge, both `git status --short` and the unpushed-commit log above must
+   be empty. If either is not empty, inspect every dirty path and unpushed
+   commit; publish them first only when all of them belong to the same
+   actionable fix. If any unrelated or incomplete concurrent work overlaps the
+   checkout, preserve it and wait for its owner rather than stashing, restoring,
+   or forcing the merge. Do not repeat the merge while the PR is mergeable or
+   checks are merely pending. A behind count alone never justifies a merge
+   commit.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Push the first safe slice before running `pnpm run prep` or

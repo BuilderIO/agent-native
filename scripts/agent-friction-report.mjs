@@ -72,7 +72,7 @@ const FEEDBACK_REGEX_CASES = [
 ];
 
 const SHIPPING_CHURN_RE =
-  /\b(?:don['’]?t|do not|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?))\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:origin\/)?main)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
+  /\b(?:don['’]?t|do not|stop)\b[\s\S]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[\s\S]{0,80}\b(?:from|with|against)\s+(?:origin\/)?main)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:origin\/)?main)\b[\s\S]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b|\b(?:merg(?:e|ed|es|ing)\s+(?:origin\/)?main|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push)\b[\s\S]{0,220}\b(?:unless|unnecessary|necessary|clear|routine|clean|behind|timer)\b/i;
 
 const SHIPPING_CHURN_REGEX_CASES = [
   [true, "don't merge main 100 times unless there is a clear conflict."],
@@ -81,6 +81,7 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not create or push a routine chore: publish branch work commit."],
   [true, "I don't want those chore commits unless absolutely necessary."],
   [true, "Do not run ship:push on a clean or merely behind branch."],
+  [true, "Stop updating or syncing the branch from main unless conflicting."],
   [false, "The build completed successfully."],
   [false, "The branch contains a useful chore commit."],
   [false, "Only commit relevant changes."],
