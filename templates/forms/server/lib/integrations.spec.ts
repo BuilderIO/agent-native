@@ -3,7 +3,11 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { FormField, FormIntegration } from "../../shared/types.js";
 
 const fetchMock = vi.hoisted(() => ({
-  requests: [] as Array<{ url: string; payload: any }>,
+  requests: [] as Array<{
+    url: string;
+    payload: any;
+    headers?: Record<string, string>;
+  }>,
   results: [] as Array<{ ok: boolean; status?: number; error?: string }>,
 }));
 
@@ -14,13 +18,16 @@ vi.mock("@agent-native/core/integrations", () => ({
   deliverJsonWebhook: async ({
     url,
     payload,
+    headers,
   }: {
     url: string;
     payload: unknown;
+    headers?: Record<string, string>;
   }) => {
     fetchMock.requests.push({
       url,
       payload,
+      headers,
     });
     return fetchMock.results.shift() ?? { ok: true, status: 200 };
   },
@@ -29,6 +36,7 @@ vi.mock("@agent-native/core/integrations", () => ({
 import {
   buildGoogleSheetsPayload,
   buildSlackPayload,
+  deliverIntegrationDelivery,
   fireIntegrations,
 } from "./integrations.js";
 
@@ -233,6 +241,30 @@ describe("buildGoogleSheetsPayload", () => {
       responseId: "response-42",
       Answer: "one",
       "Answer (second)": "two",
+    });
+  });
+});
+
+describe("deliverIntegrationDelivery", () => {
+  beforeEach(() => {
+    fetchMock.requests.length = 0;
+    fetchMock.results.length = 0;
+  });
+
+  it("passes a stable idempotency key to retried webhook deliveries", async () => {
+    await deliverIntegrationDelivery(
+      {
+        id: "slack",
+        type: "slack",
+        name: "Slack",
+        url: "https://example.com/slack",
+        payload: { text: "feedback" },
+      },
+      "forms:response-1:integration:slack",
+    );
+
+    expect(fetchMock.requests[0]?.headers).toEqual({
+      "Idempotency-Key": "forms:response-1:integration:slack",
     });
   });
 });

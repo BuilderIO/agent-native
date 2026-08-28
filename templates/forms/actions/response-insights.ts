@@ -332,6 +332,7 @@ export default defineAction({
             clientSurface: schema.responses.clientSurface,
             idempotencyKey: schema.responses.idempotencyKey,
             deliveryStatus: schema.responses.deliveryStatus,
+            deliverySnapshot: schema.responses.deliverySnapshot,
           })
           .from(schema.responses)
           .where(responseFilter)

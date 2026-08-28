@@ -168,6 +168,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON response
         sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_status TEXT`,
       },
     },
+    {
+      version: 15,
+      name: "response-delivery-snapshots",
+      sql: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS delivery_snapshot TEXT;
+CREATE TABLE IF NOT EXISTS response_deliveries (
+  id TEXT PRIMARY KEY,
+  response_id TEXT NOT NULL REFERENCES responses(id),
+  destination TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  claim_token TEXT,
+  claimed_at TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS response_deliveries_response_destination_idx
+  ON response_deliveries (response_id, destination);
+CREATE INDEX IF NOT EXISTS response_deliveries_status_idx
+  ON response_deliveries (status, claimed_at)`,
+    },
   ],
   { table: "forms_migrations" },
 );

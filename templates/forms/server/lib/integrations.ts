@@ -55,6 +55,14 @@ interface SubmissionPayload {
   clientSurface?: string | null;
 }
 
+export interface IntegrationDeliverySnapshot {
+  id: string;
+  type: IntegrationType;
+  name: string;
+  url: string;
+  payload: unknown;
+}
+
 /** Human-readable label for a client-surface token. */
 function clientSurfaceLabel(surface: string): string {
   switch (surface) {
@@ -308,6 +316,54 @@ const payloadBuilders: Record<
   webhook: buildWebhookPayload,
 };
 
+export function buildIntegrationDeliverySnapshot(
+  integration: FormIntegration,
+  submission: SubmissionPayload,
+): IntegrationDeliverySnapshot {
+  const buildPayload = payloadBuilders[integration.type] ?? buildWebhookPayload;
+  return {
+    id: integration.id,
+    type: integration.type,
+    name: integration.name,
+    url: integration.url,
+    payload: buildPayload(submission),
+  };
+}
+
+export function buildIntegrationDeliverySnapshots(
+  integrations: FormIntegration[],
+  submission: SubmissionPayload,
+): IntegrationDeliverySnapshot[] {
+  return integrations
+    .filter((integration) => integration.enabled && integration.url)
+    .map((integration) =>
+      buildIntegrationDeliverySnapshot(integration, submission),
+    );
+}
+
+export async function deliverIntegrationDelivery(
+  snapshot: IntegrationDeliverySnapshot,
+  idempotencyKey?: string,
+): Promise<void> {
+  if (!isWebhookUrlAllowed(snapshot.url)) {
+    throw new Error("blocked URL");
+  }
+  const result = await deliverJsonWebhook({
+    url: snapshot.url,
+    payload: snapshot.payload,
+    ...(idempotencyKey
+      ? { headers: { "Idempotency-Key": idempotencyKey } }
+      : {}),
+  });
+  if (result.ok) return;
+  if (result.blocked) throw new Error("blocked URL");
+  throw new Error(
+    result.status
+      ? `destination returned ${result.status}`
+      : "destination request failed",
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Fire integrations
 // ---------------------------------------------------------------------------
@@ -352,29 +408,11 @@ export async function fireIntegrations(
           `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
         );
       } else {
-        const buildPayload =
-          payloadBuilders[integration.type] ?? buildWebhookPayload;
-        const payload = buildPayload(submission);
-
         try {
-          const result = await deliverJsonWebhook({
-            url: integration.url,
-            payload,
-          });
-          if (result.ok) {
-            status = "succeeded";
-          } else if (result.blocked) {
-            console.warn(
-              `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
-            );
-          } else {
-            console.warn(
-              result.status
-                ? `[integrations] ${integration.type} "${integration.name}" returned ${result.status}`
-                : `[integrations] ${integration.type} "${integration.name}" failed:`,
-              result.error,
-            );
-          }
+          await deliverIntegrationDelivery(
+            buildIntegrationDeliverySnapshot(integration, submission),
+          );
+          status = "succeeded";
         } catch (err) {
           console.warn(
             `[integrations] ${integration.type} "${integration.name}" failed:`,

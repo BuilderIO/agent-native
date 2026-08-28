@@ -46,12 +46,45 @@ export const responses = table(
     idempotencyKey: text("idempotency_key"),
     // JSON map of side-effect destination keys to pending/succeeded/failed.
     deliveryStatus: text("delivery_status"),
+    // Immutable form/schema/integration snapshot used when an idempotent
+    // response needs to replay delivery after the form has changed.
+    deliverySnapshot: text("delivery_snapshot"),
   },
   (response) => ({
     idempotencyKeyUnique: uniqueIndex("responses_form_idempotency_key_idx").on(
       response.formId,
       response.idempotencyKey,
     ),
+  }),
+);
+
+export const responseDeliveries = table(
+  "response_deliveries",
+  {
+    id: text("id").primaryKey(),
+    responseId: text("response_id")
+      .notNull()
+      .references(() => responses.id),
+    destination: text("destination").notNull(),
+    kind: text("kind", {
+      enum: ["application-state", "email", "integration"],
+    }).notNull(),
+    payload: text("payload").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "succeeded", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    claimToken: text("claim_token"),
+    claimedAt: text("claimed_at"),
+    errorMessage: text("error_message"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (delivery) => ({
+    responseDestinationUnique: uniqueIndex(
+      "response_deliveries_response_destination_idx",
+    ).on(delivery.responseId, delivery.destination),
   }),
 );
 
