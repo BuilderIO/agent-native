@@ -11,6 +11,8 @@ export interface SlideStyleSnapshot {
   textPreview: string;
   isText: boolean;
   isImage: boolean;
+  objectFit?: "cover" | "contain";
+  objectPosition?: string;
   isAbsolute: boolean;
   x: number;
   y: number;

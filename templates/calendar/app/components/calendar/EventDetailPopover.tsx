@@ -1524,7 +1524,7 @@ export function EventDetailPopover({
         side={isMobile ? "bottom" : (popoverSide ?? "right")}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(18rem,calc(100vw-2rem))] flex-col overflow-hidden p-0"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -1553,8 +1553,8 @@ export function EventDetailPopover({
       >
         <TooltipProvider>
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-            <div className="text-base font-medium text-foreground">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               <span>
                 {isWorkingLocation
                   ? t("eventForm.workingLocation")

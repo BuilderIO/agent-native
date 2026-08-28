@@ -77,6 +77,7 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "./theme.js";
+import { createAgentNativeServerActionWebMcpRegistration } from "./webmcp.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -170,6 +171,18 @@ function RoutedAppEnhancements() {
       <RouteTransitionIndicator />
     </>
   );
+}
+
+function AutomaticWebMcpActionRegistration() {
+  useEffect(() => {
+    const registration = createAgentNativeServerActionWebMcpRegistration();
+    void registration.start().catch(() => {
+      // WebMCP is progressive enhancement. Session expiry or a transient
+      // manifest failure must not prevent the authenticated app from loading.
+    });
+    return () => registration.stop();
+  }, []);
+  return null;
 }
 
 function readDocumentTitleFallback(): string {
@@ -365,6 +378,7 @@ export function AppProviders({
             children
           ) : (
             <FirstRunOnboardingStartupGate>
+              <AutomaticWebMcpActionRegistration />
               {children}
             </FirstRunOnboardingStartupGate>
           )}
