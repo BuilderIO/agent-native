@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import {
   IconAlertTriangleFilled,
   IconBuilding,
@@ -272,6 +273,7 @@ const WeekEventCard = memo(function WeekEventCard({
   onPopoverOpenChange,
 }: WeekEventCardProps) {
   const t = useT();
+  const canManipulate = canDrag && isCalendarEventOrganizer(event);
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const title = getWorkingLocationChipLabel(event, workingLocationLabels);
   const ariaTitle = getWorkingLocationTitle(event, workingLocationLabels);
@@ -355,7 +357,7 @@ const WeekEventCard = memo(function WeekEventCard({
         isDeclined && "saturate-[0.3]",
         isBeingDragged && isDragging && "shadow-lg z-[100]",
         isBeingDragged && isDragging && "ring-2 ring-primary/40",
-        canDrag && segmentStartsHere && "cursor-grab",
+        canManipulate && segmentStartsHere && "cursor-grab",
         isBeingDragged && isDragging && "cursor-grabbing",
         event.ownerColor && "pr-4",
       )}
@@ -460,7 +462,7 @@ const WeekEventCard = memo(function WeekEventCard({
         </>
       )}
       {/* Top resize handle */}
-      {canDrag && isStart && (
+      {canManipulate && isStart && (
         <div
           data-resize-handle="true"
           onPointerDown={(e) => {
@@ -472,7 +474,7 @@ const WeekEventCard = memo(function WeekEventCard({
         />
       )}
       {/* Bottom resize handle — only on single-day segments; multi-day end segments need segment-aware drag math */}
-      {canDrag && isEnd && isStart && (
+      {canManipulate && isEnd && isStart && (
         <div
           data-resize-handle="true"
           onPointerDown={(e) => {
@@ -866,6 +868,7 @@ export const WeekView = memo(function WeekView({
       isStart: boolean,
       dayIndex: number,
     ) => {
+      if (!isCalendarEventOrganizer(event)) return;
       focusedEventIdRef.current = event.id;
       setFocusedEventId(event.id);
       setFocusedEvent(event);
@@ -882,16 +885,20 @@ export const WeekView = memo(function WeekView({
 
   const handleResizeTopPointerDown = useCallback(
     (e: React.PointerEvent, eventId: string, dayIndex: number) => {
+      const event = events.find((candidate) => candidate.id === eventId);
+      if (!event || !isCalendarEventOrganizer(event)) return;
       startDrag(e, eventId, "resize-top", dayIndex);
     },
-    [startDrag],
+    [events, startDrag],
   );
 
   const handleResizeBottomPointerDown = useCallback(
     (e: React.PointerEvent, eventId: string, dayIndex: number) => {
+      const event = events.find((candidate) => candidate.id === eventId);
+      if (!event || !isCalendarEventOrganizer(event)) return;
       startDrag(e, eventId, "resize", dayIndex);
     },
-    [startDrag],
+    [events, startDrag],
   );
 
   // Drag-to-create: pointer-down-drag-up on empty grid background
@@ -1405,7 +1412,7 @@ export const WeekView = memo(function WeekView({
                         label={t("eventForm.outOfOffice")}
                         markerIndex={markerIndex}
                         compactMarker
-                        canDrag={canDrag}
+                        canDrag={canDrag && isCalendarEventOrganizer(event)}
                         isBeingDragged={isBeingDragged}
                         isDragging={isDragging}
                         isDragTargetDay={overrides?.dayIndex === dayIndex}

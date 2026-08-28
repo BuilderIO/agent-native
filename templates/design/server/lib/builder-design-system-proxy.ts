@@ -32,6 +32,10 @@ type HydratedBuilderDesignSystemReference =
     completionConfirmed?: boolean;
   };
 
+export function isBuilderDesignSystemReady(status: string | undefined): boolean {
+  return status === "ready" || status === "complete" || status === "completed";
+}
+
 export interface BuilderProxyReconciliation {
   data: string;
   tokenCount: number;
@@ -410,7 +414,9 @@ export async function upsertBuilderProxyDesignSystem({
       data: proxyFields.data,
       assets: "[]",
       customInstructions: proxyFields.customInstructions,
-      isDefault: !ownedSystem,
+      // An indexing proxy has placeholders until Builder confirms completion;
+      // making it the default here lets new designs consume an unusable kit.
+      isDefault: !ownedSystem && isBuilderDesignSystemReady(result.status),
       ownerEmail,
       orgId: orgId ?? null,
       visibility: orgId ? "org" : "private",

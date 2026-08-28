@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import {
   IconAlertTriangleFilled,
   IconMapPin,
@@ -227,6 +228,7 @@ const DayEventCard = memo(function DayEventCard({
   onPopoverOpenChange,
 }: DayEventCardProps) {
   const t = useT();
+  const canManipulate = canDrag && isCalendarEventOrganizer(event);
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const li = layout.get(event.id) ?? {
     left: 0,
@@ -283,7 +285,7 @@ const DayEventCard = memo(function DayEventCard({
         isDeclined && "saturate-[0.3]",
         isBeingDragged && isDragging && "shadow-lg z-[100]",
         isBeingDragged && isDragging && "ring-2 ring-primary/40",
-        canDrag && isStart && "cursor-grab",
+        canManipulate && isStart && "cursor-grab",
         isBeingDragged && isDragging && "cursor-grabbing",
         event.ownerColor && "pr-4",
       )}
@@ -403,7 +405,7 @@ const DayEventCard = memo(function DayEventCard({
         </>
       )}
       {/* Top resize handle — only on segments that start today */}
-      {canDrag && isStart && (
+      {canManipulate && isStart && (
         <div
           data-resize-handle="true"
           onPointerDown={(e) => {
@@ -415,7 +417,7 @@ const DayEventCard = memo(function DayEventCard({
         />
       )}
       {/* Bottom resize handle — only when event both starts and ends today */}
-      {canDrag && isEnd && isStart && (
+      {canManipulate && isEnd && isStart && (
         <div
           data-resize-handle="true"
           onPointerDown={(e) => {
@@ -687,6 +689,7 @@ export const DayView = memo(function DayView({
 
   const handleEventPointerDown = useCallback(
     (e: React.PointerEvent, event: CalendarEvent, isStart: boolean) => {
+      if (!isCalendarEventOrganizer(event)) return;
       focusedEventIdRef.current = event.id;
       setFocusedEventId(event.id);
       setFocusedEvent(event);
@@ -703,16 +706,20 @@ export const DayView = memo(function DayView({
 
   const handleResizeTopPointerDown = useCallback(
     (e: React.PointerEvent, eventId: string) => {
+      const event = events.find((candidate) => candidate.id === eventId);
+      if (!event || !isCalendarEventOrganizer(event)) return;
       startDrag(e, eventId, "resize-top", 0);
     },
-    [startDrag],
+    [events, startDrag],
   );
 
   const handleResizeBottomPointerDown = useCallback(
     (e: React.PointerEvent, eventId: string) => {
+      const event = events.find((candidate) => candidate.id === eventId);
+      if (!event || !isCalendarEventOrganizer(event)) return;
       startDrag(e, eventId, "resize", 0);
     },
-    [startDrag],
+    [events, startDrag],
   );
 
   // Drag-to-create: pointer-down-drag-up on empty grid background
@@ -793,7 +800,7 @@ export const DayView = memo(function DayView({
 
       {/* Working locations and ordinary all-day events */}
       {allDayEvents.length > 0 && (
-        <div className="border-b border-border bg-card/50">
+        <div className="max-h-[88px] overflow-y-auto border-b border-border bg-card/50">
           {workingLocations.length > 0 && (
             <div data-working-location-lane className="px-4 py-1.5">
               <p className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase text-muted-foreground">
@@ -1060,7 +1067,7 @@ export const DayView = memo(function DayView({
                   }
                   label={t("eventForm.outOfOffice")}
                   markerIndex={markerIndex}
-                  canDrag={canDrag}
+                  canDrag={canDrag && isCalendarEventOrganizer(event)}
                   isBeingDragged={isBeingDragged}
                   isDragging={isDragging}
                   isDragTargetDay={isBeingDragged}

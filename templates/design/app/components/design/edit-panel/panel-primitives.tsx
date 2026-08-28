@@ -228,6 +228,7 @@ export function ColorInput({
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
+  allowDesignHistoryHotkeys = false,
   documentColors,
   supportedPaintTypes,
   pickerKey,
@@ -272,6 +273,7 @@ export function ColorInput({
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
+  allowDesignHistoryHotkeys?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
   /**
@@ -580,6 +582,7 @@ export function ColorInput({
       documentColors={documentColors}
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}
+      allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
     />
   );
 }

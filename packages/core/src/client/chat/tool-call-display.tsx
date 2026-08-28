@@ -1837,11 +1837,14 @@ export function useLocalizedWorkedDuration() {
 
 export function WorkedForSummary({
   durationMs,
+  isRunning = false,
   defaultOpen = false,
   autoCollapse = false,
   children,
 }: {
   durationMs?: number | null;
+  /** Show a live work label while the owning assistant turn streams. */
+  isRunning?: boolean;
   /** Keep completed work visible when the turn contains interactive UI. */
   defaultOpen?: boolean;
   /** When true, close the summary after a run has completed. */
@@ -1862,8 +1865,9 @@ export function WorkedForSummary({
     }
   }, [autoCollapse, defaultOpen]);
 
-  const label =
-    durationMs != null && durationMs >= 1000
+  const label = isRunning
+    ? t("agentChat.status.working")
+    : durationMs != null && durationMs >= 1000
       ? t("agentChat.tool.workedFor", {
           duration: formatDuration(durationMs),
         })

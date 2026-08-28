@@ -78,4 +78,15 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
       "setOverviewSelectedScreenIds(files.map((file) => file.id))",
     );
   });
+
+  it("selects an overview frame before allowing its embedded layers to receive clicks", () => {
+    const pickHandler = editorSource.slice(
+      editorSource.indexOf("const handleOverviewScreenPick"),
+      editorSource.indexOf("/** The one add-breakpoint path"),
+    );
+    expect(pickHandler).toContain(
+      "setOverviewSelectedScreenIds([pickedId]);",
+    );
+    expect(pickHandler).toContain("setSelectedLayerIdsState((current)");
+  });
 });

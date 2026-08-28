@@ -1415,6 +1415,7 @@ function PageProperties({
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
+            allowDesignHistoryHotkeys
           />
         </PanelSection>
       ) : null}
@@ -1443,6 +1444,7 @@ function PageProperties({
           blendMode={styles.backgroundBlendMode || "normal"}
           onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
           supportsLayeredFills
+          allowDesignHistoryHotkeys
         />
         <PropSelect
           label={t("editPanel.labels.font")}

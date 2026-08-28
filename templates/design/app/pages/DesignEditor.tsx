@@ -7722,7 +7722,9 @@ function DesignEditor() {
   const resolvedReviewPanelProps = useMemo<
     Omit<ReviewPanelProps, "className"> | undefined
   >(() => {
-    if (!id || !activeFile) return undefined;
+    // The Builder shell has no persisted Design action surface, so exposing
+    // Run audit there only produces the shell's "API is disabled" error.
+    if (!id || !activeFile || shellMode) return undefined;
     const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
       findings: reviewMatchesActiveFile ? reviewFindings : [],
@@ -7749,6 +7751,7 @@ function DesignEditor() {
     reviewAuditedAt,
     reviewFileId,
     reviewFindings,
+    shellMode,
   ]);
 
   const dispatchReviewFeedbackToAgent = useCallback(
@@ -18110,6 +18113,9 @@ function DesignEditor() {
       // multi-id array through the single-id onPick signature, so a
       // shift-held pick must leave the current selection alone rather than
       // clobber it to a wrong singleton.
+      if (!shiftKeyHeldRef.current) {
+        setOverviewSelectedScreenIds([pickedId]);
+      }
       setSelectedLayerIdsState((current) =>
         computeOverviewScreenPickSelectionIds({
           pickedId,
@@ -18144,9 +18150,17 @@ function DesignEditor() {
           reflowOverviewScreensForBreakpoints([
             ...new Set([...persisted, widthPx]),
           ]);
+        })
+        .catch((error) => {
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.addBreakpoint"),
+          });
         });
     },
-    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints],
+    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints, t],
   );
   const handleBreakpointBarAdd = useCallback(
     (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),

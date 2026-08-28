@@ -3271,10 +3271,15 @@ export default function SlideEditor({
       const tag = active?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (active instanceof HTMLElement && active.isContentEditable) return;
-      if (deleteSelectedElements()) e.preventDefault();
+      if (deleteSelectedElements()) {
+        e.preventDefault();
+        // DeckEditor also listens for Delete at document level. Claim the
+        // event before it can interpret an object selection as a slide delete.
+        e.stopPropagation();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [
     deleteSelectedElements,
     editingEl,
@@ -6464,6 +6469,7 @@ export default function SlideEditor({
   const slideElementSelected =
     !!selectedImg ||
     !!editingEl ||
+    !!selectedElementSelector ||
     !!selectedStyleSnapshot ||
     multiSelection.size > 0;
 
