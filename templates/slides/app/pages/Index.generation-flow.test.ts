@@ -46,11 +46,21 @@ describe("new deck generation flow", () => {
       "navigate(`/deck/${deck.id}?generating=1`",
     );
     const submitIndex = flow.indexOf(
-      "agentSubmit(createDeckAgentMessage(trimmedPrompt)",
+      "agentSubmit(createDeckAgentMessage(prompt)",
     );
 
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
+  });
+
+  it("carries hidden prompt context through generation retries", () => {
+    expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
+    expect(source).toContain("retryContext?: string");
+    expect(flow).toContain("retryContext: additionalContext || undefined");
+    expect(source).toContain("newDeckRetryPrompt");
+    expect(source).toContain(
+      "prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined",
+    );
   });
 
   it("requires a generated title before the first slide", () => {

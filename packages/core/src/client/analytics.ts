@@ -1890,9 +1890,10 @@ function schedulePageview(reason: string): void {
     const timeout = new Promise<void>((resolve) =>
       window.setTimeout(resolve, 250),
     );
-    Promise.race([Promise.allSettled(pendingStartupContext), timeout]).finally(
-      run,
-    );
+    void Promise.race([
+      Promise.allSettled(pendingStartupContext),
+      timeout,
+    ]).finally(run);
     return;
   }
   if (typeof queueMicrotask === "function") {
@@ -1909,8 +1910,8 @@ function installPageviewTracking(): void {
 
   schedulePageview("load");
 
-  const originalPushState = window.history.pushState;
-  const originalReplaceState = window.history.replaceState;
+  const originalPushState = window.history.pushState.bind(window.history);
+  const originalReplaceState = window.history.replaceState.bind(window.history);
 
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);

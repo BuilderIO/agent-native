@@ -835,7 +835,7 @@ function BlankSlideContent({ content }: { content: string }) {
         dangerousHtml: { __html: processed },
         fontHrefs: hrefs,
       };
-    }, [content]);
+    }, [content, scopeSelector]);
 
   useEffect(() => {
     loadImportedFonts(fontHrefs);

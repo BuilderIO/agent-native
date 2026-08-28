@@ -319,7 +319,7 @@ function rowToSession(
   row: Record<string, unknown>,
   now = nowMs(),
 ): AgentNativeBrowserSessionRecord {
-  const sessionId = String(row.session_id ?? "");
+  const sessionId = stringifyValue(row.session_id ?? "");
   const expiresAt = Number(row.expires_at ?? 0);
   const parsedActions = parseActions(row.actions_json);
   return {
@@ -346,8 +346,8 @@ function rowToRequest(
   const payload = safeJsonParse<unknown>(row.payload_json, undefined);
   const result = safeJsonParse<unknown>(row.result_json, undefined);
   const request: AgentNativeBrowserSessionRequest = {
-    id: String(row.request_id ?? ""),
-    sessionId: String(row.session_id ?? ""),
+    id: stringifyValue(row.request_id ?? ""),
+    sessionId: stringifyValue(row.session_id ?? ""),
     type,
     status: String(
       row.status ?? "pending",
@@ -362,7 +362,11 @@ function rowToRequest(
     ...(row.completed_at != null
       ? { completedAt: Number(row.completed_at) }
       : {}),
-    ...(row.error ? { error: String(row.error) } : {}),
+    ...(row.error
+      ? {
+          error: stringifyValue(row.error),
+        }
+      : {}),
     ...(row.result_json != null ? { result } : {}),
   };
   if (type === "run-action") request.args = payload;
@@ -776,4 +780,14 @@ export async function callBrowserSession(
     timeoutMs: options.timeoutMs ?? input.timeoutMs,
     pollMs: options.pollMs,
   });
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

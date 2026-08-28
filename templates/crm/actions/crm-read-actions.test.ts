@@ -547,6 +547,7 @@ describe("navigate", () => {
       { view: "settings", settingsSection: "intelligence" },
       "/settings/intelligence",
     ],
+    [{ view: "settings", settingsSection: "mcp" }, "/settings/mcp"],
     [{ view: "settings", settingsSection: "advanced" }, "/settings/advanced"],
   ];
 

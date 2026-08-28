@@ -2544,7 +2544,7 @@ export function createIntegrationsPlugin(
           return { error: "Invalid webhook signature" };
         }
         try {
-          const raw = String(event.context?.__rawBody ?? "");
+          const raw = stringifyValue(event.context?.__rawBody ?? "");
           const encoded = new URLSearchParams(raw).get("payload");
           const payload = encoded ? JSON.parse(encoded) : null;
           const action = payload?.actions?.[0];
@@ -2812,9 +2812,9 @@ export function createIntegrationsPlugin(
           return {
             memory: await rememberForIntegrationScope(
               {
-                name: String(body.name ?? ""),
-                description: String(body.description ?? ""),
-                content: String(body.content ?? ""),
+                name: stringifyValue(body.name ?? ""),
+                description: stringifyValue(body.description ?? ""),
+                content: stringifyValue(body.content ?? ""),
               },
               scope.id,
             ),
@@ -2823,7 +2823,7 @@ export function createIntegrationsPlugin(
         if (body?.action === "forget") {
           return {
             memory: await forgetIntegrationMemory(
-              { name: String(body.name ?? "") },
+              { name: stringifyValue(body.name ?? "") },
               scope.id,
             ),
           };
@@ -3720,4 +3720,14 @@ function computerSupervisionRouteError(event: any, error: unknown) {
     return { error: error.message, code: error.code };
   }
   throw error;
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

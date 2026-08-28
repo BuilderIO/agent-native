@@ -60,6 +60,8 @@ export function RetryableCodeWorkbenchLoader({
   const [attempt, setAttempt] = useState(0);
   const LazyCodeWorkbench = useMemo(
     () => lazy(loadWorkbench),
+    // A retry must recreate the lazy component after a rejected import.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [attempt, loadWorkbench],
   );
   const retry = useCallback(() => setAttempt((current) => current + 1), []);

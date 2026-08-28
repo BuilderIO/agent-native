@@ -520,7 +520,7 @@ export default function EditorToolbar({
         label: t("editorExport.exportPdf"),
         keywords: ["export", "pdf", "download"],
         icon: IconFileTypePdf,
-        run: () => void onExportPdf?.(),
+        run: () => onExportPdf?.(),
       },
       {
         id: "export-pptx",

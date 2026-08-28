@@ -417,7 +417,7 @@ function ComposerPlusMenuFull({
   const hasOrg = !!org?.orgId;
   // Composer connections belong to the person asking for them. Organization
   // sharing remains an explicit choice for owners and admins in the dialog.
-  const defaultMcpScope: "user" = "user";
+  const defaultMcpScope = "user" as const;
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;
 

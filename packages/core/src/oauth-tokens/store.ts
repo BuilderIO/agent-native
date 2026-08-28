@@ -51,7 +51,8 @@ function oauthTokensTable(): string {
 }
 
 function isDuplicateColumnError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
+  const codeValue = (err as { code?: unknown })?.code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = String((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();

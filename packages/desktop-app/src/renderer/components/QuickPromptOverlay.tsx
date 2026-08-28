@@ -35,13 +35,13 @@ import {
 import "./QuickPromptOverlay.css";
 
 type QuickPromptOverlayProps = {
-  onSubmit(
+  onSubmit: (
     prompt: string,
     attachments: CodeAgentPromptAttachment[],
     cwd?: string,
     modelSelection?: CodeAgentModelSelectionType,
-  ): Promise<void>;
-  onDismiss(): void;
+  ) => Promise<void>;
+  onDismiss: () => void;
   submitting?: boolean;
 };
 
@@ -71,7 +71,10 @@ function QuickPromptProjectPicker({
   onSelect: (path: string) => void;
   onChoose: () => void;
 }) {
-  const canChoose = Boolean(window.electronAPI?.codeAgents?.chooseProject);
+  const canChoose = Boolean(
+    window.electronAPI?.codeAgents &&
+    "chooseProject" in window.electronAPI.codeAgents,
+  );
   const effectiveSelectedPath = selectedPath || projects[0]?.path || "";
   const activeProject = projects.find(
     (project) => project.path === effectiveSelectedPath,

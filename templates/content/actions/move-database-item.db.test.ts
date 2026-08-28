@@ -235,12 +235,14 @@ describe("move-database-item", () => {
 
     await Promise.all(
       database.items.map((item) =>
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          moveDatabaseItemAction.run({
-            databaseId: database.databaseId,
-            itemId: item.itemId,
-            position: 0,
-          }),
+        Promise.resolve(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            moveDatabaseItemAction.run({
+              databaseId: database.databaseId,
+              itemId: item.itemId,
+              position: 0,
+            }),
+          ),
         ),
       ),
     );

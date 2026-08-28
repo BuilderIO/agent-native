@@ -580,7 +580,7 @@ export function createAutomationToolEntries(
           case "run-now":
             return handleRunNow(args, getCurrentUser, appId, context);
           default:
-            return `Error: unknown action "${action}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
+            return `Error: unknown action "${String(action)}". Valid actions: ${VALID_ACTIONS.join(", ")}.`;
         }
       },
     },

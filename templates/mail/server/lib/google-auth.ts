@@ -857,7 +857,7 @@ async function fetchThreadBatchWithRefill(
   accessToken: string,
   threadIds: string[],
   format: "full" | "metadata" | "minimal",
-): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+): Promise<Array<{ id: string; data: any; error?: string }>> {
   const batchResults = await gmailBatchGetThreads(
     accessToken,
     threadIds,
@@ -892,7 +892,7 @@ async function fetchThreadBatchWithRefill(
 }
 
 function messagesFromThreadBatchResults(
-  batchResults: Array<{ id: string; data: any | null; error?: string }>,
+  batchResults: Array<{ id: string; data: any; error?: string }>,
   email: string,
 ): any[] {
   const messages: any[] = [];

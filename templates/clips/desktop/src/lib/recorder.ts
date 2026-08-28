@@ -481,7 +481,7 @@ function createUploadOptimizedVideoStream(
   document.body.appendChild(video);
   const play = () => video.play().catch(() => undefined);
   video.addEventListener("loadedmetadata", play);
-  play();
+  void play();
 
   const resizeCanvas = () => {
     const width = positiveNumber(video.videoWidth)
@@ -3245,7 +3245,7 @@ async function startNativeFullscreenRecording(
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
-  const streamCleanups: Array<() => void> = [audioCue.cleanup];
+  const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
   let uploadMode: UploadMode = "buffered";
   let localCameraExport: LocalRecordingExportHandle | null = null;
@@ -3447,17 +3447,13 @@ async function startNativeFullscreenRecording(
           `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
         );
       })();
-      try {
-        await Promise.all([
-          countdownPromise,
-          (async () => {
-            await warmPromise;
-            await startNativeTranscriptionBeforeRecording();
-          })(),
-        ]);
-      } catch (err) {
-        throw err;
-      }
+      await Promise.all([
+        countdownPromise,
+        (async () => {
+          await warmPromise;
+          await startNativeTranscriptionBeforeRecording();
+        })(),
+      ]);
     } else {
       const captureTitlePromise = captureTitleForRecording({
         mode: params.mode,
@@ -4374,7 +4370,7 @@ async function startRecordingInner(
   if (wantsAudio) {
     console.log("[clips-recorder] acquiring audioStream (mic only)");
   }
-  const streamCleanups: Array<() => void> = [audioCue.cleanup];
+  const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   const devSyntheticCapture = shouldUseDevSyntheticCapture();
 
   // Queue the native suspension before dispatching any WebKit capture calls.
@@ -4512,7 +4508,9 @@ async function startRecordingInner(
     // A picker may already have resolved while IPC was in flight. Tear down
     // every possible stream before surfacing the fail-closed suspension error.
     cleanupUnstartedCapture();
-    void Promise.allSettled(trackedCapturePromises).then((streams) => {
+    void Promise.allSettled(
+      trackedCapturePromises.map((promise) => Promise.resolve(promise)),
+    ).then((streams) => {
       streams.forEach((result) => {
         if (result.status === "fulfilled") stopMediaStream(result.value);
       });
@@ -4529,7 +4527,9 @@ async function startRecordingInner(
     // catch still sees `NotAllowedError` / `AbortError` as before.
     console.log("[clips-recorder] allSettled IN — streams dispatched");
     const settled = await guardRecordingStart(
-      Promise.allSettled(trackedCapturePromises),
+      Promise.allSettled(
+        trackedCapturePromises.map((promise) => Promise.resolve(promise)),
+      ),
       { signal: params.signal },
     );
     console.log(
@@ -4662,7 +4662,7 @@ async function startRecordingInner(
           })
         : null;
     if (recordedScreenCameraStream) {
-      streamCleanups.push(recordedScreenCameraStream.cleanup);
+      streamCleanups.push(() => recordedScreenCameraStream.cleanup());
       console.log("[clips-recorder] compositing camera into recorded video");
     }
 
@@ -4903,7 +4903,7 @@ async function startRecordingInner(
     }
 
     const uploadPrimaryVideo = createUploadOptimizedVideoStream(primaryVideo);
-    streamCleanups.push(uploadPrimaryVideo.cleanup);
+    streamCleanups.push(() => uploadPrimaryVideo.cleanup());
 
     const uploadCombined = new MediaStream();
     uploadPrimaryVideo.stream

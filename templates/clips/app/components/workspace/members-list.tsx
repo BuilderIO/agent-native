@@ -94,7 +94,7 @@ export function MembersList({
       toast.success(
         t("membersList.roleUpdated", { email: member.email, role }),
       );
-      qc.invalidateQueries({
+      void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
@@ -112,7 +112,7 @@ export function MembersList({
         email: pendingRemove.email,
       });
       toast.success(t("membersList.removed", { email: pendingRemove.email }));
-      qc.invalidateQueries({
+      void qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {

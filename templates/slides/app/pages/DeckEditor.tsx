@@ -400,7 +400,7 @@ export default function DeckEditor() {
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [deck?.title]);
+  }, [deck]);
 
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
@@ -1562,7 +1562,7 @@ export default function DeckEditor() {
         return;
       }
       presentNavigationRef.current = true;
-      navigate(presentationUrl);
+      void navigate(presentationUrl);
     } catch (error) {
       if (presentAttemptRef.current !== attemptId) {
         if (target && !target.closed) target.close();
@@ -1712,11 +1712,11 @@ export default function DeckEditor() {
             // send them back instead of stranding them on a "Deck
             // unavailable" screen for a deck that no longer exists.
             if (deckIdFromPathname(window.location.pathname) === newId) {
-              navigate("/");
+              void navigate("/");
             }
             toast.error(t("home.duplicateFailed"));
           });
-          if (optimistic) navigate(`/deck/${optimistic.id}`);
+          if (optimistic) void navigate(`/deck/${optimistic.id}`);
         }}
         onExportPdf={async () => {
           try {

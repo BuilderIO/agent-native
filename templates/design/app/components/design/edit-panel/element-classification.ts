@@ -404,9 +404,12 @@ export function inferElementSizing(
 ): AutoLayoutSizing {
   const styles = element.computedStyles;
   const property = axis === "horizontal" ? "width" : "height";
-  // A bridge payload's computedStyles resolve fit-content/auto to px (see
-  // cssElementSize below), so only the authored value can report Hug.
-  const size = element.inlineStyles?.[property] ?? styles[property];
+  // Computed width/height are always pixels, including for `auto`,
+  // `fit-content`, and percentage values. Prefer the authored inline value
+  // when available so the Inspector preserves the user's sizing intent
+  // instead of relabeling a Hug/Fill layer as Fixed after layout resolves.
+  const authoredSize = element.inlineStyles?.[property]?.trim().toLowerCase();
+  const size = authoredSize || styles[property];
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isMainFlexAxis = isFlex && parentDirection === axis;

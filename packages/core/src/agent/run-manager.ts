@@ -1871,7 +1871,7 @@ export function startRun(
       return;
     }
 
-    emitRunEvent(runEvent);
+    void emitRunEvent(runEvent);
   };
 
   // Run in background — intentionally detached from any HTTP connection

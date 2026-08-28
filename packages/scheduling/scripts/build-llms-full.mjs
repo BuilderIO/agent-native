@@ -17,7 +17,7 @@ function walk(dir, files = []) {
   return files;
 }
 
-const files = walk(docsDir).sort();
+const files = walk(docsDir).sort((a, b) => a.localeCompare(b));
 const out = [];
 out.push("# @agent-native/scheduling — Full Documentation Bundle");
 out.push("");

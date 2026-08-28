@@ -251,9 +251,14 @@ function isBuilderPreviewHost(host: string | undefined): boolean {
  * The protocol defaults to `https` in production (so a TLS-terminating proxy
  * that drops `x-forwarded-proto` doesn't downgrade us to plain HTTP).
  */
-export function getOrigin(event: H3Event): string {
+export function getOrigin(
+  event: H3Event,
+  options: { useForwardedHost?: boolean } = {},
+): string {
   const headerHost =
-    getHeader(event, "x-forwarded-host") || getHeader(event, "host");
+    options.useForwardedHost === false
+      ? getHeader(event, "host")
+      : getHeader(event, "x-forwarded-host") || getHeader(event, "host");
   const isProd = process.env.NODE_ENV === "production";
   const headerProto =
     getHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
@@ -369,8 +374,9 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
  * as a 400.
  *
  * The intentional shape is exact-prefix:
- *   - Origin must equal `getOrigin(event)` — no Host-header injection
- *     reusing somebody else's registered redirect URI.
+ *   - Origin must equal the resolved request origin — no Host-header injection
+ *     reusing somebody else's registered redirect URI. Callers with a
+ *     separately verified origin may pass it as `expectedOrigin`.
  *   - Path must start with `${appBasePath}/_agent-native/` so we never
  *     hand auth codes to a public marketing or open-redirect endpoint
  *     on the same registered host.
@@ -382,6 +388,7 @@ function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
 export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
+  expectedOrigin = getOrigin(event),
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -391,7 +398,6 @@ export function isAllowedOAuthRedirectUri(
     return false;
   }
   // Must be same origin as our server.
-  const expectedOrigin = getOrigin(event);
   let expectedUrl: URL;
   try {
     expectedUrl = new URL(expectedOrigin);
@@ -858,7 +864,7 @@ export function oauthCallbackResponse(
     appName?: string;
     desktopWebview?: boolean;
   },
-): Response | string | unknown | Promise<Response | string | unknown> {
+): unknown {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
   // clients. UA detection remains the fallback for ordinary mobile browsers.
   const mobile = opts.mobile || isMobile(event);

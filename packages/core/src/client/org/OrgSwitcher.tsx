@@ -652,7 +652,7 @@ export function OrgSwitcher({
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    navigate(profilePath);
+                    void navigate(profilePath);
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
@@ -667,7 +667,7 @@ export function OrgSwitcher({
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    navigate(agentPath);
+                    void navigate(agentPath);
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
@@ -685,7 +685,7 @@ export function OrgSwitcher({
                   onClick={() => {
                     setOpen(false);
                     if (organizationSettingsHref) {
-                      navigate(organizationSettingsHref);
+                      void navigate(organizationSettingsHref);
                     } else {
                       window.dispatchEvent(new CustomEvent("agent-panel:open"));
                       window.dispatchEvent(

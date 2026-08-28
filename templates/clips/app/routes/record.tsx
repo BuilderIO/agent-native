@@ -1789,7 +1789,7 @@ export default function RecordRoute() {
             path,
           });
           setTimeout(() => {
-            navigate(path);
+            void navigate(path);
           }, 50);
         } else {
           await writeAppState(`navigate:${getBrowserTabId()}`, {
@@ -1797,7 +1797,7 @@ export default function RecordRoute() {
             recordingId: createdId,
           });
           setTimeout(() => {
-            if (createdId) navigate(`/r/${createdId}`);
+            if (createdId) void navigate(`/r/${createdId}`);
           }, 50);
         }
       } catch (err) {
@@ -1986,7 +1986,7 @@ export default function RecordRoute() {
           path,
         }).catch(() => {});
         setTimeout(() => {
-          navigate(path);
+          void navigate(path);
         }, 50);
         return;
       }
@@ -1996,7 +1996,7 @@ export default function RecordRoute() {
         recordingId,
       }).catch(() => {});
       setTimeout(() => {
-        navigate(`/r/${recordingId}`);
+        void navigate(`/r/${recordingId}`);
       }, 50);
     },
     [navigate, showSavedToast],
@@ -2584,7 +2584,7 @@ export default function RecordRoute() {
             // awaited), so navigate() can fire immediately while the
             // best-effort server abort settles in the background.
             void doCancel();
-            navigate("/library");
+            void navigate("/library");
           }}
           className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
