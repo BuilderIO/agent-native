@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   headers: {} as Record<string, string | undefined>,
   integrationOutcomes: [] as Array<"succeeded" | "failed">,
   throwAfterDeliveryStatusWriteFor: null as string | null,
+  renewedClaims: [] as Array<{ id: string; claimedAt: string }>,
   requestContexts: [] as Array<Record<string, unknown>>,
   session: null as null | { email?: string; orgId?: string },
 }));
@@ -76,6 +77,8 @@ vi.mock("../lib/integrations.js", () => ({
 vi.mock("../db/index.js", async () => {
   const schema =
     await vi.importActual<typeof import("../db/schema.js")>("../db/schema.js");
+  let transactionTail = Promise.resolve();
+
   const paramsFromWhere = (condition: unknown): unknown[] => {
     const visit = (value: unknown): unknown[] => {
       if (!value || typeof value !== "object") return [];
@@ -207,6 +210,15 @@ vi.mock("../db/index.js", async () => {
             }
             Object.assign(delivery, values);
             if (
+              values.status === undefined &&
+              typeof values.claimedAt === "string"
+            ) {
+              state.renewedClaims.push({
+                id: String(delivery.id),
+                claimedAt: values.claimedAt,
+              });
+            }
+            if (
               values.status === "succeeded" &&
               delivery.destination === state.throwAfterDeliveryStatusWriteFor
             ) {
@@ -234,7 +246,19 @@ vi.mock("../db/index.js", async () => {
         };
       },
     }),
-    transaction: async (callback: (tx: any) => unknown) => callback(getDb()),
+    transaction: async (callback: (tx: any) => unknown) => {
+      const previous = transactionTail;
+      let release!: () => void;
+      transactionTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        return await callback(getDb());
+      } finally {
+        release();
+      }
+    },
   });
   return { getDb, schema };
 });
@@ -255,6 +279,7 @@ describe("submitForm pageUrl pass-through", () => {
     state.headers = {};
     state.integrationOutcomes = [];
     state.throwAfterDeliveryStatusWriteFor = null;
+    state.renewedClaims.length = 0;
     state.requestContexts.length = 0;
     state.session = null;
     publishedForm.status = "published";
@@ -414,6 +439,7 @@ describe("submitForm pageUrl pass-through", () => {
 
     const firstPromise = submit({ data: { msg: "long delivery" } });
     await started;
+    const initialClaimedAt = String(state.deliveries[0]?.claimedAt);
     await vi.advanceTimersByTimeAsync(60_001);
 
     const second = await submit({ data: { msg: "long delivery" } });
@@ -423,6 +449,10 @@ describe("submitForm pageUrl pass-through", () => {
       retryable: true,
     });
     expect(deliverIntegrationDelivery).toHaveBeenCalledTimes(1);
+    expect(state.renewedClaims.length).toBeGreaterThan(0);
+    expect(
+      state.renewedClaims.some((claim) => claim.claimedAt !== initialClaimedAt),
+    ).toBe(true);
 
     release();
     expect(await firstPromise).toMatchObject({ success: true });
