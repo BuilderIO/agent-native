@@ -801,6 +801,37 @@ export default defineAction({
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
+        let livePullRequest;
+        try {
+          livePullRequest = await github.getPullRequestSummary(
+            repository,
+            pullRequestNumber,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "unknown GitHub error";
+          await reconcileClaim(
+            snapshot.headSha,
+            `Live GitHub state could not be revalidated: ${message}. Reconciliation is required before approval.`,
+          );
+          throw error;
+        }
+        if (
+          livePullRequest.headSha !== snapshot.headSha ||
+          livePullRequest.state !== "open" ||
+          livePullRequest.draft
+        ) {
+          await reconcileClaim(
+            snapshot.headSha,
+            "Live GitHub pull-request state changed after review; reconciliation is required before approval.",
+          );
+          return {
+            ok: true,
+            action: "needs_manual",
+            reason:
+              "Live GitHub pull-request state changed after review; no approval was posted.",
+          };
+        }
         const decisionId = stableId(
           "pr-governance",
           orgId,

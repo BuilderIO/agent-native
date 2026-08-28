@@ -143,8 +143,16 @@ describe("GitHub triage client", () => {
       permission: null,
     });
     await expect(
-      client.approvePullRequest(repository, 2),
+      client.approvePullRequest(repository, 2, "Factory approval", "head-sha"),
     ).resolves.toMatchObject({ id: 9, state: "APPROVED" });
+    const approvalRequest = fetchImpl.mock.calls.find(([input]) =>
+      new URL(String(input)).pathname.endsWith("/reviews"),
+    );
+    expect(JSON.parse(String(approvalRequest?.[1]?.body))).toMatchObject({
+      event: "APPROVE",
+      body: "Factory approval",
+      commit_id: "head-sha",
+    });
     await expect(
       client.createIssueComment(repository, 2, "@builderio-bot please fix"),
     ).resolves.toEqual({

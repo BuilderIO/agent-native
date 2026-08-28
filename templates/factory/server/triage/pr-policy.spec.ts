@@ -207,6 +207,18 @@ describe("pull-request governance", () => {
     ).toBe(false);
     expect(
       hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "The SSRF vulnerability is not fixed." }],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
+        [{ state: "commented", body: "There is no authorization." }],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      hasActiveCredibleSafetyFinding(
         [
           {
             author: "reviewer",
