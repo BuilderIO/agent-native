@@ -442,7 +442,12 @@
     );
   /* Section separators are 1px, so the content baseline begins one pixel
      below the outer inspector origin. Keep the debug coordinates honest. */
-  background-position: left 1px, left 1px, left 1px, left 1px, left 1px;
+  background-position:
+    left 1px,
+    left 1px,
+    left 1px,
+    left 1px,
+    left 1px;
   background-size:
     calc(100% / var(--design-inspector-grid-columns)) 100%,
     calc(100% / var(--design-inspector-grid-columns)) 100%,
