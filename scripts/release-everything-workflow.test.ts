@@ -84,6 +84,11 @@ describe("release everything workflow", () => {
     assert.match(source, /github\.rest\.git\.createRef/);
     assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
     assert.match(source, /error\.status !== 422/);
+    assert.match(source, /const reservedTags = new Map\(\)/);
+    assert.match(source, /async function cleanupReservedTags\(\)/);
+    assert.match(source, /github\.rest\.repos\.deleteRelease/);
+    assert.match(source, /github\.rest\.git\.deleteRef/);
+    assert.match(source, /await cleanupReservedTags\(\)/);
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,

@@ -49,6 +49,7 @@ jobs:
             const startedAt = Date.now();
             const coordinatorDeadline = startedAt + 355 * 60_000;
             const pollIntervalMs = 15_000;
+            const reservedTags = new Map();
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const phaseDeadline = (timeoutMs) =>
@@ -125,6 +126,19 @@ jobs:
               }
             }
 
+            async function getReleaseByTag(tag) {
+              try {
+                return (await github.rest.repos.getReleaseByTag({
+                  owner,
+                  repo,
+                  tag,
+                })).data;
+              } catch (error) {
+                if (error.status === 404) return null;
+                throw error;
+              }
+            }
+
             function parseStableVersion(value, label) {
               const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
               if (!match) {
@@ -178,6 +192,7 @@ jobs:
                     ref: `refs/tags/${tagPrefix}${version}`,
                     sha: sourceSha,
                   });
+                  reservedTags.set(`${tagPrefix}${version}`, sourceSha);
                   return version;
                 } catch (error) {
                   if (error.status !== 422) throw error;
@@ -185,6 +200,50 @@ jobs:
                 }
               }
               throw new Error(`Could not reserve a stable ${tagPrefix} version after 20 attempts.`);
+            }
+
+            async function cleanupReservedTags() {
+              const cleanup = await Promise.allSettled(
+                [...reservedTags].map(async ([tag, sourceSha]) => {
+                  const tagSha = await getRemoteTagSha(tag);
+                  if (tagSha && tagSha !== sourceSha) {
+                    core.warning(`Keeping changed stable tag ${tag}; it is not owned by this run.`);
+                    return;
+                  }
+                  const release = await getReleaseByTag(tag);
+                  if (release && !release.draft) {
+                    core.info(`Keeping published stable release ${tag}.`);
+                    return;
+                  }
+                  if (release) {
+                    try {
+                      await github.rest.repos.deleteRelease({
+                        owner,
+                        repo,
+                        release_id: release.id,
+                      });
+                    } catch (error) {
+                      if (error.status !== 404) throw error;
+                    }
+                  }
+                  try {
+                    await github.rest.git.deleteRef({
+                      owner,
+                      repo,
+                      ref: `tags/${tag}`,
+                    });
+                    core.info(`Removed reserved stable tag ${tag}.`);
+                  } catch (error) {
+                    if (error.status !== 404) throw error;
+                  }
+                }),
+              );
+              const failures = cleanup
+                .filter((result) => result.status === "rejected")
+                .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+              if (failures.length > 0) {
+                core.warning(`Could not clean up reserved stable tags:\n${failures.join("\n")}`);
+              }
             }
 
             async function getFirstParentSha(ref) {
@@ -391,6 +450,7 @@ jobs:
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
+            try {
             // Private desktop packages do not advance in the npm release commit.
             const desktopVersion = await reserveStableVersion(
               "v",
@@ -460,3 +520,7 @@ jobs:
               .write();
 
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
+            } catch (error) {
+              await cleanupReservedTags();
+              throw error;
+            }
