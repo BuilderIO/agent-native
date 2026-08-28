@@ -541,7 +541,7 @@ async function importPdfPagesWithFidelity(args: {
     if (sidecar.status === "found") {
       return await importPdfFromSidecar({
         sidecar: sidecar.sidecar,
-        fallbackTitle: title,
+        fallbackTitle,
         deckId,
       });
     }

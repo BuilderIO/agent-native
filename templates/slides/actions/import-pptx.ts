@@ -182,7 +182,7 @@ export async function importPptxBufferToDeck(args: {
   const slides = results.map((r) => r.slide);
   const deckTitle = resolveImportedDeckTitle(
     requestedTitle,
-    slides[0]?.content,
+    results[0]?.sourceText || slides[0]?.content,
   );
   assertHumanReadableDeckTitle(deckTitle);
   const imagesSkipped = results.reduce(

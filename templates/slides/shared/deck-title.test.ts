@@ -19,6 +19,7 @@ describe("deck title safeguards", () => {
 
   it("recognizes imported placeholders as generated titles", () => {
     expect(isGeneratedDeckTitle("Imported File")).toBe(true);
+    expect(isGeneratedDeckTitle("Imported Document")).toBe(true);
     expect(isGeneratedDeckTitle("Imported Presentation")).toBe(true);
   });
 
@@ -75,6 +76,9 @@ describe("deck title safeguards", () => {
     expect(resolveImportedDeckTitle("Imported File", "<div></div>")).toBe(
       DEFAULT_IMPORTED_DECK_TITLE,
     );
+    expect(
+      resolveImportedDeckTitle("Imported Document", "Q3 FY27 Board Update"),
+    ).toBe("Q3 FY27 Board Update");
     expect(
       resolveImportedDeckTitle("Imported File", "<div></div>", "Board update"),
     ).toBe("Board update");

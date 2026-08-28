@@ -8,6 +8,7 @@ const IMPORTED_TITLE_PLACEHOLDERS = new Set([
   "untitled scene",
   "untitled slide",
   "imported file",
+  "imported document",
   "imported presentation",
   DEFAULT_IMPORTED_DECK_TITLE.toLowerCase(),
 ]);
