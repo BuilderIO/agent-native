@@ -1585,9 +1585,7 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!broker) return false;
   const status = broker.getStatus();
   if (status !== "sign-in-required" && status !== "failed") return false;
-  const identityApp =
-    resolveDesktopIdentityApp(activeAppId) ??
-    resolveDesktopIdentityApp("dispatch");
+  const identityApp = resolveDesktopIdentityApp("dispatch");
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
 });

@@ -2736,6 +2736,7 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      showDesktopIdentityGate={false}
                       surfaceHidden={!showNativeIntegrationsGuest}
                       refreshKey={refreshKey}
                       theme={theme}
@@ -3059,6 +3060,7 @@ export default function CodeAgentsHub({
                 app={toAppDefinition(app)}
                 appConfig={app}
                 isActive={isActive}
+                showDesktopIdentityGate={false}
                 theme={theme}
                 urlParams={urlParams}
                 // Shell key folded in: a lane change remounts every hosted

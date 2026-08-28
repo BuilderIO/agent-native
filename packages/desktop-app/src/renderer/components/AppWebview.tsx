@@ -418,6 +418,8 @@ interface AppWebviewProps {
    * hiding, so the host has to say so or the page keeps polling underneath.
    */
   surfaceHidden?: boolean;
+  /** When false, the shell owns the single native identity sign-in surface. */
+  showDesktopIdentityGate?: boolean;
   /** Resolved shell theme to apply inside the guest document. */
   theme: RendererTheme;
   /** Only same-origin app surfaces should inherit the shell theme. */
@@ -698,6 +700,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       appConfig,
       isActive,
       surfaceHidden = false,
+      showDesktopIdentityGate = true,
       theme,
       syncTheme = true,
       sourceUrl,
@@ -773,11 +776,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return false;
       }
     }, [app.id, updateDesktopIdentitySessionReady]);
-    const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
-      eligible: desktopIdentityGateEligible,
-      active: isActive,
-      enabled: desktopIdentityEnabled,
-    });
+    const desktopIdentityGateActive =
+      showDesktopIdentityGate &&
+      shouldUseDesktopIdentityGate({
+        eligible: desktopIdentityGateEligible,
+        active: isActive,
+        enabled: desktopIdentityEnabled,
+      });
     const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
     const repairDesktopIdentitySession = useCallback(() => {
       if (

@@ -50,6 +50,18 @@ describe("desktop passive-access regressions", () => {
     expect(signedInFastPath).toBeGreaterThan(signOutGuard);
   });
 
+  it("starts native sign-in from the Dispatch authority, not the active app", () => {
+    const main = source("./index.ts");
+    const signIn = between(
+      main,
+      "ipcMain.handle(IPC.IDENTITY_SIGN_IN",
+      "ipcMain.handle(IPC.IDENTITY_AUTHENTICATE",
+    );
+
+    expect(signIn).toContain('resolveDesktopIdentityApp("dispatch")');
+    expect(signIn).not.toContain("resolveDesktopIdentityApp(activeAppId)");
+  });
+
   it("keeps remembered Content folder discovery metadata-only", () => {
     const main = source("./index.ts");
     const normalization = between(
