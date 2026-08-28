@@ -23,7 +23,18 @@ type TextFeedbackDelivery = {
   value: string;
   observabilityDelivered: boolean;
   sharedFormDelivered: boolean;
+  idempotencyKey: string;
 };
+
+function createFeedbackIdempotencyKey(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `feedback-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 export function ThumbsFeedback({
   threadId,
@@ -109,6 +120,7 @@ export function ThumbsFeedback({
             value,
             observabilityDelivered: false,
             sharedFormDelivered: false,
+            idempotencyKey: createFeedbackIdempotencyKey(),
           };
     textFeedbackDeliveryRef.current = delivery;
     textSubmissionInFlightRef.current = true;
@@ -127,6 +139,7 @@ export function ThumbsFeedback({
         submitFeedbackForm({
           value,
           openedAt: feedbackOpenedAtRef.current,
+          idempotencyKey: delivery.idempotencyKey,
           chatSessionId: threadId,
           activeRunId: runId,
           submitterEmail: session?.email,

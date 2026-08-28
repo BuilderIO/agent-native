@@ -224,6 +224,11 @@ describe("ThumbsFeedback localization", () => {
       },
     });
     expect(JSON.parse(String(formCall?.[1]?.body))._t).toBeGreaterThan(0);
+    expect(
+      (formCall?.[1]?.headers as Record<string, string> | undefined)?.[
+        "Idempotency-Key"
+      ],
+    ).toEqual(expect.any(String));
   });
 
   it("retries failed observability without duplicating shared feedback", async () => {
@@ -433,6 +438,22 @@ describe("ThumbsFeedback localization", () => {
         ),
       ).toHaveLength(1);
     });
+    const formCallsAfterRetry = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/api/submit/"),
+    );
+    expect(
+      (
+        formCallsAfterRetry[1]?.[1]?.headers as
+          | Record<string, string>
+          | undefined
+      )?.["Idempotency-Key"],
+    ).toBe(
+      (
+        formCallsAfterRetry[0]?.[1]?.headers as
+          | Record<string, string>
+          | undefined
+      )?.["Idempotency-Key"],
+    );
     await vi.waitFor(() => {
       expect(document.body.querySelector("textarea")).toBeNull();
     });

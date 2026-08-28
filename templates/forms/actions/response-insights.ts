@@ -330,6 +330,7 @@ export default defineAction({
             submitterEmail: schema.responses.submitterEmail,
             pageUrl: schema.responses.pageUrl,
             clientSurface: schema.responses.clientSurface,
+            idempotencyKey: schema.responses.idempotencyKey,
           })
           .from(schema.responses)
           .where(responseFilter)

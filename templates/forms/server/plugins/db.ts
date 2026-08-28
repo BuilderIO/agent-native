@@ -150,6 +150,16 @@ CREATE INDEX IF NOT EXISTS form_shares_resource_idx ON form_shares (resource_id,
         sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS client_surface TEXT`,
       },
     },
+    {
+      version: 13,
+      name: "responses-idempotency-key",
+      sql: {
+        postgres: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON responses (form_id, idempotency_key)`,
+        sqlite: `ALTER TABLE responses ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS responses_form_idempotency_key_idx ON responses (form_id, idempotency_key)`,
+      },
+    },
   ],
   { table: "forms_migrations" },
 );

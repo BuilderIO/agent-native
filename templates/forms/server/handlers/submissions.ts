@@ -44,6 +44,7 @@ const MAX_PAYLOAD_BYTES = 100 * 1024; // 100KB
 const MIN_FILL_TIME_MS = 500; // reject submits faster than this
 const MAX_META_TEXT_LENGTH = 500;
 const MAX_CHAT_SESSION_IDS = 5;
+const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
 function cleanMetaText(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -127,6 +128,32 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   if (Buffer.byteLength(bodyStr, "utf8") > MAX_PAYLOAD_BYTES) {
     setResponseStatus(event, 413);
     return { error: "Payload too large" };
+  }
+
+  const rawIdempotencyKey = getRequestHeader(event, "idempotency-key");
+  if (
+    rawIdempotencyKey &&
+    rawIdempotencyKey.trim().length > MAX_IDEMPOTENCY_KEY_LENGTH
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Idempotency-Key is too long" };
+  }
+  const idempotencyKey = rawIdempotencyKey?.trim() || null;
+
+  // A retry may arrive after the original response was persisted but before
+  // the client received its success response. Replay the original result
+  // before applying any one-time submission checks or side effects.
+  if (idempotencyKey) {
+    const [existing] = await db
+      .select({ id: schema.responses.id })
+      .from(schema.responses)
+      .where(
+        and(
+          eq(schema.responses.formId, id),
+          eq(schema.responses.idempotencyKey, idempotencyKey),
+        ),
+      );
+    if (existing) return { success: true, id: existing.id };
   }
 
   // Honeypot: silently accept-and-drop if filled. Bots that fire-and-forget
@@ -230,7 +257,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const pageUrl = scrubPageUrl(meta?.pageUrl);
   const clientSurface = cleanClientSurface(meta?.clientSurface);
 
-  await db.insert(schema.responses).values({
+  const responseValues = {
     id: responseId,
     formId: id,
     data: JSON.stringify(data),
@@ -239,7 +266,35 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     submitterEmail,
     pageUrl,
     clientSurface,
-  });
+    idempotencyKey,
+  };
+
+  if (idempotencyKey) {
+    const [inserted] = await db
+      .insert(schema.responses)
+      .values(responseValues)
+      .onConflictDoNothing()
+      .returning({ id: schema.responses.id });
+    if (!inserted) {
+      const [existing] = await db
+        .select({ id: schema.responses.id })
+        .from(schema.responses)
+        .where(
+          and(
+            eq(schema.responses.formId, id),
+            eq(schema.responses.idempotencyKey, idempotencyKey),
+          ),
+        );
+      if (!existing) {
+        throw new Error(
+          "Submission idempotency conflict could not be resolved",
+        );
+      }
+      return { success: true, id: existing.id };
+    }
+  } else {
+    await db.insert(schema.responses).values(responseValues);
+  }
 
   // Write submission notification to application state (SQL-backed)
   try {

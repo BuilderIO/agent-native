@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   body: null as unknown,
   inserted: [] as Array<Record<string, unknown>>,
+  responses: [] as Array<Record<string, unknown>>,
+  headers: {} as Record<string, string | undefined>,
   requestContexts: [] as Array<Record<string, unknown>>,
   session: null as null | { email?: string; orgId?: string },
 }));
@@ -29,7 +31,8 @@ vi.mock("h3", () => ({
   defineEventHandler: (fn: unknown) => fn,
   getRouterParam: () => "form_1",
   getQuery: () => ({}),
-  getRequestHeader: () => undefined,
+  getRequestHeader: (_event: unknown, name: string) =>
+    state.headers[name.toLowerCase()],
   setResponseStatus: vi.fn(),
   getRequestIP: () => "1.2.3.4",
 }));
@@ -58,20 +61,58 @@ vi.mock("@agent-native/core/application-state", () => ({
   appStatePut: async () => {},
 }));
 
-vi.mock("../db/index.js", async () => ({
-  getDb: () => ({
-    select: () => ({
-      from: () => ({ where: () => Promise.resolve([publishedForm]) }),
+vi.mock("../db/index.js", async () => {
+  const schema =
+    await vi.importActual<typeof import("../db/schema.js")>("../db/schema.js");
+  return {
+    getDb: () => ({
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () =>
+            Promise.resolve(
+              table === schema.responses ? state.responses : [publishedForm],
+            ),
+        }),
+      }),
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          const persist = () => {
+            state.inserted.push(v);
+            if (v.idempotencyKey) {
+              state.responses.push({
+                id: v.id,
+                formId: v.formId,
+                idempotencyKey: v.idempotencyKey,
+              });
+            }
+          };
+          return {
+            onConflictDoNothing: () => ({
+              returning: async () => {
+                if (
+                  state.responses.some(
+                    (response) =>
+                      response.formId === v.formId &&
+                      response.idempotencyKey === v.idempotencyKey,
+                  )
+                ) {
+                  return [];
+                }
+                persist();
+                return [{ id: v.id }];
+              },
+            }),
+            then: (
+              onFulfilled: (value: void) => unknown,
+              onRejected?: (reason: unknown) => unknown,
+            ) => Promise.resolve().then(persist).then(onFulfilled, onRejected),
+          };
+        },
+      }),
     }),
-    insert: () => ({
-      values: (v: Record<string, unknown>) => {
-        state.inserted.push(v);
-        return Promise.resolve();
-      },
-    }),
-  }),
-  schema: await vi.importActual("../db/schema.js"),
-}));
+    schema,
+  };
+});
 
 const { submitForm } = await import("./submissions.js");
 
@@ -83,6 +124,8 @@ async function submit(body: unknown) {
 describe("submitForm pageUrl pass-through", () => {
   beforeEach(() => {
     state.inserted.length = 0;
+    state.responses.length = 0;
+    state.headers = {};
     state.requestContexts.length = 0;
     state.session = null;
     publishedForm.fields = JSON.stringify([
@@ -119,6 +162,18 @@ describe("submitForm pageUrl pass-through", () => {
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.pageUrl).toBeNull();
     expect(state.inserted[0]!.clientSurface).toBeNull();
+  });
+
+  it("replays an idempotent submission without inserting a duplicate response", async () => {
+    state.headers["idempotency-key"] = "feedback-request-1";
+
+    const first = await submit({ data: { msg: "same response" } });
+    const second = await submit({ data: { msg: "same response" } });
+
+    expect(first).toMatchObject({ success: true });
+    expect(second).toEqual(first);
+    expect(state.inserted).toHaveLength(1);
+    expect(state.responses).toHaveLength(1);
   });
 
   it("emails the form owner when new response emails are enabled", async () => {

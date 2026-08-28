@@ -1,6 +1,7 @@
 import {
   table,
   text,
+  uniqueIndex,
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
@@ -23,22 +24,33 @@ export const forms = table("forms", {
   ...ownableColumns(),
 });
 
-export const responses = table("responses", {
-  id: text("id").primaryKey(),
-  formId: text("form_id")
-    .notNull()
-    .references(() => forms.id),
-  data: text("data").notNull(), // JSON object: { fieldId: value }
-  submittedAt: text("submitted_at").notNull(),
-  ip: text("ip"),
-  submitterEmail: text("submitter_email"),
-  // URL of the page the respondent was on, forwarded by trusted embeds (e.g.
-  // the framework FeedbackButton) as a hidden pass-through field. Client-scrubbed
-  // of sensitive query params. NULL for direct fills that send no page context.
-  pageUrl: text("page_url"),
-  // Runtime shell the feedback was sent from: "web", "electron", or "tauri".
-  // Hidden pass-through field forwarded by trusted embeds. NULL when unknown.
-  clientSurface: text("client_surface"),
-});
+export const responses = table(
+  "responses",
+  {
+    id: text("id").primaryKey(),
+    formId: text("form_id")
+      .notNull()
+      .references(() => forms.id),
+    data: text("data").notNull(), // JSON object: { fieldId: value }
+    submittedAt: text("submitted_at").notNull(),
+    ip: text("ip"),
+    submitterEmail: text("submitter_email"),
+    // URL of the page the respondent was on, forwarded by trusted embeds (e.g.
+    // the framework FeedbackButton) as a hidden pass-through field. Client-scrubbed
+    // of sensitive query params. NULL for direct fills that send no page context.
+    pageUrl: text("page_url"),
+    // Runtime shell the feedback was sent from: "web", "electron", or "tauri".
+    // Hidden pass-through field forwarded by trusted embeds. NULL when unknown.
+    clientSurface: text("client_surface"),
+    // Client-generated key used to make retried public submissions idempotent.
+    idempotencyKey: text("idempotency_key"),
+  },
+  (response) => ({
+    idempotencyKeyUnique: uniqueIndex("responses_form_idempotency_key_idx").on(
+      response.formId,
+      response.idempotencyKey,
+    ),
+  }),
+);
 
 export const formShares = createSharesTable("form_shares");

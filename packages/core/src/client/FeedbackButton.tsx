@@ -231,6 +231,7 @@ export interface SubmitFeedbackFormOptions {
   value: string;
   url?: string | null;
   openedAt?: number;
+  idempotencyKey?: string | null;
   honeypot?: string;
   submitterEmail?: string | null;
   chatSessionId?: string | null;
@@ -263,7 +264,12 @@ export async function submitFeedbackForm(
     `${target.endpoint}/api/submit/${encodeURIComponent(resolvedSchema.formId)}`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.idempotencyKey
+          ? { "Idempotency-Key": options.idempotencyKey }
+          : {}),
+      },
       body: JSON.stringify({
         data: { [resolvedSchema.fieldId]: value },
         _t: options.openedAt ?? 0,
