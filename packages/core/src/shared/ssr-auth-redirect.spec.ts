@@ -14,6 +14,7 @@ function runScript({
   hash = "",
   responseOk = true,
   homeStatus = 200,
+  homeFollowedStatus,
 }: {
   session: Record<string, unknown> | null;
   pathname?: string;
@@ -21,6 +22,7 @@ function runScript({
   hash?: string;
   responseOk?: boolean;
   homeStatus?: number;
+  homeFollowedStatus?: number;
 }) {
   const result = { redirectedTo: null as string | null };
   let fetchCount = 0;
@@ -44,7 +46,10 @@ function runScript({
   };
   const fetch = async () => {
     fetchCount += 1;
-    if (fetchCount > 1) return { status: homeStatus } as Response;
+    if (fetchCount > 1) {
+      const status = homeFollowedStatus ?? homeStatus;
+      return { ok: status >= 200 && status < 400, status } as Response;
+    }
     return {
       ok: responseOk,
       json: async () => session,
@@ -91,6 +96,18 @@ describe("getSsrAuthRedirectScript", () => {
     expect(result.redirectedTo).toBeNull();
   });
 
+  it("redirects when the app home resolves through a route redirect", async () => {
+    const result = runScript({
+      session: { email: "person@example.test" },
+      homeStatus: 302,
+      homeFollowedStatus: 200,
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+
+    expect(result.redirectedTo).toBe("/home");
+  });
+
   it("emits an inline head-safe script marker", () => {
     const script = getSsrAuthRedirectScript();
 
@@ -98,5 +115,6 @@ describe("getSsrAuthRedirectScript", () => {
     expect(script).toContain('cache: "no-store"');
     expect(script).toContain("/_agent-native/auth/session");
     expect(script).toContain('method: "HEAD"');
+    expect(script).not.toContain('redirect: "manual"');
   });
 });

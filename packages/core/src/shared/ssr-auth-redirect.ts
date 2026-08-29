@@ -17,10 +17,9 @@ export function getSsrAuthRedirectScript(): string {
       method: "HEAD",
       credentials: "same-origin",
       cache: "no-store",
-      redirect: "manual",
       headers: { "Accept": "text/html" }
     }).then(function (response) {
-      if (!response || response.status < 200 || response.status >= 400) return;
+      if (!response || !response.ok) return;
       window.location.replace(homePath + window.location.search + window.location.hash);
     });
   }
