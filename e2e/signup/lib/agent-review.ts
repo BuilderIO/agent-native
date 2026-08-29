@@ -155,9 +155,14 @@ export async function reviewSignupJourney(
   });
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    // An unreadable body and an empty body are different facts, and the one
+    // job this error has is to say why the review did not happen.
+    const body = await response.text().then(
+      (text) => text.slice(0, 300),
+      (error) => `<body unreadable: ${String(error)}>`,
+    );
     throw new Error(
-      `Agent review request failed: HTTP ${response.status} ${body.slice(0, 300)}`,
+      `Agent review request failed: HTTP ${response.status} ${body}`,
     );
   }
 
@@ -176,14 +181,23 @@ export function renderReviewMarkdown(
   environment: string,
   review: AgentReview,
 ): string {
-  const lines = [`### ${environment} ${app}`, "", review.summary || "_no summary_", ""];
+  const lines = [
+    `### ${environment} ${app}`,
+    "",
+    review.summary || "_no summary_",
+    "",
+  ];
   if (review.findings.length === 0) {
     lines.push("No issues reported.");
     return lines.join("\n");
   }
-  lines.push("| Severity | Step | Issue | Evidence |", "| --- | --- | --- | --- |");
+  lines.push(
+    "| Severity | Step | Issue | Evidence |",
+    "| --- | --- | --- | --- |",
+  );
   for (const finding of review.findings) {
-    const cell = (value: string) => value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+    const cell = (value: string) =>
+      value.replace(/\|/g, "\\|").replace(/\n/g, " ");
     lines.push(
       `| ${finding.severity} | ${cell(finding.step)} | ${cell(finding.issue)} | ${cell(finding.evidence)} |`,
     );

@@ -317,11 +317,11 @@ to judge the screenshots, so it spends tokens; it is advisory and never gates a
 merge or pages on-call. It reuses `MAILOSAUR_*` and `SIGNUP_E2E_*` from the
 deterministic signup canary.
 
-| Variable              | Purpose                                                                                                                     |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`   | Key used to judge the captured signup journey. Absent, the lane fails loudly rather than reporting a flow with no findings. |
-| `SIGNUP_AGENT_APPS`   | Comma-separated app ids, or `all`, to review. Unset reviews one app per UTC day so the fleet rotates instead of paying daily for every app. |
-| `SIGNUP_AGENT_MODEL`  | Overrides the review model. Defaults to `claude-sonnet-5`.                                                                  |
+| Variable             | Purpose                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`  | Key used to judge the captured signup journey. Absent, the lane fails loudly rather than reporting a flow with no findings.                 |
+| `SIGNUP_AGENT_APPS`  | Comma-separated app ids, or `all`, to review. Unset reviews one app per UTC day so the fleet rotates instead of paying daily for every app. |
+| `SIGNUP_AGENT_MODEL` | Overrides the review model. Defaults to `claude-sonnet-5`.                                                                                  |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,

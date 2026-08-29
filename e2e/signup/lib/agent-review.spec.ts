@@ -87,7 +87,10 @@ test("an empty findings array is a real clean result", async () => {
   respondWith('{"summary":"looked correct","findings":[]}');
   const review = await reviewSignupJourney("clips", "beta", [step()]);
   assert.deepEqual(review.findings, []);
-  assert.match(renderReviewMarkdown("clips", "beta", review), /No issues reported/);
+  assert.match(
+    renderReviewMarkdown("clips", "beta", review),
+    /No issues reported/,
+  );
 });
 
 test("pipes in model text cannot break the markdown table", () => {

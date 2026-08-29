@@ -61,10 +61,16 @@ async function capture(
   return {
     label,
     url: page.url(),
-    visibleText: (await page.locator("body").innerText().catch(() => "")).slice(
-      0,
-      6_000,
-    ),
+    // A page whose text cannot be read is not a page with no text: handing the
+    // model an empty string there would have it judge a blank screen and
+    // report a phantom finding, or miss a real one.
+    visibleText: await page
+      .locator("body")
+      .innerText()
+      .then(
+        (text) => text.slice(0, 6_000),
+        (error) => `<page text unreadable: ${String(error)}>`,
+      ),
     screenshot: await page.screenshot({ fullPage: false }),
     consoleErrors: [...consoleErrors],
   };
@@ -109,7 +115,9 @@ for (const target of targets) {
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(4_000);
-      steps.push(await capture(page, "after following the emailed link", errors));
+      steps.push(
+        await capture(page, "after following the emailed link", errors),
+      );
     });
 
     await test.step("reload the way a stuck user would", async () => {
@@ -125,7 +133,11 @@ for (const target of targets) {
       target.environment,
       steps,
     );
-    const markdown = renderReviewMarkdown(target.app, target.environment, review);
+    const markdown = renderReviewMarkdown(
+      target.app,
+      target.environment,
+      review,
+    );
     reports.push(markdown);
     await test.info().attach(`agent-review-${target.app}`, {
       body: markdown,
