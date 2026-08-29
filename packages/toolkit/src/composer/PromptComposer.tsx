@@ -745,6 +745,7 @@ function PromptComposerInner({
           onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={composerModel}
+          selectedEngine={composerEngine}
           modelSelectorOpen={modelSelectorOpen}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}

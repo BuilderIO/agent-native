@@ -50,7 +50,6 @@ import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import {
   filterModelGroupsForAgent,
   isClaudeCodeAgentId,
-  isLunaModel,
   resolvePreferredAgentModel,
 } from "./model-selection.js";
 import {
@@ -764,6 +763,8 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
+  /** Selected provider engine for this conversation */
+  selectedEngine?: string;
   /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
   /** Show the legacy provider-level Auto model option (default: true). */
@@ -1340,6 +1341,7 @@ function ModelSelector({
   engines,
   agents,
   selectedAgent,
+  selectedEngine,
   agentOnly = false,
   hostedHarness = false,
   showAutoModelOption = true,
@@ -1356,6 +1358,7 @@ function ModelSelector({
   imageModel,
 }: {
   model: string;
+  selectedEngine?: string;
   effort?: ReasoningEffort;
   agents?: ComposerAgentOption[];
   selectedAgent?: string;
@@ -1442,19 +1445,26 @@ function ModelSelector({
     () => resolvePreferredAgentModel(selectedAgent, modelProviderGroups),
     [modelProviderGroups, selectedAgent],
   );
+  const selectedModelIsAvailable = modelProviderGroups.some(
+    (group) =>
+      group.models.includes(model) &&
+      (selectedEngine === undefined || group.engine === selectedEngine),
+  );
   useEffect(() => {
-    if (!isClaudeCodeAgent || !isLunaModel(model) || !preferredAgentModel) {
-      return;
-    }
     if (
-      preferredAgentModel.model === model &&
-      preferredAgentModel.engine ===
-        engines.find((group) => group.models.includes(model))?.engine
+      !isClaudeCodeAgent ||
+      selectedModelIsAvailable ||
+      !preferredAgentModel
     ) {
       return;
     }
     onChange(preferredAgentModel.model, preferredAgentModel.engine);
-  }, [engines, isClaudeCodeAgent, model, onChange, preferredAgentModel]);
+  }, [
+    isClaudeCodeAgent,
+    onChange,
+    preferredAgentModel,
+    selectedModelIsAvailable,
+  ]);
   const effortOptions = agentOnly
     ? []
     : (reasoning?.getOptionsForModel?.(model) ??
@@ -2269,6 +2279,7 @@ export function TiptapComposer({
   planModeDisabledReason,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
+  selectedEngine,
   selectedEffort,
   showAutoModelOption = true,
   modelSelectorOpen,
@@ -3809,6 +3820,7 @@ export function TiptapComposer({
         {shouldRenderModelSelector(availableModels, onModelChange) && (
           <ModelSelector
             model={selectedModel ?? ""}
+            selectedEngine={selectedEngine}
             open={modelSelectorOpen}
             effort={selectedEffort}
             engines={availableModels!}
