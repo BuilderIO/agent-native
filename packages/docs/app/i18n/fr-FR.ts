@@ -63,6 +63,7 @@ const frFR = {
     dialogLabel: "Rechercher la documentation",
     placeholder: "Rechercher la documentation...",
     empty: "Saisissez une requête pour chercher dans toute la documentation",
+    toggleChatSidebar: "Afficher ou masquer la barre latérale du chat",
     loadError: "La recherche n’a pas pu se charger. Réessayez.",
     retry: "Réessayer",
     noResults: 'Aucun résultat pour "{{query}}"',
