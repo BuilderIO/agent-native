@@ -51,6 +51,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActiveCredits": "包含於有效的 Builder.io 免費額度",
   "onboarding.builderCredits": "包含於 Builder.io 免費額度",
   "onboarding.builderActivateTitle": "啟用免費額度",
+  "onboarding.builderAccountExistsTitle": "您已有 Builder.io 帳戶",
+  "onboarding.builderAccountExistsDescription": "登入以連接該帳戶。",
   "onboarding.builderActivationDescription":
     "我們會按一下自動為您建立 Builder.io 帳戶。",
   "onboarding.builderCreateAndActivate": "建立並啟用",

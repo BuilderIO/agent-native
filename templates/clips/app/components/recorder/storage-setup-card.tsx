@@ -1,6 +1,9 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { openBuilderConnectPopup } from "@agent-native/core/client/settings";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import {
   IconCheck,
   IconCloud,
@@ -73,19 +76,7 @@ export function StorageSetupCard({
     }
   }, []);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      stopVisibilityHandler();
-    };
-  }, [stopVisibilityHandler]);
-
-  const handleConnect = useCallback(() => {
+  const startFileUploadPoll = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -94,11 +85,6 @@ export function StorageSetupCard({
     inFlightRef.current = false;
     setConnecting(true);
     setErr(null);
-
-    openBuilderConnectPopup({
-      source: connectSource,
-      flow: connectFlow,
-    });
 
     const start = Date.now();
     const timeoutMs = 5 * 60 * 1000;
@@ -154,7 +140,26 @@ export function StorageSetupCard({
       if (!document.hidden) void tick();
     };
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
-  }, [onConfigured, connectSource, connectFlow, stopVisibilityHandler, t]);
+  }, [onConfigured, stopVisibilityHandler, t]);
+
+  const builderConnect = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: connectSource,
+    trackingFlow: connectFlow,
+    onConnected: startFileUploadPoll,
+  });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      stopVisibilityHandler();
+    };
+  }, [stopVisibilityHandler]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
@@ -167,55 +172,56 @@ export function StorageSetupCard({
       </div>
 
       {/* Builder.io — primary option, one-click Connect flow. */}
-      <button
-        type="button"
-        onClick={handleConnect}
-        disabled={connecting || connected}
-        className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
-          (connected
-            ? "border-primary/50 bg-primary/5"
-            : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
-        }
-      >
-        <div
+      <BuilderConnectPopover flow={builderConnect}>
+        <button
+          type="button"
+          disabled={connecting || connected}
           className={
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+            "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
             (connected
-              ? "bg-foreground text-background"
-              : "bg-primary-foreground/15 text-primary-foreground")
+              ? "border-primary/50 bg-primary/5"
+              : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
           }
         >
-          {connected ? (
-            <IconCheck className="h-5 w-5" />
-          ) : connecting ? (
-            <IconLoader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <BuilderBMark className="h-5 w-5" />
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
-              {connected
-                ? t("storageSetup.builderConnected")
-                : connecting
-                  ? t("storageSetup.waitingForBuilder")
-                  : t("storageSetup.connectBuilder")}
-            </span>
-          </div>
-          <span
+          <div
             className={
-              "mt-0.5 block text-xs " +
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
               (connected
-                ? "text-muted-foreground"
-                : "text-primary-foreground/80")
+                ? "bg-foreground text-background"
+                : "bg-primary-foreground/15 text-primary-foreground")
             }
           >
-            {connected ? connectedDescription : connectDescription}
-          </span>
-        </div>
-      </button>
+            {connected ? (
+              <IconCheck className="h-5 w-5" />
+            ) : connecting ? (
+              <IconLoader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <BuilderBMark className="h-5 w-5" />
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                {connected
+                  ? t("storageSetup.builderConnected")
+                  : connecting
+                    ? t("storageSetup.waitingForBuilder")
+                    : t("storageSetup.connectBuilder")}
+              </span>
+            </div>
+            <span
+              className={
+                "mt-0.5 block text-xs " +
+                (connected
+                  ? "text-muted-foreground"
+                  : "text-primary-foreground/80")
+              }
+            >
+              {connected ? connectedDescription : connectDescription}
+            </span>
+          </div>
+        </button>
+      </BuilderConnectPopover>
 
       {err && <p className="text-xs text-muted-foreground">{err}</p>}
 

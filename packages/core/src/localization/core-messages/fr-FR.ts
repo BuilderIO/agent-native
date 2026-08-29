@@ -59,6 +59,9 @@ const messages: AgentChatTranslation = {
     "Inclus avec les crédits gratuits Builder.io actifs",
   "onboarding.builderCredits": "Inclus avec les crédits gratuits Builder.io",
   "onboarding.builderActivateTitle": "Activer les crédits gratuits",
+  "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
+  "onboarding.builderAccountExistsDescription":
+    "Connectez-vous pour l’associer.",
   "onboarding.builderActivationDescription":
     "Nous créerons automatiquement votre compte Builder.io en un clic.",
   "onboarding.builderCreateAndActivate": "Créer et activer",

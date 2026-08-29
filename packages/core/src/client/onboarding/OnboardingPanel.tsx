@@ -28,7 +28,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "../settings/index.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
@@ -695,32 +698,35 @@ function BuilderCliAuthMethod({
   onCompleted: () => Promise<void>;
   primary?: boolean;
 }) {
-  const { connecting, error, start } = useBuilderConnectFlow({
+  const connectFlow = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "onboarding_builder_cli_auth",
     onConnected: onCompleted,
   });
+  const { connecting, error } = connectFlow;
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => start()}
-        disabled={connecting}
-        style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
-      >
-        {connecting ? (
-          <>
-            <IconLoader2
-              size={12}
-              style={{ marginInlineEnd: 4 }}
-              className="animate-spin"
-            />
-            Waiting for Builder...
-          </>
-        ) : (
-          "Connect Builder"
-        )}
-      </button>
+      <BuilderConnectPopover flow={connectFlow}>
+        <button
+          type="button"
+          disabled={connecting}
+          style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2
+                size={12}
+                style={{ marginInlineEnd: 4 }}
+                className="animate-spin"
+              />
+              Waiting for Builder...
+            </>
+          ) : (
+            "Connect Builder"
+          )}
+        </button>
+      </BuilderConnectPopover>
       {connecting && (
         <p style={styles.methodHint}>
           A Builder tab opened. Choose your team or app space there; setup will

@@ -67,7 +67,8 @@ function BuilderConnectProbe({
       <output data-testid="status">
         {flow.configured ? "configured" : "not-configured"}{" "}
         {flow.connecting ? "connecting" : "idle"}{" "}
-        {flow.statusResolved ? "resolved" : "unresolved"}
+        {flow.statusResolved ? "resolved" : "unresolved"}{" "}
+        {flow.accountExists ? "account-exists" : "no-account-exists"}
       </output>
       <output>{flow.error ?? ""}</output>
     </div>
@@ -409,6 +410,34 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+  });
+
+  it("surfaces a provisioning account collision as an existing-account state", async () => {
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse({
+        configured: false,
+        agentNativeProvisioningEnabled: true,
+        agentNativeProvisioningToken: provisioningToken,
+        envManaged: false,
+        builderEnabled: true,
+        orgName: null,
+        connectUrl: signedConnectUrl,
+        connectError: {
+          message:
+            "A Builder account already exists for this email. Log in to connect it.",
+          code: "account_exists",
+          at: Date.now(),
+        },
+      }),
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe provisionAccount />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("account-exists");
   });
 
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {

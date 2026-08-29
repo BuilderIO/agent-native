@@ -24,11 +24,6 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -50,6 +45,7 @@ import {
   useCreateMcpServer,
   useMcpServers,
 } from "../resources/use-mcp-servers.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
@@ -152,7 +148,6 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [builderActivationOpen, setBuilderActivationOpen] = useState(false);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
@@ -607,85 +602,24 @@ export function FirstRunOnboarding({
                 </div>
               </div>
               {canActivateBuilderFreeCredits ? (
-                <Popover
-                  open={builderActivationOpen}
-                  onOpenChange={setBuilderActivationOpen}
+                <BuilderConnectPopover
+                  flow={connectFlow}
+                  onConnect={(provisionAccount) =>
+                    handleBuilder(provisionAccount)
+                  }
+                  contentTestId="first-run-builder-consent"
+                  primaryTestId="first-run-builder-create-and-activate"
+                  secondaryTestId="first-run-builder-existing-account"
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      data-testid="first-run-connect-builder"
-                      className={cn(primaryButtonClass, "mt-5 w-full")}
-                    >
-                      {t("agentChat.onboarding.builderActivateCredits")}
-                      <IconArrowRight size={15} />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    side="bottom"
-                    sideOffset={-40}
-                    aria-labelledby="first-run-builder-consent-title"
-                    data-testid="first-run-builder-consent"
-                    className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-3 text-left"
+                  <button
+                    type="button"
+                    data-testid="first-run-connect-builder"
+                    className={cn(primaryButtonClass, "mt-5 w-full")}
                   >
-                    <div className="space-y-2.5">
-                      <h2
-                        id="first-run-builder-consent-title"
-                        className="text-sm font-semibold text-foreground"
-                      >
-                        {t("agentChat.onboarding.builderActivateTitle")}
-                      </h2>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        {t("agentChat.onboarding.builderActivationDescription")}
-                      </p>
-                      <button
-                        type="button"
-                        data-testid="first-run-builder-create-and-activate"
-                        className={cn(primaryButtonClass, "w-full")}
-                        onClick={() => {
-                          setBuilderActivationOpen(false);
-                          handleBuilder();
-                        }}
-                      >
-                        {t("agentChat.onboarding.builderCreateAndActivate")}
-                        <IconArrowRight size={15} />
-                      </button>
-                      <p className="text-[11px] leading-4 text-muted-foreground">
-                        {t("agentChat.onboarding.builderConsentPrefix")}{" "}
-                        <a
-                          href="https://www.builder.io/legal/terms"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {t("agentChat.onboarding.builderTerms")}
-                        </a>{" "}
-                        {t("agentChat.onboarding.builderConsentAnd")}{" "}
-                        <a
-                          href="https://www.builder.io/legal/privacy"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {t("agentChat.onboarding.builderPrivacy")}
-                        </a>
-                        .
-                      </p>
-                      <button
-                        type="button"
-                        data-testid="first-run-builder-existing-account"
-                        className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={() => {
-                          setBuilderActivationOpen(false);
-                          handleBuilder(false);
-                        }}
-                      >
-                        {t("agentChat.onboarding.builderExistingAccount")}
-                      </button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                    {t("agentChat.onboarding.builderActivateCredits")}
+                    <IconArrowRight size={15} />
+                  </button>
+                </BuilderConnectPopover>
               ) : (
                 <button
                   type="button"

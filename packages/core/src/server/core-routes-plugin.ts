@@ -153,6 +153,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
@@ -2370,6 +2371,9 @@ export function createCoreRoutesPlugin(
                         typeof errRow.at === "number"
                           ? (errRow.at as number)
                           : Date.now(),
+                      ...(typeof errRow.code === "string"
+                        ? { code: errRow.code }
+                        : {}),
                     },
                   });
                 }
@@ -2738,10 +2742,12 @@ export function createCoreRoutesPlugin(
               status: number,
               message: string,
               reason: string,
+              code?: string,
             ) => {
               await putSetting(`builder-connect-error:${ownerEmail}`, {
                 message,
                 at: Date.now(),
+                ...(code ? { code } : {}),
               }).catch(() => {});
               await trackBuilderLifecycle(
                 event,
@@ -2761,6 +2767,7 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
+                ...(code ? { code } : {}),
               });
             };
 
@@ -2838,6 +2845,14 @@ export function createCoreRoutesPlugin(
                 "[builder] Agent-Native account provisioning failed:",
                 error instanceof Error ? error.message : error,
               );
+              if (isBuilderAccountAlreadyExistsError(error)) {
+                return failProvisioning(
+                  409,
+                  "A Builder account already exists for this email. Log in to connect it.",
+                  "account_exists",
+                  "account_exists",
+                );
+              }
               return failProvisioning(
                 502,
                 "Couldn't create your Builder account. Try again or connect an existing account.",

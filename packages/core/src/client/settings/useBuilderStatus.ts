@@ -48,7 +48,7 @@ export interface BuilderStatus {
    * Surfaced as a one-shot row by the server so the connect-flow polling
    * can stop with a clear message instead of timing out at 5min.
    */
-  connectError?: { message: string; at: number };
+  connectError?: { message: string; at: number; code?: string };
   /**
    * Set when the currently effective Builder credential was rejected by
    * Builder's API. Unlike connectError, this describes the old credential pair
@@ -206,6 +206,8 @@ export interface BuilderConnectFlow {
   orgName: string | null;
   connecting: boolean;
   error: string | null;
+  /** True when account provisioning found an existing Builder account. */
+  accountExists: boolean;
   /**
    * True once the first Builder connection-status fetch has completed (successfully
    * or not). Consumers that accept an `initialConfigured` prop (e.g. agent
@@ -591,6 +593,7 @@ export function useBuilderConnectFlow(
   const [orgName, setOrgName] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accountExists, setAccountExists] = useState(false);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
   const [statusResolved, setStatusResolved] = useState(false);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
@@ -682,6 +685,7 @@ export function useBuilderConnectFlow(
       setOrgName(null);
       setConnecting(false);
       setError(null);
+      setAccountExists(false);
       setHasFetchedStatus(false);
       setStatusResolved(false);
       setStatusConnectUrl(null);
@@ -704,6 +708,7 @@ export function useBuilderConnectFlow(
       setEnvManaged(!!s.envManaged);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
+      setAccountExists(s.connectError?.code === "account_exists");
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -769,6 +774,7 @@ export function useBuilderConnectFlow(
       };
       setConnecting(true);
       setError(null);
+      setAccountExists(false);
 
       // Open SYNCHRONOUSLY inside the caller's click handler — any await
       // before window.open lets the user-gesture token expire, which causes
@@ -856,6 +862,7 @@ export function useBuilderConnectFlow(
               setAgentNativeProvisioningToken(
                 s.agentNativeProvisioningToken ?? null,
               );
+              setAccountExists(s.connectError?.code === "account_exists");
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
@@ -907,6 +914,7 @@ export function useBuilderConnectFlow(
               setAgentNativeProvisioningToken(
                 s.agentNativeProvisioningToken ?? null,
               );
+              setAccountExists(s.connectError?.code === "account_exists");
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
@@ -983,6 +991,7 @@ export function useBuilderConnectFlow(
         setEnvManaged(!!s.envManaged);
         setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
         setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
+        setAccountExists(false);
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
@@ -1005,8 +1014,11 @@ export function useBuilderConnectFlow(
         // real error instead of letting the user wait 5 minutes for timeout.
         connectStartedAtRef.current = null;
         setConnecting(false);
+        setAccountExists(s.connectError.code === "account_exists");
         setError(
-          `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
+          s.connectError.code === "account_exists"
+            ? null
+            : `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
         );
       } else if (Date.now() - started > POLL_TIMEOUT_MS) {
         connectStartedAtRef.current = null;
@@ -1042,10 +1054,15 @@ export function useBuilderConnectFlow(
   // by the setConnecting(false) call, which is idempotent.
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
-    const handleError = (message: string) => {
+    const handleError = (message: string, code?: string) => {
       connectStartedAtRef.current = null;
       setConnecting(false);
-      setError(`Couldn't save Builder credentials: ${message}.`);
+      setAccountExists(code === "account_exists");
+      setError(
+        code === "account_exists"
+          ? null
+          : `Couldn't save Builder credentials: ${message}.`,
+      );
     };
     const handleSuccess = async () => {
       const started = connectStartedAtRef.current;
@@ -1084,6 +1101,7 @@ export function useBuilderConnectFlow(
           setAgentNativeProvisioningToken(
             s.agentNativeProvisioningToken ?? null,
           );
+          setAccountExists(s.connectError?.code === "account_exists");
           setBuilderEnabled(!!s.builderEnabled);
           const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
@@ -1093,8 +1111,11 @@ export function useBuilderConnectFlow(
         if (connectError) {
           connectStartedAtRef.current = null;
           setConnecting(false);
+          setAccountExists(connectError.code === "account_exists");
           setError(
-            `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`,
+            connectError.code === "account_exists"
+              ? null
+              : `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`,
           );
         }
         return;
@@ -1106,6 +1127,7 @@ export function useBuilderConnectFlow(
       setEnvManaged(!!s.envManaged);
       setAgentNativeProvisioningEnabled(!!s.agentNativeProvisioningEnabled);
       setAgentNativeProvisioningToken(s.agentNativeProvisioningToken ?? null);
+      setAccountExists(false);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
@@ -1126,14 +1148,16 @@ export function useBuilderConnectFlow(
     try {
       channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
       channel.onmessage = (e: MessageEvent) => {
-        const data = e.data as { type?: string; message?: string } | undefined;
+        const data = e.data as
+          | { type?: string; message?: string; code?: string }
+          | undefined;
         if (data?.type === "builder-connect-success") {
           void handleSuccess();
           return;
         }
         if (data?.type === "builder-connect-error") {
           if (typeof data.message !== "string" || !data.message) return;
-          handleError(data.message);
+          handleError(data.message, data.code);
         }
       };
     } catch {
@@ -1142,14 +1166,16 @@ export function useBuilderConnectFlow(
 
     const handler = (e: MessageEvent) => {
       if (!isTrustedBuilderConnectMessageOrigin(e.origin)) return;
-      const data = e.data as { type?: string; message?: string } | undefined;
+      const data = e.data as
+        | { type?: string; message?: string; code?: string }
+        | undefined;
       if (data?.type === "builder-connect-success") {
         void handleSuccess();
         return;
       }
       if (data?.type === "builder-connect-error") {
         if (typeof data.message !== "string" || !data.message) return;
-        handleError(data.message);
+        handleError(data.message, data.code);
       }
     };
     window.addEventListener("message", handler);
@@ -1170,6 +1196,7 @@ export function useBuilderConnectFlow(
     orgName,
     connecting,
     error,
+    accountExists,
     hasFetchedStatus,
     start,
   };
