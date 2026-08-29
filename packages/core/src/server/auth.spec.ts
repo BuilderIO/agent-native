@@ -4701,6 +4701,48 @@ describe("server/auth", () => {
       );
     });
 
+    it("clears the session hint on direct Better Auth sign-out", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () => new Response(JSON.stringify({ ok: true })),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth, SESSION_HINT_COOKIE } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      const response = await baHandler(
+        createJsonPostEvent(
+          "/_agent-native/auth/ba/sign-out",
+          {},
+          { cookie: `${SESSION_HINT_COOKIE}=1` },
+          "https://localhost",
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect(response.headers.get("set-cookie")).toContain(
+        `${SESSION_HINT_COOKIE}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
+      );
+    });
+
     it("carries browser signup attribution through the direct Better Auth handler", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

@@ -5415,6 +5415,26 @@ async function mountBetterAuthRoutes(
         typeof (response as any).headers?.get === "function";
 
       if (
+        isSignOut &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 400
+      ) {
+        const stagedHeaders = event.res?.headers;
+        const stagedCookieCount = stagedHeaders
+          ? getSetCookieHeaders(stagedHeaders).length
+          : 0;
+        clearFrameworkSessionHintCookies(event);
+        if (stagedHeaders) {
+          for (const cookie of getSetCookieHeaders(stagedHeaders).slice(
+            stagedCookieCount,
+          )) {
+            (response as Response).headers.append("set-cookie", cookie);
+          }
+        }
+      }
+
+      if (
         isResponse &&
         (response as Response).status >= 200 &&
         (response as Response).status < 400 &&
