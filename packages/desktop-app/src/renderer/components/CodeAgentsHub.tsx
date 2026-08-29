@@ -1982,7 +1982,7 @@ export default function CodeAgentsHub({
     [appendMultiFrontierNotice, applyMultiFrontierSnapshot],
   );
 
-  const multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
+  const _multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
     () => ({
       active: multiFrontierMode,
       disabled: multiFrontierBusy,
