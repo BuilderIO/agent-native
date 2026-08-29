@@ -30,6 +30,8 @@ export const dashboards = table("dashboards", {
   title: text("title").notNull().default("Untitled"),
   /** Full dashboard config (SqlDashboardConfig or Explorer state) as JSON. */
   config: text("config").notNull(),
+  /** Server-owned AI trust metadata; never accepted from dashboard config writes. */
+  certification: text("certification"),
   createdAt: text("created_at").notNull().default(now()),
   /** Original authenticated creator. Null when historical provenance is unknown. */
   createdBy: text("created_by"),
