@@ -988,6 +988,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function httpStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  const nested =
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : undefined;
+  const status = record.status ?? nested?.status ?? record.code ?? nested?.code;
+  return typeof status === "number" && status >= 100 && status <= 599
+    ? status
+    : undefined;
+}
+
 function isRetryableTargetMcpError(error: unknown): boolean {
   const message =
     error instanceof Error
@@ -995,6 +1008,13 @@ function isRetryableTargetMcpError(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : safeJson(error);
+  const status = httpStatusFromError(error);
+  if (status !== undefined) {
+    if (status === 502 || status === 503 || status === 504) return true;
+    if (status === 401 || status === 403 || status === 404 || status === 405) {
+      return false;
+    }
+  }
   if (
     /^(?:MCP server\b.*?\bnot connected:\s+)?HTTP(?:\/\d+(?:\.\d+)?)?\s+(?:502|503|504)\b/i.test(
       message,

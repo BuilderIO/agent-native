@@ -120,6 +120,17 @@ describe("formatMcpConnectError", () => {
     );
   });
 
+  it.each(["error", "[object ErrorEvent]"])(
+    "preserves typed status for legacy event errors (%s)",
+    (message) => {
+      const error = Object.assign(new Error(message), { code: 502 });
+
+      expect(formatMcpConnectError(error)).toBe(
+        "HTTP 502: The MCP server connection failed while opening its event stream. Check the URL and any required authorization headers.",
+      );
+    },
+  );
+
   it("retains typed status when an HTML body contains the same status", () => {
     const error = Object.assign(
       new Error(

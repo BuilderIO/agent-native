@@ -78,7 +78,7 @@ export function formatMcpConnectError(error: unknown): string {
     return `${statusPrefix}That URL is reachable, but it does not look like the MCP endpoint. Check the server's Streamable HTTP path.`;
   }
   if (text === "[object ErrorEvent]" || text === "error") {
-    return "The MCP server connection failed while opening its event stream. Check the URL and any required authorization headers.";
+    return `${statusPrefix}The MCP server connection failed while opening its event stream. Check the URL and any required authorization headers.`;
   }
   return formattedText.length > 240
     ? `${formattedText.slice(0, 237).trimEnd()}...`

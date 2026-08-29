@@ -1111,8 +1111,11 @@ describe("openGrantedDispatchMcpApp", () => {
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     mocks.managerCallTool
       .mockRejectedValueOnce(
-        new Error(
-          'MCP server "target" is not connected: HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
+        Object.assign(
+          new Error(
+            'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
+          ),
+          { code: 502 },
         ),
       )
       .mockResolvedValueOnce({
@@ -1149,8 +1152,11 @@ describe("openGrantedDispatchMcpApp", () => {
 
   it("does not retry an HTML 404 whose body mentions a gateway status", async () => {
     mocks.managerCallTool.mockRejectedValueOnce(
-      new Error(
-        'MCP server "target" is not connected: HTTP 404: That URL returned a web page instead of an MCP response. Cloudflare HTTP 502 is unrelated.',
+      Object.assign(
+        new Error(
+          'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Cloudflare HTTP 502 is unrelated.',
+        ),
+        { code: 404 },
       ),
     );
 
@@ -1166,7 +1172,7 @@ describe("openGrantedDispatchMcpApp", () => {
             path: "/dashboards",
           }),
       ),
-    ).rejects.toThrow(/HTTP 404/);
+    ).rejects.toThrow(/Cloudflare HTTP 502 is unrelated/);
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
