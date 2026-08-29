@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { renderedText } from "../lib/app";
 import {
@@ -9,7 +9,9 @@ import {
 import {
   assertNoChatFailure,
   COMPOSER,
+  installSidebarRuntimeTrace,
   MISSING_FINAL_RESPONSE,
+  readSidebarRuntimeTrace,
   sendPromptAndAwaitTurn,
   watchChatRequests,
 } from "../lib/chat";
@@ -47,6 +49,24 @@ const PROMPT = `Reply with exactly ${NONCE} and nothing else. Do not use any too
 
 const sites = chatSites();
 
+async function expectComposerVisible(
+  page: Page,
+  siteHost: string,
+  traceSlides: boolean,
+): Promise<void> {
+  try {
+    await expect(
+      page.locator(COMPOSER.input).first(),
+      `${siteHost} rendered no agent composer for a signed-in user`,
+    ).toBeVisible({ timeout: 60_000 });
+  } catch (error) {
+    if (!traceSlides) throw error;
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nSlides sidebar runtime: ${JSON.stringify(await readSidebarRuntimeTrace(page))}`,
+    );
+  }
+}
+
 test.describe.configure({ mode: "parallel" });
 
 for (const site of sites) {
@@ -62,6 +82,7 @@ for (const site of sites) {
 
         const page = await context.newPage();
         const chat = watchChatRequests(page);
+        if (site.id === "slides") await installSidebarRuntimeTrace(page);
 
         // The sidebar is collapsed by default on some entry paths; asking for
         // it explicitly is what guarantees a composer to type into.
@@ -73,10 +94,7 @@ for (const site of sites) {
           },
         );
 
-        await expect(
-          page.locator(COMPOSER.input).first(),
-          `${site.host} rendered no agent composer for a signed-in user`,
-        ).toBeVisible({ timeout: 60_000 });
+        await expectComposerVisible(page, site.host, site.id === "slides");
 
         await sendPromptAndAwaitTurn(page, PROMPT);
 
@@ -144,6 +162,7 @@ for (const site of sites) {
       try {
         const page = await context.newPage();
         const chat = watchChatRequests(page);
+        if (site.id === "slides") await installSidebarRuntimeTrace(page);
         await page.goto(
           `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
           {
@@ -151,9 +170,7 @@ for (const site of sites) {
             timeout: 45_000,
           },
         );
-        await expect(page.locator(COMPOSER.input).first()).toBeVisible({
-          timeout: 60_000,
-        });
+        await expectComposerVisible(page, site.host, site.id === "slides");
 
         await sendPromptAndAwaitTurn(page, PROMPT);
 
@@ -184,6 +201,7 @@ for (const site of sites) {
       const context = await signedInContext(browser, site);
       try {
         const page = await context.newPage();
+        if (site.id === "slides") await installSidebarRuntimeTrace(page);
         await page.goto(
           `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
           {
@@ -192,7 +210,14 @@ for (const site of sites) {
           },
         );
         const send = page.locator(COMPOSER.send).first();
-        await expect(send).toBeVisible({ timeout: 60_000 });
+        try {
+          await expect(send).toBeVisible({ timeout: 60_000 });
+        } catch (error) {
+          if (site.id !== "slides") throw error;
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}\nSlides sidebar runtime: ${JSON.stringify(await readSidebarRuntimeTrace(page))}`,
+          );
+        }
 
         const badge = page.locator(
           'button[aria-label*="switcher" i], button[aria-label*="beta" i]',
