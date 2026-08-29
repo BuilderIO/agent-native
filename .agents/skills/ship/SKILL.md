@@ -91,10 +91,6 @@ request. Do not run `ship:push` on a clean or merely behind branch, and do not
 create a maintenance or `chore: publish branch work` commit just to refresh
 `main`, restart checks, or satisfy a babysit tick.
 
-Never run `ship:push` for a clean or merely behind branch, and never create a
-maintenance or `chore: publish branch work` commit just to refresh `main`,
-restart checks, or satisfy a babysit timer tick.
-
 ## Deployment split
 
 Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
