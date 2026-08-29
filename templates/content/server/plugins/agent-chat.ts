@@ -31,7 +31,7 @@ const DOCUMENT_EDIT_TOOLS = new Set([
 ]);
 const CHAT_VERSION_LIMIT = 100;
 
-async function pruneDocumentVersions(
+async function enforceDocumentVersionLimit(
   db: ReturnType<typeof import("../db/index.js").getDb>,
   documentId: string,
   ownerEmail: string,
@@ -119,7 +119,7 @@ async function autosaveDocumentAfterAgentTurn(
     content: document.content,
     createdAt: new Date().toISOString(),
   });
-  await pruneDocumentVersions(db, scope.id, document.ownerEmail);
+  await enforceDocumentVersionLimit(db, scope.id, document.ownerEmail);
 }
 
 export default createAgentChatPlugin({
