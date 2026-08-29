@@ -20,9 +20,10 @@ export function BuilderTranscriptionCta() {
   const configured = flow.statusResolved
     ? flow.configured || flow.envManaged
     : null;
+  const statusUnavailable = flow.hasFetchedStatus && !flow.statusResolved;
 
-  // Already connected or still loading — render nothing
-  if (configured === null || configured) return null;
+  // Keep a retry path visible after an unreadable status response.
+  if (configured || (configured === null && !statusUnavailable)) return null;
 
   return (
     <div className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -34,11 +35,14 @@ export function BuilderTranscriptionCta() {
       <span className="flex-1">
         {flow.connecting
           ? "Waiting for Builder.io…"
-          : "Connect Builder.io for higher-quality transcription — free credits, no API key needed."}
+          : statusUnavailable
+            ? "Builder status unavailable. Try again."
+            : "Connect Builder.io for higher-quality transcription — free credits, no API key needed."}
       </span>
-      {flow.error ? (
+      {flow.error && (
         <span className="text-destructive text-[10px]">{flow.error}</span>
-      ) : flow.connecting ? (
+      )}
+      {flow.connecting ? (
         <IconLoader2 size={12} className="shrink-0 animate-spin" />
       ) : (
         <BuilderConnectPopover flow={flow}>
@@ -47,7 +51,7 @@ export function BuilderTranscriptionCta() {
             disabled={flow.connecting}
             className="ml-auto shrink-0 inline-flex items-center gap-1 rounded bg-foreground px-2 py-1 text-[10px] font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
           >
-            Connect
+            {statusUnavailable || flow.error ? "Retry" : "Connect"}
           </button>
         </BuilderConnectPopover>
       )}

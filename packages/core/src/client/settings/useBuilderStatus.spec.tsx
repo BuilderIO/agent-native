@@ -139,6 +139,12 @@ function expectedProvisionedConnectUrl(url: string): string {
   return expectedConnectUrl(parsed.toString());
 }
 
+function withoutConnectAttempt(url: string): string {
+  const parsed = new URL(url);
+  parsed.searchParams.delete("_an_connect_attempt");
+  return parsed.toString();
+}
+
 describe("useBuilderStatus", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -309,9 +315,12 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(popup.location.href).toBe(
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
       expectedProvisionedConnectUrl(signedConnectUrl),
     );
+    expect(
+      new URL(popup.location.href).searchParams.get("_an_connect_attempt"),
+    ).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("uses the click-time provisioning capability instead of a stale closure", async () => {
@@ -354,9 +363,12 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(popup.location.href).toBe(
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
       expectedProvisionedConnectUrl(signedConnectUrl),
     );
+    expect(
+      new URL(popup.location.href).searchParams.get("_an_connect_attempt"),
+    ).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("keeps account provisioning dormant when the server does not advertise it", async () => {

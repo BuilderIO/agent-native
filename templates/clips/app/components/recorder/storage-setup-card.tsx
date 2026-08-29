@@ -65,6 +65,7 @@ export function StorageSetupCard({
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
+  const connectRequestedRef = useRef(false);
 
   const stopVisibilityHandler = useCallback(() => {
     if (visibilityHandlerRef.current) {
@@ -142,12 +143,25 @@ export function StorageSetupCard({
     document.addEventListener("visibilitychange", visibilityHandlerRef.current);
   }, [onConfigured, stopVisibilityHandler, t]);
 
+  const handleBuilderConnected = useCallback(() => {
+    if (!connectRequestedRef.current) return;
+    connectRequestedRef.current = false;
+    startFileUploadPoll();
+  }, [startFileUploadPoll]);
+
   const builderConnect = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: connectSource,
     trackingFlow: connectFlow,
-    onConnected: startFileUploadPoll,
+    onConnected: handleBuilderConnected,
   });
+  const handleBuilderConnect = useCallback(
+    (provisionAccount: boolean) => {
+      connectRequestedRef.current = true;
+      builderConnect.start({ provisionAccount });
+    },
+    [builderConnect.start],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -172,7 +186,10 @@ export function StorageSetupCard({
       </div>
 
       {/* Builder.io — primary option, one-click Connect flow. */}
-      <BuilderConnectPopover flow={builderConnect}>
+      <BuilderConnectPopover
+        flow={builderConnect}
+        onConnect={handleBuilderConnect}
+      >
         <button
           type="button"
           disabled={connecting || connected}

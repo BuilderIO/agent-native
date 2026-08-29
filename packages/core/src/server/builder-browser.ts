@@ -614,6 +614,7 @@ export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
 export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 export const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
+export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
 
 const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
 

@@ -233,6 +233,7 @@ const BUILDER_CONNECT_PARAM = "_an_connect";
 const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
 const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
+const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
@@ -399,6 +400,16 @@ function isFreshSignedConnectUrl(
     typeof fetchedAt === "number" &&
     Date.now() - fetchedAt < STATUS_CONNECT_URL_TTL_MS
   );
+}
+
+function createBuilderConnectAttemptId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function isCurrentConnectError(
@@ -604,6 +615,7 @@ export function useBuilderConnectFlow(
   // gesture path (browser/editor embeds).
   const statusConnectUrlAtRef = useRef<number | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
+  const connectAttemptIdRef = useRef<string | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -624,7 +636,7 @@ export function useBuilderConnectFlow(
   // own (the initial status fetch, the popup-open branches in `start`) keep
   // the internal fallback timeout.
   const fetchStatus = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, connectAttemptId?: string) => {
       if (!enabled) return null;
       const origin = getCallbackOrigin() || window.location.origin;
       const ownController =
@@ -635,13 +647,19 @@ export function useBuilderConnectFlow(
         ? setTimeout(() => ownController.abort(), STATUS_FETCH_ABORT_MS)
         : null;
       try {
-        const r = await fetch(
-          new URL(
-            agentNativePath("/_agent-native/connection-status/builder"),
-            origin,
-          ).href,
-          { signal: signal ?? ownController?.signal },
+        const statusUrl = new URL(
+          agentNativePath("/_agent-native/connection-status/builder"),
+          origin,
         );
+        if (connectAttemptId) {
+          statusUrl.searchParams.set(
+            BUILDER_CONNECT_ATTEMPT_PARAM,
+            connectAttemptId,
+          );
+        }
+        const r = await fetch(statusUrl.href, {
+          signal: signal ?? ownController?.signal,
+        });
         if (!r.ok) return null;
         return (await r.json()) as Pick<
           BuilderStatus,
@@ -690,6 +708,7 @@ export function useBuilderConnectFlow(
       setStatusResolved(false);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
+      connectAttemptIdRef.current = null;
       return;
     }
     mountedRef.current = true;
@@ -761,12 +780,14 @@ export function useBuilderConnectFlow(
     (startOptions?: BuilderConnectStartOptions) => {
       if (!enabled) return;
       const started = Date.now();
+      const connectAttemptId = createBuilderConnectAttemptId();
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
       const provisionAccountForStart =
         startOptions?.provisionAccount ?? provisionAccount;
       connectStartedAtRef.current = started;
+      connectAttemptIdRef.current = connectAttemptId;
       callbackSuccessStartedAtRef.current = null;
       activeTrackingRef.current = {
         source: clickTrackingSource,
@@ -816,6 +837,10 @@ export function useBuilderConnectFlow(
           BUILDER_PROVISIONING_TOKEN_PARAM,
           provisioningToken,
         );
+        provisionUrl.searchParams.set(
+          BUILDER_CONNECT_ATTEMPT_PARAM,
+          connectAttemptId,
+        );
         return provisionUrl.toString();
       };
       const directUrl = withProvisionMode(
@@ -848,7 +873,7 @@ export function useBuilderConnectFlow(
           }
 
           void (async () => {
-            const s = await fetchStatus();
+            const s = await fetchStatus(undefined, connectAttemptId);
             if (!mountedRef.current) return;
             if (s) {
               setHasFetchedStatus(true);
@@ -893,7 +918,7 @@ export function useBuilderConnectFlow(
         } else {
           showBuilderConnectPopupPlaceholder(opened);
           void (async () => {
-            const s = await fetchStatus();
+            const s = await fetchStatus(undefined, connectAttemptId);
             if (!mountedRef.current) {
               try {
                 opened.close();
@@ -982,7 +1007,10 @@ export function useBuilderConnectFlow(
     async (signal) => {
       const started = connectStartedAtRef.current;
       if (started == null) return;
-      const s = await fetchStatus(signal);
+      const s = await fetchStatus(
+        signal,
+        connectAttemptIdRef.current ?? undefined,
+      );
       if (!mountedRef.current) return;
       if (s) setStatusResolved(true);
       if (s?.configured) {
@@ -1072,7 +1100,10 @@ export function useBuilderConnectFlow(
       callbackSuccessStartedAtRef.current = started;
       let s: Awaited<ReturnType<typeof fetchStatus>> = null;
       for (let i = 0; i < CALLBACK_SUCCESS_STATUS_RETRIES; i += 1) {
-        s = await fetchStatus();
+        s = await fetchStatus(
+          undefined,
+          connectAttemptIdRef.current ?? undefined,
+        );
         if (!mountedRef.current || connectStartedAtRef.current !== started) {
           return;
         }

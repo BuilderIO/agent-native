@@ -136,6 +136,7 @@ import {
   BUILDER_CONNECT_MODE_PARAM,
   BUILDER_AGENT_NATIVE_PROVISION_MODE,
   BUILDER_PROVISIONING_TOKEN_PARAM,
+  BUILDER_CONNECT_ATTEMPT_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
@@ -2334,6 +2335,10 @@ export function createCoreRoutesPlugin(
         return runWithRequestContext(
           { userEmail, orgId: orgId ?? undefined },
           async () => {
+            const requestUrl = getFrameworkRouteRequestUrl(event);
+            const connectAttemptId = requestUrl.searchParams.get(
+              BUILDER_CONNECT_ATTEMPT_PARAM,
+            );
             const projectId = await resolveBuilderBranchProjectId();
             const requestStatus = {
               ...envStatus,
@@ -2350,8 +2355,19 @@ export function createCoreRoutesPlugin(
               if (userEmail) {
                 const errKey = `builder-connect-error:${userEmail}`;
                 const errRow = await getSetting(errKey);
-                if (errRow && typeof errRow.message === "string") {
-                  await deleteSetting(errKey).catch(() => {});
+                const isCorrelatedProvisioningError =
+                  errRow?.code === "account_exists" &&
+                  typeof connectAttemptId === "string" &&
+                  errRow.attemptId === connectAttemptId;
+                const isLegacyConnectError = errRow?.code !== "account_exists";
+                if (
+                  errRow &&
+                  typeof errRow.message === "string" &&
+                  (isCorrelatedProvisioningError || isLegacyConnectError)
+                ) {
+                  if (isLegacyConnectError) {
+                    await deleteSetting(errKey).catch(() => {});
+                  }
                   return withConnectToken({
                     ...requestStatus,
                     configured: false,
@@ -2673,6 +2689,9 @@ export function createCoreRoutesPlugin(
           }
 
           const requestUrl = getFrameworkRouteRequestUrl(event);
+          const connectAttemptId = requestUrl.searchParams.get(
+            BUILDER_CONNECT_ATTEMPT_PARAM,
+          );
           const connectToken = requestUrl.searchParams.get(
             BUILDER_CONNECT_PARAM,
           );
@@ -2748,6 +2767,7 @@ export function createCoreRoutesPlugin(
                 message,
                 at: Date.now(),
                 ...(code ? { code } : {}),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               }).catch(() => {});
               await trackBuilderLifecycle(
                 event,
