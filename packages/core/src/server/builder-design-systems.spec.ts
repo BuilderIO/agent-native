@@ -575,6 +575,43 @@ describe("Builder design-system helpers", () => {
     expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
   });
 
+  it("retries transient Builder indexing transport failures", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            designSystemId: "ds-1",
+            jobId: "job-1",
+            projectId: "project-1",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    try {
+      const result = indexBuilderDesignSystem({
+        sources: [{ kind: "file", uploadToken: "upload-token" }],
+      });
+      await vi.advanceTimersByTimeAsync(600);
+      await expect(result).resolves.toMatchObject({
+        designSystemId: "ds-1",
+        jobId: "job-1",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry permanent Builder indexing failures", async () => {
     process.env.BUILDER_PRIVATE_KEY = "builder-private";
     process.env.BUILDER_PUBLIC_KEY = "builder-public";

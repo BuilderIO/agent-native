@@ -726,16 +726,26 @@ async function fetchBuilderDesignSystemIndex(
   const headers = new Headers(init.headers);
   headers.set("Idempotency-Key", idempotencyKey);
   const request = { ...init, headers };
-  let response = await fetchWithTimeout(url, request, INDEX_ATTEMPT_TIMEOUT_MS);
-  for (const retryDelay of INDEX_RETRY_DELAYS_MS) {
-    if (response.ok || !RETRYABLE_INDEX_STATUSES.has(response.status)) {
-      return response;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        request,
+        INDEX_ATTEMPT_TIMEOUT_MS,
+      );
+      if (
+        response.ok ||
+        !RETRYABLE_INDEX_STATUSES.has(response.status) ||
+        attempt >= INDEX_RETRY_DELAYS_MS.length
+      ) {
+        return response;
+      }
+      if (response.body) await response.body.cancel();
+    } catch (error) {
+      if (attempt >= INDEX_RETRY_DELAYS_MS.length) throw error;
     }
-    if (response.body) await response.body.cancel();
-    await delay(retryDelay);
-    response = await fetchWithTimeout(url, request, INDEX_ATTEMPT_TIMEOUT_MS);
+    await delay(INDEX_RETRY_DELAYS_MS[attempt]);
   }
-  return response;
 }
 
 async function uploadToResumableUrl(
