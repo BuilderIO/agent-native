@@ -107,4 +107,20 @@ describe("list-workspace-connections", () => {
       "visible-grant",
     ]);
   });
+
+  it("filters catalog providers and counts by the requested provider", async () => {
+    mocks.listWorkspaceConnectionProviders.mockReturnValue([
+      { id: "slack", label: "Slack" },
+      { id: "github", label: "GitHub" },
+    ]);
+    mocks.listWorkspaceConnectionsForUser.mockResolvedValue([
+      { id: "visible", provider: "slack", allowedApps: [] },
+    ]);
+    mocks.listWorkspaceConnectionGrants.mockResolvedValue([]);
+
+    const result = await action.run({ provider: "github" });
+
+    expect(result.providers.map((provider) => provider.id)).toEqual(["github"]);
+    expect(result.counts.providers).toBe(1);
+  });
 });

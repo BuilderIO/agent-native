@@ -144,7 +144,8 @@ export default defineAction({
     const googleOAuthConfigured = googleOAuthAvailability === "configured";
     const providers = catalogProviders.filter(
       (provider) =>
-        googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id),
+        (!args.provider || provider.id === args.provider) &&
+        (googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id)),
     );
     const allConnections = await listWorkspaceConnectionsForUser({
       provider: args.provider,
