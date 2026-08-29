@@ -651,7 +651,12 @@ interface CodeAgentsHubProps {
   workspaceAppList?: DesktopWorkspaceAppListResult;
   isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
-  chatFirstAppOpenRequest?: { appId: string; path?: string; nonce: number };
+  chatFirstAppOpenRequest?: {
+    appId: string;
+    path?: string;
+    nonce: number;
+    focusNonce?: number;
+  };
   chatFirstPreviewRequest?: { appId: string; nonce: number };
   chatFirstPreviewStatus?: "starting" | "ready" | "error";
   chatFirstPreviewStatusMessage?: string;
@@ -2674,6 +2679,10 @@ export default function CodeAgentsHub({
           tabId: tab.id,
           activeTabId: activeChatFirstSurfaceTab?.id,
         });
+        const shouldFocusRequestedTab =
+          isTabActive &&
+          chatFirstAppOpenRequest?.appId === tab.appId &&
+          chatFirstAppOpenRequest.path === tab.path;
         const appAuthState = appAuthStateByTab[tab.id];
         const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
         const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
@@ -2739,6 +2748,11 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      focusNonce={
+                        shouldFocusRequestedTab
+                          ? chatFirstAppOpenRequest.focusNonce
+                          : undefined
+                      }
                       showDesktopIdentityGate={false}
                       surfaceHidden={!showNativeIntegrationsGuest}
                       refreshKey={refreshKey}

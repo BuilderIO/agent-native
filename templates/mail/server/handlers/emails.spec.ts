@@ -30,4 +30,18 @@ describe("emails handler Gmail label listing", () => {
     expect(source).toContain("failedAccountReads > 0");
     expect(source).toContain("Unable to load Gmail labels. Please retry.");
   });
+
+  it("filters local all-mail label reads and scopes Gmail label counts", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain(
+      "if (label) emails = filterLabelMessages(emails, label);",
+    );
+    expect(source).toContain(
+      "const accountTokens = await getAccountTokens(email, accountEmails);",
+    );
+    expect(source).toContain(
+      "return recomputeUnreadCounts(\n    await readEmails(email),\n    await readLabels(email),\n  );",
+    );
+  });
 });

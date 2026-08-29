@@ -139,13 +139,13 @@ describe("CommentsPanel reply composer", () => {
     expect(container.textContent).toContain("www.example.org/help.");
   });
 
-  it("keeps the compact comment composer text inset", () => {
+  it("keeps the compact comment composer text inset without an outer border", () => {
     const composer = container.querySelector<HTMLTextAreaElement>(
       'textarea[placeholder="commentsPanel.leaveComment"]',
     );
 
     expect(composer?.className).toContain("px-3 py-2");
-    expect(composer?.closest(".border-border")).not.toBeNull();
+    expect(composer?.parentElement?.className).not.toContain("border");
   });
 
   it("renders inline Markdown while flattening headings", () => {
