@@ -72,5 +72,6 @@ describe("dispatch action registry", () => {
     expect(action.tool.description).toContain(
       "workspaceAppCreationsByUserMonth",
     );
+    expect(action.tool.description).toContain("app adoption metrics");
   });
 });
