@@ -3741,8 +3741,8 @@ export function TiptapComposer({
       lastComposerRuntimeSyncRef.current = null;
       composerRuntime.setText("");
       const cleanupGeneration = draftScopeGenerationRef.current;
-      attachmentCleanupRef.current = composerRuntime
-        .clearAttachments()
+      attachmentCleanupRef.current = attachmentCleanupRef.current
+        .then(() => composerRuntime.clearAttachments())
         .catch((error) => {
           if (draftScopeGenerationRef.current === cleanupGeneration) {
             console.error(
