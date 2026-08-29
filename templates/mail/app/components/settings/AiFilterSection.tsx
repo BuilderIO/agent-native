@@ -4,9 +4,6 @@ import { AI_FILTER_LABEL, AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AutomationRule } from "@shared/types";
 import {
   IconArrowUpRight,
-  IconCircleCheck,
-  IconFilter,
-  IconInfoCircle,
   IconLoader2,
   IconPlus,
   IconTrash,
@@ -123,22 +120,6 @@ function DecisionRow({
 
   return (
     <div className="flex items-start gap-3 border-b border-border/40 px-1 py-3 last:border-0">
-      <span
-        className={cn(
-          "mt-1 flex size-6 shrink-0 items-center justify-center rounded-full",
-          isSuggested
-            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-            : isFiltered
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
-        )}
-      >
-        {isSuggested ? (
-          <IconInfoCircle className="size-3.5" />
-        ) : (
-          <IconCircleCheck className="size-3.5" />
-        )}
-      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium text-foreground">
@@ -152,17 +133,15 @@ function DecisionRow({
           {decision.subject || t("mail.aiFilter.noSubject")}
         </p>
         {decision.reason && (
-          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground/70">
+          <p
+            className="mt-1 line-clamp-1 text-[11px] leading-4 text-muted-foreground/70"
+            title={decision.reason}
+          >
             {decision.reason}
           </p>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {decision.confidence !== undefined && (
-          <span className="hidden text-[10px] tabular-nums text-muted-foreground/60 sm:inline">
-            {Math.round(decision.confidence * 100)}%
-          </span>
-        )}
         {isSuggested && (
           <>
             <Button
@@ -218,10 +197,6 @@ export function AiFilterSection() {
     [rules],
   );
   const decisions = latestAiFilterDecisions(state).slice(0, 8);
-  const suggestions = decisions.filter(
-    (decision) => decision.disposition === "suggested",
-  ).length;
-
   const updateSettings = (patch: {
     enabled?: boolean;
     autoFilter?: boolean;
@@ -278,23 +253,10 @@ export function AiFilterSection() {
   return (
     <>
       <div className="max-w-2xl space-y-5">
-        <div className="flex items-start gap-3 border-b border-border/50 pb-4">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <IconFilter className="size-4" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[16px] font-semibold text-foreground">
-                {t("mail.aiFilter.title")}
-              </h2>
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                {t("mail.aiFilter.lunaBadge")}
-              </span>
-            </div>
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              {t("mail.aiFilter.subtitle")}
-            </p>
-          </div>
+        <div className="flex items-center justify-between border-b border-border/50 pb-3">
+          <h2 className="text-[16px] font-semibold text-foreground">
+            {t("mail.aiFilter.title")}
+          </h2>
           <Switch
             checked={state.enabled}
             onCheckedChange={(enabled) => updateSettings({ enabled })}
@@ -303,15 +265,10 @@ export function AiFilterSection() {
         </div>
 
         <div className="rounded-lg border border-border/50 bg-card/50">
-          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[13px] font-medium text-foreground">
-                {t("mail.aiFilter.autoFilterTitle")}
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {t("mail.aiFilter.autoFilterDescription")}
-              </p>
-            </div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <p className="text-[13px] font-medium text-foreground">
+              {t("mail.aiFilter.autoFilterTitle")}
+            </p>
             <div className="flex items-center gap-2">
               <Select
                 value={String(state.autoFilterThreshold)}
@@ -351,18 +308,6 @@ export function AiFilterSection() {
               <code className="truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {AI_FILTER_LABEL}
               </code>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="text-muted-foreground/60 hover:text-foreground"
-                    aria-label={t("mail.aiFilter.labelHelp")}
-                  >
-                    <IconInfoCircle className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("mail.aiFilter.labelHelp")}</TooltipContent>
-              </Tooltip>
             </div>
             <Link
               to={`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`}
@@ -375,16 +320,9 @@ export function AiFilterSection() {
         </div>
 
         <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[13px] font-semibold text-foreground">
-              {t("mail.aiFilter.instructionsTitle")}
-            </h3>
-            <span className="text-[11px] text-muted-foreground/60">
-              {t("mail.aiFilter.instructionCount", {
-                count: instructions.length,
-              })}
-            </span>
-          </div>
+          <h3 className="mb-2 text-[13px] font-semibold text-foreground">
+            {t("mail.aiFilter.instructionsTitle")}
+          </h3>
           <div className="rounded-lg border border-border/50 bg-card/50 px-3">
             <div className="flex items-end gap-2 border-b border-border/40 py-3">
               <Input
@@ -411,35 +349,18 @@ export function AiFilterSection() {
                 {t("mail.aiFilter.addInstruction")}
               </Button>
             </div>
-            {instructions.length === 0 ? (
-              <div className="py-5 text-center">
-                <p className="text-xs text-muted-foreground">
-                  {t("mail.aiFilter.noInstructions")}
-                </p>
-                <p className="mt-1 text-[11px] text-muted-foreground/60">
-                  {t("mail.aiFilter.instructionExample")}
-                </p>
-              </div>
-            ) : (
+            {instructions.length > 0 &&
               instructions.map((rule) => (
                 <InstructionRow key={rule.id} rule={rule} />
-              ))
-            )}
+              ))}
           </div>
         </section>
 
         <section>
           <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-[13px] font-semibold text-foreground">
-                {t("mail.aiFilter.activityTitle")}
-              </h3>
-              {suggestions > 0 && (
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                  {t("mail.aiFilter.suggestionCount", { count: suggestions })}
-                </span>
-              )}
-            </div>
+            <h3 className="text-[13px] font-semibold text-foreground">
+              {t("mail.aiFilter.activityTitle")}
+            </h3>
             <Link
               to={`/all?label=${encodeURIComponent(AI_FILTER_LABEL)}`}
               className="text-[11px] font-medium text-primary hover:underline"

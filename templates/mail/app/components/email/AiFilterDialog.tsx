@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -80,26 +79,11 @@ export function AiFilterDialog({
               ? t("mail.aiFilter.filterTitle")
               : t("mail.aiFilter.keepTitle")}
           </DialogTitle>
-          <DialogDescription>
-            {isFilter
-              ? t("mail.aiFilter.filterDescription", {
-                  count: targets.length,
-                })
-              : t("mail.aiFilter.keepDescription", { count: targets.length })}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            {isFilter
-              ? t("mail.aiFilter.labelNote")
-              : t("mail.aiFilter.learningNote")}
-          </div>
-          <div className="space-y-2">
-            <label
-              htmlFor="ai-filter-comment"
-              className="text-sm font-medium text-foreground"
-            >
+        <div className="py-2">
+          <div>
+            <label htmlFor="ai-filter-comment" className="sr-only">
               {isFilter
                 ? t("mail.aiFilter.rememberLabel")
                 : t("mail.aiFilter.correctLabel")}
@@ -113,13 +97,10 @@ export function AiFilterDialog({
                   ? t("mail.aiFilter.rememberPlaceholder")
                   : t("mail.aiFilter.correctPlaceholder")
               }
-              rows={3}
+              rows={2}
               className="resize-none text-sm"
               maxLength={500}
             />
-            <p className="text-[11px] text-muted-foreground/70">
-              {t("mail.aiFilter.commentHint")}
-            </p>
           </div>
         </div>
 
