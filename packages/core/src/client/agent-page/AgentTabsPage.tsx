@@ -640,7 +640,11 @@ export function AgentTabsPage({
         keywords: "jobs scheduled automations recurring event triggers",
         content: (
           <Suspense fallback={<TabLoading />}>
-            <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
+            <AgentJobsTab
+              scope={scope}
+              canManageOrg={canManageOrg}
+              organizationId={org?.orgId}
+            />
           </Suspense>
         ),
       },
@@ -684,7 +688,7 @@ export function AgentTabsPage({
       ...extraTabs,
       ...scopedExtraTabs,
     ],
-    [appName, canManageOrg, extraTabs, scope, scopedExtraTabs],
+    [appName, canManageOrg, extraTabs, org?.orgId, scope, scopedExtraTabs],
   );
   const visibleTabs = useMemo(
     () => tabs.filter((tab) => !normalizedHiddenTabs.has(tab.id)),
