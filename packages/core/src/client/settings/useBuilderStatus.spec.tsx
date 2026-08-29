@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import {
   useBuilderStatus,
   useBuilderConnectFlow,
@@ -75,6 +76,15 @@ function BuilderConnectProbe({
   );
 }
 
+function BuilderConnectPopoverProbe() {
+  const flow = useBuilderConnectFlow();
+  return (
+    <BuilderConnectPopover flow={flow}>
+      <button type="button">Connect</button>
+    </BuilderConnectPopover>
+  );
+}
+
 function BuilderStatusProbe() {
   const { status, loading, stale, error } = useBuilderStatus();
   return (
@@ -111,6 +121,14 @@ const refreshedConnectUrl = signedConnectUrl.replace(
   "_an_connect=refreshed",
 );
 const provisioningToken = "nonce.email.session.1700000000000.mac";
+
+function popupAttemptId(popup: Window): string {
+  const attemptId = new URL(popup.location.href).searchParams.get(
+    "_an_connect_attempt",
+  );
+  if (!attemptId) throw new Error("Builder connect attempt ID was not set");
+  return attemptId;
+}
 
 const connectedBuilderStatus = {
   configured: true,
@@ -569,6 +587,65 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("not-configured idle resolved");
   });
 
+  it("retries status from a connect trigger without bypassing consent", async () => {
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+        }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectPopoverProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      container.querySelector("[data-radix-popper-content-wrapper]"),
+    ).toBeNull();
+  });
+
+  it("keeps surface callbacks on the legacy connection path", async () => {
+    const flow = {
+      connecting: false,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: false,
+      retry: vi.fn(),
+      start: vi.fn(),
+    };
+    const onConnect = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectPopover flow={flow} onConnect={onConnect}>
+          <button type="button">Connect</button>
+        </BuilderConnectPopover>,
+      );
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(onConnect).toHaveBeenCalledWith(false);
+    expect(flow.start).not.toHaveBeenCalled();
+  });
+
   it("refreshes an un-timestamped signed prop URL before navigating web popups", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
@@ -659,7 +736,23 @@ describe("useBuilderConnectFlow", () => {
 
   it("refreshes status when a Builder preview callback posts success", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
     vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl:
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+          appHost: "https://builder.io",
+          apiHost: "https://api.builder.io",
+          publicKeyConfigured: false,
+          privateKeyConfigured: false,
+        }),
+      )
       .mockResolvedValueOnce(
         jsonResponse({
           configured: false,
@@ -697,11 +790,18 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("not-configured");
 
     await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const attemptId = popupAttemptId(popup);
+    await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
           origin:
             "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz",
-          data: { type: "builder-connect-success" },
+          data: { type: "builder-connect-success", attemptId },
         }),
       );
       await Promise.resolve();
@@ -709,6 +809,42 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(container.textContent).toContain("configured");
+  });
+
+  it("ignores a success message from another connect attempt", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ configured: false }))
+      .mockResolvedValueOnce(jsonResponse({ configured: false }));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin: "https://agent-workspace.builder.io",
+          data: {
+            type: "builder-connect-success",
+            attemptId: "stale-attempt",
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured connecting");
   });
 
   it("keeps polling when callback confirmation status is unknown", async () => {
@@ -734,10 +870,11 @@ describe("useBuilderConnectFlow", () => {
     });
 
     await act(async () => {
+      const attemptId = popupAttemptId(popup);
       window.dispatchEvent(
         new MessageEvent("message", {
           origin: "https://agent-workspace.builder.io",
-          data: { type: "builder-connect-success" },
+          data: { type: "builder-connect-success", attemptId },
         }),
       );
       await vi.advanceTimersByTimeAsync(5000);
@@ -773,9 +910,10 @@ describe("useBuilderConnectFlow", () => {
     });
 
     await act(async () => {
+      const attemptId = popupAttemptId(popup);
       const message = new MessageEvent("message", {
         origin: "https://agent-workspace.builder.io",
-        data: { type: "builder-connect-success" },
+        data: { type: "builder-connect-success", attemptId },
       });
       window.dispatchEvent(message);
       window.dispatchEvent(message);
@@ -823,10 +961,11 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("not-configured connecting");
 
     await act(async () => {
+      const attemptId = popupAttemptId(popup);
       window.dispatchEvent(
         new MessageEvent("message", {
           origin: "https://agent-workspace.builder.io",
-          data: { type: "builder-connect-success" },
+          data: { type: "builder-connect-success", attemptId },
         }),
       );
       await vi.advanceTimersByTimeAsync(5000);

@@ -601,36 +601,28 @@ export function FirstRunOnboarding({
                   </Tooltip>
                 </div>
               </div>
-              {canActivateBuilderFreeCredits ? (
-                <BuilderConnectPopover
-                  flow={connectFlow}
-                  onConnect={(provisionAccount) =>
-                    handleBuilder(provisionAccount)
-                  }
-                  contentTestId="first-run-builder-consent"
-                  primaryTestId="first-run-builder-create-and-activate"
-                  secondaryTestId="first-run-builder-existing-account"
-                >
-                  <button
-                    type="button"
-                    data-testid="first-run-connect-builder"
-                    className={cn(primaryButtonClass, "mt-5 w-full")}
-                  >
-                    {t("agentChat.onboarding.builderActivateCredits")}
-                    <IconArrowRight size={15} />
-                  </button>
-                </BuilderConnectPopover>
-              ) : (
+              <BuilderConnectPopover
+                flow={connectFlow}
+                onConnect={(provisionAccount) =>
+                  handleBuilder(provisionAccount)
+                }
+                contentTestId="first-run-builder-consent"
+                primaryTestId="first-run-builder-create-and-activate"
+                secondaryTestId="first-run-builder-existing-account"
+              >
                 <button
                   type="button"
                   data-testid="first-run-connect-builder"
                   className={cn(primaryButtonClass, "mt-5 w-full")}
-                  onClick={() => handleBuilder()}
                 >
-                  {t("agentChat.onboarding.builderConnectCredits")}
+                  {t(
+                    canActivateBuilderFreeCredits
+                      ? "agentChat.onboarding.builderActivateCredits"
+                      : "agentChat.onboarding.builderConnectCredits",
+                  )}
                   <IconArrowRight size={15} />
                 </button>
-              )}
+              </BuilderConnectPopover>
             </section>
 
             <div
@@ -963,7 +955,9 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "connecting") {
-    const provisioning = builderConnectionMode === "provision";
+    const accountExists = connectFlow.accountExists;
+    const provisioning =
+      builderConnectionMode === "provision" && !accountExists;
     return (
       <OnboardingShell profile={profile} screen="choice">
         <div
@@ -973,41 +967,65 @@ export function FirstRunOnboarding({
           aria-busy={connectFlow.connecting}
         >
           <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <IconLoader2 className="animate-spin" size={19} />
+            {accountExists ? (
+              <IconKey size={19} />
+            ) : (
+              <IconLoader2 className="animate-spin" size={19} />
+            )}
           </div>
           <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
-            {provisioning
-              ? t("agentChat.onboarding.builderActivating")
-              : t("agentChat.onboarding.builderConnecting")}
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsTitle")
+              : provisioning
+                ? t("agentChat.onboarding.builderActivating")
+                : t("agentChat.onboarding.builderConnecting")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {provisioning
-              ? t("agentChat.onboarding.builderProvisioningDescription")
-              : t("agentChat.onboarding.builderConnectionDescription")}
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsDescription")
+              : provisioning
+                ? t("agentChat.onboarding.builderProvisioningDescription")
+                : t("agentChat.onboarding.builderConnectionDescription")}
           </p>
-          <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </div>
-            <Skeleton className="mt-4 h-8 w-full" />
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-            </div>
-          </div>
-          {connectFlow.error && (
-            <div className="mt-4 flex flex-col items-center gap-2">
-              <p className="text-xs text-destructive">{connectFlow.error}</p>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => setScreen("choice")}
-              >
-                Try again
-              </button>
-            </div>
+          {accountExists ? (
+            <button
+              type="button"
+              className={cn(primaryButtonClass, "mt-7 w-full")}
+              onClick={() => handleBuilder(false)}
+              disabled={connectFlow.connecting}
+            >
+              {t("agentChat.auth.logIn")}
+              <IconArrowRight size={15} />
+            </button>
+          ) : (
+            <>
+              <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="mt-4 h-8 w-full" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                </div>
+              </div>
+              {connectFlow.error && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive">
+                    {connectFlow.error}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => setScreen("choice")}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </OnboardingShell>

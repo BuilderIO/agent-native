@@ -19,6 +19,8 @@ export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
     agentNativeProvisioningEnabled?: boolean;
     accountExists?: boolean;
+    /** Retry the status request without bypassing provisioning consent. */
+    retry?: () => void;
     statusResolved?: boolean;
   };
   children: BuilderConnectTrigger;
@@ -71,6 +73,7 @@ export function BuilderConnectPopover({
       if (!capabilityResolved) {
         event.preventDefault();
         event.stopPropagation();
+        flow.retry?.();
         return;
       }
       children.props.onClick?.(event);

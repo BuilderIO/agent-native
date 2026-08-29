@@ -219,6 +219,8 @@ export interface BuilderConnectFlow {
   hasFetchedStatus: boolean;
   /** Open the popup and begin polling. Must be called from a user-gesture handler. */
   start: (options?: BuilderConnectStartOptions) => void;
+  /** Retry the status request before choosing a connection path. */
+  retry: () => void;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -617,6 +619,7 @@ export function useBuilderConnectFlow(
   const connectStartedAtRef = useRef<number | null>(null);
   const connectAttemptIdRef = useRef<string | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
+  const retryStatusRef = useRef<() => void>(() => {});
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
   // Keep onConnected in a ref so start() doesn't need to re-create when the
@@ -709,6 +712,7 @@ export function useBuilderConnectFlow(
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       connectAttemptIdRef.current = null;
+      retryStatusRef.current = () => {};
       return;
     }
     mountedRef.current = true;
@@ -760,6 +764,7 @@ export function useBuilderConnectFlow(
         setError(null);
       }
     };
+    retryStatusRef.current = () => void refresh();
     void refresh();
     const onVisible = () => {
       if (document.visibilityState === "visible") void refresh();
@@ -770,11 +775,16 @@ export function useBuilderConnectFlow(
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      retryStatusRef.current = () => {};
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refresh);
     };
   }, [enabled, fetchStatus]);
+
+  const retry = useCallback(() => {
+    retryStatusRef.current();
+  }, []);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
@@ -1101,7 +1111,8 @@ export function useBuilderConnectFlow(
           : `Couldn't save Builder credentials: ${message}.`,
       );
     };
-    const handleSuccess = async () => {
+    const handleSuccess = async (attemptId: string | undefined) => {
+      if (!isCurrentConnectAttempt(attemptId)) return;
       const started = connectStartedAtRef.current;
       if (started == null || callbackSuccessStartedAtRef.current === started) {
         return;
@@ -1197,7 +1208,7 @@ export function useBuilderConnectFlow(
             }
           | undefined;
         if (data?.type === "builder-connect-success") {
-          void handleSuccess();
+          void handleSuccess(data.attemptId);
           return;
         }
         if (data?.type === "builder-connect-error") {
@@ -1220,7 +1231,7 @@ export function useBuilderConnectFlow(
           }
         | undefined;
       if (data?.type === "builder-connect-success") {
-        void handleSuccess();
+        void handleSuccess(data.attemptId);
         return;
       }
       if (data?.type === "builder-connect-error") {
@@ -1249,5 +1260,6 @@ export function useBuilderConnectFlow(
     accountExists,
     hasFetchedStatus,
     start,
+    retry,
   };
 }
