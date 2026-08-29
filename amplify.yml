@@ -1,0 +1,20 @@
+version: 1
+applications:
+  - appRoot: templates/calendar
+    frontend:
+      buildPath: /
+      phases:
+        preBuild:
+          commands:
+            - nvm use 24 && node --version
+            - corepack enable && npx --yes nypm install
+        build:
+          commands:
+            - NITRO_PRESET=aws_amplify pnpm --filter calendar build
+      artifacts:
+        baseDirectory: templates/calendar/.amplify-hosting
+        files:
+          - "**/*"
+      cache:
+        paths:
+          - node_modules/**/*
