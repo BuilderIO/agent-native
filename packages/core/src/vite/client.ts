@@ -1634,7 +1634,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "aws_amplify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
