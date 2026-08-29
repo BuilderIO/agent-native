@@ -79,7 +79,7 @@ async function autosaveCrmDashboardAfterAgentTurn(
   if (scope.type !== "crm-dashboard" || !hasCrmDashboardEdit(run)) return;
   const userEmail = getRequestUserEmail();
   if (!userEmail) return;
-  const { crmDashboardStore } = await import("../server/db/index.js");
+  const { crmDashboardStore } = await import("../db/index.js");
   await crmDashboardStore.createRevisionSnapshot(scope.id, {
     userEmail,
     orgId: getRequestOrgId() || undefined,
