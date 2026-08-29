@@ -153,6 +153,32 @@ describe("clips activity notifications", () => {
     ]);
   });
 
+  it("adds mentioned organization members and marks their email", async () => {
+    await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      authorName: "Viewer",
+      content: "Can you review this, @Tagged?",
+      mentions: [{ email: "Tagged@Example.com", name: "Tagged" }],
+    });
+
+    expect(notifyArgs().candidates).toEqual([
+      "owner@example.com",
+      "tagged@example.com",
+    ]);
+
+    await notifyArgs().send("tagged@example.com");
+
+    expect(mocks.sendClipsTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "activity-comment",
+        to: "tagged@example.com",
+        wasMentioned: true,
+      }),
+    );
+  });
+
   it("builds the reaction email for each recipient", async () => {
     await notifyRecordingReaction({
       recordingId: "rec_1",

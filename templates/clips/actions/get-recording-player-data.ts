@@ -421,6 +421,7 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
+        mentionsJson: c.mentionsJson,
         videoTimestampMs: c.videoTimestampMs,
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),

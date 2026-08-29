@@ -75,6 +75,7 @@ export type ClipsTransactionalEmailInput =
       content: string;
       videoTimestampMs?: number | null;
       isReply?: boolean;
+      wasMentioned?: boolean;
     })
   | (TransactionalEmailBase & {
       kind: "activity-reaction";
@@ -547,17 +548,23 @@ export function renderClipsTransactionalEmail(
         typeof input.videoTimestampMs === "number" && input.videoTimestampMs > 0
           ? ` at ${formatTimestamp(input.videoTimestampMs)}`
           : "";
-      const subject = input.isReply
-        ? `${author} replied on “${title}”`
-        : `${author} commented on “${title}”`;
+      const subject = input.wasMentioned
+        ? `${author} mentioned you on “${title}”`
+        : input.isReply
+          ? `${author} replied on “${title}”`
+          : `${author} commented on “${title}”`;
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         preheader: subject,
-        heading: input.isReply
-          ? `${author} replied on your Clip`
-          : `${author} commented on your Clip`,
+        heading: input.wasMentioned
+          ? `${author} mentioned you on your Clip`
+          : input.isReply
+            ? `${author} replied on your Clip`
+            : `${author} commented on your Clip`,
         paragraphs: [
-          `${emailStrong(author)} left a ${input.isReply ? "reply" : "comment"} on ${emailStrong(title!)}${at}.`,
+          input.wasMentioned
+            ? `${emailStrong(author)} mentioned you in a comment on ${emailStrong(title!)}${at}.`
+            : `${emailStrong(author)} left a ${input.isReply ? "reply" : "comment"} on ${emailStrong(title!)}${at}.`,
           `“${quotedExcerpt(input.content)}”`,
         ],
         cta: {

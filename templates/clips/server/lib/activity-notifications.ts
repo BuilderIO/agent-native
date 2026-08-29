@@ -73,6 +73,7 @@ export interface RecordingCommentNotificationInput {
   authorEmail: string;
   authorName?: string | null;
   content: string;
+  mentions?: { email: string; name: string }[];
   videoTimestampMs?: number | null;
   isReply?: boolean;
 }
@@ -94,7 +95,11 @@ async function deliverRecordingCommentEmails(
     return RECORDING_MISSING;
   }
 
-  const candidates = [recording.ownerEmail];
+  const mentions = input.mentions ?? [];
+  const mentioned = new Set(
+    mentions.map((mention) => mention.email.trim().toLowerCase()),
+  );
+  const candidates = [recording.ownerEmail, ...mentioned];
   if (input.isReply) {
     candidates.push(
       ...(await threadParticipants(input.recordingId, input.threadId)),
@@ -126,6 +131,7 @@ async function deliverRecordingCommentEmails(
         content: input.content,
         videoTimestampMs: input.videoTimestampMs ?? null,
         isReply: input.isReply ?? false,
+        ...(mentioned.has(to) ? { wasMentioned: true } : {}),
       }),
   });
 }

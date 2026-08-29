@@ -331,6 +331,9 @@ export default defineEventHandler(async (event) => {
         )
     : [];
   const hydratedComments = await hydrateCommentAuthorNames(comments);
+  for (const comment of hydratedComments) {
+    Reflect.deleteProperty(comment, "mentionsJson");
+  }
 
   const reactions = rec.enableReactions
     ? await db

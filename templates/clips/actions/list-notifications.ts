@@ -11,17 +11,18 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
-import { and, desc, gte, inArray } from "drizzle-orm";
+import { and, desc, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
-  ownerEmailMatches,
   sameOwnerEmail,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import { parseCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
@@ -35,26 +36,41 @@ export default defineAction({
     const db = getDb();
     const me = getCurrentOwnerEmail();
 
-    // Recordings I own — notifications are about activity ON these.
-    const myRecordings = await db
+    // Activity on recordings I own plus mentions on recordings I can open.
+    const visibleRecordings = await db
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
+        ownerEmail: schema.recordings.ownerEmail,
       })
       .from(schema.recordings)
-      .where(ownerEmailMatches(schema.recordings.ownerEmail, me));
-    if (myRecordings.length === 0) {
+      .where(accessFilter(schema.recordings, schema.recordingShares));
+    if (visibleRecordings.length === 0) {
       return { items: [], count: 0 };
     }
 
-    const ids = myRecordings.map((r) => r.id);
+    const myRecordingIds = visibleRecordings
+      .filter((recording) => sameOwnerEmail(recording.ownerEmail, me))
+      .map((recording) => recording.id);
+    const myRecordingIdSet = new Set(myRecordingIds);
+    const ids = visibleRecordings.map((recording) => recording.id);
     const titleById = new Map(
-      myRecordings.map((r) => [r.id, r.title] as const),
+      visibleRecordings.map(
+        (recording) => [recording.id, recording.title] as const,
+      ),
     );
 
     const cutoff = new Date(
       Date.now() - args.days * 24 * 60 * 60 * 1000,
     ).toISOString();
+
+    const mentionPattern = `%"email":"${me.toLowerCase()}"%`;
+    const commentScope = myRecordingIds.length
+      ? or(
+          inArray(schema.recordingComments.recordingId, myRecordingIds),
+          sql`lower(${schema.recordingComments.mentionsJson}) LIKE ${mentionPattern}`,
+        )
+      : sql`lower(${schema.recordingComments.mentionsJson}) LIKE ${mentionPattern}`;
 
     const [comments, reactions] = await Promise.all([
       db
@@ -64,30 +80,33 @@ export default defineAction({
           and(
             inArray(schema.recordingComments.recordingId, ids),
             gte(schema.recordingComments.createdAt, cutoff),
+            commentScope,
           ),
         )
         .orderBy(desc(schema.recordingComments.createdAt))
         .limit(args.limit),
-      db
-        .select()
-        .from(schema.recordingReactions)
-        .where(
-          and(
-            inArray(schema.recordingReactions.recordingId, ids),
-            gte(schema.recordingReactions.createdAt, cutoff),
-          ),
-        )
-        .orderBy(desc(schema.recordingReactions.createdAt))
-        .limit(args.limit),
+      myRecordingIds.length
+        ? db
+            .select()
+            .from(schema.recordingReactions)
+            .where(
+              and(
+                inArray(schema.recordingReactions.recordingId, myRecordingIds),
+                gte(schema.recordingReactions.createdAt, cutoff),
+              ),
+            )
+            .orderBy(desc(schema.recordingReactions.createdAt))
+            .limit(args.limit)
+        : Promise.resolve([]),
     ]);
 
-    const mentionRegex = new RegExp(
-      `@${me.replace(/[.+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-      "i",
-    );
-
     const commentRows = comments.filter(
-      (c) => !sameOwnerEmail(c.authorEmail, me),
+      (comment) =>
+        !sameOwnerEmail(comment.authorEmail, me) &&
+        (myRecordingIdSet.has(comment.recordingId) ||
+          parseCommentMentions(comment.mentionsJson).some(
+            (mention) => mention.email === me.toLowerCase(),
+          )),
     );
     const reactionRows = reactions.filter(
       (r) => !sameOwnerEmail(r.viewerEmail, me),
@@ -100,9 +119,11 @@ export default defineAction({
     const items = [
       ...commentRows.map((c) => ({
         id: `c:${c.id}`,
-        kind: (mentionRegex.test(c.content) ? "mention" : "comment") as
-          | "mention"
-          | "comment",
+        kind: (parseCommentMentions(c.mentionsJson).some(
+          (mention) => mention.email === me.toLowerCase(),
+        )
+          ? "mention"
+          : "comment") as "mention" | "comment",
         recordingId: c.recordingId,
         recordingTitle: titleById.get(c.recordingId) ?? "Untitled",
         authorEmail: c.authorEmail,
