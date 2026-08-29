@@ -911,13 +911,13 @@ export default defineAction({
       }
 
       await db.transaction(async (tx: any) => {
-        if (isAgentCaller) {
+        if (isAgentCaller && row.ownerEmail) {
           await createDeckVersionSnapshot(
             {
               id: row.id,
               title: row.title ?? "Untitled",
               data: row.data ?? "",
-              ownerEmail: row.ownerEmail ?? "",
+              ownerEmail: row.ownerEmail,
             },
             { force: true, label: "Before deck patch", db: tx },
           );
