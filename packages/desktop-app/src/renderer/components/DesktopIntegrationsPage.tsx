@@ -5,16 +5,24 @@ import {
   type McpServersApi,
 } from "@agent-native/core/client/resources";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import type { AppWebviewAuthState } from "./AppWebview.js";
 
 export default function DesktopIntegrationsPage({
+  appAuthState,
   targetWebContentsId,
   onOAuthActiveChange,
 }: {
+  appAuthState?: AppWebviewAuthState;
   targetWebContentsId?: number;
   onOAuthActiveChange?: (active: boolean) => void;
 }) {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  useEffect(() => {
+    if (appAuthState !== "authenticated") return;
+    void queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+  }, [appAuthState, queryClient]);
   const startOAuth = useCallback(
     async (url: string) => {
       const handler = window.electronAPI?.mcpServers

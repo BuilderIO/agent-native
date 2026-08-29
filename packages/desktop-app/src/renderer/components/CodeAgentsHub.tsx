@@ -2771,6 +2771,7 @@ export default function CodeAgentsHub({
                       aria-hidden={nativeOAuthActive}
                     >
                       <DesktopIntegrationsPage
+                        appAuthState={appAuthState}
                         targetWebContentsId={webContentsIdByTab[tab.id]}
                         onOAuthActiveChange={(active) =>
                           handleNativeOAuthActiveChange(tab.id, active)
