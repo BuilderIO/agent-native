@@ -1084,7 +1084,7 @@ const enUS = {
       pngClipboardBlocked: "Allow clipboard access to copy this PNG",
       pngClipboardWriteError: "Could not copy PNG to the clipboard",
       pngLivePreviewUnavailable:
-        "PNG capture isn't available for URL-backed screens yet",
+        "PNG export is only available in the desktop app right now.",
       pngReadOnlyUnavailable:
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
@@ -7299,7 +7299,7 @@ const designExactEnglishOverrides = {
         pngClipboardUnsupported: "此浏览器无法将 PNG 图像复制到剪贴板",
         pngClipboardBlocked: "请允许访问剪贴板以复制此 PNG",
         pngClipboardWriteError: "无法将 PNG 复制到剪贴板",
-        pngLivePreviewUnavailable: "URL 支持的屏幕暂不支持 PNG 捕获",
+        pngLivePreviewUnavailable: "PNG 导出目前仅在桌面应用中可用。",
         pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
         pngExportError: "无法导出 PNG",
         pngSaveError: "无法保存 PNG",
@@ -7392,7 +7392,7 @@ const designExactEnglishOverrides = {
           "Permite el acceso al portapapeles para copiar este PNG",
         pngClipboardWriteError: "No se pudo copiar el PNG al portapapeles",
         pngLivePreviewUnavailable:
-          "La captura PNG aún no está disponible para pantallas basadas en URL",
+          "La exportación PNG solo está disponible en la aplicación de escritorio por ahora.",
         pngReadOnlyUnavailable:
           "La captura PNG no está disponible en vistas previas de solo lectura",
         pngExportError: "No se pudo exportar PNG",
@@ -7490,7 +7490,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Impossible de copier le PNG dans le presse-papiers",
         pngLivePreviewUnavailable:
-          "La capture PNG n’est pas encore disponible pour les écrans basés sur une URL",
+          "L’exportation PNG est actuellement disponible uniquement dans l’application de bureau.",
         pngReadOnlyUnavailable:
           "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
         pngExportError: "Impossible d’exporter PNG",
@@ -7589,7 +7589,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "PNG konnte nicht in die Zwischenablage kopiert werden",
         pngLivePreviewUnavailable:
-          "PNG-Aufnahmen sind für URL-basierte Bildschirme noch nicht verfügbar",
+          "Der PNG-Export ist derzeit nur in der Desktop-App verfügbar.",
         pngReadOnlyUnavailable:
           "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
         pngExportError: "PNG konnte nicht exportiert werden",
@@ -7687,7 +7687,7 @@ const designExactEnglishOverrides = {
           "この PNG をコピーするにはクリップボードへのアクセスを許可してください",
         pngClipboardWriteError: "PNG をクリップボードにコピーできませんでした",
         pngLivePreviewUnavailable:
-          "URL ベースの画面では PNG キャプチャをまだ利用できません",
+          "PNG のエクスポートは現在デスクトップアプリでのみ利用できます。",
         pngReadOnlyUnavailable:
           "読み取り専用プレビューでは PNG キャプチャを利用できません",
         pngExportError: "PNG をエクスポートできませんでした",
@@ -7782,7 +7782,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "이 PNG를 복사하려면 클립보드 접근을 허용하세요",
         pngClipboardWriteError: "PNG를 클립보드에 복사할 수 없음",
         pngLivePreviewUnavailable:
-          "URL 기반 화면에서는 아직 PNG 캡처를 사용할 수 없음",
+          "PNG 내보내기는 현재 데스크톱 앱에서만 사용할 수 있습니다.",
         pngReadOnlyUnavailable:
           "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
         pngExportError: "PNG를 내보낼 수 없음",
@@ -7878,7 +7878,7 @@ const designExactEnglishOverrides = {
         pngClipboardWriteError:
           "Não foi possível copiar o PNG para a área de transferência",
         pngLivePreviewUnavailable:
-          "A captura PNG ainda não está disponível para telas baseadas em URL",
+          "A exportação de PNG está disponível apenas no aplicativo para computador no momento.",
         pngReadOnlyUnavailable:
           "A captura PNG não está disponível em visualizações somente leitura",
         pngExportError: "Não foi possível exportar PNG",
@@ -7973,8 +7973,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked:
           "इस PNG को कॉपी करने के लिए क्लिपबोर्ड एक्सेस की अनुमति दें",
         pngClipboardWriteError: "PNG को क्लिपबोर्ड पर कॉपी नहीं किया जा सका",
-        pngLivePreviewUnavailable:
-          "URL-आधारित स्क्रीन के लिए PNG कैप्चर अभी उपलब्ध नहीं है",
+        pngLivePreviewUnavailable: "PNG निर्यात अभी केवल डेस्कटॉप ऐप में उपलब्ध है।",
         pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
         pngExportError: "PNG निर्यात नहीं किया जा सका",
         pngSaveError: "PNG सहेजा नहीं जा सका",
@@ -8065,7 +8064,7 @@ const designExactEnglishOverrides = {
         pngClipboardBlocked: "اسمح بالوصول إلى الحافظة لنسخ ملف PNG هذا",
         pngClipboardWriteError: "تعذر نسخ PNG إلى الحافظة",
         pngLivePreviewUnavailable:
-          "التقاط PNG غير متاح بعد للشاشات المستندة إلى عنوان URL",
+          "يتوفر تصدير PNG حاليًا في تطبيق سطح المكتب فقط.",
         pngReadOnlyUnavailable:
           "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
         pngExportError: "تعذر تصدير PNG",

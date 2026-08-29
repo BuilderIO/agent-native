@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -396,7 +397,7 @@ export function normalizeCreateEventInput(args: {
     args.title?.trim() ||
     (args.eventType === "outOfOffice" ? "Out of office" : "");
   if (!title && args.eventType !== "workingLocation") {
-    throw new Error("Event title is required.");
+    fail("Event title is required.");
   }
 
   if (args.eventType === "workingLocation" && args.allDay === true) {

@@ -222,6 +222,10 @@ describe("EventDetailPopover characterization", () => {
     calendarContext.setEventDetailSidebar.mockClear();
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
+    updateEventMutate.mockImplementation(
+      (_input: unknown, options?: { onSettled?: () => void }) =>
+        options?.onSettled?.(),
+    );
   });
 
   afterEach(() => {
@@ -276,6 +280,30 @@ describe("EventDetailPopover characterization", () => {
     expect(content?.innerHTML).toContain(
       "text-[11px] font-medium uppercase tracking-wider",
     );
+  });
+
+  it("makes the event options visible and scrolls to them when opened", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const optionsButton = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.eventOptions"]',
+    );
+    expect(optionsButton).toBeTruthy();
+    act(() => optionsButton!.click());
+
+    expect(optionsButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(`#event-more-options-event-1`)).toBeTruthy();
+    expect(document.body.textContent).toContain("eventForm.showAs");
   });
 
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
@@ -792,6 +820,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "all",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 
@@ -849,6 +878,7 @@ describe("EventDetailPopover characterization", () => {
         location: "Room B",
         sendUpdates: "none",
       }),
+      expect.objectContaining({ onSettled: expect.any(Function) }),
     );
   });
 

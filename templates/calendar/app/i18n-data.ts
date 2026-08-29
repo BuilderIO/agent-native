@@ -247,6 +247,13 @@ const enUS = {
     appearance: "Appearance",
     appearanceDescription:
       "Pick a color theme for your workspace. Or just ask the agent.",
+    desktopNotifications: "Desktop notifications",
+    desktopNotificationsDescription:
+      "Show a system notification shortly before meetings while Calendar is open.",
+    enableDesktopNotifications: "Enable notifications",
+    desktopNotificationsEnabled: "Enabled",
+    desktopNotificationsBlocked:
+      "Notifications are blocked. Allow them in your browser settings, then try again.",
     connectGoogleCalendar: "Connect Google Calendar",
     connectGoogleDescription:
       "Sync your events and manage everything in one place.",
@@ -9818,6 +9825,108 @@ const translatedCalendarAvailabilityFix = {
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
+const translatedCalendarNotificationSettings = {
+  "zh-CN": {
+    settings: {
+      desktopNotifications: "桌面通知",
+      desktopNotificationsDescription:
+        "Calendar 打开时，在会议开始前显示系统通知。",
+      enableDesktopNotifications: "启用通知",
+      desktopNotificationsEnabled: "已启用",
+      desktopNotificationsBlocked:
+        "通知已被阻止。请在浏览器设置中允许通知，然后重试。",
+    },
+  },
+  "es-ES": {
+    settings: {
+      desktopNotifications: "Notificaciones de escritorio",
+      desktopNotificationsDescription:
+        "Muestra una notificación del sistema poco antes de las reuniones mientras Calendar está abierto.",
+      enableDesktopNotifications: "Activar notificaciones",
+      desktopNotificationsEnabled: "Activadas",
+      desktopNotificationsBlocked:
+        "Las notificaciones están bloqueadas. Permítelas en la configuración del navegador y vuelve a intentarlo.",
+    },
+  },
+  "fr-FR": {
+    settings: {
+      desktopNotifications: "Notifications de bureau",
+      desktopNotificationsDescription:
+        "Affichez une notification système peu avant les réunions lorsque Calendar est ouvert.",
+      enableDesktopNotifications: "Activer les notifications",
+      desktopNotificationsEnabled: "Activées",
+      desktopNotificationsBlocked:
+        "Les notifications sont bloquées. Autorisez-les dans les paramètres du navigateur, puis réessayez.",
+    },
+  },
+  "de-DE": {
+    settings: {
+      desktopNotifications: "Desktop-Benachrichtigungen",
+      desktopNotificationsDescription:
+        "Zeige kurz vor Meetings eine Systembenachrichtigung an, solange Calendar geöffnet ist.",
+      enableDesktopNotifications: "Benachrichtigungen aktivieren",
+      desktopNotificationsEnabled: "Aktiviert",
+      desktopNotificationsBlocked:
+        "Benachrichtigungen sind blockiert. Erlaube sie in den Browsereinstellungen und versuche es erneut.",
+    },
+  },
+  "ja-JP": {
+    settings: {
+      desktopNotifications: "デスクトップ通知",
+      desktopNotificationsDescription:
+        "Calendar を開いている間、会議の少し前にシステム通知を表示します。",
+      enableDesktopNotifications: "通知を有効にする",
+      desktopNotificationsEnabled: "有効",
+      desktopNotificationsBlocked:
+        "通知がブロックされています。ブラウザの設定で通知を許可してから、もう一度お試しください。",
+    },
+  },
+  "ko-KR": {
+    settings: {
+      desktopNotifications: "데스크톱 알림",
+      desktopNotificationsDescription:
+        "Calendar이(가) 열려 있는 동안 회의 전에 시스템 알림을 표시합니다.",
+      enableDesktopNotifications: "알림 사용",
+      desktopNotificationsEnabled: "사용 중",
+      desktopNotificationsBlocked:
+        "알림이 차단되어 있습니다. 브라우저 설정에서 알림을 허용한 후 다시 시도하세요.",
+    },
+  },
+  "pt-BR": {
+    settings: {
+      desktopNotifications: "Notificações da área de trabalho",
+      desktopNotificationsDescription:
+        "Mostre uma notificação do sistema pouco antes das reuniões enquanto o Calendar estiver aberto.",
+      enableDesktopNotifications: "Ativar notificações",
+      desktopNotificationsEnabled: "Ativadas",
+      desktopNotificationsBlocked:
+        "As notificações estão bloqueadas. Permita-as nas configurações do navegador e tente novamente.",
+    },
+  },
+  "hi-IN": {
+    settings: {
+      desktopNotifications: "डेस्कटॉप सूचनाएं",
+      desktopNotificationsDescription:
+        "Calendar खुला होने पर मीटिंग से कुछ समय पहले सिस्टम सूचना दिखाएं।",
+      enableDesktopNotifications: "सूचनाएं सक्षम करें",
+      desktopNotificationsEnabled: "सक्षम",
+      desktopNotificationsBlocked:
+        "सूचनाएं ब्लॉक हैं। ब्राउज़र सेटिंग में इन्हें अनुमति दें और फिर कोशिश करें।",
+    },
+  },
+  "ar-SA": {
+    settings: {
+      desktopNotifications: "إشعارات سطح المكتب",
+      desktopNotificationsDescription:
+        "اعرض إشعارًا من النظام قبل الاجتماعات بقليل أثناء فتح Calendar.",
+      enableDesktopNotifications: "تفعيل الإشعارات",
+      desktopNotificationsEnabled: "مفعّلة",
+      desktopNotificationsBlocked:
+        "الإشعارات محظورة. اسمح بها في إعدادات المتصفح ثم حاول مرة أخرى.",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
 function applyTranslatedCalendarOverrides(
   translationSet: Partial<Record<LocaleCode, PartialMessages>>,
 ) {
@@ -9869,3 +9978,4 @@ applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);
 applyTranslatedCalendarOverrides(translatedCalendarAvailabilityFix);
+applyTranslatedCalendarOverrides(translatedCalendarNotificationSettings);

@@ -130,15 +130,18 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
   informational, honor that owning disposition and do not turn the eye into a
   merge blocker. If the reaction state is unavailable, record the item as
   unavailable/unverified and refresh the feedback thread instead of guessing.
-- Concrete small UI or interaction bugs in the Design app are an additional
-  in-scope category for this workflow and follow the same feedback handoff,
-  verification, and merge gates as other repo-owned fixes. Do not narrow the
-  ship ledger to Design when Design is added to a cross-app sweep. Route broad
-  redesigns or subjective Design suggestions to Sid. All Content app feedback
-  remains owned by Alice; keep those source links and ownership decisions in
-  the ship ledger, but do not include them as this workflow's fixes,
-  investigation, clarification requests, replies, dispatches, or merge
-  blockers.
+- Design feedback, including small UI or interaction bugs, Design clips, and
+  imported-design usability, routes to Sid unless the user separately assigns
+  a concrete Design fix. Do not add eyes, investigate, reply, or include it as
+  this workflow's work. All Content app feedback remains owned by Alice; keep
+  those source links and ownership decisions in the ship ledger, but do not
+  include them as this workflow's fixes, investigation, clarification
+  requests, replies, dispatches, or merge blockers.
+
+If a prior run mistakenly added an eye to an out-of-scope or already-owned
+parent, remove it with the connected Slack action when available. Do not add a
+new reply or reaction. If removal is unavailable, record the exact parent for
+manual cleanup and keep it out of the ship ledger's actionable work.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
