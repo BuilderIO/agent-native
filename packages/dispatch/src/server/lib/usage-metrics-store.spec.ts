@@ -342,7 +342,7 @@ describe("listDispatchUsageMetrics", () => {
             },
           ];
           return {
-            rows: sql.includes("LOWER(COALESCE(app, '')) = ?")
+            rows: sql.includes("LOWER(app) = ?")
               ? rows.filter(
                   (row) =>
                     row.app.toLowerCase() ===
@@ -399,11 +399,16 @@ describe("listDispatchUsageMetrics", () => {
     ]);
     expect(
       mocks.execute.mock.calls.some(([query]) =>
-        String((query as { sql?: string }).sql).includes(
-          "LOWER(COALESCE(app, '')) = ?",
-        ),
+        String((query as { sql?: string }).sql).includes("LOWER(app) = ?"),
       ),
     ).toBe(true);
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes(
+          "GROUP BY owner_email",
+        ),
+      ),
+    ).toBe(false);
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);

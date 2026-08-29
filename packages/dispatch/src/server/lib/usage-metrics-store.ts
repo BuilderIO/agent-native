@@ -524,7 +524,7 @@ function appUsageScope(
   const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
   const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
   return {
-    where: `${scope.where} AND ${orgClause} AND LOWER(COALESCE(app, '')) = ?`,
+    where: `${scope.where} AND ${orgClause} AND LOWER(app) = ?`,
     args: [...scope.args, ...orgArgs, appUsageKey(appId)],
   };
 }
@@ -775,7 +775,9 @@ export async function listDispatchUsageMetrics(input: {
       usage.args,
       20,
     ),
-    usageBuckets("owner_email", usage.where, usage.args, 50),
+    viewScope === "app"
+      ? Promise.resolve([] as UsageMetricBucket[])
+      : usageBuckets("owner_email", usage.where, usage.args, 50),
     usageBuckets(
       `COALESCE(NULLIF(label, ''), 'chat')`,
       usage.where,
@@ -802,16 +804,19 @@ export async function listDispatchUsageMetrics(input: {
         ),
   ]);
 
-  const topAppRows = await queryRows<Record<string, unknown>>(
-    `SELECT owner_email AS owner_email,
-        COALESCE(NULLIF(app, ''), 'unattributed') AS app,
-        COALESCE(SUM(cost_cents_x100), 0) AS cost_x100
-      FROM token_usage
-      WHERE ${usage.where}
-      GROUP BY owner_email, COALESCE(NULLIF(app, ''), 'unattributed')
-      ORDER BY owner_email ASC, cost_x100 DESC`,
-    usage.args,
-  );
+  const topAppRows =
+    viewScope === "app"
+      ? []
+      : await queryRows<Record<string, unknown>>(
+          `SELECT owner_email AS owner_email,
+              COALESCE(NULLIF(app, ''), 'unattributed') AS app,
+              COALESCE(SUM(cost_cents_x100), 0) AS cost_x100
+            FROM token_usage
+            WHERE ${usage.where}
+            GROUP BY owner_email, COALESCE(NULLIF(app, ''), 'unattributed')
+            ORDER BY owner_email ASC, cost_x100 DESC`,
+          usage.args,
+        );
   const topAppByUser = new Map<string, string>();
   for (const row of topAppRows) {
     const email = stringField(row, "owner_email");

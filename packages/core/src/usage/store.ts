@@ -317,6 +317,10 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_lower_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
         );
+        await ensureIndexExists(
+          "idx_token_usage_org_app_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
+        );
         return;
       }
 
@@ -341,6 +345,7 @@ export async function ensureUsageTable(): Promise<void> {
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
       ]) {
         try {
           await client.execute(ddl);
