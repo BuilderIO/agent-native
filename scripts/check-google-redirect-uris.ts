@@ -866,7 +866,17 @@ async function run(argv: string[]): Promise<number> {
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  run(process.argv.slice(2)).then((code) => {
-    process.exitCode = code;
-  });
+  run(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(
+        `Google redirect probe could not run: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      process.exitCode = 2;
+    },
+  );
 }

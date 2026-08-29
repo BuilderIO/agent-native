@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   classifyGoogleAuthorizeResponse,
@@ -12,6 +14,9 @@ const redirectUri =
   "https://calendar.agent-native.com/_agent-native/google/callback";
 const jsonHeaders = { "content-type": "application/json" };
 const googleDocsCallback = "/_agent-native/google-docs/callback";
+const probePath = fileURLToPath(
+  new URL("./check-google-redirect-uris.ts", import.meta.url),
+);
 
 test("reads callback ownership from the deployed health contract", () => {
   const result = classifyGoogleHealthResponse(
@@ -77,6 +82,25 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
       allowNoCoverage: true,
     }),
     0,
+  );
+});
+
+test("maps unexpected CLI failures to the inconclusive exit code", () => {
+  assert.throws(
+    () =>
+      execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", probePath, "--budget-seconds", "bad"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      ),
+    (error: unknown) => {
+      assert.equal((error as { status?: number }).status, 2);
+      assert.match(
+        String((error as { stderr?: string }).stderr),
+        /Google redirect probe could not run: --budget-seconds must be a positive integer/,
+      );
+      return true;
+    },
   );
 });
 
