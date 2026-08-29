@@ -511,6 +511,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       'terminalPreferences.enabled ? "side" : "main"',
     );
     expect(hubSource).toContain('resolution.target.view,\n        "side",');
+    expect(hubSource).toContain(
+      "window.electronAPI?.desktopChat?.onOpenApp(resolveChatFirstOpenApp)",
+    );
     expect(hubSource).toContain("<AppWebview");
     expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
     expect(hubSource).toContain(
@@ -526,8 +529,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("!showTerminalSurface");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
+    expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
     expect(hubSource).toContain(
-      "onOpenSidebar={() => setChatFirstSurfacePanelOpen(true)}",
+      "onToggleSidebar={chatFirstSurfacePanel.toggle}",
     );
     expect(hubSource).toContain(
       "{chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (",

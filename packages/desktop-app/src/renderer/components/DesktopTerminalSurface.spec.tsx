@@ -61,14 +61,15 @@ describe("DesktopTerminalSurface", () => {
     expect(onNewUiTab).toHaveBeenCalledOnce();
   });
 
-  it("opens the shared sidebar from CLI options", async () => {
-    const onOpenSidebar = vi.fn();
+  it("toggles the shared sidebar from CLI options", async () => {
+    const onToggleSidebar = vi.fn();
     act(() => {
       root.render(
         <DesktopTerminalSurface
           agent="codex"
           theme="dark"
-          onOpenSidebar={onOpenSidebar}
+          sidebarOpen
+          onToggleSidebar={onToggleSidebar}
         />,
       );
     });
@@ -88,10 +89,10 @@ describe("DesktopTerminalSurface", () => {
     });
     const item = Array.from(
       document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((candidate) => candidate.textContent?.includes("Open sidebar"));
+    ).find((candidate) => candidate.textContent?.includes("Hide sidebar"));
 
     expect(item).toBeDefined();
     await act(async () => item?.click());
-    expect(onOpenSidebar).toHaveBeenCalledOnce();
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
   });
 });

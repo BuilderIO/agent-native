@@ -7,6 +7,10 @@
  * After first account exists, this page acts as a normal login page.
  */
 
+import { AuthForm } from "@agent-native/toolkit/onboarding";
+import { createElement, Fragment } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
 import { getAppConfig } from "../app-config/index.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
@@ -1233,6 +1237,28 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     key: keyof typeof EN_AUTH_COPY,
   ) =>
     value === undefined ? `${i18nAttr(key)}>${esc(t(key))}` : `>${esc(value)}`;
+  const localizedValueNode = (
+    value: string | undefined,
+    key: keyof typeof EN_AUTH_COPY,
+  ) =>
+    value === undefined
+      ? createElement("span", { "data-i18n": key }, t(key))
+      : value;
+  const localizedAnchorNode = (
+    href: string,
+    value: string | undefined,
+    key: keyof typeof EN_AUTH_COPY,
+  ) =>
+    createElement(
+      "a",
+      {
+        href,
+        target: "_blank",
+        rel: "noreferrer",
+        ...(value === undefined ? { "data-i18n": key } : {}),
+      },
+      value ?? t(key),
+    );
   const localeMenuItemsHtml = [
     `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="system">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
@@ -1287,6 +1313,28 @@ ${localeMenuItemsHtml}
   const signupLegalNoteHtml = signupLegalNotice
     ? `      <p class="legal-note">${localizedValue(signupLegalNotice.prefix, "legalPrefix")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.termsLabel, "legalTerms")}</a> ${localizedValue(signupLegalNotice.connector, "legalConnector")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.privacyLabel, "legalPrivacy")}</a>${localizedValue(signupLegalNotice.suffix, "legalSuffix")}</p>`
     : "";
+  const signupLegalNote = signupLegalNotice
+    ? createElement(
+        "p",
+        { className: "legal-note" },
+        localizedValueNode(signupLegalNotice.prefix, "legalPrefix"),
+        " ",
+        localizedAnchorNode(
+          signupLegalNotice.termsUrl,
+          signupLegalNotice.termsLabel,
+          "legalTerms",
+        ),
+        " ",
+        localizedValueNode(signupLegalNotice.connector, "legalConnector"),
+        " ",
+        localizedAnchorNode(
+          signupLegalNotice.privacyUrl,
+          signupLegalNotice.privacyLabel,
+          "legalPrivacy",
+        ),
+        localizedValueNode(signupLegalNotice.suffix, "legalSuffix"),
+      )
+    : null;
   const magicLinkSuccessHtml = magicLinkMode
     ? `    <div class="magic-link-success" id="magic-link-success" aria-live="polite" hidden>
       <p class="magic-link-success-copy"><span${i18nAttr("magicLinkSentCopy")}>${esc(t("magicLinkSentCopy"))}</span> <strong id="magic-link-success-email"></strong>.</p>
@@ -1294,13 +1342,84 @@ ${localeMenuItemsHtml}
     </div>
 `
     : "";
-  const signupLocalModeNoteHtml = signupLocalModeNote
-    ? `      <div class="signup-local-mode-note" id="signup-local-mode-note" data-command="${esc(signupLocalModeNote.command)}">
-        <p>${esc(signupLocalModeNote.text)}</p>
-        <code>${esc(signupLocalModeNote.command)}</code>
-        <button type="button" class="copy-run-local" id="copy-signup-local-mode" onclick="__anCopySignupLocalModeCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
-      </div>`
-    : "";
+  const signupLocalModeNoteNode = signupLocalModeNote
+    ? createElement(
+        "div",
+        {
+          className: "signup-local-mode-note",
+          id: "signup-local-mode-note",
+          "data-command": signupLocalModeNote.command,
+        },
+        createElement("p", null, signupLocalModeNote.text),
+        createElement("code", null, signupLocalModeNote.command),
+        createElement(
+          "button",
+          {
+            type: "button",
+            className: "copy-run-local",
+            id: "copy-signup-local-mode",
+            "data-copy-signup-local-mode": "true",
+            "data-i18n": "copyCommand",
+          },
+          t("copyCommand"),
+        ),
+      )
+    : null;
+  const signupFormHtml = renderToStaticMarkup(
+    createElement(AuthForm, {
+      id: "signup-form",
+      fields: [
+        {
+          id: "s-email",
+          label: t("email"),
+          labelProps: { "data-i18n": "email" },
+          inputProps: {
+            type: "email",
+            autoComplete: "email",
+            placeholder: t("emailPlaceholder"),
+            required: true,
+          },
+        },
+        {
+          id: "s-pass",
+          label: t("password"),
+          labelProps: { "data-i18n": "password" },
+          inputProps: {
+            type: "password",
+            autoComplete: "new-password",
+            placeholder: t("passwordMinPlaceholder"),
+            "data-i18n-placeholder": "passwordMinPlaceholder",
+            required: true,
+            minLength: PASSWORD_MIN_LENGTH,
+            maxLength: PASSWORD_MAX_LENGTH,
+          },
+        },
+        {
+          id: "s-pass2",
+          label: t("confirmPassword"),
+          labelProps: { "data-i18n": "confirmPassword" },
+          inputProps: {
+            type: "password",
+            autoComplete: "new-password",
+            placeholder: t("confirmPasswordPlaceholder"),
+            "data-i18n-placeholder": "confirmPasswordPlaceholder",
+            required: true,
+            minLength: PASSWORD_MIN_LENGTH,
+            maxLength: PASSWORD_MAX_LENGTH,
+          },
+        },
+      ],
+      submitLabel: t("createAccount"),
+      submitProps: { "data-i18n": "createAccount" },
+      footer: createElement(
+        Fragment,
+        null,
+        signupLegalNote,
+        signupLocalModeNoteNode,
+      ),
+      messageId: "s-msg",
+    }),
+  );
   const identitySsoHtml = identitySsoLoginButtonHtml();
   const embeddedAuthCss = identitySsoHtml
     ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
@@ -2435,18 +2554,7 @@ ${
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
 
-    <form id="signup-form" class="form">
-      <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-      <input id="s-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
-    <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
-    <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
-    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
-      <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
-${signupLegalNoteHtml}
-${signupLocalModeNoteHtml}
-      <p class="msg" id="s-msg"></p>
-    </form>
+${signupFormHtml}
 
     <div id="verification-step" class="form verification-step" aria-live="polite">
       <div class="step-progress" aria-label="${esc(t("signupProgress"))}"${i18nAriaAttr("signupProgress")}>
@@ -4388,6 +4496,10 @@ ${
   }
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
+  }
+  var copySignupLocalModeButton = document.getElementById('copy-signup-local-mode');
+  if (copySignupLocalModeButton) {
+    copySignupLocalModeButton.addEventListener('click', __anCopySignupLocalModeCommand);
   }
   `
     : ""

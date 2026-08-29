@@ -8,6 +8,7 @@ export default createAuthPlugin({
   // Keep the native tray token and the Better Auth cookie useful between
   // infrequent recording sessions without making them permanent.
   maxAge: 60 * 60 * 24 * 90,
+  workspaceAppPublicPaths: ["/"],
   // Clips owns `/_agent-native/google/*` so the same registered Google
   // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,

@@ -62,6 +62,8 @@ export const IPC = {
   DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
   /** Loopback relay for discovering a local app's PTY WebSocket */
   DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
+  /** Local CLI MCP tool → renderer app-sidebar request */
+  DESKTOP_CHAT_OPEN_APP: "desktop-chat:open-app",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -1132,6 +1134,12 @@ export interface DesktopOpenRequest {
   path?: string;
   softOpen?: boolean;
   runId?: string;
+}
+
+export interface DesktopChatOpenAppRequest {
+  app: string;
+  path?: string;
+  view?: string;
 }
 
 export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {

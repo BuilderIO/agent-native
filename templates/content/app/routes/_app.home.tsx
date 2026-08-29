@@ -46,7 +46,7 @@ function DocumentSkeleton() {
   );
 }
 
-export default function IndexRoute() {
+export default function HomeRoute() {
   const t = useT();
   const navigate = useNavigate();
   const startedRef = useRef(false);

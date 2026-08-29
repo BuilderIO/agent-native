@@ -67,6 +67,40 @@ function assertPublicPaths(pluginRel: string, expected: string[]) {
   }
 }
 
+const publicMarketingTemplates = [
+  "analytics",
+  "assets",
+  "brain",
+  "calendar",
+  "chat",
+  "clips",
+  "content",
+  "crm",
+  "design",
+  "dispatch",
+  "factory",
+  "forms",
+  "macros",
+  "mail",
+  "plan",
+  "slides",
+  "tasks",
+];
+
+for (const template of publicMarketingTemplates) {
+  const rootRoute = `templates/${template}/app/routes/_index.tsx`;
+  assertContains(
+    rootRoute,
+    "MarketingHome",
+    `${template} / must use the shared SSR marketing home`,
+  );
+  assert.ok(
+    exists(`templates/${template}/app/routes/home.tsx`) ||
+      exists(`templates/${template}/app/routes/_app.home.tsx`),
+    `${template} must have a private /home route`,
+  );
+}
+
 assertFilesExist("slides", [
   "_index.tsx",
   "deck.$id.tsx",
@@ -84,6 +118,7 @@ assertFilesExist("slides", [
 assertFilesExist("clips", [
   "_index.tsx",
   "_app.tsx",
+  "_app.home.tsx",
   "_app.library._index.tsx",
   "_app.library.folder.$folderId.tsx",
   "_app.spaces.$spaceId.tsx",
@@ -116,13 +151,18 @@ assertFilesExist("design", [
 
 assertMatches(
   "templates/clips/app/routes/_index.tsx",
-  /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
-  "clips / must keep a server loader redirect to /library",
+  /MarketingHome/,
+  "clips / must render the shared SSR marketing home",
 );
 assertMatches(
-  "templates/clips/app/routes/_index.tsx",
+  "templates/clips/app/routes/_app.home.tsx",
+  /export function loader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
+  "clips /home must keep a server loader redirect to /library",
+);
+assertMatches(
+  "templates/clips/app/routes/_app.home.tsx",
   /export function clientLoader[\s\S]*redirect\(buildTarget\((?:request|url)\)\)/,
-  "clips / must keep a client loader redirect for SPA navigations",
+  "clips /home must keep a client loader redirect for SPA navigations",
 );
 assertMatches(
   "templates/slides/app/routes/share.$token.tsx",
