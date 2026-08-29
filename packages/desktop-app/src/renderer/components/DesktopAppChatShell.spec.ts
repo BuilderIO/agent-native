@@ -94,7 +94,7 @@ describe("desktop app chat shell", () => {
         apiUrl: "https://dispatch.example/_agent-native/agent-chat",
         appAuthState: "unauthenticated",
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldShowDesktopAppChatSidebar({
         apiUrl: "https://dispatch.example/_agent-native/agent-chat",

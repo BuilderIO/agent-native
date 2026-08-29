@@ -127,7 +127,11 @@ export function shouldShowDesktopAppChatSidebar(input: {
   desktopIdentityUnauthenticated?: boolean;
   desktopIdentityStatus?: DesktopIdentityStatus | "checking";
 }): boolean {
-  if (input.chatEnabled === false || !input.apiUrl) {
+  if (
+    input.chatEnabled === false ||
+    !input.apiUrl ||
+    input.appAuthState === "unauthenticated"
+  ) {
     return false;
   }
   if (input.desktopIdentityUnauthenticated) return false;
