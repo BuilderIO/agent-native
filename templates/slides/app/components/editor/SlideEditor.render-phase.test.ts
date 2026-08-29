@@ -93,6 +93,30 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("claims Delete before the deck-level slide shortcut when an object is selected", () => {
+    const selectionStart = source.indexOf("const slideElementSelected =");
+    const selectionEnd = source.indexOf(
+      "// Flow objects are promoted",
+      selectionStart,
+    );
+    expect(source.slice(selectionStart, selectionEnd)).toContain(
+      "!!selectedElementSelector",
+    );
+
+    const deleteStart = source.indexOf(
+      "// Delete/Backspace removes the selected slide content",
+    );
+    const deleteEnd = source.indexOf(
+      "/**\n   * Find the nearest meaningful element",
+      deleteStart,
+    );
+    const deleteBody = source.slice(deleteStart, deleteEnd);
+    expect(deleteBody).toContain(
+      'window.addEventListener("keydown", onKey, true)',
+    );
+    expect(deleteBody).toContain("e.stopPropagation()");
+  });
+
   it("ends native text editing before entering a multi-selection", () => {
     const start = source.indexOf("const applyMultiSelection");
     const end = source.indexOf("const clearMultiSelection", start);

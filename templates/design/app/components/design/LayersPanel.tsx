@@ -1402,12 +1402,6 @@ function LayersPanelImpl(
               </h2>
               <div className="flex items-center gap-0.5 text-muted-foreground">
                 <IconTooltipButton
-                  label={labels.searchPlaceholder}
-                  onClick={focusSearch}
-                >
-                  <IconSearch className="size-[var(--design-icon-size)]" />
-                </IconTooltipButton>
-                <IconTooltipButton
                   label={labels.addScreen}
                   disabled={!onAddScreen}
                   onClick={onAddScreen}
@@ -1477,6 +1471,12 @@ function LayersPanelImpl(
             </h2>
           </div>
           <div className="flex items-center gap-0.5 text-muted-foreground">
+            <IconTooltipButton
+              label={labels.searchPlaceholder}
+              onClick={focusSearch}
+            >
+              <IconSearch className="size-[var(--design-icon-size)]" />
+            </IconTooltipButton>
             <button
               type="button"
               className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"

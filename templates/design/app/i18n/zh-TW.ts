@@ -966,7 +966,7 @@ const messages = {
       pngClipboardUnsupported: "此瀏覽器無法將 PNG 圖像複製到剪貼簿",
       pngClipboardBlocked: "請允許存取剪貼簿以複製此 PNG",
       pngClipboardWriteError: "無法將 PNG 複製到剪貼簿",
-      pngLivePreviewUnavailable: "URL 支援的畫面暫不支援 PNG 擷取",
+      pngLivePreviewUnavailable: "PNG 匯出目前僅在桌面應用程式中提供。",
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
