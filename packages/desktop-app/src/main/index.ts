@@ -4250,6 +4250,39 @@ function cleanupDueManagedCodeAgentWorktrees(): void {
   }
 }
 
+const CODE_AGENT_WORKTREE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+let codeAgentWorktreeSweepTimer: ReturnType<typeof setTimeout> | null = null;
+
+function nextCodeAgentWorktreeSweepDelay(): number {
+  const now = Date.now();
+  let delay = CODE_AGENT_WORKTREE_SWEEP_INTERVAL_MS;
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isTerminalCodeAgentRun(record)) continue;
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const worktree = isObject(metadata?.worktree)
+      ? metadata.worktree
+      : undefined;
+    const nextAttemptAt = firstStringValue(worktree?.reclaimNextAttemptAt);
+    if (!nextAttemptAt) continue;
+    const dueAt = new Date(nextAttemptAt).getTime();
+    if (Number.isFinite(dueAt)) delay = Math.min(delay, dueAt - now);
+  }
+  return Math.max(1000, delay);
+}
+
+function scheduleCodeAgentWorktreeSweep(): void {
+  if (codeAgentWorktreeSweepTimer) clearTimeout(codeAgentWorktreeSweepTimer);
+  codeAgentWorktreeSweepTimer = setTimeout(() => {
+    codeAgentWorktreeSweepTimer = null;
+    try {
+      reclaimTerminalCodeAgentWorktrees();
+    } finally {
+      scheduleCodeAgentWorktreeSweep();
+    }
+  }, nextCodeAgentWorktreeSweepDelay());
+  codeAgentWorktreeSweepTimer.unref?.();
+}
+
 function scheduleCodeAgentWorktreeReclaimRetry(
   runId: string,
   worktree: Record<string, unknown>,
@@ -4271,6 +4304,7 @@ function scheduleCodeAgentWorktreeReclaimRetry(
       },
     },
   });
+  scheduleCodeAgentWorktreeSweep();
   return { status: "retry", error, nextAttemptAt };
 }
 
@@ -12425,11 +12459,7 @@ registerCodeAgentsIpc({
   pairRemoteCodeAgentConnector,
 });
 
-const codeAgentWorktreeSweepTimer = setInterval(
-  reclaimTerminalCodeAgentWorktrees,
-  60 * 60 * 1000,
-);
-codeAgentWorktreeSweepTimer.unref?.();
+scheduleCodeAgentWorktreeSweep();
 
 registerQuickPromptIpc({
   createCodeAgentRun,

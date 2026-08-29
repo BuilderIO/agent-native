@@ -387,6 +387,36 @@ describe("chat-first session watch contract", () => {
     store.closeAll();
   });
 
+  it("activates a later side app without replacing the first side surface", () => {
+    const scope = "multiple-side-app-focus-test";
+    const store = getChatFirstSurfaceTabsStore(scope);
+    store.closeAll();
+
+    store.open({
+      id: "app:mail:/",
+      kind: "app",
+      title: "Mail",
+      appId: "mail",
+      placement: "side",
+    });
+    store.open({
+      id: "app:calendar:/",
+      kind: "app",
+      title: "Calendar",
+      appId: "calendar",
+      placement: "side",
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      activeTabId: "app:calendar:/",
+      tabs: [
+        { id: "app:mail:/", placement: "side" },
+        { id: "app:calendar:/", placement: "side" },
+      ],
+    });
+    store.closeAll();
+  });
+
   it("restores a valid app placement and rejects malformed persisted values", () => {
     const scope = "placement-test";
     const storage = createStorage();

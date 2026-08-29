@@ -9,6 +9,7 @@ files:
   - out/**
   - "!node_modules/**"
   - node_modules/node-pty/**
+  - "!node_modules/node-pty/build/**"
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"
