@@ -4120,54 +4120,81 @@ function betterAuthSessionCookieName(event: H3Event): string {
   return isHttpsRequest(event) ? `__Secure-${name}` : name;
 }
 
-function setBetterAuthSessionCookie(event: H3Event, token: string): void {
-  setCookie(event, betterAuthSessionCookieName(event), token, {
-    httpOnly: true,
-    ...crossSiteCookieAttrs(event),
-    ...cookieDomainAttrs(),
-    path: "/",
-    maxAge: sessionMaxAge,
-  });
+function serializeMagicLinkSessionCookie(
+  event: H3Event,
+  name: string,
+  token: string,
+): string {
+  // Top-level email clicks (and Brave Shields) reject SameSite=None; Partitioned
+  // login cookies. Lax is enough: verify is always a first-party document GET.
+  const parts = [
+    `${name}=${encodeURIComponent(token)}`,
+    "Path=/",
+    `Max-Age=${sessionMaxAge}`,
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+  const domain = getCookieDomain();
+  if (domain) parts.push(`Domain=${domain}`);
+  if (isHttpsRequest(event)) parts.push("Secure");
+  return parts.join("; ");
 }
 
-function copyHeadersExceptSetCookie(from: Headers, to: Headers): void {
-  for (const [name, value] of from.entries()) {
-    if (name.toLowerCase() === "set-cookie") continue;
-    to.set(name, value);
+function magicLinkVerifyContinuePage(
+  location: string,
+  cookies: string[],
+  setAuthToken?: string,
+): Response {
+  const safeLocation = escapeHtmlAttr(location);
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${safeLocation}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing in</title></head><body><p>Signing you in…</p><script>location.replace(${JSON.stringify(location)})</script></body></html>`;
+  const headers = new Headers({
+    "cache-control": "no-store",
+    "content-type": "text/html; charset=utf-8",
+    location,
+    "referrer-policy": "no-referrer",
+  });
+  if (setAuthToken) headers.set("set-auth-token", setAuthToken);
+  const seen = new Set<string>();
+  for (const cookie of cookies) {
+    const name = cookie.split("=", 1)[0]?.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    headers.append("set-cookie", cookie);
   }
+  return new Response(html, { status: 200, headers });
 }
 
 /**
- * Magic-link verify is a top-level document navigation. Better Auth's bearer
- * plugin exposes the new session as `set-auth-token`, which browsers ignore on
- * 302s. When that 302 also omits Set-Cookie, the user lands logged out even
- * though the one-time token was consumed.
- *
- * Copy every non-cookie header from Better Auth (Location, Cache-Control,
- * set-auth-token). Do not wrap `response.headers` in `new Headers(...)` —
- * that collapses multiple Set-Cookie values. Stage cookies on the event, then
- * append them onto a fresh redirect Response.
+ * Hosted verify 302s (Netlify/Cloudflare) have been observed to keep
+ * `set-auth-token` and drop `Set-Cookie`. A 200 document can set the session
+ * before the browser follows through to Location.
  */
 function attachMissingMagicLinkSessionCookies(
   event: H3Event,
   response: Response,
 ): Response {
   if (response.status < 300 || response.status >= 400) return response;
-  if (!response.headers.get("location")) return response;
-  if (extractSessionTokenFromSetCookies(response)) return response;
+  const location = response.headers.get("location");
+  if (!location) return response;
 
-  const token = response.headers.get("set-auth-token")?.trim();
+  const token =
+    extractSessionTokenFromSetCookies(response) ??
+    response.headers.get("set-auth-token")?.trim();
   if (!token) return response;
 
-  forwardBetterAuthSetCookies(event, response);
-  setBetterAuthSessionCookie(event, token);
-  setFrameworkSessionCookie(event, token);
-
-  const headers = new Headers();
-  copyHeadersExceptSetCookie(response.headers, headers);
-  const staged = event.res?.headers?.getSetCookie?.() ?? [];
-  for (const cookie of staged) headers.append("set-cookie", cookie);
-  return new Response("", { status: response.status, headers });
+  return magicLinkVerifyContinuePage(
+    location,
+    [
+      ...getSetCookieHeaders(response.headers),
+      serializeMagicLinkSessionCookie(
+        event,
+        betterAuthSessionCookieName(event),
+        token,
+      ),
+      serializeMagicLinkSessionCookie(event, COOKIE_NAME, token),
+    ],
+    response.headers.get("set-auth-token")?.trim(),
+  );
 }
 
 function isHttpsRequest(event: H3Event): boolean {

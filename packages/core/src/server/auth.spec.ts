@@ -5117,7 +5117,7 @@ describe("server/auth", () => {
       );
     });
 
-    it("puts a session cookie on the magic-link verify 302 when Better Auth only emits set-auth-token", async () => {
+    it("puts a session cookie on the magic-link verify continue page when Better Auth only emits set-auth-token", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -5193,7 +5193,8 @@ describe("server/auth", () => {
           ? response.headers.getSetCookie().join("\n")
           : (response.headers.get("set-cookie") ?? "");
 
-      expect(response.status).toBe(302);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
       expect(response.headers.get("location")).toBe(
         "/_agent-native/auth/magic-link/new-user?return=%2F",
       );
@@ -5203,6 +5204,103 @@ describe("server/auth", () => {
       );
       expect(cookies).toContain("an.session_token=session_from_bearer");
       expect(cookies).toContain("an_session=session_from_bearer");
+      expect(cookies).toContain("SameSite=Lax");
+      expect(cookies).not.toContain("Partitioned");
+      expect(await response.text()).toContain(
+        'location.replace("/_agent-native/auth/magic-link/new-user?return=%2F")',
+      );
+    });
+
+    it("writes magic-link session cookies on the continue page without event.res.getSetCookie", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [] })),
+        }),
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (err: unknown) => String(err),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () =>
+            new Response(null, {
+              status: 302,
+              headers: {
+                location: "/",
+                "set-auth-token": "session_from_bearer",
+              },
+            }),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath =
+        "/_agent-native/auth/ba/magic-link/verify?token=magic-token&callbackURL=%2F";
+      const request = new Request(
+        `https://beta.design.agent-native.com${fullPath}`,
+        {
+          method: "GET",
+          headers: { "x-forwarded-proto": "https" },
+        },
+      );
+      const event = {
+        req: request,
+        url: new URL(`https://beta.design.agent-native.com${fullPath}`),
+        res: { headers: { append: vi.fn() }, status: 200 },
+        node: {
+          req: {
+            headers: { "x-forwarded-proto": "https" },
+            url: fullPath,
+            method: "GET",
+          },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: fullPath,
+      };
+
+      const response = await baHandler(event);
+      const cookies =
+        typeof response.headers.getSetCookie === "function"
+          ? response.headers.getSetCookie().join("\n")
+          : (response.headers.get("set-cookie") ?? "");
+
+      expect(response.status).toBe(200);
+      expect(cookies).toContain(
+        "__Secure-an.session_token=session_from_bearer",
+      );
+      expect(cookies).toContain("an_session=session_from_bearer");
+      expect(cookies).toContain("Secure");
+      expect(cookies).toContain("SameSite=Lax");
+      expect(cookies).not.toContain("Partitioned");
     });
 
     it("reconciles pending invitations for a bearer-only magic-link verify 302", async () => {
@@ -5293,7 +5391,7 @@ describe("server/auth", () => {
 
       const response = await baHandler(event);
 
-      expect(response.status).toBe(302);
+      expect(response.status).toBe(200);
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(mockExecute).toHaveBeenCalledWith({
         sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
