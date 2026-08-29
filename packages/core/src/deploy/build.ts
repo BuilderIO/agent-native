@@ -4138,6 +4138,57 @@ export function stubLocalOnlySqliteDriverForServerless(
   return freed;
 }
 
+/**
+ * Nitro bundles the Vite SSR driver's dynamic import into a private `_libs`
+ * chunk when Amplify uses `noExternals: true`, so the package-tree stub above
+ * cannot see it. Replace that generated chunk after Nitro emits it.
+ */
+export function stubBundledLocalOnlySqliteDriverForServerless(
+  serverDir: string,
+): number {
+  const libsDir = path.join(serverDir, "_libs");
+  if (!fs.existsSync(libsDir)) return 0;
+
+  const stubSource = [
+    "class BetterSqlite3NotAvailableInServerless {",
+    "  constructor() {",
+    "    throw new Error(",
+    '      "better-sqlite3 is not available in a serverless deployment. " +',
+    '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
+    '        "filesystem is ephemeral and not shared between containers. " +',
+    '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
+    "    );",
+    "  }",
+    "}",
+    "const BetterSqlite3Module = BetterSqlite3NotAvailableInServerless;",
+    "BetterSqlite3Module.SqliteError = class SqliteError extends Error {};",
+    "export const t = () => BetterSqlite3Module;",
+    "export default BetterSqlite3Module;",
+    "export const Database = BetterSqlite3Module;",
+    "",
+  ].join("\n");
+
+  let replaced = 0;
+  for (const entry of fs.readdirSync(libsDir, { withFileTypes: true })) {
+    if (
+      !entry.isFile() ||
+      !entry.name.startsWith("better-sqlite3") ||
+      !entry.name.endsWith(".mjs")
+    ) {
+      continue;
+    }
+    fs.writeFileSync(path.join(libsDir, entry.name), stubSource);
+    replaced++;
+  }
+
+  if (replaced > 0) {
+    console.log(
+      `[deploy] Stubbed ${replaced} bundled better-sqlite3 chunk(s) for serverless output.`,
+    );
+  }
+  return replaced;
+}
+
 function netlifyFunctionSizeBudget(functionDir: string): number {
   const allowance =
     (hasBundledServerlessBrowserRuntime(functionDir)
@@ -5514,6 +5565,11 @@ export default bundle;
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     stubLocalOnlySqliteDriverForServerless(nitro.options.output.serverDir);
+    if (isAwsAmplifyPreset(preset)) {
+      stubBundledLocalOnlySqliteDriverForServerless(
+        nitro.options.output.serverDir,
+      );
+    }
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);

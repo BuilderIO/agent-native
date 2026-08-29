@@ -73,6 +73,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  stubBundledLocalOnlySqliteDriverForServerless,
   stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
@@ -3839,5 +3840,50 @@ describe("stubLocalOnlySqliteDriverForServerless", () => {
     expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
       /declares no version/,
     );
+  });
+});
+
+describe("stubBundledLocalOnlySqliteDriverForServerless", () => {
+  it("replaces Nitro's bundled SQLite chunk with a throwing stub", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const chunk = path.join(libsDir, "better-sqlite3+[...].mjs");
+      fs.writeFileSync(
+        chunk,
+        "const nativePath = __filename; export default class Real {};",
+      );
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(1);
+      const source = fs.readFileSync(chunk, "utf8");
+      expect(source).not.toContain("__filename");
+      expect(source).toContain("better-sqlite3 is not available");
+
+      const bundled = await import(
+        `${pathToFileURL(chunk).href}?t=${Date.now()}`
+      );
+      expect(bundled.t()).toBe(bundled.default);
+      expect(() => new (bundled.t())()).toThrow(
+        /not available in a serverless/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves unrelated Nitro library chunks alone", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const unrelated = path.join(libsDir, "some-package.mjs");
+      fs.writeFileSync(unrelated, "export default 1;\n");
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(0);
+      expect(fs.readFileSync(unrelated, "utf8")).toBe("export default 1;\n");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

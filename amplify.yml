@@ -11,10 +11,7 @@ applications:
         build:
           commands:
             - NITRO_PRESET=aws_amplify pnpm --filter 'calendar...' run build
-      artifacts:
-        baseDirectory: templates/calendar/.amplify-hosting
-        files:
-          - "**/*"
-      cache:
-        paths:
-          - node_modules/**/*
+        artifacts:
+          baseDirectory: templates/calendar/.amplify-hosting
+          files:
+            - "**/*"
