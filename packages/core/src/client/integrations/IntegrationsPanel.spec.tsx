@@ -22,7 +22,20 @@ vi.mock("../resources/McpIntegrationDialog.js", () => ({
 }));
 
 vi.mock("../resources/mcp-integration-catalog.js", () => ({
-  getDefaultMcpIntegrations: () => [],
+  getDefaultMcpIntegrations: () => [
+    {
+      id: "context7",
+      name: "Context7",
+      provider: "context7",
+      description: "Fetch current library docs in agent chats.",
+      useCase: "documentation",
+      url: "https://mcp.context7.com/mcp",
+      authMode: "none",
+      connectionMode: "direct",
+      availability: "ready",
+      logoUrl: "",
+    },
+  ],
 }));
 
 vi.mock("../resources/use-mcp-servers.js", () => mcpMocks);
@@ -127,5 +140,21 @@ describe("IntegrationsPanel MCP connection errors", () => {
       id: "fullstory-1",
       scope: "org",
     });
+  });
+
+  it("renders the catalog while saved connections are still loading", async () => {
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isLoading: true,
+    });
+
+    await act(async () => {
+      root.render(<IntegrationsPanel />);
+    });
+
+    expect(container.textContent).toContain("Available integrations");
+    expect(container.textContent).toContain("Context7");
+    expect(container.querySelector(".animate-pulse")).toBeNull();
   });
 });

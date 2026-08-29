@@ -351,14 +351,9 @@ export function shouldUseDesktopAppChatShell(path?: string): boolean {
 export function shouldShowNativeDesktopIntegrations(input: {
   appId: string;
   path?: string;
-  appAuthState?: AppWebviewAuthState;
-  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
 }): boolean {
   return (
-    input.appId === "dispatch" &&
-    isNativeDesktopIntegrationsPath(input.path) &&
-    input.appAuthState === "authenticated" &&
-    input.desktopIdentityStatus === "signed-in"
+    input.appId === "dispatch" && isNativeDesktopIntegrationsPath(input.path)
   );
 }
 
@@ -2679,8 +2674,6 @@ export default function CodeAgentsHub({
         const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
           appId: surfaceApp.id,
           path: tab.path,
-          appAuthState,
-          desktopIdentityStatus,
         });
         const nativeOAuthActive =
           surfaceApp.id === "dispatch" &&
