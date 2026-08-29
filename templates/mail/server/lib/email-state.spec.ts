@@ -143,13 +143,13 @@ function mockAccounts() {
   } as any);
 }
 
-function mockLocalEmails(emails = makeLocalEmails()) {
+function mockLocalEmails(
+  emails = makeLocalEmails(),
+  labels = [{ id: "inbox", name: "Inbox", unreadCount: 1, totalCount: 2 }],
+) {
   vi.mocked(getUserSetting).mockImplementation(async (_owner, key) => {
     if (key === "local-emails") return { emails } as any;
-    if (key === "labels")
-      return {
-        labels: [{ id: "inbox", name: "Inbox", unreadCount: 1, totalCount: 2 }],
-      } as any;
+    if (key === "labels") return { labels } as any;
     return undefined;
   });
   vi.mocked(putUserSetting).mockResolvedValue(undefined as any);
@@ -228,6 +228,30 @@ describe("archiveEmail", () => {
         .mocked(putUserSetting)
         .mock.calls.find(([, k]) => k === "labels");
       expect(labelCall).toBeDefined();
+    });
+
+    it("keeps archived user-label counts mailbox-wide", async () => {
+      mockConnected(false);
+      mockLocalEmails(
+        makeLocalEmails().map((email) => ({
+          ...email,
+          labelIds: ["inbox", "github"],
+        })),
+        [
+          { id: "inbox", name: "Inbox", unreadCount: 1, totalCount: 2 },
+          { id: "github", name: "Github", unreadCount: 1, totalCount: 2 },
+        ],
+      );
+
+      await archiveEmail({ id: MSG_ID, ownerEmail: OWNER });
+
+      const [, , written] = vi
+        .mocked(putUserSetting)
+        .mock.calls.find(([, key]) => key === "labels")!;
+      const github = (written as any).labels.find(
+        (label: any) => label.id === "github",
+      );
+      expect(github).toMatchObject({ unreadCount: 1, totalCount: 2 });
     });
 
     it("throws when email not found", async () => {

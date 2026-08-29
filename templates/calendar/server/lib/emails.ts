@@ -139,7 +139,8 @@ export function registerCalendarEmails(): void {
         message: "Moving this an hour later so the whole team can join.",
         when: SAMPLE_WHEN,
         kind: "update",
-        htmlLink: "https://calendar.example.com/event/sample",
+        calendarLink:
+          "https://calendar.example.com/_agent-native/open?app=calendar&view=calendar&eventId=google-sample&date=2026-05-21",
       }),
   });
 

@@ -1328,7 +1328,9 @@ function InspectorTabsHeader({
         </InspectorGridCell>
         <InspectorGridCell span={4}>
           <InspectorActionRail>
-            {activeTab === "design" && onInspectorGridDebugChange ? (
+            {import.meta.env.DEV &&
+            activeTab === "design" &&
+            onInspectorGridDebugChange ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1415,6 +1417,7 @@ function PageProperties({
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
+            allowDesignHistoryHotkeys
           />
         </PanelSection>
       ) : null}
@@ -1443,6 +1446,7 @@ function PageProperties({
           blendMode={styles.backgroundBlendMode || "normal"}
           onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
           supportsLayeredFills
+          allowDesignHistoryHotkeys
         />
         <PropSelect
           label={t("editPanel.labels.font")}
@@ -2475,7 +2479,9 @@ export const EditPanel = memo(function EditPanel({
         ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
-        {resolvedActiveTab === "design" && inspectorGridDebug ? (
+        {import.meta.env.DEV &&
+        resolvedActiveTab === "design" &&
+        inspectorGridDebug ? (
           <div
             className="design-inspector-grid-debug-overlay"
             data-inspector-grid-debug-overlay

@@ -46,6 +46,27 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "기타",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
+  "onboarding.builderActivateCredits": "Builder.io 무료 크레딧 활성화",
+  "onboarding.builderConnectCredits": "Builder.io 무료 크레딧 연결",
+  "onboarding.builderActivateDescription":
+    "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
+  "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
+  "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
+  "onboarding.builderActivateTitle": "무료 크레딧 활성화",
+  "onboarding.builderActivationDescription":
+    "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
+  "onboarding.builderCreateAndActivate": "생성 및 활성화",
+  "onboarding.builderConsentPrefix": "계속하면 Builder.io의",
+  "onboarding.builderTerms": "서비스 약관",
+  "onboarding.builderPrivacy": "개인정보처리방침",
+  "onboarding.builderConsentAnd": "및",
+  "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
+  "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
+  "onboarding.builderConnecting": "Builder.io 무료 크레딧 연결 중",
+  "onboarding.builderProvisioningDescription":
+    "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
+  "onboarding.builderConnectionDescription":
+    "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
   "aboutAgentNative.title": "Agent-Native 정보",
   "aboutAgentNative.version": "버전",
   "aboutAgentNative.environment": "환경",

@@ -46,6 +46,33 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "Otro",
   "onboarding.skipForNow": "Omitir por ahora",
   "onboarding.saveRoleError": "No se pudo guardar tu rol.",
+  "onboarding.builderActivateCredits":
+    "Activar créditos gratuitos de Builder.io",
+  "onboarding.builderConnectCredits":
+    "Conectar créditos gratuitos de Builder.io",
+  "onboarding.builderActivateDescription":
+    "Crea o reutiliza tu cuenta de Builder.io y activa sus créditos gratuitos con un solo clic.",
+  "onboarding.builderActiveCredits":
+    "Incluido con créditos gratuitos activos de Builder.io",
+  "onboarding.builderCredits":
+    "Incluido con los créditos gratuitos de Builder.io",
+  "onboarding.builderActivateTitle": "Activar créditos gratuitos",
+  "onboarding.builderActivationDescription":
+    "Crearemos automáticamente tu cuenta de Builder.io con un solo clic.",
+  "onboarding.builderCreateAndActivate": "Crear y activar",
+  "onboarding.builderConsentPrefix": "Al continuar, aceptas los",
+  "onboarding.builderTerms": "Términos",
+  "onboarding.builderPrivacy": "Privacidad",
+  "onboarding.builderConsentAnd": "y",
+  "onboarding.builderExistingAccount": "Tengo una cuenta de Builder.io",
+  "onboarding.builderActivating":
+    "Activando los créditos gratuitos de Builder.io",
+  "onboarding.builderConnecting":
+    "Conectando los créditos gratuitos de Builder.io",
+  "onboarding.builderProvisioningDescription":
+    "Creando o reutilizando tu cuenta de Builder.io. Esto suele tardar unos segundos.",
+  "onboarding.builderConnectionDescription":
+    "Finaliza la conexión con un clic en la nueva ventana.",
   "aboutAgentNative.title": "Acerca de Agent-Native",
   "aboutAgentNative.version": "Versión",
   "aboutAgentNative.environment": "Entorno",

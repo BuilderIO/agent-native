@@ -263,6 +263,25 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("moves the active app beside CLI tabs and restores it for UI tabs", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain('placement: enabled ? "side" : "main"');
+    expect(hubSource).toContain('state.tabs.find((tab) => tab.kind === "app")');
+    expect(hubSource).toContain("setChatFirstSurfacePanelOpen(false)");
+    expect(hubSource).toContain("onNewCliTab={handleNewCliTab}");
+    expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
+    expect(hubSource).toContain(
+      "chatEnabled={shouldUseDesktopAppChatShell(tab.path)}",
+    );
+    expect(hubSource).toContain(
+      'newTabMode={terminalPreferences.enabled ? "cli" : "ui"}',
+    );
+  });
+
   it("declares the app guest hidden while the integrations overlay covers it", () => {
     // The guest stays isActive while the wrapper is `invisible`, and an
     // Electron guest never observes CSS hiding — without this it keeps
@@ -614,35 +633,38 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(isNativeDesktopIntegrationsPath("/integrations/slack")).toBe(false);
   });
 
-  it("only exposes native integrations after both app and desktop auth are ready", () => {
+  it("exposes native integrations before guest auth finishes loading", () => {
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "unknown",
+      }),
+    ).toBe(true);
     expect(
       shouldShowNativeDesktopIntegrations({
         appId: "dispatch",
         path: "/integrations",
         appAuthState: "authenticated",
-        desktopIdentityStatus: "signed-in",
       }),
     ).toBe(true);
-    for (const desktopIdentityStatus of [
-      undefined,
-      "idle",
-      "checking",
-    ] as const) {
-      expect(
-        shouldShowNativeDesktopIntegrations({
-          appId: "dispatch",
-          path: "/integrations",
-          appAuthState: "authenticated",
-          desktopIdentityStatus,
-        }),
-      ).toBe(false);
-    }
     expect(
       shouldShowNativeDesktopIntegrations({
         appId: "dispatch",
         path: "/integrations",
         appAuthState: "unauthenticated",
-        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "calendar",
+        path: "/integrations",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations/slack",
       }),
     ).toBe(false);
   });
@@ -811,6 +833,10 @@ describe("CodeAgentsHub desktop identity status", () => {
 
     expect(source).toContain("desktopIdentityStatusByTab");
     expect(source).toContain("handleDesktopIdentityStatusChange");
+    expect(source).toContain("onDesktopIdentitySyncFailure");
+    expect(source).toContain('surfaceApp.id === "dispatch"');
+    expect(source).toContain('app.id === "dispatch"');
+    expect(source).toContain('status === "failed"');
     expect(source).toContain("desktopIdentityStatusByTab,");
     expect(source).toContain("handleDesktopIdentityStatusChange,");
     expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");

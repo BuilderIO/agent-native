@@ -1242,10 +1242,7 @@ async function ensureWorkspaceAppRecords(
         // Never infer ownership from the person who happened to list apps.
         // Legacy manifests without trusted creation metadata remain
         // ownerless until an admin-controlled migration/claim flow exists.
-        const ownerEmail =
-          cleanOptionalText(override?.createdBy) ??
-          cleanOptionalText(app.createdBy) ??
-          "";
+        const ownerEmail = cleanOptionalText(override?.createdBy) ?? "";
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
             ? "private"
@@ -1294,7 +1291,14 @@ async function ensureWorkspaceAppRecords(
 
   return apps.map((app) => {
     const record = records.get(app.id);
-    return record ? { ...app, visibility: record.visibility } : app;
+    const owner = record?.ownerEmail.trim() || null;
+    return record
+      ? {
+          ...app,
+          visibility: record.visibility,
+          owner,
+        }
+      : app;
   });
 }
 

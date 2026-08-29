@@ -1058,6 +1058,10 @@ const messages = {
       "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
     resume: "재개",
     discardRecording: "녹화 삭제",
+    restart: "녹화 다시 시작",
+    restartShortcut: "다시 시작 (⌥⇧R)",
+    restartQuestion: "새 녹화를 시작할까요?",
+    restartConfirm: "다시 시작",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",

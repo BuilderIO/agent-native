@@ -264,6 +264,12 @@ describe("Desktop identity navigation boundaries", () => {
     expect(
       isDesktopIdentityAppConfigEligible(custom, { canonical: true }),
     ).toBe(true);
+    expect(
+      isDesktopIdentityAppConfigEligible(
+        { id: "dispatch", enabled: false, mode: "prod" },
+        { allowDisabled: true, canonical: true },
+      ),
+    ).toBe(true);
     expect(isDesktopIdentityOriginEligible("https://custom.example")).toBe(
       true,
     );
@@ -2142,6 +2148,32 @@ describe("DesktopIdentityBroker", () => {
     } finally {
       vi.stubGlobal("fetch", previousFetch);
     }
+  });
+
+  it("retries child sessions while the parent identity remains signed in", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signed-in");
+    const ensureAppSession = vi
+      .spyOn(broker, "ensureAppSession")
+      .mockResolvedValue(true);
+
+    await expect(broker.retryAppSessionFanout()).resolves.toBe(true);
+
+    expect(ensureAppSession).toHaveBeenNthCalledWith(1, authority.id);
+    expect(ensureAppSession).toHaveBeenNthCalledWith(2, mail.id);
   });
 
   it("does not remint a verified modern child on repeated status notifications", async () => {

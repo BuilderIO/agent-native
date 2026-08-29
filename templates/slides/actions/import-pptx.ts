@@ -33,6 +33,11 @@ import {
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import { getDeckUrl } from "./_app-url.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -231,6 +236,7 @@ export async function importPptxBufferToDeck(args: {
       }
 
       const previousData = safeParseDeckData(latestDeck.data);
+      const writeNow = nextDeckRevision(latestDeck.updatedAt);
       const data = {
         ...previousData,
         title: deckTitle,
@@ -238,9 +244,9 @@ export async function importPptxBufferToDeck(args: {
         ...(aspectRatio ? { aspectRatio } : {}),
         ...(presentation.theme ? { theme: presentation.theme } : {}),
         sourceImport,
-        updatedAt: now,
+        updatedAt: writeNow,
       };
-      await db
+      const updateResult = await db
         .update(schema.decks)
         .set({
           title: deckTitle,
@@ -248,9 +254,10 @@ export async function importPptxBufferToDeck(args: {
           ...(designSystemId !== undefined
             ? { designSystemId }
             : { designSystemId: latestDeck.designSystemId }),
-          updatedAt: now,
+          updatedAt: writeNow,
         })
-        .where(eq(schema.decks.id, deckId));
+        .where(deckRevisionWhere(schema.decks, deckId, latestDeck.updatedAt));
+      assertDeckWriteApplied(updateResult, deckId, "PPTX import");
 
       notifyClients(deckId);
       await writeAppState("refresh-signal", {

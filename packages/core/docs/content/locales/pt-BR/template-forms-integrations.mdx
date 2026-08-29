@@ -1,0 +1,40 @@
+---
+title: "Forms em um workspace com múltiplos apps"
+description: "Como o Forms se conecta ao Dispatch e a outros aplicativos, e os dois mecanismos reais que outros aplicativos usam para agir sobre um formulário ou enviar dados para ele."
+---
+
+# Forms em um workspace com múltiplos apps
+
+Forms é um aplicativo entre muitos em um workspace [Dispatch](/docs/template-dispatch). Esta página cobre o que isso realmente significa na prática: como a conexão funciona, e formas concretas pelas quais outros aplicativos podem agir sobre um formulário ou enviar dados para ele. Veja [Forms](/docs/template-forms) para a visão geral.
+
+## Como o Forms se conecta ao Dispatch
+
+Se isso é automático depende de como o Forms e o Dispatch foram configurados juntos, não de se um deles está hospedado ou em execução local.
+
+### Mesmo workspace: automático
+
+Se o Forms e o Dispatch foram gerados ou adicionados juntos em um único workspace Agent-Native (via `create` ou `add-app`) e implantados como uma única unidade, eles já compartilham um `.env`, um `A2A_SECRET` e um registro de workspace. A descoberta e as chamadas A2A autenticadas simplesmente funcionam, sem nada para configurar, esteja esse workspace em execução na sua máquina ou em produção. Essa é a configuração esperada para um produto real com múltiplos apps construído sobre o Forms.
+
+### Implantações separadas: um passo manual
+
+Se o Forms e o Dispatch são dois projetos Agent-Native criados de forma independente, eles não compartilham um segredo e ainda não podem se chamar. Conectá-los exige um passo manual em cada lado: adicionar um recurso `remote-agents/<id>.json` com um segredo compartilhado, a partir de Configurações → Agentes conectados, da aba Conexões da página Agent, ou Dispatch → Agentes → Adicionar agente externo. Veja [Protocolo A2A](/docs/a2a-protocol) para o passo a passo completo.
+
+Para verificar em qual situação você está, pergunte ao agente de qualquer um dos aplicativos "quais aplicativos você consegue ver?" Se o Forms estiver ausente da resposta do Dispatch, você está no segundo caso.
+
+## Estratégias de integração
+
+**Delegação em linguagem natural através do Dispatch.** Um aplicativo irmão não precisa de uma integração especial para funcionar com o Forms. Ele pode entregar ao agente do Forms uma solicitação em linguagem natural, como "quantas respostas o formulário de inscrição beta tem," da mesma forma que você faria no chat, e o Forms responde ou age sobre ela diretamente. Este é o mecanismo real por trás de algo como uma pergunta que chega pelo Slack ou pelo Mail e se transforma em uma resposta real do Forms: o Dispatch (ou o aplicativo que recebeu a mensagem) delega a solicitação ao agente do Forms, e o Forms a trata como qualquer outro prompt.
+
+**Outros aplicativos enviando dados diretamente para um formulário.** O Forms não precisa de A2A nem do Dispatch para que outro aplicativo envie dados a ele. Qualquer aplicativo pode enviar uma solicitação web simples para o endereço público de envio de um formulário, da mesma forma que um respondente anônimo preenchendo a página pública faz. O próprio botão de feedback do framework funciona exatamente assim. Ele envia um envio para um aplicativo Forms implantado a partir da barra lateral de outro aplicativo, junto com de qual página e qual aplicativo o feedback veio, e o Forms registra isso como uma resposta normal. Isso significa que qualquer aplicativo no seu workspace pode enviar dados estruturados para um formulário sem nenhuma conexão A2A, apenas uma solicitação web simples.
+
+**Permanecendo desacoplado.** Seja respondendo a uma pergunta delegada ou recebendo um envio direto, o Forms nunca precisa conhecer as credenciais do aplicativo que está chamando, e o aplicativo que chama nunca precisa saber nada sobre como o Forms armazena seus dados. A delegação passa pelo agente como qualquer outro prompt, e um envio direto passa pelo mesmo endereço público que um respondente humano usaria.
+
+## Próximos passos
+
+- [**Forms**](/docs/template-forms) — a visão geral e o que ele substitui
+- [**Funcionalidades**](/docs/template-forms-features) — todas as áreas de funcionalidades, com passos de configuração para cada uma
+- [**Conversar com o Agent**](/docs/template-forms-agent) — todos os prompts por tarefa e como o agente vê sua tela
+- [**Guia do desenvolvedor**](/docs/template-forms-developers) — todas as actions e o modelo de dados por trás dessas funcionalidades
+- [**Dispatch**](/docs/template-dispatch) — o plano de controle do workspace sobre o qual esses padrões funcionam
+- [**Protocolo A2A**](/docs/a2a-protocol) — como os aplicativos se descobrem, se autenticam e se chamam entre si
+- [**Workspaces multi-app**](/docs/multi-app-workspace) — o padrão geral de compor aplicativos próprios em vez de aninhá-los

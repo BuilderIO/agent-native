@@ -1,6 +1,7 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   envKeys: [
     { key: "DATABASE_URL", label: "Database URL", required: false },
     {

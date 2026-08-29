@@ -5,18 +5,20 @@ import {
   type ServerResponse,
 } from "node:http";
 
+import { createPtyWebSocketServer } from "@agent-native/core/terminal/server";
 import {
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
   type AppConfig,
 } from "@shared/app-registry";
 import { IPC } from "@shared/ipc-channels";
-import { ipcMain, net, session, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, net, session, type IpcMainInvokeEvent } from "electron";
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
 
 const RELAY_ROOT = "/desktop-chat";
+const DESKTOP_TERMINAL_INFO_ROOT = "/desktop-terminal-info";
 const RELAY_ALLOWED_PREFIX = "/_agent-native/";
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -47,7 +49,46 @@ interface RelayPath {
 }
 
 let relayPromise: Promise<RelayState> | null = null;
+let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
+  null;
 let ipcRegistered = false;
+
+async function createDesktopTerminal() {
+  const token = randomUUID().replaceAll("-", "");
+  const terminal = await createPtyWebSocketServer({
+    appDir: app.getPath("home"),
+    authCheck: (request) => {
+      try {
+        const url = new URL(
+          request.url ?? "",
+          `http://${request.headers.host ?? "127.0.0.1"}`,
+        );
+        return url.searchParams.get("token") === token;
+      } catch {
+        // coercion-ok: malformed websocket URLs are authentication denials, never success.
+        return false;
+      }
+    },
+    logPrefix: "[desktop-terminal]",
+  });
+  app.once("before-quit", terminal.close);
+  return { terminal, token };
+}
+
+function ensureDesktopTerminal() {
+  desktopTerminalPromise ??= createDesktopTerminal().catch((error) => {
+    desktopTerminalPromise = null;
+    throw error;
+  });
+  return desktopTerminalPromise;
+}
+
+export function desktopTerminalInfo(port: number, token: string) {
+  return {
+    available: true,
+    wsUrl: `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`,
+  };
+}
 
 function desktopTemplateGatewayOverridesDevUrls(): boolean {
   const value =
@@ -301,6 +342,28 @@ function ensureRelay(): Promise<RelayState> {
         sendError(request, response, 400, "Invalid relay URL");
         return;
       }
+      if (parsed.pathname === `${DESKTOP_TERMINAL_INFO_ROOT}/${secret}`) {
+        void ensureDesktopTerminal()
+          .then(({ terminal, token }) => {
+            response.writeHead(200, {
+              ...corsHeaders(request),
+              "Content-Type": "application/json; charset=utf-8",
+            });
+            response.end(
+              JSON.stringify(desktopTerminalInfo(terminal.port, token)),
+            );
+          })
+          .catch((error) => {
+            console.warn("[desktop-terminal] failed to start", error);
+            sendError(
+              request,
+              response,
+              503,
+              "The desktop terminal could not be started.",
+            );
+          });
+        return;
+      }
       const relayPath = parseRelayPath(parsed.pathname, secret);
       if (!relayPath) {
         sendError(request, response, 404, "Desktop chat relay route not found");
@@ -348,6 +411,10 @@ export function registerDesktopChatIpc(): void {
   ipcMain.handle(
     IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL,
     async (_event: IpcMainInvokeEvent, appId: unknown) => {
+      if (appId === undefined || appId === null) {
+        const relay = await ensureRelay();
+        return `http://127.0.0.1:${relay.port}${DESKTOP_TERMINAL_INFO_ROOT}/${relay.secret}`;
+      }
       if (typeof appId !== "string" || !appId.trim()) return null;
       const appConfig = AppStore.loadApps().find(
         (candidate) => candidate.id === appId,

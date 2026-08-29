@@ -1832,6 +1832,11 @@ export const runAnalyticsMigrations = runMigrations(
         sqlite: "SELECT 1",
       },
     },
+    {
+      version: 148,
+      name: "analytics-dashboard-certification",
+      sql: "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS certification TEXT",
+    },
   ],
   { table: "analytics_migrations" },
 );

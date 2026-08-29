@@ -4,6 +4,7 @@ import { envKeys } from "../lib/env-config.js";
 import { resolvePublicViewerOwner } from "../lib/public-documents.js";
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   envKeys,
   anonymousOwner: resolvePublicViewerOwner,
   // Land deep links (`/_agent-native/open?app=content&view=editor&documentId=…`)

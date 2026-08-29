@@ -73,6 +73,50 @@ describe("LayersPanel lock/hide toggles", () => {
   });
 });
 
+describe("LayersPanel search affordance", () => {
+  it("places the layer search button beside the Layers heading", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          screens={[{ id: "screen-1", name: "Home", type: "file" }]}
+          layers={[{ id: "layer-1", name: "Hero", type: "element" }]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+        />,
+      );
+    });
+
+    const searchButton = Array.from(host.querySelectorAll("button")).find(
+      (button) =>
+        button.getAttribute("aria-label") === "layersPanel.searchPlaceholder",
+    );
+    expect(searchButton).toBeDefined();
+    let header: Element | null = searchButton ?? null;
+    while (header && !header.querySelector("h2")) {
+      header = header.parentElement;
+    }
+    expect(header?.querySelector("h2")?.textContent).toBe("layersPanel.title");
+    expect(
+      Array.from(host.querySelectorAll("h2"))
+        .find((heading) => heading.textContent === "layersPanel.screens")
+        ?.parentElement?.querySelector(
+          'button[aria-label="layersPanel.searchPlaceholder"]',
+        ),
+    ).toBeNull();
+
+    root.unmount();
+    host.remove();
+  });
+});
+
 describe("LayersPanel row hierarchy", () => {
   it("renders one explicit 16px flex indent per hierarchy level", async () => {
     expect([0, 1, 2, 7].map(layerRowIndentCount)).toEqual([1, 2, 3, 8]);

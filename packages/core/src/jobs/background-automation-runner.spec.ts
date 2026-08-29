@@ -202,6 +202,10 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       appId: "calendar",
       maxIterations: 9,
       maxRunInputTokens: 123_456,
+      // Scheduled work used to pass no ceiling at all and silently inherit the
+      // flat per-engine default — a LOWER output budget than chat, on the runs
+      // that produce the largest single tool call.
+      maxOutputTokens: 64_000,
     });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
     // The chunk control is what makes a checkpoint recoverable here. Without

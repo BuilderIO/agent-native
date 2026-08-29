@@ -12,10 +12,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AgentPresenceChip,
-  RecentEditHighlights,
-} from "@agent-native/toolkit/collab-ui";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
 import { IconX } from "@tabler/icons-react";
@@ -370,6 +367,39 @@ function getBuilderSelector(el: HTMLElement): string | null {
 
 /** Block tags that can hold rich multi-paragraph content */
 const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
+
+/** Insert a soft line break inside one text leaf through native edit history. */
+function insertLineBreak(editable: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount !== 1) return false;
+  const range = selection.getRangeAt(0);
+
+  const textLeafFor = (node: Node) => {
+    if (!editable.contains(node)) return null;
+    let element = node instanceof HTMLElement ? node : node.parentElement;
+    while (element && element !== editable) {
+      if (isTextLeaf(element)) return element;
+      element = element.parentElement;
+    }
+    const canUseEditableFallback =
+      isTextLeaf(editable) ||
+      (editable.tagName !== "IMG" &&
+        !editable.classList.contains("fmd-img-placeholder") &&
+        (editable.classList.contains("fmd-text-box") ||
+          Array.from(editable.children).every((child) =>
+            isInlineTextElement(child),
+          )));
+    return canUseEditableFallback ? editable : null;
+  };
+
+  const startLeaf = textLeafFor(range.startContainer);
+  const endLeaf = textLeafFor(range.endContainer);
+  if (!startLeaf || startLeaf !== endLeaf) {
+    return false;
+  }
+
+  return document.execCommand("insertLineBreak");
+}
 
 /** Strip renderer/editor-only attributes from an HTML string before saving */
 function stripBuilderIds(html: string): string {
@@ -2138,6 +2168,7 @@ export default function SlideEditor({
     richTextSelectionRef.current = null;
     el.contentEditable = "false";
     el.removeAttribute("data-editing-block");
+    window.getSelection()?.removeAllRanges();
 
     // Selection and freeform promotion are separate operations. Merely ending
     // text editing must not turn a flow-layout block into an absolutely
@@ -2413,10 +2444,9 @@ export default function SlideEditor({
         //  - Inside a styled bullet list, Enter clones the current row so a
         //    new bullet (marker + empty text) appears — contentEditable's
         //    native split can't recreate the marker glyph.
-        //  - A single <p> or <div> leaf is multi-line capable — Enter
-        //    creates a new line via contentEditable's default behavior.
-        //  - Headings, inline leaves, and smart groups commit on Enter
-        //    so the slide layout can never be broken by a stray new node.
+        //  - Rich block leaves keep contentEditable's native multi-line edit.
+        //  - Other text blocks get a <br> so repeated presses stay within the
+        //    existing layout instead of creating new block children.
         if (e.shiftKey) return;
 
         // Re-derive the list from the LIVE caret so a re-render that swapped
@@ -2438,8 +2468,16 @@ export default function SlideEditor({
         }
 
         if (!isMultiLineLeaf) {
+          const editing = editingElRef.current;
+          const inserted = editing ? insertLineBreak(editing) : false;
+          if (!inserted) {
+            // Keep an unsupported cross-leaf selection in edit mode rather
+            // than letting native Enter split the smart group into blocks.
+            e.preventDefault();
+            return;
+          }
           e.preventDefault();
-          exitInlineEdit();
+          captureInlineEditDraft(slide.id);
         }
       }
     };
@@ -2634,6 +2672,10 @@ export default function SlideEditor({
    */
   const applyMultiSelection = useCallback(
     (ids: Set<string>) => {
+      // A canvas selection supersedes native text selection. Keep every entry
+      // point (shift-click, marquee, layer panel, and restored selection) in
+      // the same object-selection mode.
+      if (ids.size > 0 && editingElRef.current) exitInlineEdit();
       const slideContent = getSlideContent();
       const rects = new Map<
         string,
@@ -2676,7 +2718,12 @@ export default function SlideEditor({
         items.length > 0 ? buildSelectionState("multi", items) : null,
       );
     },
-    [buildSelectionState, clearSelectedElement, getSlideContent],
+    [
+      buildSelectionState,
+      clearSelectedElement,
+      exitInlineEdit,
+      getSlideContent,
+    ],
   );
 
   const clearMultiSelection = useCallback(() => {
@@ -3084,6 +3131,72 @@ export default function SlideEditor({
     [getSlideContent],
   );
 
+  // Portal selection chrome uses viewport coordinates, so a flex layout change
+  // can move the canvas without resizing the selected element. Re-measure the
+  // active selection when the editor layout changes, not only on canvas input.
+  useLayoutEffect(() => {
+    if (
+      !selectedImg &&
+      multiSelection.size === 0 &&
+      (!selectedElementPath || !selectedElementSelector)
+    ) {
+      return;
+    }
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const update = () => {
+      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+      if (selectedImg) setSelectionRect(selectedImg.getBoundingClientRect());
+      if (multiSelection.size > 0) {
+        refreshMultiSelectionRects(multiSelection);
+      }
+      if (selectedElementPath && selectedElementSelector) {
+        invalidateSelectionOverlayMeasurement();
+      }
+    };
+
+    update();
+    const layoutRoot = scrollContainer.closest(".deck-editor-workspace");
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    for (const element of [
+      layoutRoot,
+      scrollContainer,
+      canvasTrackRef.current,
+      containerRef.current,
+      slideCanvasRef.current,
+      selectedImg,
+    ]) {
+      if (element) resizeObserver?.observe(element);
+    }
+    const mutationObserver =
+      typeof MutationObserver === "undefined" || !layoutRoot
+        ? null
+        : new MutationObserver(update);
+    if (mutationObserver && layoutRoot) {
+      mutationObserver.observe(layoutRoot, { childList: true });
+    }
+    layoutRoot?.addEventListener("animationend", update);
+    layoutRoot?.addEventListener("transitionend", update);
+
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      layoutRoot?.removeEventListener("animationend", update);
+      layoutRoot?.removeEventListener("transitionend", update);
+    };
+  }, [
+    animationsOpen,
+    invalidateSelectionOverlayMeasurement,
+    layersOpen,
+    multiSelection,
+    refreshMultiSelectionRects,
+    selectedElementPath,
+    selectedElementSelector,
+    selectedImg,
+  ]);
+
   // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned.
   // Group drag calls the same helper every pointer move so its outlines do not
   // lag behind the objects until the next scroll or resize.
@@ -3308,10 +3421,15 @@ export default function SlideEditor({
       const tag = active?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (active instanceof HTMLElement && active.isContentEditable) return;
-      if (deleteSelectedElements()) e.preventDefault();
+      if (deleteSelectedElements()) {
+        e.preventDefault();
+        // DeckEditor also listens for Delete at document level. Claim the
+        // event before it can interpret an object selection as a slide delete.
+        e.stopPropagation();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [
     deleteSelectedElements,
     editingEl,
@@ -3946,8 +4064,8 @@ export default function SlideEditor({
     slide.id,
   ]);
 
-  // Object paste waits for the native paste event so an image on the system
-  // clipboard always wins over an older in-editor object copy.
+  // Object paste waits for the native paste event so system clipboard content
+  // always wins over an older in-editor object copy.
   useEffect(() => {
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
@@ -3972,6 +4090,12 @@ export default function SlideEditor({
       ) {
         return;
       }
+      const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
+        (type) =>
+          type.startsWith("text/") &&
+          Boolean(e.clipboardData?.getData(type)?.length),
+      );
+      if (hasNativeText) return;
       const clipboard = copiedObjectClipboardRef.current;
       if (!clipboard || clipboard.deckId !== deckId) return;
       e.preventDefault();
@@ -4033,6 +4157,8 @@ export default function SlideEditor({
       geometry: SlideObjectGeometry,
       target: HTMLElement | null,
       dragSized: boolean,
+      text = ZERO_WIDTH_SPACE,
+      startEditing = true,
     ) => {
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
@@ -4057,9 +4183,14 @@ export default function SlideEditor({
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
       box.style.fontFamily = "'Poppins', sans-serif";
       box.style.lineHeight = "1.3";
-      box.textContent = ZERO_WIDTH_SPACE;
+      if (text !== ZERO_WIDTH_SPACE) {
+        box.style.whiteSpace = "pre-wrap";
+        box.style.overflowWrap = "anywhere";
+      }
+      box.textContent = text;
       positioningLayer.appendChild(box);
 
+      if (!startEditing) return box;
       enterInlineEdit(box);
 
       // el.focus() alone doesn't reliably place the caret inside a freshly
@@ -4074,9 +4205,115 @@ export default function SlideEditor({
         selection?.removeAllRanges();
         selection?.addRange(range);
       }
+      return box;
     },
     [enterInlineEdit],
   );
+
+  const pastePlainTextAsTextBox = useCallback(
+    (text: string) => {
+      const canvas = containerRef.current
+        ? ensureSlideTextBoxCanvas(containerRef.current)
+        : null;
+      if (!canvas) return false;
+
+      const { positioningLayer } = canvas;
+      const target = resolveSelectedElement() ?? selectedImg;
+      const anchorRect = target?.getBoundingClientRect();
+      const layerRect = positioningLayer.getBoundingClientRect();
+      const width = 320;
+      const height = 24;
+      const scaleX =
+        positioningLayer.offsetWidth > 0 && layerRect.width > 0
+          ? positioningLayer.offsetWidth / layerRect.width
+          : 1;
+      const scaleY =
+        positioningLayer.offsetHeight > 0 && layerRect.height > 0
+          ? positioningLayer.offsetHeight / layerRect.height
+          : 1;
+      const maxX = Math.max(0, positioningLayer.offsetWidth - width);
+      const maxY = Math.max(0, positioningLayer.offsetHeight - height);
+      const x = anchorRect
+        ? Math.min(
+            maxX,
+            Math.max(
+              0,
+              (anchorRect.left - layerRect.left) * scaleX +
+                SLIDE_OBJECT_PASTE_OFFSET,
+            ),
+          )
+        : maxX / 2;
+      const y = anchorRect
+        ? Math.min(
+            maxY,
+            Math.max(
+              0,
+              (anchorRect.top - layerRect.top) * scaleY +
+                SLIDE_OBJECT_PASTE_OFFSET,
+            ),
+          )
+        : maxY / 2;
+      const box = placeTextBoxAt(
+        { x, y, width, height },
+        target,
+        false,
+        text,
+        false,
+      );
+      if (!box) return false;
+
+      const slideHeight = positioningLayer.offsetHeight;
+      if (slideHeight > 0 && box.offsetHeight > slideHeight) {
+        box.style.maxHeight = `${slideHeight}px`;
+        box.style.overflowY = "auto";
+      }
+      const renderedHeight = Math.max(height, box.offsetHeight);
+      const renderedMaxY = Math.max(0, slideHeight - renderedHeight);
+      if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`;
+
+      const selector = getBuilderSelector(box);
+      if (selector) selectElementForStyling(box, selector);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      return true;
+    },
+    [
+      placeTextBoxAt,
+      readCurrentSlideContentHtml,
+      resolveSelectedElement,
+      selectElementForStyling,
+      selectedImg,
+    ],
+  );
+
+  useEffect(() => {
+    if (readOnly) return;
+    const onPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
+      const active = document.activeElement;
+      const target = e.target instanceof Element ? e.target : null;
+      const isTextSurface = (element: Element | null) =>
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement ||
+        (element instanceof HTMLElement && element.isContentEditable) ||
+        Boolean(element?.closest("[contenteditable='true'], [role='textbox']"));
+      if (isTextSurface(active) || isTextSurface(target)) return;
+      if (
+        Array.from(e.clipboardData?.items ?? []).some(
+          (item) => item.kind === "file" && item.type.startsWith("image/"),
+        )
+      ) {
+        return;
+      }
+
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      if (!text.trim() || !pastePlainTextAsTextBox(text)) return;
+      e.preventDefault();
+    };
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }, [pastePlainTextAsTextBox, readOnly]);
 
   const placeShapeAt = useCallback(
     (
@@ -5634,7 +5871,15 @@ export default function SlideEditor({
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
-      if (
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      const targetIsEditingBlock =
+        editingEl?.contains(e.target as Node) ?? false;
+      if (editingEl) {
+        if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
+          return;
+        }
+        exitInlineEdit();
+      } else if (
         isSlideTextEditingTarget(e.target, document.activeElement, editingEl)
       ) {
         return;
@@ -6526,6 +6771,7 @@ export default function SlideEditor({
   const slideElementSelected =
     !!selectedImg ||
     !!editingEl ||
+    !!selectedElementSelector ||
     !!selectedStyleSnapshot ||
     multiSelection.size > 0;
 
@@ -6750,16 +6996,11 @@ export default function SlideEditor({
                               outlineOnly
                             />
                           )}
-                          {(agentActive || passivePresentUsers.length > 0) && (
-                            <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                              <AgentPresenceChip
-                                active={Boolean(agentActive)}
+                          {passivePresentUsers.length > 0 && (
+                            <div className="absolute right-2 top-2 z-10">
+                              <SameSlidePresenceIndicator
+                                users={passivePresentUsers}
                               />
-                              {passivePresentUsers.length > 0 && (
-                                <SameSlidePresenceIndicator
-                                  users={passivePresentUsers}
-                                />
-                              )}
                             </div>
                           )}
                           {overflowInfo &&

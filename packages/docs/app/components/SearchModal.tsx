@@ -1,7 +1,12 @@
 import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { submitToAgent } from "@agent-native/core/client/navigation";
-import { IconMessage, IconMoon, IconSun } from "@tabler/icons-react";
+import {
+  IconLayoutSidebarRight,
+  IconMessage,
+  IconMoon,
+  IconSun,
+} from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router";
@@ -131,12 +136,31 @@ export function SearchModal({
   ]
     .join(" ")
     .toLowerCase();
+  const sidebarSearchTerms = [
+    t("search.toggleChatSidebar"),
+    "chat",
+    "sidebar",
+    "assistant",
+  ]
+    .join(" ")
+    .toLowerCase();
   const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const showThemeAction =
     queryWords.length === 0 ||
     queryWords.every((word) => themeSearchTerms.includes(word));
-  const resultIndexOffset = showThemeAction ? 1 : 0;
+  const showSidebarAction =
+    queryWords.length === 0 ||
+    queryWords.every((word) => sidebarSearchTerms.includes(word));
+  const actionItems = [
+    showThemeAction ? "theme" : null,
+    showSidebarAction ? "sidebar" : null,
+  ].filter((action): action is "theme" | "sidebar" => action !== null);
+  const resultIndexOffset = actionItems.length;
   const askAiIndex = resultIndexOffset + results.length;
+
+  const toggleChatSidebar = useCallback(() => {
+    window.dispatchEvent(new Event("agent-panel:toggle"));
+  }, []);
 
   const submitAskAi = useCallback(() => {
     onClose();
@@ -194,7 +218,7 @@ export function SearchModal({
 
   useEffect(() => {
     activeItemRef.current?.scrollIntoView({ block: "nearest" });
-  }, [activeIdx, results, showThemeAction]);
+  }, [activeIdx, results, showSidebarAction, showThemeAction]);
 
   const go = useCallback(
     (entry: SearchEntry) => {
@@ -223,6 +247,12 @@ export function SearchModal({
         e.preventDefault();
         if (showThemeAction && activeIdx === 0) {
           toggleTheme();
+          onClose();
+          return;
+        }
+        const sidebarActionIndex = showThemeAction ? 1 : 0;
+        if (showSidebarAction && activeIdx === sidebarActionIndex) {
+          toggleChatSidebar();
           onClose();
           return;
         }
@@ -267,10 +297,59 @@ export function SearchModal({
     go,
     onClose,
     resultIndexOffset,
+    showSidebarAction,
     showThemeAction,
     submitAskAi,
+    toggleChatSidebar,
     toggleTheme,
   ]);
+
+  const actionButtons = actionItems.map((action, i) => (
+    <button
+      key={action}
+      ref={i === activeIdx ? activeItemRef : undefined}
+      type="button"
+      onClick={() => {
+        if (action === "theme") toggleTheme();
+        else toggleChatSidebar();
+        onClose();
+      }}
+      onMouseEnter={() => setActiveIdx(i)}
+      className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition-colors ${
+        i === activeIdx
+          ? "bg-[var(--docs-accent)]/10"
+          : "hover:bg-[var(--bg-secondary)]"
+      }`}
+    >
+      {action === "theme" ? (
+        theme === "dark" ? (
+          <IconSun
+            size={16}
+            stroke={1.5}
+            className="shrink-0 text-[var(--docs-accent)]"
+            aria-hidden="true"
+          />
+        ) : (
+          <IconMoon
+            size={16}
+            stroke={1.5}
+            className="shrink-0 text-[var(--docs-accent)]"
+            aria-hidden="true"
+          />
+        )
+      ) : (
+        <IconLayoutSidebarRight
+          size={16}
+          stroke={1.5}
+          className="shrink-0 text-[var(--docs-accent)]"
+          aria-hidden="true"
+        />
+      )}
+      <span className="font-medium text-[var(--fg)]">
+        {action === "theme" ? t("theme.toggle") : t("search.toggleChatSidebar")}
+      </span>
+    </button>
+  ));
 
   if (!open) return null;
 
@@ -324,43 +403,7 @@ export function SearchModal({
 
         {/* results */}
         <div className="max-h-[400px] overflow-y-auto">
-          {showThemeAction && (
-            <div className="py-2">
-              <button
-                ref={activeIdx === 0 ? activeItemRef : undefined}
-                type="button"
-                onClick={() => {
-                  toggleTheme();
-                  onClose();
-                }}
-                onMouseEnter={() => setActiveIdx(0)}
-                className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
-                  activeIdx === 0
-                    ? "bg-[var(--docs-accent)]/10"
-                    : "hover:bg-[var(--bg-secondary)]"
-                }`}
-              >
-                {theme === "dark" ? (
-                  <IconSun
-                    size={16}
-                    stroke={1.5}
-                    className="shrink-0 text-[var(--docs-accent)]"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <IconMoon
-                    size={16}
-                    stroke={1.5}
-                    className="shrink-0 text-[var(--docs-accent)]"
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="font-medium text-[var(--fg)]">
-                  {t("theme.toggle")}
-                </span>
-              </button>
-            </div>
-          )}
+          {query.trim() ? actionButtons : null}
           {indexError ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               <p className="mb-3">{t("search.loadError")}</p>
@@ -375,8 +418,11 @@ export function SearchModal({
           ) : query.trim() === "" ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               {t("search.empty")}
+              <div className="-mx-4 mt-6 border-t border-[var(--docs-border)] py-2">
+                {actionButtons}
+              </div>
             </div>
-          ) : results.length === 0 && !showThemeAction ? (
+          ) : results.length === 0 && actionItems.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               <p className="mb-3">{t("search.noResults", { query })}</p>
               <Link
@@ -388,7 +434,7 @@ export function SearchModal({
               </Link>
             </div>
           ) : (
-            <div className="py-2">
+            <div className={results.length > 0 ? "py-2" : undefined}>
               {results.map((entry, i) => (
                 <button
                   key={`${entry.path}-${entry.sectionId}`}

@@ -7,6 +7,7 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 // in Analytics" link produced by `update-dashboard` / `save-analysis` for a
 // connected Claude Code / Codex / Cowork never opened the record.
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   extensionTools: true,
   resolveOpenPath: ({ view, params }) => {
     if (params.dashboardId) return `/dashboards/${params.dashboardId}`;

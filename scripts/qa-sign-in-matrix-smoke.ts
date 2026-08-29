@@ -536,12 +536,17 @@ async function runDeploySuite(
     // in-app route there and is only an escape under a base path.
     if (name === "sibling app" && !app.basePath) continue;
     const target = `${app.origin}${app.basePath}${SIGN_IN_ENTRY_PATH}?c=${encodeURIComponent(badToken)}`;
-    await navigateAndSettle(page, target);
+    const visited = await navigateAndSettle(page, target);
     const landed = pathnameOf(page.url());
+    // The trail separates the two failures this assertion can catch: a
+    // continuation that was accepted (the visitor moved somewhere it should
+    // not have) from a session probe that never answered (the visitor never
+    // moved at all). Without it both read as "stuck at sign-in".
+    const trail = visited.map((url) => fullPathOf(url)).join(" -> ");
     assert.equal(
       isAuthEntryPath(landed, app.basePath),
       false,
-      `[${label}] forged continuation (${name}) left the visitor stuck at ${landed}`,
+      `[${label}] forged continuation (${name}) left the visitor stuck at ${landed} (trail: ${trail || "no navigation"})`,
     );
     assert.ok(
       landed === (app.basePath || "/") || landed.startsWith(`${app.basePath}/`),

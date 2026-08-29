@@ -3,37 +3,27 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
-  shouldAnimateDesktopAppChatSidebar,
+  desktopSettingsTabForSection,
   shouldShowDesktopAppChatSidebar,
 } from "./DesktopAppChatShell.js";
 
 describe("desktop app chat shell", () => {
-  it("animates only the first active presentation of a cached app tab", () => {
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: false,
-        hasSwitchedAway: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: false,
-        chatSidebarWasOpenBeforeMount: true,
-      }),
-    ).toBe(false);
+  it("routes chat settings requests to the native settings surface", () => {
+    expect(desktopSettingsTabForSection("llm")).toBe("providers");
+    expect(desktopSettingsTabForSection("secrets:OPENAI_API_KEY")).toBe(
+      "connections",
+    );
+    expect(desktopSettingsTabForSection("uploads")).toBe("workspace");
+    expect(desktopSettingsTabForSection("terminal")).toBe("terminal");
+    expect(desktopSettingsTabForSection("voice")).toBe("general");
+  });
+
+  it("keeps cached app chat sidebars mounted without replaying entrance animation", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("animateDesktop={false}");
   });
 
   it("keeps the shell open state shared while new app chats start empty", () => {
@@ -47,6 +37,8 @@ describe("desktop app chat shell", () => {
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
     expect(source).toContain("toggleScopeId={toggleScopeId}");
+    expect(source).toContain("onNewCliTab={onNewCliTab}");
+    expect(source).toContain('newCliTabLabel="New CLI tab"');
     expect(source).toContain("restoreActiveThread={false}");
     expect(source).toContain("enabled={showChatSidebar}");
     expect(source).not.toContain(

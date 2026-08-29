@@ -2395,6 +2395,88 @@ describe("runAgentLoop", () => {
     expect(seenTools[2]).toContain("hidden-tool");
   });
 
+  it("prioritizes tool-search matches before the provider tool cap", async () => {
+    const actions = attachToolSearch(
+      Object.fromEntries([
+        ...Array.from({ length: 128 }, (_, index) => [
+          `starter-${index}`,
+          actionEntry({
+            description: `Starter tool ${index}`,
+            readOnly: true,
+          }),
+        ]),
+        [
+          "late-tool",
+          actionEntry({
+            description: "The late tool that search should load",
+            readOnly: true,
+          }),
+        ],
+      ] as const),
+    );
+    const allTools = actionsToEngineTools(actions);
+    const initialTools = allTools.filter(
+      (tool) =>
+        tool.name === "tool-search" ||
+        (tool.name.startsWith("starter-") && Number(tool.name.slice(8)) < 127),
+    );
+    const seenTools: string[][] = [];
+    let streamCalls = 0;
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-search-late-tool",
+                name: "tool-search",
+                input: { query: "late tool" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: initialTools,
+      availableTools: allTools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(seenTools[0]?.indexOf("late-tool")).toBe(-1);
+    expect(seenTools[1]?.indexOf("late-tool")).toBeLessThan(127);
+  });
+
   it("expands the full authorized tool surface for a guarded corrective retry", async () => {
     const actions = attachToolSearch({
       starter: actionEntry({
@@ -8005,6 +8087,148 @@ describe("runAgentLoop", () => {
         },
       ],
     });
+  });
+
+  it("names the output-token cap when a tool call is cut off mid-arguments, and raises the ceiling for the retry", async () => {
+    let streamCalls = 0;
+    const seenMaxOutputTokens: (number | undefined)[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMaxOutputTokens.push(opts.maxOutputTokens);
+        if (streamCalls === 1) {
+          // What a truncated call looks like on the wire: a tool-call part is
+          // present (so the `toolCallParts.length === 0` truncation branch
+          // never sees it) and the arguments stop mid-object.
+          yield {
+            type: "tool-call-error",
+            id: "cut-off",
+            name: "add-slide",
+            input: { deckId: "deck-1", content: "<div>the long pro" },
+            error: "input must have required property 'position'",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "Split across two calls." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Split across two calls." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => "should not execute"),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const toolDone = events.find(
+      (event) => event.type === "tool_done" && event.tool === "add-slide",
+    );
+    expect(toolDone?.result).toContain("output-token cap");
+    expect(toolDone?.result).toContain("truncated, not wrong");
+    // Telling the model to match the schema is what made it re-send the same
+    // oversized payload until the identical-error breaker fired.
+    expect(toolDone?.result).not.toContain(
+      "retry with arguments that match the tool schema",
+    );
+
+    expect(streamCalls).toBe(2);
+    expect(seenMaxOutputTokens[0]).toBe(8192);
+    expect(seenMaxOutputTokens[1]).toBe(128_000);
+  });
+
+  it("drops back to the configured ceiling once truncated-call retries are spent", async () => {
+    let streamCalls = 0;
+    const seenMaxOutputTokens: (number | undefined)[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMaxOutputTokens.push(opts.maxOutputTokens);
+        // Three consecutive truncated tool calls: one more than the retry
+        // limit. Distinct payloads so the identical-error breaker is not what
+        // ends the run.
+        if (streamCalls <= 3) {
+          yield {
+            type: "tool-call-error",
+            id: `cut-off-${streamCalls}`,
+            name: "add-slide",
+            input: { deckId: `deck-${streamCalls}`, content: "<div>the long" },
+            error: `input must have required property 'position' (${streamCalls})`,
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "max_tokens" };
+          return;
+        }
+
+        yield { type: "text-delta", text: "Done." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-sonnet-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "add-slide": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => "should not execute"),
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    // Raised for the two allowed retries, then back to the engine's own
+    // ceiling — the elevated cap belonged to those retries, not to the run.
+    expect(seenMaxOutputTokens.slice(0, 4)).toEqual([
+      8192, 128_000, 128_000, 8192,
+    ]);
   });
 
   it("recovers schema-invalid empty placeholders in optional tool fields", async () => {

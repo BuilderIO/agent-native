@@ -179,8 +179,8 @@ describe("loadDashboardCatalogDashboards", () => {
     expect(state.projection).not.toHaveProperty("visibility");
     expect(state.projection).toHaveProperty("id");
     expect(state.projection).toHaveProperty("title");
-    expect(state.projection).toHaveProperty("description");
     expect(state.projection).toHaveProperty("config");
+    expect(state.projection).toHaveProperty("updatedAt");
     expect(state.getAllSettings).not.toHaveBeenCalled();
     expect(state.getOrgSetting.mock.calls.map((call) => call[1])).toContain(
       "sql-dashboard-legacy-org",

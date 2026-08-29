@@ -2,6 +2,8 @@ const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
 
 interface ReplaceOptions {
   alt?: string;
+  objectId?: string;
+  style?: string;
 }
 
 export interface SlideImageDropPosition {
@@ -27,6 +29,7 @@ export interface OptimisticImagePreview {
   previewSrc: string;
   replaceSrc: string | null;
   alt?: string;
+  style?: string;
   position?: SlideImageDropPosition;
   objectId?: string;
 }
@@ -79,6 +82,17 @@ function serializeFragment(doc: Document): string {
   return doc.body.innerHTML;
 }
 
+function findImageWithSource(
+  doc: Document,
+  src: string,
+): HTMLImageElement | null {
+  return (
+    Array.from(doc.body.querySelectorAll<HTMLImageElement>("img")).find(
+      (image) => image.getAttribute("src") === src,
+    ) ?? null
+  );
+}
+
 export function normalizeImageObjectPosition(
   value: string | null | undefined,
 ): ImageObjectPosition {
@@ -117,10 +131,7 @@ export function normalizeImageObjectPosition(
 }
 
 function hasImageSource(content: string, src: string): boolean {
-  const doc = parseFragment(content);
-  return Array.from(doc.body.querySelectorAll<HTMLImageElement>("img")).some(
-    (image) => image.getAttribute("src") === src,
-  );
+  return findImageWithSource(parseFragment(content), src) !== null;
 }
 
 function cleanAlt(value: string | undefined): string {
@@ -155,6 +166,7 @@ function imageElementForPlaceholder(
   placeholder: HTMLElement | null,
   newSrc: string,
   alt: string,
+  options: ReplaceOptions = {},
 ): HTMLImageElement {
   const img = doc.createElement("img");
   img.setAttribute("src", newSrc);
@@ -162,11 +174,16 @@ function imageElementForPlaceholder(
   img.className = "fmd-img-uploaded";
 
   const placeholderStyle = placeholder?.getAttribute("style") ?? "";
-  const style = appendImageStyle(
-    placeholderStyle ||
-      "width: 100%; height: 100%; border-radius: 8px; object-fit: cover;",
-  );
+  const style =
+    options.style ??
+    appendImageStyle(
+      placeholderStyle ||
+        "width: 100%; height: 100%; border-radius: 8px; object-fit: cover;",
+    );
   if (style) img.setAttribute("style", style);
+  if (options.objectId) {
+    img.setAttribute("data-slide-object-id", options.objectId);
+  }
 
   return img;
 }
@@ -195,6 +212,7 @@ function replacePlaceholderTarget(
     placeholder,
     newSrc,
     cleanAlt(options.alt || placeholder.textContent || target.label),
+    options,
   );
   placeholder.replaceWith(img);
   return serializeFragment(doc);
@@ -207,9 +225,7 @@ function replaceImageSrc(
   options: ReplaceOptions,
 ): string {
   const doc = parseFragment(content);
-  const image = Array.from(
-    doc.body.querySelectorAll<HTMLImageElement>("img"),
-  ).find((img) => img.getAttribute("src") === oldSrc);
+  const image = findImageWithSource(doc, oldSrc);
   if (!image) return content;
 
   image.setAttribute("src", newSrc);
@@ -848,14 +864,41 @@ export function replaceOptimisticImagePreview(
   finalSrc: string | null,
 ): string {
   const doc = parseFragment(content);
-  const image = Array.from(
-    doc.body.querySelectorAll<HTMLImageElement>("img"),
-  ).find((img) => img.getAttribute("src") === previewSrc);
+  const image = findImageWithSource(doc, previewSrc);
   if (!image) return content;
 
-  if (finalSrc) image.setAttribute("src", finalSrc);
-  else image.remove();
+  if (!finalSrc) {
+    image.remove();
+  } else {
+    const placeholderTarget = parsePlaceholderTarget(finalSrc);
+    if (placeholderTarget) {
+      const placeholder = doc.createElement("div");
+      placeholder.className = "fmd-img-placeholder";
+      placeholder.textContent = placeholderTarget.label;
+      const style = image.getAttribute("style");
+      if (style) placeholder.setAttribute("style", style);
+      image.replaceWith(placeholder);
+    } else {
+      image.setAttribute("src", finalSrc);
+    }
+  }
   return serializeFragment(doc);
+}
+
+/** Keep edits made to a temporary image while its blob URL is stripped. */
+export function captureOptimisticImagePreview(
+  content: string,
+  preview: OptimisticImagePreview,
+): OptimisticImagePreview {
+  const image = findImageWithSource(parseFragment(content), preview.previewSrc);
+  if (!image) return preview;
+
+  return {
+    ...preview,
+    alt: image.getAttribute("alt") ?? preview.alt,
+    objectId: image.getAttribute("data-slide-object-id") ?? preview.objectId,
+    style: image.getAttribute("style") ?? undefined,
+  };
 }
 
 export function applyOptimisticImagePreview(
@@ -870,12 +913,15 @@ export function applyOptimisticImagePreview(
         preview.previewSrc,
         {
           alt: preview.alt,
+          objectId: preview.objectId,
+          style: preview.style,
         },
       )
     : insertDroppedImageIntoSlideHtml(content, preview.previewSrc, {
         alt: preview.alt,
         position: preview.position,
         objectId: preview.objectId,
+        style: preview.style,
       });
 }
 
@@ -916,6 +962,7 @@ export function insertImageIntoSlideHtml(
       firstPlaceholder,
       newSrc,
       cleanAlt(options.alt || firstPlaceholder.textContent || "Uploaded image"),
+      options,
     );
     firstPlaceholder.replaceWith(img);
     return serializeFragment(doc);
@@ -960,6 +1007,7 @@ export function insertDroppedImageIntoSlideHtml(
   options: ReplaceOptions & {
     position?: SlideImageDropPosition;
     objectId?: string;
+    style?: string;
   } = {},
 ): string {
   const doc = parseFragment(content);
@@ -980,7 +1028,8 @@ export function insertDroppedImageIntoSlideHtml(
   img.className = "fmd-img-uploaded";
   img.setAttribute(
     "style",
-    `position: absolute; left: ${left}px; top: ${top}px; width: ${DROPPED_IMAGE_WIDTH}px; height: ${DROPPED_IMAGE_HEIGHT}px; max-width: none; max-height: none; margin: 0; border-radius: 8px; object-fit: contain; box-sizing: border-box; z-index: 1;`,
+    options.style ??
+      `position: absolute; left: ${left}px; top: ${top}px; width: ${DROPPED_IMAGE_WIDTH}px; height: ${DROPPED_IMAGE_HEIGHT}px; max-width: none; max-height: none; margin: 0; border-radius: 8px; object-fit: contain; box-sizing: border-box; z-index: 1;`,
   );
 
   const slideRoot = doc.body.querySelector<HTMLElement>(".fmd-slide");

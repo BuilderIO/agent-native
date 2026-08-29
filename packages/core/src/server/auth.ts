@@ -194,6 +194,7 @@ import {
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
+import { healUndecryptableJwks } from "./jwks-secret-rotation.js";
 import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
@@ -2479,11 +2480,9 @@ function workspaceOAuthCallbackRelayResponse(
   const normalizedPath = stripAppBasePath(rawPath);
   const basePath = getAppBasePath();
   if (
-    !basePath ||
-    !isWorkspaceOAuthCallbackRelayEnabled() ||
     !isFrameworkOAuthCallbackPath(normalizedPath) ||
-    rawPath === `${basePath}/_agent-native` ||
-    rawPath.startsWith(`${basePath}/_agent-native/`)
+    (basePath && rawPath === `${basePath}/_agent-native`) ||
+    (basePath && rawPath.startsWith(`${basePath}/_agent-native/`))
   ) {
     return undefined;
   }
@@ -2493,6 +2492,14 @@ function workspaceOAuthCallbackRelayResponse(
   ).get("state");
   const appId = extractOAuthStateAppId(state);
   const provider = extractOAuthStateProvider(state);
+  const isWorkspaceCallbackRelay = isWorkspaceOAuthCallbackRelayEnabled();
+  const isStandaloneGoogleProviderCallback =
+    !isWorkspaceCallbackRelay &&
+    normalizedPath === "/_agent-native/google/callback" &&
+    isWorkspaceGoogleOAuthProvider(provider);
+  if (!isWorkspaceCallbackRelay && !isStandaloneGoogleProviderCallback) {
+    return undefined;
+  }
   const cookieAppId =
     !appId && !provider && normalizedPath === "/_agent-native/google/callback"
       ? extractMcpOAuthCookieAppId(event, state)
@@ -2519,7 +2526,7 @@ function workspaceOAuthCallbackRelayResponse(
   return new Response("", {
     status: 302,
     headers: {
-      Location: `/${effectiveAppId}${providerCallbackPath}${search}`,
+      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : basePath || ""}${providerCallbackPath}${search}`,
     },
   });
 }
@@ -3684,6 +3691,7 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
         return { error: "Local development sign-in is unavailable" };
       }
       setFrameworkSessionCookie(event, session.token);
+      setFirstRunOnboardingCookie(event);
       await addSession(session.token, session.email);
       return authLoginResponse(event, session.token, session.email);
     } catch {
@@ -3776,6 +3784,7 @@ async function maybeAutoCreateDevSession(
     if (!result?.token) return null;
 
     setFrameworkSessionCookie(event, result.token);
+    setFirstRunOnboardingCookie(event);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
     // Emit the session cookie ON the 302 itself. Returning a bare
@@ -4009,7 +4018,7 @@ function isReadMethod(event: H3Event): boolean {
  * dev keeps the default `SameSite=Lax`; `None` requires Secure, and
  * `Partitioned` only takes effect alongside `Secure`.
  */
-function crossSiteCookieAttrs(event: H3Event): {
+export function crossSiteCookieAttrs(event: H3Event): {
   sameSite: "lax" | "none";
   secure: boolean;
   partitioned?: boolean;
@@ -4038,6 +4047,7 @@ function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
 function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     httpOnly: false,
     path: "/",
     maxAge: FIRST_RUN_ONBOARDING_MAX_AGE,
@@ -4047,6 +4057,7 @@ function setFirstRunOnboardingCookie(event: H3Event): void {
 function clearFirstRunOnboardingCookie(event: H3Event): void {
   deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     path: "/",
   });
 }
@@ -5312,6 +5323,29 @@ async function mountBetterAuthRoutes(
         }
       }
 
+      // A rotated BETTER_AUTH_SECRET leaves the persisted JWKS key
+      // undecryptable, and Better Auth turns that into a 500 on any endpoint
+      // that signs a JWT (e.g. /token). The get-session hook heals itself via
+      // withJwksRotationRecovery; this backstop covers the endpoints that
+      // sign directly. healUndecryptableJwks verifies the key against the
+      // live secret before expiring anything, so a coincidental 500 is a
+      // no-op here. Magic-link verify is excluded: its one-time token is
+      // already consumed, so a replay can only produce a worse redirect.
+      if (
+        isResponse &&
+        (response as Response).status >= 500 &&
+        !isMagicLinkVerification &&
+        getMethod(event) === "GET" &&
+        (await healUndecryptableJwks())
+      ) {
+        response = await auth.handler(
+          new Request(requestForAuth.url, {
+            method: "GET",
+            headers: requestForAuth.headers,
+          }),
+        );
+      }
+
       if (isResponse && (response as Response).status >= 400) {
         // The direct Better Auth surface is also reachable from the browser,
         // so wrapper-route sanitization alone is not enough to keep adapter
@@ -5441,7 +5475,8 @@ async function mountBetterAuthRoutes(
       }
 
       if (
-        reqPath.includes("/sign-up/email") &&
+        (reqPath.includes("/sign-up/email") ||
+          reqPath.includes("/sign-in/email")) &&
         isResponse &&
         (response as Response).status >= 200 &&
         (response as Response).status < 300
@@ -5489,6 +5524,7 @@ async function mountBetterAuthRoutes(
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({
@@ -5917,6 +5953,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({

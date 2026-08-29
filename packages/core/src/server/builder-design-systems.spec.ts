@@ -270,6 +270,41 @@ describe("Builder design-system helpers", () => {
     });
   });
 
+  it("bounds minimal hydration to the first page", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            docs: [{ id: "doc-1" }],
+            status: "in-progress",
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      hydrateBuilderDesignSystemReference(
+        {
+          source: "builder",
+          builderDesignSystemId: "ds-1",
+          builderJobId: "job-1",
+          builderStatus: "in-progress",
+        },
+        { page: 0, pageSize: 1, minimal: true },
+      ),
+    ).resolves.toMatchObject({
+      builderStatus: "in-progress",
+      docCount: 1,
+      completionConfirmed: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves failed status over completion flags and normalizes cancellation variants", async () => {
     process.env.BUILDER_PRIVATE_KEY = "builder-private";
     process.env.BUILDER_PUBLIC_KEY = "builder-public";

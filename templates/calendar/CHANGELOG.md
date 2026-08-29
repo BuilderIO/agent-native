@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-28
+
+### Improved
+
+- Event creators can choose whether a meeting shows as Free or Busy.
+- Sidebar branding uses a monochrome Agent-Native mark.
+
+### Fixed
+
+- All-day events stay in the compact top bar in day and week views.
+- The Calendar sidebar keeps the workspace picker compact
+
 ## 2026-08-27
 
 ### Fixed

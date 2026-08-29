@@ -108,6 +108,20 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("preserves the selected app on the metrics navigation state", () => {
+    expect(
+      buildDispatchNavigationState(
+        "/admin/metrics",
+        "?app=orders&scope=workspace",
+      ),
+    ).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+      usageScope: "app",
+      usageAppId: "orders",
+    });
+  });
+
   it("keeps simple agents and connected-agent admin routes distinct", () => {
     expect(buildDispatchNavigationState("/agents")).toEqual({
       view: "agents",
