@@ -686,7 +686,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               {(isMobile || !pageHasHeaderSearch) && <SearchBar />}
             </div>
 
-            <div className="shrink-0 space-y-2 px-3 py-2">
+            <div className="shrink-0 space-y-2 px-3 py-2 empty:hidden">
               <OrgSwitcher settingsPath="/settings/organization" />
               <DevDatabaseLink />
             </div>
