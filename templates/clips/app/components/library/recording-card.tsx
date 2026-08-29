@@ -1,4 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDots,
   IconLock,
@@ -142,7 +143,8 @@ export function RecordingCard({
       recording.failureReason ?? "",
     );
   const retryableStatus =
-    recording.status === "failed" ||
+    (recording.status === "failed" &&
+      isRetryableUploadInterruption(recording.failureReason)) ||
     (recording.status === "uploading" && staleUpload);
   const canRetry = Boolean(onRetry) && retryableStatus && !nativeUploadPaused;
 

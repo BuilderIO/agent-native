@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "@shared/upload-interruption";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -127,6 +128,50 @@ describe("RecordingCard behavior", () => {
     act(() => root.unmount());
     container.remove();
     vi.clearAllMocks();
+  });
+
+  it("does not offer retry for a permanent failed upload", async () => {
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: "File storage is not configured.",
+          }}
+          onRetry={onRetry}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+    expect(hasRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("offers retry for a retryable interrupted upload with a local backup", async () => {
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={onRetry}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("clipsFinalRaw.retry");
+    expect(hasRecordingBackup).toHaveBeenCalledWith(recording.id);
   });
 
   it("does not offer retry for a stale processing upload", async () => {
