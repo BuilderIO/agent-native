@@ -1107,12 +1107,12 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
-  it("retries transient target MCP connection failures while pre-minting embeds", async () => {
+  it("retries transient target MCP gateway failures with HTML bodies", async () => {
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     mocks.managerCallTool
       .mockRejectedValueOnce(
         new Error(
-          'MCP server "target" is not connected: The server did not complete the Streamable HTTP MCP handshake.',
+          'MCP server "target" is not connected: HTTP 502 Bad Gateway <!DOCTYPE html><html><title>Cloudflare 502: Bad gateway</title></html>',
         ),
       )
       .mockResolvedValueOnce({

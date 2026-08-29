@@ -995,6 +995,7 @@ function isRetryableTargetMcpError(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : safeJson(error);
+  if (/\b(?:502|503|504)\b/.test(message)) return true;
   if (
     /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
       message,
@@ -1002,7 +1003,7 @@ function isRetryableTargetMcpError(error: unknown): boolean {
   ) {
     return false;
   }
-  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
+  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout/i.test(
     message,
   );
 }
