@@ -2350,7 +2350,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         </>
       ) : (
         <>
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-4 lg:px-6">
+          <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
             <Link
               to="/"
               className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
@@ -2365,7 +2365,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
             </Link>
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-1">
                 <div
@@ -2673,7 +2673,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium">
               <nav className="flex min-w-0 flex-col gap-1 pb-1">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;
