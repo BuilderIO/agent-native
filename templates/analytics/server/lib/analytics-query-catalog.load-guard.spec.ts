@@ -38,11 +38,13 @@ const state = vi.hoisted(() => ({
     },
   ),
   getAllSettings: vi.fn(async () => ({})),
+  getUserSetting: vi.fn(async () => ({ ids: ["dashboard-01"] })),
   listOrgSettings: vi.fn(async () => ({})),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
   getAllSettings: state.getAllSettings,
+  getUserSetting: state.getUserSetting,
   listOrgSettings: state.listOrgSettings,
 }));
 
@@ -65,6 +67,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     state.listDashboardSummaries.mockClear();
     state.loadDashboardCatalogDashboards.mockClear();
     state.getAllSettings.mockClear();
+    state.getUserSetting.mockClear();
     state.listOrgSettings.mockClear();
   });
 
@@ -120,7 +123,12 @@ describe("searchAnalyticsQueryCatalog", () => {
       dashboardId: "dashboard-01",
       panelId: "revenue-panel",
       dashboardTitle: "Closed Won Revenue",
+      favorite: true,
     });
+    expect(state.getUserSetting).toHaveBeenCalledWith(
+      "alice@example.com",
+      "favorites",
+    );
     expect(state.getAllSettings).toHaveBeenCalledTimes(1);
     expect(state.listOrgSettings).not.toHaveBeenCalled();
   });

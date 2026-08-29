@@ -31,7 +31,9 @@ Read the relevant skill before deeper work:
    call `search-dashboard-references` first. Inspect each returned reference
    with `get-sql-dashboard` or `get-explorer-dashboard` by its `kind`; a match
    is context, not authoritative source data. Then adapt the closest saved SQL
-   to the requested filters/window, run it once, and stop.
+   to the requested filters/window, run it once, and stop. Prefer a current
+   `certified` dashboard result; a dashboard starred by you is a weaker
+   relevance signal. Certification becomes stale after a dashboard edit.
 2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
    or one server-side `run-code` script; never page or fan out per item.
 3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
@@ -84,6 +86,15 @@ Read the relevant skill before deeper work:
 - Dashboard reports and alert rules use their SQL-backed action surfaces; reports
   cap at five recipients.
 
+## Actions
+
+| Action | Use |
+| --- | --- |
+| `search-analytics-query-catalog` | Search saved metric examples first. |
+| `search-dashboard-references` | Find dashboards to replicate. |
+| `get-sql-dashboard` | Read the dashboard and exact panel SQL. |
+| `certify-dashboard` | Admin-only approval of its current version. |
+
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
@@ -94,7 +105,7 @@ Read the relevant skill before deeper work:
   with `type="dashboard-panel"`. Read `dashboard-management` for the
   `/dashboards` overview and folder actions.
 
-## Source Changes
+## Shared UI
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
 `customizing-agent-native` before adapting shared UI.

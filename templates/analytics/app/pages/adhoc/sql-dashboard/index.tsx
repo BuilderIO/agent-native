@@ -47,6 +47,7 @@ import {
   IconMail,
   IconPencil,
   IconPlus,
+  IconShieldCheck,
   IconTrash,
   IconUsersGroup,
   IconWorld,
@@ -171,6 +172,7 @@ import { SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
+  type DashboardCertification,
   type SqlDashboardConfig,
   type SqlPanel,
 } from "./types";
@@ -451,6 +453,29 @@ function parseDashboardCatalogMetadata(
   };
 }
 
+function parseDashboardCertification(
+  value: unknown,
+): DashboardCertification | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  if (
+    raw.status !== "certified" ||
+    typeof raw.certifiedAt !== "string" ||
+    typeof raw.certifiedBy !== "string" ||
+    typeof raw.certifiedForUpdatedAt !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    status: "certified",
+    certifiedAt: raw.certifiedAt,
+    certifiedBy: raw.certifiedBy,
+    certifiedForUpdatedAt: raw.certifiedForUpdatedAt,
+  };
+}
+
 async function fetchDashboard(
   id: string,
   options?: { reportScreenshot?: boolean },
@@ -481,6 +506,7 @@ async function fetchDashboard(
       config: {
         name: data.name ?? "Untitled Dashboard",
         description: data.description,
+        certification: parseDashboardCertification(data.certification),
         parentId:
           typeof data.parentId === "string" && data.parentId.trim().length > 0
             ? data.parentId
@@ -649,6 +675,11 @@ function SqlDashboardPageContent({
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const canArchive = canEdit || canManage;
+  const dashboardCertified = Boolean(
+    dashboard?.certification?.status === "certified" &&
+    dashboardUpdatedAt &&
+    dashboard.certification.certifiedForUpdatedAt === dashboardUpdatedAt,
+  );
   useEffect(() => {
     if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
     const frame = requestAnimationFrame(() => {
@@ -688,6 +719,10 @@ function SqlDashboardPageContent({
   );
   const { mutateAsync: archiveDashboardAction } =
     useActionMutation("archive-dashboard");
+  const {
+    mutateAsync: certifyDashboardAction,
+    isPending: certificationPending,
+  } = useActionMutation("certify-dashboard");
   const { data: dashboardRevisions } = useDashboardRevisions(
     !reportScreenshot && dashboardId ? dashboardId : null,
   );
@@ -1656,6 +1691,42 @@ function SqlDashboardPageContent({
     navigate,
   ]);
 
+  const handleCertify = useCallback(async () => {
+    if (!dashboardId || !dashboardUpdatedAt || !canManage || archivedAt) return;
+    try {
+      const result = await certifyDashboardAction({ id: dashboardId });
+      const certification = parseDashboardCertification(
+        result && typeof result === "object"
+          ? (result as { certification?: unknown }).certification
+          : undefined,
+      );
+      if (certification) {
+        setDashboard((current) =>
+          current ? { ...current, certification } : current,
+        );
+      }
+      toast.success(t("sqlDashboard.certificationSaved"));
+      void queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId, dashboardScope],
+      });
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.certificationFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }, [
+    archivedAt,
+    canManage,
+    certifyDashboardAction,
+    dashboardId,
+    dashboardUpdatedAt,
+    dashboardScope,
+    queryClient,
+    t,
+  ]);
+
   const dismissDemoIntro = useCallback(() => {
     setSearchParams(
       (prev) => {
@@ -1785,6 +1856,19 @@ function SqlDashboardPageContent({
             {dashboard.name}
           </span>
         )}
+        {dashboardCertified ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label={t("sqlDashboard.certifiedForAi")}
+                className="inline-flex shrink-0 items-center text-primary"
+              >
+                <IconShieldCheck className="h-4 w-4" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t("sqlDashboard.certifiedForAi")}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     ) : dashboardId && !loaded ? (
       <DashboardTitleSkeleton />
@@ -1803,6 +1887,28 @@ function SqlDashboardPageContent({
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
+        {dashboardId && dashboardUpdatedAt && canManage && !archivedAt ? (
+          <Button
+            size="sm"
+            variant={dashboardCertified ? "secondary" : "outline"}
+            onClick={() => void handleCertify()}
+            disabled={certificationPending}
+            aria-label={t(
+              dashboardCertified
+                ? "sqlDashboard.certifiedForAi"
+                : "sqlDashboard.certifyForAi",
+            )}
+          >
+            <IconShieldCheck className="mr-1 h-4 w-4" />
+            <span className="hidden sm:inline">
+              {t(
+                dashboardCertified
+                  ? "sqlDashboard.certifiedForAi"
+                  : "sqlDashboard.certifyForAi",
+              )}
+            </span>
+          </Button>
+        ) : null}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"

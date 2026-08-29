@@ -40,6 +40,10 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  readDashboardCertification,
+  type DashboardCertification,
+} from "./dashboard-certification.js";
 
 export type DashboardKind = "explorer" | "sql";
 export type AccessRole = "owner" | ShareRole;
@@ -86,6 +90,8 @@ export interface DashboardSummaryRecord {
   archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
+  certification?: DashboardCertification;
+  favorite?: boolean;
 }
 
 /** Compact, access-scoped reference returned by dashboard discovery. */
@@ -98,6 +104,8 @@ export interface DashboardReferenceRecord {
   orgId: string | null;
   visibility: "private" | "org" | "public";
   updatedAt: string;
+  certification?: DashboardCertification;
+  certified?: boolean;
   matchedFields: Array<"id" | "name" | "description" | "config">;
 }
 
@@ -108,6 +116,7 @@ export interface DashboardCatalogRecord {
   title: string;
   description: string | null;
   config: Record<string, unknown>;
+  certification?: DashboardCertification;
 }
 
 const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
@@ -260,6 +269,7 @@ function dashboardReferenceMatch(
     orgId?: unknown;
     visibility?: unknown;
     updatedAt?: unknown;
+    certification?: DashboardCertification | null;
   },
   query: DashboardReferenceSearchQuery,
 ): { record: DashboardReferenceRecord; score: number } | null {
@@ -293,6 +303,15 @@ function dashboardReferenceMatch(
     if (field === "name" && value === query.phrase) score += 300;
     if (field === "name" && value.startsWith(query.phrase)) score += 40;
   }
+  const certification = row.certification;
+  const certified = Boolean(
+    certification &&
+    certification.certifiedForUpdatedAt === row.updatedAt &&
+    certification.status === "certified",
+  );
+  if (certified) {
+    score += 60;
+  }
 
   return {
     record: {
@@ -316,6 +335,8 @@ function dashboardReferenceMatch(
         typeof row.updatedAt === "string"
           ? row.updatedAt
           : (JSON.stringify(row.updatedAt) ?? ""),
+      ...(row.certification ? { certification: row.certification } : {}),
+      ...(row.certification ? { certified } : {}),
       matchedFields,
     },
     score,
@@ -986,7 +1007,19 @@ export async function searchDashboardReferences(
     record: DashboardReferenceRecord;
     score: number;
   }> = rows
-    .map((row: any) => dashboardReferenceMatch(row, query))
+    .map((row: any) =>
+      dashboardReferenceMatch(
+        {
+          ...row,
+          certification: readDashboardCertification(
+            typeof row.config === "string"
+              ? JSON.parse(row.config)
+              : row.config,
+          ),
+        },
+        query,
+      ),
+    )
     .filter(
       (
         match: { record: DashboardReferenceRecord; score: number } | null,
@@ -1033,6 +1066,7 @@ export async function searchDashboardReferences(
             : typeof config.createdAt === "string"
               ? config.createdAt
               : "",
+        certification: readDashboardCertification(config),
       },
       query,
     );
@@ -1159,14 +1193,17 @@ export async function loadDashboardCatalogDashboards(
 
   const byId = new Map<string, DashboardCatalogRecord>(
     sqlRows.map((row: any) => {
+      const config =
+        typeof row.config === "string" ? JSON.parse(row.config) : row.config;
+      const certification = readDashboardCertification(config);
       const catalogRow: DashboardCatalogRecord = {
         id: row.id,
         kind: row.kind,
         title: row.title,
         description:
           typeof row.description === "string" ? row.description : null,
-        config:
-          typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+        config,
+        ...(certification ? { certification } : {}),
       };
       return [row.id, catalogRow];
     }),
@@ -1183,12 +1220,14 @@ export async function loadDashboardCatalogDashboards(
     const legacy = await findLegacyDashboard(id, ctx);
     if (!legacy) continue;
     const { title, config } = configFromSettings(legacy.data);
+    const certification = readDashboardCertification(config);
     out.push({
       id,
       kind: legacy.kind,
       title,
       description: configDescriptionFromValue(config),
       config,
+      ...(certification ? { certification } : {}),
     });
   }
   return out;
@@ -1324,6 +1363,7 @@ export async function upsertDashboard(
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
+  options?: { preserveUpdatedAt?: boolean },
 ): Promise<DashboardRecord> {
   // If the row exists (or legacy-migrates), require editor.
   const existing = await getDashboard(id, ctx);
@@ -1360,7 +1400,7 @@ export async function upsertDashboard(
         kind,
         title,
         config: configJson,
-        updatedAt: nowIso(),
+        updatedAt: options?.preserveUpdatedAt ? existing.updatedAt : nowIso(),
         updatedBy: ctx.email,
       };
       if (expectedUpdatedAt !== undefined) {
@@ -1462,11 +1502,17 @@ export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
 export async function upsertDashboardWithRetry(
   id: string,
   ctx: AccessCtx,
-  mutate: (
-    existing: DashboardRecord,
-  ) =>
-    | { kind: DashboardKind; body: Record<string, unknown> }
-    | Promise<{ kind: DashboardKind; body: Record<string, unknown> }>,
+  mutate: (existing: DashboardRecord) =>
+    | {
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+        preserveUpdatedAt?: boolean;
+      }
+    | Promise<{
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+        preserveUpdatedAt?: boolean;
+      }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
 ): Promise<DashboardRecord> {
   let lastConflict: unknown;
@@ -1477,9 +1523,12 @@ export async function upsertDashboardWithRetry(
         `dashboard "${id}" not found (or you don't have access).`,
       );
     }
-    const { kind, body } = await mutate(existing);
+    const result = await mutate(existing);
+    const { kind, body } = result;
     try {
-      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt);
+      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt, {
+        preserveUpdatedAt: result.preserveUpdatedAt,
+      });
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
