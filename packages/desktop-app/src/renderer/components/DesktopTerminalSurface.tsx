@@ -28,7 +28,8 @@ interface DesktopTerminalSurfaceProps {
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
-  onOpenSidebar?: () => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
   apps?: readonly ChatFirstAppItem[];
   onOpenApp?: DesktopChatFirstSurfaceMenuProps["onOpenApp"];
   renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
@@ -53,7 +54,8 @@ export default function DesktopTerminalSurface({
   submitRequest,
   onPromptSubmitted,
   onNewUiTab,
-  onOpenSidebar,
+  sidebarOpen,
+  onToggleSidebar,
   apps = [],
   onOpenApp,
   renderAppIcon,
@@ -174,11 +176,14 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
-              {onOpenSidebar || (apps.length > 0 && onOpenApp) || onNewUiTab ? (
+              {onToggleSidebar ||
+              (apps.length > 0 && onOpenApp) ||
+              onNewUiTab ? (
                 <>
                   <DesktopChatFirstSurfaceMenuItems
+                    sidebarOpen={sidebarOpen}
                     apps={apps}
-                    onToggleSidebar={onOpenSidebar}
+                    onToggleSidebar={onToggleSidebar}
                     onOpenApp={onOpenApp}
                     renderAppIcon={renderAppIcon}
                     onNewUiTab={onNewUiTab}

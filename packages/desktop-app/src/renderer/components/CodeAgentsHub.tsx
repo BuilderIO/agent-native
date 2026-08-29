@@ -2918,7 +2918,8 @@ export default function CodeAgentsHub({
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
                 onNewUiTab={handleNewUiTab}
-                onOpenSidebar={() => setChatFirstSurfacePanelOpen(true)}
+                sidebarOpen={chatFirstSurfacePanel.open}
+                onToggleSidebar={chatFirstSurfacePanel.toggle}
                 apps={chatFirstAppItems}
                 onOpenApp={(app) =>
                   openChatFirstApp(app.id, undefined, undefined, "side")
