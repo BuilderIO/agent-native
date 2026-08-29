@@ -38,26 +38,27 @@ export async function buildLabelCache(
 /**
  * Resolve a label name to a Gmail label ID, creating the label if needed.
  */
-async function resolveLabelId(
+export async function ensureGmailLabel(
+  accessToken: string,
   labelName: string,
-  ctx: ActionContext,
+  labelCache: Map<string, string>,
 ): Promise<string> {
   const key = labelName.toLowerCase();
-  const existing = ctx.labelCache.get(key);
+  const existing = labelCache.get(key);
   if (existing) return existing;
 
   // Create the label
   try {
-    const created = await gmailCreateLabel(ctx.accessToken, labelName);
+    const created = await gmailCreateLabel(accessToken, labelName);
     if (created.id) {
-      ctx.labelCache.set(key, created.id);
+      labelCache.set(key, created.id);
       return created.id;
     }
   } catch (err: any) {
     // Label might already exist (race condition) — try to find it
-    const refreshed = await buildLabelCache(ctx.accessToken);
-    for (const [k, v] of refreshed) ctx.labelCache.set(k, v);
-    const retryId = ctx.labelCache.get(key);
+    const refreshed = await buildLabelCache(accessToken);
+    for (const [k, v] of refreshed) labelCache.set(k, v);
+    const retryId = labelCache.get(key);
     if (retryId) return retryId;
     throw err;
   }
@@ -75,7 +76,11 @@ export async function executeAction(
   try {
     switch (action.type) {
       case "label": {
-        const labelId = await resolveLabelId(action.labelName, ctx);
+        const labelId = await ensureGmailLabel(
+          ctx.accessToken,
+          action.labelName,
+          ctx.labelCache,
+        );
         await gmailModifyMessage(ctx.accessToken, ctx.messageId, [labelId]);
         return { success: true };
       }

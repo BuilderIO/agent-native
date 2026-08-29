@@ -36,6 +36,7 @@ export function useCreateAutomation() {
       condition: string;
       actions: AutomationAction[];
       domain?: AutomationRule["domain"];
+      kind?: AutomationRule["kind"];
     }) => callAction("create-automation", data) as Promise<AutomationRule>,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
