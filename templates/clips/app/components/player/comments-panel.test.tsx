@@ -31,6 +31,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("../../hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({
+    data: [{ email: "member@example.com", name: "Member" }],
+  }),
+}));
+
 const rootComment: Comment = {
   id: "comment-1",
   threadId: "thread-1",
@@ -146,14 +152,38 @@ describe("CommentsPanel reply composer", () => {
     renderPanel("viewer@example.com", [
       {
         ...rootComment,
-        content: "# Not a heading\n\n**Bold** and `inline code`.",
+        content: "# Not a heading\n\n**Bold**, *italic* and `inline code`.",
       },
     ]);
 
     expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
     expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("em")?.textContent).toBe("italic");
     expect(container.querySelector("code")?.textContent).toBe("inline code");
     expect(container.textContent).toContain("Not a heading");
+  });
+
+  it("applies Markdown formatting shortcuts to selected text", () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "format this");
+      composer.setSelectionRange(0, 11);
+      composer.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "b",
+          metaKey: true,
+        }),
+      );
+    });
+
+    expect(composer?.value).toBe("**format this**");
   });
 
   it("opens and focuses a reply field inline without replacing the new-comment draft", async () => {
@@ -187,6 +217,48 @@ describe("CommentsPanel reply composer", () => {
       inlineReply!.compareDocumentPosition(newComment as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(inlineReply?.closest(".ml-12")).not.toBeNull();
+  });
+
+  it("inserts organization member mentions from autocomplete", async () => {
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(composer).not.toBeNull();
+
+    act(() => {
+      if (!composer) return;
+      setTextareaValue(composer, "Hi @");
+      composer.setSelectionRange(4, 4);
+      composer.dispatchEvent(
+        new KeyboardEvent("keyup", { bubbles: true, key: "@" }),
+      );
+    });
+
+    const option = document.body.querySelector<HTMLButtonElement>(
+      'button[role="option"]',
+    );
+    expect(option?.textContent).toContain("Member");
+
+    await act(async () => {
+      option?.click();
+      await Promise.resolve();
+    });
+
+    expect(composer?.value).toBe("Hi @Member ");
+    act(() =>
+      composer?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    act(() =>
+      container.querySelector<HTMLButtonElement>("button.size-8")?.click(),
+    );
+
+    expect(actionMocks.addComment).toHaveBeenCalledWith({
+      recordingId: "recording-1",
+      content: "Hi @Member",
+      videoTimestampMs: 34_000,
+      mentions: [{ email: "member@example.com", name: "Member" }],
+    });
   });
 
   it("submits the inline reply to the selected thread", async () => {
