@@ -156,6 +156,23 @@ export function validateGoogleCallbackVerificationWorkflow(
   return issues;
 }
 
+export function validateNetlifyApiRateLimitHandling(
+  workflow: string,
+): string[] {
+  const issues: string[] = [];
+  if (!workflow.includes("scripts/netlify-api-request.ts")) {
+    issues.push(
+      `${reusablePath} Netlify API calls must use the bounded rate-limit helper`,
+    );
+  }
+  if (workflow.includes("fetch(")) {
+    issues.push(
+      `${reusablePath} must not make raw Netlify fetch calls outside the rate-limit helper`,
+    );
+  }
+  return issues;
+}
+
 try {
   for (const [path, source] of [
     [reusablePath, reusable],
@@ -294,6 +311,7 @@ const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
 issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
+issues.push(...validateNetlifyApiRateLimitHandling(reusable));
 if (
   parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||
@@ -426,7 +444,7 @@ if (purgeStart < 0 || purgeEnd <= purgeStart) {
   const purge = reusable.slice(purgeStart, purgeEnd);
   if (
     !purge.includes('const api = "https://api.netlify.com/api/v1"') ||
-    !purge.includes("fetch(`${api}/purge`") ||
+    !purge.includes("requestNetlifyApi(`${api}/purge`") ||
     !purge.includes('method: "POST"') ||
     !purge.includes(
       "JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID })",
