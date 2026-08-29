@@ -7,6 +7,7 @@ import {
 import { IconCheck, IconPlugConnected } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { cn } from "../utils.js";
 import {
   useBuilderConnectCardController,
@@ -87,18 +88,37 @@ export function DefaultBuilderConnectCardView({
           ) : null}
           {action ? (
             <div className="mt-3">
-              <ActionButton
-                type="button"
-                intent="primary"
-                size="compact"
-                pending={action.pending}
-                disabled={action.disabled}
-                className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                leadingIcon={<IconPlugConnected className="size-3.5" />}
-                onPress={action.onPress}
-              >
-                {action.label}
-              </ActionButton>
+              {viewModel.connectFlow ? (
+                <BuilderConnectPopover
+                  flow={viewModel.connectFlow}
+                  onConnect={action.onPress}
+                >
+                  <ActionButton
+                    type="button"
+                    intent="primary"
+                    size="compact"
+                    pending={action.pending}
+                    disabled={action.disabled}
+                    className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    leadingIcon={<IconPlugConnected className="size-3.5" />}
+                  >
+                    {action.label}
+                  </ActionButton>
+                </BuilderConnectPopover>
+              ) : (
+                <ActionButton
+                  type="button"
+                  intent="primary"
+                  size="compact"
+                  pending={action.pending}
+                  disabled={action.disabled}
+                  className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  leadingIcon={<IconPlugConnected className="size-3.5" />}
+                  onPress={() => action.onPress()}
+                >
+                  {action.label}
+                </ActionButton>
+              )}
             </div>
           ) : null}
         </div>

@@ -65,10 +65,12 @@ describe("FirstRunOnboarding", () => {
     mocks.useOnboardingPreviewMode.mockReturnValue(false);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: false,
+      statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: false,
       error: null,
       start: vi.fn(),
+      retry: vi.fn(),
     });
     mocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: null, role: null },
@@ -183,15 +185,19 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("shows one-click account consent in a popover and its loading state when enabled", () => {
-    const start = vi.fn();
-    mocks.useBuilderConnectFlow.mockReturnValue({
+    const flow = {
       hasFetchedStatus: true,
+      statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
-      connecting: true,
+      connecting: false,
       error: null,
-      start,
+      start: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
     });
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
 
     act(() => {
       root.render(
@@ -256,16 +262,17 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[role="status"][aria-busy="true"]'),
     ).toBeTruthy();
-    expect(start).toHaveBeenCalledOnce();
+    expect(flow.start).toHaveBeenCalledOnce();
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
+      statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
-      connecting: true,
+      connecting: false,
       error: null,
       start,
     });
@@ -302,6 +309,75 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).toContain(
       "Connecting Builder.io free credits",
     );
+  });
+
+  it("offers login when provisioning finds an existing Builder account", () => {
+    const start = vi.fn();
+    const retry = vi.fn();
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+      connecting: false,
+      error: null,
+      retry,
+      start,
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-connect-builder"]')
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-and-activate"]')
+        ?.click();
+    });
+
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      ...flow,
+      accountExists: true,
+    });
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain(
+      "You already have a Builder.io account",
+    );
+    const logIn = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Log in",
+    );
+    expect(logIn).toBeTruthy();
+
+    act(() => logIn?.click());
+
+    expect(start).toHaveBeenLastCalledWith({
+      trackingSource: "first_run_onboarding",
+      trackingFlow: "connect_llm",
+      provisionAccount: false,
+    });
   });
 
   it("shows the searchable integration catalog and keeps onboarding open after connecting", async () => {
