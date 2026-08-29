@@ -20,6 +20,10 @@ const HOST_TIMEOUT_MS = 90_000;
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60_000;
 const HOST_CONCURRENCY = 12;
 const MAX_HEALTH_BYTES = 64 * 1024;
+const MAX_TRANSIENT_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = 1_000;
+const MAX_RETRY_DELAY_MS = 10_000;
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const CALLBACK_PATHS = {
   root: "/_agent-native/google/callback",
   // This callback is owned by the Slides template, not the framework fleet.
@@ -53,6 +57,9 @@ const SAFE_MANAGED_CONNECTIONS = new Set([
 ]);
 
 setDefaultResultOrder("ipv4first");
+
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 export type GoogleRedirectProbeState =
   | "registered"
@@ -336,6 +343,74 @@ function requestSignal(deadline: number): AbortSignal {
   );
 }
 
+function retryDelayMilliseconds(response: Response, attempt: number): number {
+  const retryAfter = response.headers.get("retry-after");
+  const seconds = retryAfter === null ? Number.NaN : Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(MAX_RETRY_DELAY_MS, seconds * 1000);
+  }
+
+  const retryAt = retryAfter === null ? Number.NaN : Date.parse(retryAfter);
+  if (Number.isFinite(retryAt)) {
+    return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, retryAt - Date.now()));
+  }
+
+  return Math.min(MAX_RETRY_DELAY_MS, RETRY_BACKOFF_MS * 2 ** attempt);
+}
+
+export async function fetchWithRetry(
+  input: string | URL,
+  init: RequestInit,
+  deadline: number,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_TRANSIENT_ATTEMPTS; attempt += 1) {
+    if (Date.now() >= deadline) {
+      throw new Error("Google probe request deadline exceeded.");
+    }
+    try {
+      const response = await fetch(input, {
+        ...init,
+        signal: requestSignal(deadline),
+      });
+      if (
+        !RETRYABLE_STATUSES.has(response.status) ||
+        attempt === MAX_TRANSIENT_ATTEMPTS - 1
+      ) {
+        return response;
+      }
+      const delay = Math.min(
+        retryDelayMilliseconds(response, attempt),
+        Math.max(0, deadline - Date.now()),
+      );
+      await response.body?.cancel().catch(() => undefined);
+      if (Date.now() >= deadline) return response;
+      console.warn(
+        `Google probe request returned HTTP ${response.status}; retrying in ${Math.ceil(delay / 1000)}s.`,
+      );
+      await sleep(delay);
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_TRANSIENT_ATTEMPTS - 1 || Date.now() >= deadline) {
+        throw error;
+      }
+      const delay = Math.min(
+        RETRY_BACKOFF_MS * 2 ** attempt,
+        MAX_RETRY_DELAY_MS,
+        Math.max(0, deadline - Date.now()),
+      );
+      if (delay <= 0) throw error;
+      console.warn(
+        `Google probe request failed transiently; retrying in ${Math.ceil(delay / 1000)}s.`,
+      );
+      await sleep(delay);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Google probe request exhausted its transient retries.");
+}
+
 async function probeRedirect(
   clientId: string,
   redirectUri: string,
@@ -350,10 +425,13 @@ async function probeRedirect(
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", "openid");
   try {
-    const response = await fetch(url, {
-      redirect: "manual",
-      signal: requestSignal(deadline),
-    });
+    const response = await fetchWithRetry(
+      url,
+      {
+        redirect: "manual",
+      },
+      deadline,
+    );
     try {
       return classifyGoogleAuthorizeResponse(response, redirectUri, url.href);
     } finally {
@@ -506,9 +584,10 @@ async function healthOf(
     return emptyHealth("unknown", "host probe budget exhausted");
   }
   try {
-    const response = await fetch(
+    const response = await fetchWithRetry(
       `https://${host}/_agent-native/health/google?client=managed`,
-      { redirect: "manual", signal: requestSignal(deadline) },
+      { redirect: "manual" },
+      deadline,
     );
     const bodyText = await readBoundedText(response, MAX_HEALTH_BYTES);
     if (bodyText === null) {
@@ -790,7 +869,17 @@ async function run(argv: string[]): Promise<number> {
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  run(process.argv.slice(2)).then((code) => {
-    process.exitCode = code;
-  });
+  run(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(
+        `Google redirect probe could not run: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      process.exitCode = 2;
+    },
+  );
 }
