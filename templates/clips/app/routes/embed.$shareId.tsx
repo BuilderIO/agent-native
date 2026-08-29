@@ -1,5 +1,6 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
@@ -9,7 +10,6 @@ import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { parseTimeParam, resolveStartMs } from "@/lib/time-param";
@@ -188,8 +188,8 @@ export default function EmbedRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
-        <Spinner className="h-8 w-8 text-white/70" />
+      <div className="fixed inset-0 bg-background text-foreground">
+        <DefaultSpinner />
       </div>
     );
   }

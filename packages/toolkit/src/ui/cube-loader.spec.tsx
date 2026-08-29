@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CubeLoader } from "./cube-loader.js";
+import { Spinner } from "./spinner.js";
 
 describe("CubeLoader", () => {
   let container: HTMLDivElement;
@@ -47,6 +48,25 @@ describe("CubeLoader", () => {
     expect(loader).toContain('role="status"');
     expect(loader).toContain('aria-label="Loading"');
     expect(loader).toContain('class="size-4"');
+  });
+
+  it("keeps aria-hidden loaders decorative", () => {
+    const loader = renderToStaticMarkup(
+      createElement(CubeLoader, { "aria-hidden": true }),
+    );
+
+    expect(loader).not.toContain("role=");
+    expect(loader).not.toContain("aria-label=");
+  });
+
+  it("uses the cube for the shared spinner primitive", () => {
+    const spinner = renderToStaticMarkup(
+      createElement(Spinner, { className: "size-8" }),
+    );
+
+    expect(spinner).toContain('data-agent-native-cube-loader="true"');
+    expect(spinner).toContain('class="size-8"');
+    expect(spinner).not.toContain("animate-spin");
   });
 
   it("anchors its cells to the page timeline when mounted again", () => {

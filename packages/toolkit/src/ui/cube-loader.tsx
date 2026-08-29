@@ -39,9 +39,13 @@ export function CubeLoader({
   ...props
 }: CubeLoaderProps) {
   const hasRole = Object.prototype.hasOwnProperty.call(props, "role");
+  const isAriaHidden =
+    props["aria-hidden"] === true || props["aria-hidden"] === "true";
   const hasExplicitSize =
     size !== undefined || width !== undefined || height !== undefined;
-  const ariaLabel = props["aria-label"] ?? (hasRole ? undefined : "Loading");
+  const ariaLabel =
+    props["aria-label"] ?? (hasRole || isAriaHidden ? undefined : "Loading");
+  const role = hasRole ? props.role : isAriaHidden ? undefined : "status";
   const setRefs = useCallback(
     (svg: SVGSVGElement | null) => setCubeAnimationPhase(svg, ref),
     [ref],
@@ -51,7 +55,7 @@ export function CubeLoader({
     <svg
       {...props}
       ref={setRefs}
-      role={hasRole ? props.role : "status"}
+      role={role}
       aria-label={ariaLabel}
       width={width ?? size ?? 24}
       height={height ?? size ?? 24}
