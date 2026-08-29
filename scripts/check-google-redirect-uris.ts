@@ -92,6 +92,14 @@ export type GoogleHealthResult = {
   callbackPaths: string[] | null;
 };
 
+export function isInconclusiveGoogleHealthStatus(
+  status: GoogleHealthStatus,
+): boolean {
+  return (
+    status === "unknown" || status === "absent" || status === "unconfigured"
+  );
+}
+
 export function googleRedirectProbeExitCode(input: {
   expected: number;
   unregistered: number;
@@ -785,6 +793,8 @@ async function run(argv: string[]): Promise<number> {
     HOST_CONCURRENCY,
     async (target) => {
       if (notApplicable.has(target.host)) {
+        // Managed Connect can be absent while identity sign-in remains live;
+        // only the explicit fleet manifest opts a host out of both checks.
         return {
           ...target,
           managedHealth: emptyHealth(
@@ -917,6 +927,7 @@ async function run(argv: string[]): Promise<number> {
       }
       if (health.status === "not_applicable") continue;
       if (health.status === "invalid") invalidCredentials += 1;
+      if (isInconclusiveGoogleHealthStatus(health.status)) unknown += 1;
       if (health.status === "invalid") {
         console.log(
           `FAIL\t${row.host}\t${client}\thealth\t${health.reason ?? "invalid"}`,

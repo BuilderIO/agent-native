@@ -9,6 +9,7 @@ import {
   fetchWithRetry,
   googleRedirectProbeExitCode,
   healthContractDisagreement,
+  isInconclusiveGoogleHealthStatus,
 } from "./check-google-redirect-uris.ts";
 
 const redirectUri =
@@ -92,6 +93,19 @@ test("does not treat separate client ids as a health-contract disagreement", () 
     }),
     "managed capability differs between health contracts",
   );
+});
+
+test("keeps an unknown health result inconclusive even with a client id", () => {
+  const result = classifyGoogleHealthResponse(
+    new Response(JSON.stringify({ status: "unknown", clientId: "client-id" }), {
+      status: 200,
+      headers: jsonHeaders,
+    }),
+    JSON.stringify({ status: "unknown", clientId: "client-id" }),
+  );
+  assert.equal(result.clientId, "client-id");
+  assert.equal(isInconclusiveGoogleHealthStatus(result.status), true);
+  assert.equal(isInconclusiveGoogleHealthStatus("valid"), false);
 });
 
 test("separates definitive mismatches from inconclusive probe failures", () => {
