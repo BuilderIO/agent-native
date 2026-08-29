@@ -364,6 +364,68 @@ describe("createTiptapComposerExtensions", () => {
     ).toBeNull();
   });
 
+  it("syncs identical text after switching draft scopes", async () => {
+    const runs: Array<ReadonlyArray<{ content?: unknown }>> = [];
+    const recordingAdapter: ChatModelAdapter = {
+      async *run({ messages }) {
+        runs.push(messages);
+      },
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ currentScope }: { currentScope: string }) {
+      const runtime = useLocalRuntime(recordingAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: currentScope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    const submit = async () => {
+      const editor = container.querySelector(
+        ".agent-composer-prosemirror",
+      ) as HTMLElement;
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("hello"));
+    await submit();
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("hello"));
+    await submit();
+
+    expect(runs).toHaveLength(2);
+    expect(runs[1]?.at(-1)?.content).toEqual([{ type: "text", text: "hello" }]);
+  });
+
   it.each([
     [
       "text",

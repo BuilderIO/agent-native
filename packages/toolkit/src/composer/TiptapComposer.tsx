@@ -3722,6 +3722,7 @@ export function TiptapComposer({
       setSlotReferences([]);
       setComposerMode(null);
       composerModeRef.current = null;
+      lastComposerRuntimeSyncRef.current = null;
       composerRuntime.setText("");
       void composerRuntime.clearAttachments().catch((error) => {
         onAttachmentErrorRef.current?.(
