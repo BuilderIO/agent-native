@@ -1826,7 +1826,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
 
                   <div className="shrink-0">
-                    <div className="px-3 py-2">
+                    <div className="px-3 py-2 empty:hidden">
                       <OrgSwitcher />
                     </div>
 
@@ -2256,7 +2256,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0">
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <OrgSwitcher />
             </div>
 
