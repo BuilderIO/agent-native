@@ -413,10 +413,12 @@ describe("sign-in matrix", () => {
     });
 
     it("surface 5/6: desktop detection does not change where the visitor lands", () => {
-      expect(isElectron("Mozilla/5.0 Electron/32.0 BuilderDesktop")).toBe(true);
+      const genericElectron = "Mozilla/5.0 Electron/32.0 BuilderDesktop";
+      expect(isElectron(genericElectron)).toBe(true);
+      expect(isAgentNativeDesktop(genericElectron)).toBe(false);
       expect(
         isAgentNativeDesktop(
-          "Mozilla/5.0 Electron/32.0 AgentNativeDesktop/1.2",
+          "Mozilla/5.0 Electron/32.0 agentnativedesktop/1.2",
         ),
       ).toBe(true);
       // Both desktop surfaces complete sign-in outside the web cookie jar, but

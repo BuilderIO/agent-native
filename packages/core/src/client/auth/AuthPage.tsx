@@ -80,6 +80,7 @@ type Notice = { kind: "error" | "success"; text: string } | null;
 type AuthRequestResult = {
   response: Response;
   data: Record<string, unknown>;
+  readable: boolean;
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -210,15 +211,17 @@ async function requestJson(
     ...init,
   });
   let data: Record<string, unknown> = {};
+  let readable = false;
   try {
     const parsed: unknown = await response.json();
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       data = parsed as Record<string, unknown>;
+      readable = true;
     }
   } catch {
     // coercion-ok: a non-JSON response still has a status the caller can inspect.
   }
-  return { response, data };
+  return { response, data, readable };
 }
 
 function generateAnonymousId(): string {
@@ -330,7 +333,7 @@ function isBuilderPreview(): boolean {
 export function isAgentNativeDesktop(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {
-  return userAgent.includes("AgentNativeDesktop");
+  return /AgentNativeDesktop/i.test(userAgent);
 }
 
 export function isElectron(
@@ -596,6 +599,9 @@ export function AuthPage(props: AuthPageProps) {
   const oauthPopupTimer = React.useRef<number | null>(null);
   const oauthPopupGraceTimer = React.useRef<number | null>(null);
   const oauthFlowId = React.useRef<string | null>(null);
+  const nativeOAuthFlowId = React.useRef<string | null>(null);
+  const nativeOAuthRequestPending = React.useRef(false);
+  const nativeOAuthAbandonTimer = React.useRef<number | null>(null);
   const verificationCheckInFlight = React.useRef(false);
   const verifiedReturnHandled = React.useRef(false);
 
@@ -757,19 +763,29 @@ export function AuthPage(props: AuthPageProps) {
 
   React.useEffect(() => {
     const probe = async () => {
-      try {
-        const { response, data } = await requestJson(
-          apiPath("/_agent-native/auth/session"),
-          {
-            headers: { Accept: "application/json" },
-            cache: "no-store",
-          },
-        );
-        if (response.ok && typeof data.email === "string" && !data.error) {
-          redirectToSignedInApp();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        let retry = false;
+        try {
+          const { response, data, readable } = await requestJson(
+            apiPath("/_agent-native/auth/session"),
+            {
+              headers: { Accept: "application/json" },
+              cache: "no-store",
+            },
+          );
+          if (response.ok && typeof data.email === "string" && !data.error) {
+            redirectToSignedInApp();
+            return;
+          }
+          retry =
+            !readable || response.status === 429 || response.status >= 500;
+        } catch {
+          retry = true;
         }
-      } catch {
-        // coercion-ok: an unavailable session probe leaves manual sign-in usable.
+        if (!retry || attempt === 2) return;
+        await new Promise<void>((resolve) =>
+          window.setTimeout(resolve, 250 * (attempt + 1)),
+        );
       }
     };
     void probe();
@@ -901,12 +917,13 @@ export function AuthPage(props: AuthPageProps) {
   }, []);
 
   React.useEffect(() => {
-    if (!localDevAllowed) return;
     if (window.parent !== window) return;
     try {
-      const forceUrl = new URL(window.location.href);
-      if (forceUrl.searchParams.get(props.betaForceQueryParam) === "true") {
-        window.sessionStorage.setItem(props.betaForceSessionStorageKey, "1");
+      if (localDevAllowed) {
+        const forceUrl = new URL(window.location.href);
+        if (forceUrl.searchParams.get(props.betaForceQueryParam) === "true") {
+          window.sessionStorage.setItem(props.betaForceSessionStorageKey, "1");
+        }
       }
       const optOutUrl = new URL(window.location.href);
       const optOutValue = optOutUrl.searchParams.get(
@@ -972,11 +989,66 @@ export function AuthPage(props: AuthPageProps) {
     oauthPollInFlight.current = false;
   }, []);
 
+  const clearNativeOAuthRecovery = React.useCallback(() => {
+    if (nativeOAuthAbandonTimer.current !== null) {
+      window.clearTimeout(nativeOAuthAbandonTimer.current);
+      nativeOAuthAbandonTimer.current = null;
+    }
+  }, []);
+
+  const stopNativeOAuth = React.useCallback(() => {
+    clearNativeOAuthRecovery();
+    nativeOAuthFlowId.current = null;
+    nativeOAuthRequestPending.current = false;
+  }, [clearNativeOAuthRecovery]);
+
   React.useEffect(() => stopOAuthPolling, [stopOAuthPolling]);
+
+  React.useEffect(() => {
+    if (!isAgentNativeDesktop()) return;
+    const recoverAfterReturn = () => {
+      const flowId = nativeOAuthFlowId.current;
+      if (
+        !flowId ||
+        nativeOAuthRequestPending.current ||
+        oauthPollTimer.current === null
+      ) {
+        return;
+      }
+      clearNativeOAuthRecovery();
+      nativeOAuthAbandonTimer.current = window.setTimeout(() => {
+        nativeOAuthAbandonTimer.current = null;
+        if (
+          flowId !== nativeOAuthFlowId.current ||
+          nativeOAuthRequestPending.current ||
+          oauthPollTimer.current === null
+        ) {
+          return;
+        }
+        stopOAuthPolling();
+        nativeOAuthFlowId.current = null;
+        nativeOAuthRequestPending.current = false;
+        setGoogleBusy(false);
+      }, 5000);
+    };
+    const clearRecoveryWhileHidden = () => clearNativeOAuthRecovery();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") recoverAfterReturn();
+      else clearRecoveryWhileHidden();
+    };
+    window.addEventListener("focus", recoverAfterReturn);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", recoverAfterReturn);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearNativeOAuthRecovery();
+    };
+  }, [clearNativeOAuthRecovery, stopOAuthPolling]);
 
   const finishOAuthExchange = React.useCallback(
     (target: string, sessionToken?: string) => {
       stopOAuthPolling();
+      stopNativeOAuth();
       setGoogleBusy(false);
       setMagicLinkBusy(false);
       if (isBuilderPreview() && sessionToken) {
@@ -991,7 +1063,7 @@ export function AuthPage(props: AuthPageProps) {
       }
       redirectToSignedInApp(target);
     },
-    [redirectToSignedInApp, stopOAuthPolling],
+    [redirectToSignedInApp, stopNativeOAuth, stopOAuthPolling],
   );
 
   const startOAuthExchange = React.useCallback(
@@ -1028,6 +1100,7 @@ export function AuthPage(props: AuthPageProps) {
           }
           if (data.error) {
             stopOAuthPolling();
+            stopNativeOAuth();
             setGoogleBusy(false);
             setMagicLinkBusy(false);
             if (kind === "magic-link") setView("magicLink");
@@ -1049,6 +1122,7 @@ export function AuthPage(props: AuthPageProps) {
         }
         if (Date.now() - startedAt > 5 * 60 * 1000) {
           stopOAuthPolling();
+          stopNativeOAuth();
           setGoogleBusy(false);
           setMagicLinkBusy(false);
           if (kind === "magic-link") setView("magicLink");
@@ -1108,12 +1182,19 @@ export function AuthPage(props: AuthPageProps) {
                   text: t("googlePopupHelp"),
                 });
               });
-          }, 1200);
+          }, 5000);
         }, 500);
       }
       window.setTimeout(() => void check(), 500);
     },
-    [apiPath, finishOAuthExchange, setNotice, stopOAuthPolling, t],
+    [
+      apiPath,
+      finishOAuthExchange,
+      setNotice,
+      stopNativeOAuth,
+      stopOAuthPolling,
+      t,
+    ],
   );
 
   const resolveGoogleFlow = React.useCallback(() => {
@@ -1126,7 +1207,7 @@ export function AuthPage(props: AuthPageProps) {
     if (googleAuthMode === "popup" || googleAuthMode === "redirect") {
       return googleAuthMode;
     }
-    return isAgentNativeDesktop() || isElectron() ? "redirect" : "popup";
+    return isAgentNativeDesktop() ? "redirect" : "popup";
   }, [googleAuthMode]);
 
   const googleAuthUrlPath = React.useCallback(() => {
@@ -1159,8 +1240,16 @@ export function AuthPage(props: AuthPageProps) {
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
+    const nativeDesktop = flow === "redirect" && isAgentNativeDesktop();
+    if (nativeDesktop) {
+      stopNativeOAuth();
+      nativeOAuthFlowId.current = flowId;
+      nativeOAuthRequestPending.current = true;
+    } else {
+      stopNativeOAuth();
+    }
     const authUrl = googleAuthUrlPath();
-    if (flow === "redirect" && !isAgentNativeDesktop()) {
+    if (flow === "redirect" && !nativeDesktop) {
       const params = new URLSearchParams({
         return: oauthTarget,
         redirect: "1",
@@ -1170,15 +1259,25 @@ export function AuthPage(props: AuthPageProps) {
     }
     const verifier = createVerifier();
     if (!verifier) {
+      stopNativeOAuth();
       setGoogleBusy(false);
       setNotice("google", { kind: "error", text: t("failedToConnect") });
       return;
     }
     let popup: Window | null = null;
     if (flow === "popup") {
+      const builderPreviewFrame = isBuilderPreview() && isInFrame();
       try {
         popup = window.open("", "_blank", "width=640,height=760");
         if (!popup) {
+          if (builderPreviewFrame) {
+            setGoogleBusy(false);
+            setNotice("google", {
+              kind: "error",
+              text: t("googlePopupHelp"),
+            });
+            return;
+          }
           const params = new URLSearchParams({
             return: oauthTarget,
             redirect: "1",
@@ -1192,6 +1291,14 @@ export function AuthPage(props: AuthPageProps) {
           // coercion-ok: some browsers expose popup.opener as read-only.
         }
       } catch {
+        if (builderPreviewFrame) {
+          setGoogleBusy(false);
+          setNotice("google", {
+            kind: "error",
+            text: t("googlePopupHelp"),
+          });
+          return;
+        }
         const params = new URLSearchParams({
           return: oauthTarget,
           redirect: "1",
@@ -1219,18 +1326,20 @@ export function AuthPage(props: AuthPageProps) {
       if (!response.ok || typeof data.url !== "string" || !data.url) {
         throw new Error(authErrorText(data, t("failedToConnect")));
       }
+      if (nativeDesktop) nativeOAuthRequestPending.current = false;
+      startOAuthExchange(flowId, target, verifier, "google", popup);
       if (popup) {
         popup.location.href = data.url;
       } else {
         window.location.href = data.url;
       }
-      startOAuthExchange(flowId, target, verifier, "google", popup);
     } catch (error) {
       try {
         popup?.close();
       } catch {
         // Ignore a popup that has already closed.
       }
+      stopNativeOAuth();
       setGoogleBusy(false);
       setNotice("google", {
         kind: "error",
@@ -1244,6 +1353,7 @@ export function AuthPage(props: AuthPageProps) {
     resumeHref,
     showGoogle,
     startOAuthExchange,
+    stopNativeOAuth,
     stopOAuthPolling,
     t,
     trackingApp,

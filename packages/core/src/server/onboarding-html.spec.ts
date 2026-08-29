@@ -246,6 +246,20 @@ describe("getOnboardingHtml", () => {
     expect(cachedHtml).toContain('src="/assets/auth-client.js"');
   });
 
+  it("derives the workspace mount for the reset page asset", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+
+    const resetHtml = getResetPasswordHtml(
+      "/dispatch/_agent-native/auth/reset?token=reset-token",
+    );
+
+    expect(readAuthPageData(resetHtml).appBasePath).toBe("/dispatch");
+    expect(resetHtml).toContain('src="/dispatch/assets/auth-client.js"');
+    expect(resetHtml).toContain('href="/dispatch/favicon.svg"');
+  });
+
   it("validates email/password auth emails before submitting forms", () => {
     const html = getOnboardingHtml();
 

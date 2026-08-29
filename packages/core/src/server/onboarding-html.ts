@@ -111,11 +111,9 @@ function workspaceBasePathFromRequest(requestPath: string | undefined): string {
   return normalizeAppBasePath(`/${firstSegment}`);
 }
 
-function withAppBasePath(path: string): string {
+function withAppBasePath(path: string, explicitBasePath?: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const basePath = normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  const basePath = explicitBasePath ?? getAppBasePathFromViteEnv();
   return `${basePath}${cleanPath}`;
 }
 
@@ -2236,8 +2234,10 @@ const RESET_PASSWORD_STYLES = `
 `;
 
 /** React document for the password reset page linked from auth email. */
-export function getResetPasswordHtml(): string {
-  const appBasePath = getAppBasePathFromViteEnv();
+export function getResetPasswordHtml(requestPath?: string): string {
+  const configuredAppBasePath = getAppBasePathFromViteEnv();
+  const appBasePath =
+    configuredAppBasePath || workspaceBasePathFromRequest(requestPath);
   const resetPageProps = {
     pageType: "reset-password" as const,
     appBasePath,
@@ -2261,11 +2261,11 @@ export function getResetPasswordHtml(): string {
         createElement("link", {
           rel: "icon",
           type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg"),
+          href: withAppBasePath("/favicon.svg", appBasePath),
         }),
         createElement("link", {
           rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg"),
+          href: withAppBasePath("/icon-180.svg", appBasePath),
         }),
         createElement("style", {
           dangerouslySetInnerHTML: { __html: RESET_PASSWORD_STYLES },
