@@ -51,6 +51,14 @@ function mockAnthropicProvider() {
   return { createAnthropic, provider, anthropicModel };
 }
 
+function makeTool(name: string) {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object" as const, properties: {} },
+  };
+}
+
 describe("AISDKEngine Anthropic thinking-budget headroom", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -599,6 +607,30 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(engine.preserveCustomModels).toBe(true);
     expect(provider).toHaveBeenCalledWith("z-ai/glm-5.3-flash");
     expect(streamText).toHaveBeenCalled();
+  });
+
+  it("caps AI SDK provider tools at 128 and keeps tool-search", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    const tools = Array.from({ length: 129 }, (_, index) =>
+      makeTool(index === 128 ? "tool-search" : `tool-${index}`),
+    );
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools,
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    const toolNames = Object.keys(call.tools);
+    expect(toolNames).toHaveLength(128);
+    expect(toolNames).toContain("tool-search");
+    expect(toolNames).not.toContain("tool-127");
   });
 
   // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
