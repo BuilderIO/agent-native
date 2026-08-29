@@ -138,9 +138,8 @@ export function Sidebar() {
           data-sidebar-brand-toggle
         >
           <AgentNativeIcon
-            size={28}
             aria-hidden="true"
-            className="h-4 w-7 shrink-0 text-black dark:text-white"
+            className="h-3.5 w-6 shrink-0 text-sidebar-foreground"
           />
           {!collapsed && (
             <span className="text-sm font-semibold tracking-tight">
