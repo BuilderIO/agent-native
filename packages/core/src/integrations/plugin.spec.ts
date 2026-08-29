@@ -667,6 +667,48 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("serializes concurrent Google Docs enable and disable transitions", async () => {
+    getSessionMock.mockResolvedValue({ email: "owner@example.test" });
+    let resolveStart!: () => void;
+    const startPending = new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    });
+    startGoogleDocsPollerMock.mockReturnValueOnce(startPending);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const enablePromise = dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/enable",
+      "POST",
+    );
+    await vi.waitFor(() =>
+      expect(startGoogleDocsPollerMock).toHaveBeenCalledTimes(1),
+    );
+
+    const disablePromise = dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/disable",
+      "POST",
+    );
+    await vi.waitFor(() =>
+      expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+        "google-docs",
+        { enabled: false },
+        "default",
+        "owner@example.test",
+      ),
+    );
+    expect(stopGoogleDocsPollerMock).not.toHaveBeenCalled();
+
+    resolveStart();
+    await expect(enablePromise).resolves.toMatchObject({ status: 200 });
+    await expect(disablePromise).resolves.toMatchObject({ status: 200 });
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledTimes(1);
+  });
+
   it("registers the Telegram webhook and returns the provider result", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>

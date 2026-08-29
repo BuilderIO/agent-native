@@ -883,6 +883,23 @@ export function createIntegrationsPlugin(
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+    let googleDocsPollerTransition: Promise<void> = Promise.resolve();
+    const runGoogleDocsPollerTransition = (
+      operation: () => Promise<void>,
+    ): Promise<void> => {
+      const previous = googleDocsPollerTransition;
+      let release!: () => void;
+      googleDocsPollerTransition = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return previous.then(async () => {
+        try {
+          await operation();
+        } finally {
+          release();
+        }
+      });
+    };
     const createGoogleDocsPollerOptions = (event?: any) => {
       const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
       const baseUrl =
@@ -3442,7 +3459,9 @@ export function createIntegrationsPlugin(
             session?.email,
           );
           if (platform === "google-docs") {
-            void startGoogleDocsPoller(createGoogleDocsPollerOptions(event));
+            await runGoogleDocsPollerTransition(() =>
+              startGoogleDocsPoller(createGoogleDocsPollerOptions(event)),
+            );
           }
           return { ok: true, platform, enabled: true };
         }
@@ -3459,7 +3478,7 @@ export function createIntegrationsPlugin(
             session?.email,
           );
           if (platform === "google-docs") {
-            await stopGoogleDocsPoller();
+            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
           }
           return { ok: true, platform, enabled: false };
         }
@@ -3567,7 +3586,9 @@ export function createIntegrationsPlugin(
           // resolved. We pass it as a special option; the poller will attempt
           // to register a watch when the first request reveals the base URL,
           // or use the WEBHOOK_BASE_URL env var if set.
-          void startGoogleDocsPoller(createGoogleDocsPollerOptions());
+          void runGoogleDocsPollerTransition(() =>
+            startGoogleDocsPoller(createGoogleDocsPollerOptions()),
+          );
         }, 2000);
       }
     }
