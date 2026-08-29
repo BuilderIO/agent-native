@@ -1419,7 +1419,6 @@ export class RecorderEngine {
     }
 
     let result: Record<string, unknown> | undefined;
-    let completed = false;
     try {
       if (
         COMPRESSION_ENABLED &&
@@ -1463,7 +1462,6 @@ export class RecorderEngine {
         });
       }
       this.transition("complete");
-      completed = true;
     } catch (err) {
       // Reachable from compressAndReupload (compression failure, OOM,
       // reset-chunks failure, hard-cap exceeded, abort) and from the
@@ -1479,14 +1477,7 @@ export class RecorderEngine {
     } finally {
       // Always release hardware resources, even if the final upload failed.
       this.cleanupTracks();
-      // Keep the in-memory chunks after an upload failure so the error screen
-      // can retry the upload without making the user re-record. They are
-      // dropped on success or when cancel/restart runs.
-      if (completed) {
-        this.localChunks = [];
-        this.lastFinalizeMeta = null;
-        this.clearRecordingBackup();
-      }
+      this.clearRecordingDataIfReady(result);
     }
 
     return this.toFinalizeResult(result, finalizeMeta);
@@ -1505,11 +1496,9 @@ export class RecorderEngine {
     this.uploadAbort = new AbortController();
 
     let result: Record<string, unknown> | undefined;
-    let completed = false;
     try {
       result = await this.uploadBufferedChunks(meta, this.uploadAbort.signal);
       this.transition("complete");
-      completed = true;
       return this.toFinalizeResult(result, meta);
     } catch (err) {
       const e = err instanceof Error ? err : new Error(errorMessage(err));
@@ -1519,12 +1508,17 @@ export class RecorderEngine {
       this.transition("error", { message: e.message });
       throw e;
     } finally {
-      if (completed) {
-        this.localChunks = [];
-        this.lastFinalizeMeta = null;
-        this.clearRecordingBackup();
-      }
+      this.clearRecordingDataIfReady(result);
     }
+  }
+
+  private clearRecordingDataIfReady(
+    result: Record<string, unknown> | undefined,
+  ): void {
+    if (result?.status !== "ready") return;
+    this.localChunks = [];
+    this.lastFinalizeMeta = null;
+    this.clearRecordingBackup();
   }
 
   private toFinalizeResult(
