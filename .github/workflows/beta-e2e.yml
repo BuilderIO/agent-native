@@ -376,7 +376,7 @@ jobs:
         id: signup
         run: pnpm e2e:signup
       - name: Page signup health on-call
-        if: ${{ steps.signup.outcome == 'failure' }}
+        if: ${{ failure() && steps.signup.outcome == 'failure' }}
         run: |
           set -euo pipefail
           if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
