@@ -5109,8 +5109,10 @@ describe("server/auth", () => {
 
       const response = await baHandler(event);
 
-      expect(response.headers.get("location")).toBe(
-        "/_agent-native/sign-in#done",
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(await response.text()).toContain(
+        'location.replace("/_agent-native/sign-in#done")',
       );
       expect(acceptPendingInvitationsForEmail).toHaveBeenCalledWith(
         "invited@example.com",
@@ -5786,6 +5788,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -5826,6 +5829,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -5867,6 +5871,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -5908,6 +5913,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -5956,6 +5962,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -5980,6 +5987,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6005,6 +6013,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6030,6 +6039,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6087,6 +6097,85 @@ describe("server/auth", () => {
       });
     });
 
+    it("passes Cookie from getHeader into Better Auth, not event.headers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const getSessionApi = vi.fn(async ({ headers }: { headers: Headers }) => {
+        expect(headers.get("cookie")).toContain(
+          "__Secure-an.session_token=ba_cookie_token",
+        );
+        expect(headers.get("authorization")).toBeNull();
+        return {
+          user: {
+            id: "ba-user",
+            email: "ba@example.com",
+            name: "BA User",
+          },
+          session: { token: "ba_cookie_token" },
+        };
+      });
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => ({
+          api: { getSession: getSessionApi },
+        }),
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie:
+            "__Secure-an.session_token=ba_cookie_token; __Secure-an.session_data=cache",
+        },
+      });
+      event.headers = new Headers();
+
+      await expect(getSession(event)).resolves.toMatchObject({
+        email: "ba@example.com",
+        userId: "ba-user",
+        token: "ba_cookie_token",
+      });
+      expect(getSessionApi).toHaveBeenCalledOnce();
+    });
+
+    it("initializes Better Auth when the sync instance is not ready", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const getSessionApi = vi.fn(async () => ({
+        user: {
+          id: "cold-user",
+          email: "cold@example.com",
+        },
+        session: { token: "cold-session" },
+      }));
+      const getBetterAuth = vi.fn(async () => ({
+        api: { getSession: getSessionApi },
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth,
+        getBetterAuthSync: () => undefined,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: { cookie: "__Secure-an.session_token=cold-session" },
+      });
+
+      await expect(getSession(event)).resolves.toMatchObject({
+        email: "cold@example.com",
+        userId: "cold-user",
+        token: "cold-session",
+      });
+      expect(getBetterAuth).toHaveBeenCalledOnce();
+    });
+
     it("prefers custom getSession over AUTH_DISABLED", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
@@ -6121,6 +6210,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6201,6 +6291,7 @@ describe("server/auth", () => {
       // chain so the negative path can't depend on its DB adapter.
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6250,6 +6341,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6295,6 +6387,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 
@@ -6437,6 +6530,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
         ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
         getBetterAuthSync: () => null,
       }));
 

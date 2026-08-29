@@ -1143,11 +1143,56 @@ async function emailFromVerificationResponseSession(
   return emailFromBetterAuthSessionToken(sessionToken);
 }
 
+function decodeSessionCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Better Auth's getSession reads `headers.get("cookie")`. h3's `event.headers`
+ * is not always a WHATWG Headers with Cookie populated — getHeader() is.
+ */
+function betterAuthRequestHeaders(event: H3Event): Headers {
+  const headers = new Headers();
+  const cookie = getHeader(event, "cookie");
+  if (cookie) headers.set("cookie", cookie);
+  const authorization = getHeader(event, "authorization");
+  if (authorization) headers.set("authorization", authorization);
+  return headers;
+}
+
+function withStagedCookies(event: H3Event, response: Response): Response {
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  if (staged.length === 0) return response;
+  const headers = new Headers();
+  for (const [key, value] of response.headers.entries()) {
+    if (key.toLowerCase() === "set-cookie") continue;
+    headers.append(key, value);
+  }
+  for (const cookie of getSetCookieHeaders(response.headers)) {
+    headers.append("set-cookie", cookie);
+  }
+  for (const cookie of staged) headers.append("set-cookie", cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function persistMagicLinkLegacySession(
+  event: H3Event,
   response: Response,
 ): Promise<void> {
-  const token = extractSessionTokenFromAuthResponse(response);
-  if (!token) return;
+  const rawToken = extractSessionTokenFromAuthResponse(response);
+  if (!rawToken) return;
+  const token = decodeSessionCookieValue(rawToken);
+  if (!setCookieNames(response.headers).includes(COOKIE_NAME)) {
+    setFrameworkSessionCookie(event, token);
+  }
   const email = await emailFromBetterAuthSessionToken(token);
   if (!email) return;
   try {
@@ -3973,10 +4018,10 @@ async function resolveSessionUncached(
 
     // 5. Better Auth session (cookie or Bearer token)
     try {
-      const ba = getBetterAuthSync();
+      const ba = getBetterAuthSync() ?? (await getBetterAuth());
       if (ba) {
         const baSession = await ba.api.getSession({
-          headers: event.headers,
+          headers: betterAuthRequestHeaders(event),
         });
         if (baSession?.user?.email) {
           return mapBetterAuthSession(baSession);
@@ -5457,7 +5502,8 @@ async function mountBetterAuthRoutes(
               authRequest,
               response as Response,
             );
-            await persistMagicLinkLegacySession(response as Response);
+            await persistMagicLinkLegacySession(event, response as Response);
+            response = withStagedCookies(event, response as Response);
           }
         }
       }
