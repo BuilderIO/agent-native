@@ -1,11 +1,13 @@
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
   IconCheck,
   IconExternalLink,
+  IconHelpCircle,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -52,6 +54,9 @@ interface PlatformVariant {
 
 const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
 const MANIFEST_STORAGE_KEY = "clips-download-manifest-v1";
+const CHROME_EXTENSION_DOCS_URL = docsUrl("template-clips-capture-everywhere", {
+  hash: "browser-logs-with-the-chrome-extension",
+});
 
 const VARIANTS: PlatformVariant[] = [
   {
@@ -475,7 +480,20 @@ export default function DownloadPage() {
                   <h2 className="text-sm font-semibold text-foreground">
                     {t("downloadRoute.chromeTitle")}
                   </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("captureInstall.chromeDescription")}
+                  </p>
                 </div>
+                <a
+                  href={CHROME_EXTENSION_DOCS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={t("downloadRoute.chromeTitle")}
+                  title={t("downloadRoute.chromeTitle")}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <IconHelpCircle className="size-3" aria-hidden="true" />
+                </a>
               </div>
               <Button
                 asChild={Boolean(clipsChromeExtensionUrl)}
