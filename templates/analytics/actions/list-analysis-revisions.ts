@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { listAnalysisRevisions } from "../server/lib/dashboards-store";
+import { listAnalysisRevisionMetadata } from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -22,7 +22,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {
-    const revisions = await listAnalysisRevisions(
+    const revisions = await listAnalysisRevisionMetadata(
       args.analysisId,
       resolveScope(),
     );

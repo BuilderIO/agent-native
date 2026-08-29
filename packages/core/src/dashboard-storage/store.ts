@@ -37,6 +37,9 @@ export interface DashboardRevisionRecord<
   createdBy: string | null;
 }
 
+export type DashboardRevisionMetadataRecord<TKind extends string = string> =
+  Omit<DashboardRevisionRecord<TKind>, "config">;
+
 export interface DashboardWriteInput<
   TKind extends string = string,
   TConfig = Record<string, unknown>,
@@ -126,6 +129,19 @@ export function createDashboardStorage<
       kind: row.kind as TKind,
       title: row.title,
       config: parseConfig(row.config),
+      createdAt: row.createdAt,
+      createdBy: row.createdBy ?? null,
+    };
+  }
+
+  function revisionMetadataFromRow(
+    row: any,
+  ): DashboardRevisionMetadataRecord<TKind> {
+    return {
+      id: row.id,
+      dashboardId: row.dashboardId,
+      kind: row.kind as TKind,
+      title: row.title,
       createdAt: row.createdAt,
       createdBy: row.createdBy ?? null,
     };
@@ -286,6 +302,27 @@ export function createDashboardStorage<
     return rows.map(revisionFromRow);
   }
 
+  async function listRevisionMetadata(id: string, ctx: AccessContext) {
+    const dashboard = await get(id, ctx);
+    if (!dashboard) return [];
+    await assertAccess(options.resourceType, id, "viewer", ctx);
+    const rows = await options
+      .getDb()
+      .select({
+        id: dashboardRevisions.id,
+        dashboardId: dashboardRevisions.dashboardId,
+        kind: dashboardRevisions.kind,
+        title: dashboardRevisions.title,
+        createdAt: dashboardRevisions.createdAt,
+        createdBy: dashboardRevisions.createdBy,
+      })
+      .from(dashboardRevisions)
+      .where(eq(dashboardRevisions.dashboardId, id))
+      .orderBy(desc(dashboardRevisions.createdAt))
+      .limit(maxRevisions);
+    return rows.map(revisionMetadataFromRow);
+  }
+
   async function createRevisionSnapshot(id: string, ctx: AccessContext) {
     const dashboard = await get(id, ctx);
     if (!dashboard) return null;
@@ -345,6 +382,7 @@ export function createDashboardStorage<
     list,
     write,
     listRevisions,
+    listRevisionMetadata,
     createRevisionSnapshot,
     restore,
     registerShareable,

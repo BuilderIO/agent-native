@@ -37,6 +37,18 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("persists the resource scope used by the chat turn", () => {
+    const message = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Saved." } }],
+      "run-scoped",
+      { scope: { type: "deck", id: "deck-1" } },
+    );
+
+    expect(message?.metadata).toMatchObject({
+      custom: { chatScope: { type: "deck", id: "deck-1" } },
+    });
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
     // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
     // call that already ran in an interrupted chunk. The live client coalesces

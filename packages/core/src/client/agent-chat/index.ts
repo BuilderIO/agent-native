@@ -164,6 +164,7 @@ export {
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryConfig,
   type AssistantChatHistoryMessage,
+  type AssistantChatHistoryScope,
   type AssistantChatHistoryVersion,
 } from "../chat/message-components.js";
 export {

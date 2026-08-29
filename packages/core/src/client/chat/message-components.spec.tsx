@@ -140,6 +140,21 @@ describe("assistant chat history matching", () => {
       )?.id,
     ).toBe("selected");
   });
+
+  it("rejects a checkpoint from a different scoped resource", () => {
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [{ id: "checkpoint", createdAt: "2026-08-29T10:00:00.000Z" }],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          hasCompletedSideEffect: true,
+          scope: { type: "deck", id: "other-deck" },
+        },
+        { scope: { type: "deck", id: "current-deck" } },
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("assistantMessageHasCompletedSideEffect", () => {

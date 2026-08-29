@@ -4,10 +4,11 @@ import {
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
+import * as schema from "../db/schema.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -28,6 +29,39 @@ const DOCUMENT_EDIT_TOOLS = new Set([
   "restore-document-version",
   "update-document",
 ]);
+const CHAT_VERSION_LIMIT = 100;
+
+async function pruneDocumentVersions(
+  db: ReturnType<typeof import("../db/index.js").getDb>,
+  documentId: string,
+  ownerEmail: string,
+): Promise<void> {
+  const keep = await db
+    .select({ id: schema.documentVersions.id })
+    .from(schema.documentVersions)
+    .where(
+      and(
+        eq(schema.documentVersions.documentId, documentId),
+        eq(schema.documentVersions.ownerEmail, ownerEmail),
+      ),
+    )
+    .orderBy(
+      desc(schema.documentVersions.createdAt),
+      desc(schema.documentVersions.id),
+    )
+    .limit(CHAT_VERSION_LIMIT);
+  if (keep.length < CHAT_VERSION_LIMIT) return;
+  await db.delete(schema.documentVersions).where(
+    and(
+      eq(schema.documentVersions.documentId, documentId),
+      eq(schema.documentVersions.ownerEmail, ownerEmail),
+      notInArray(
+        schema.documentVersions.id,
+        keep.map((version) => version.id),
+      ),
+    ),
+  );
+}
 
 function hasDocumentEdit(run: { events: readonly unknown[] }): boolean {
   return run.events.some((entry) => {
@@ -85,6 +119,7 @@ async function autosaveDocumentAfterAgentTurn(
     content: document.content,
     createdAt: new Date().toISOString(),
   });
+  await pruneDocumentVersions(db, scope.id, document.ownerEmail);
 }
 
 export default createAgentChatPlugin({

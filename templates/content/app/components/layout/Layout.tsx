@@ -104,7 +104,7 @@ export function Layout({ children }: LayoutProps) {
     return {
       list: {
         action: "list-document-versions",
-        args: { documentId, includeContent: false },
+        args: { documentId, includeContent: false, limit: 100 },
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"

@@ -3063,6 +3063,7 @@ const AssistantChatInner = forwardRef<
                 message,
                 {
                   isEditable: chatHistory.isEditable,
+                  scope: chatHistory.scope ?? contextScope ?? undefined,
                   matchVersion: chatHistory.matchVersion,
                 },
               ),

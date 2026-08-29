@@ -133,6 +133,8 @@ export interface DashboardRevisionRecord {
   createdBy: string | null;
 }
 
+export type DashboardRevisionMetadata = Omit<DashboardRevisionRecord, "config">;
+
 export type DashboardArchiveFilter = "active" | "archived" | "all";
 export type DashboardHiddenFilter = "visible" | "hidden" | "all";
 
@@ -522,6 +524,17 @@ function rowToDashboardRevision(row: any): DashboardRevisionRecord {
     title: row.title,
     config:
       typeof row.config === "string" ? JSON.parse(row.config) : row.config,
+    createdAt: row.createdAt,
+    createdBy: row.createdBy ?? null,
+  };
+}
+
+function rowToDashboardRevisionMetadata(row: any): DashboardRevisionMetadata {
+  return {
+    id: row.id,
+    dashboardId: row.dashboardId,
+    kind: row.kind,
+    title: row.title,
     createdAt: row.createdAt,
     createdBy: row.createdBy ?? null,
   };
@@ -1707,6 +1720,33 @@ export async function listDashboardRevisions(
   return rows.map(rowToDashboardRevision);
 }
 
+export async function listDashboardRevisionMetadata(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<DashboardRevisionMetadata[]> {
+  const existing = await getDashboard(dashboardId, ctx);
+  if (!existing) return [];
+  await assertAccess("dashboard", dashboardId, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      id: schema.dashboardRevisions.id,
+      dashboardId: schema.dashboardRevisions.dashboardId,
+      kind: schema.dashboardRevisions.kind,
+      title: schema.dashboardRevisions.title,
+      createdAt: schema.dashboardRevisions.createdAt,
+      createdBy: schema.dashboardRevisions.createdBy,
+    })
+    .from(schema.dashboardRevisions)
+    .where(eq(schema.dashboardRevisions.dashboardId, dashboardId))
+    .orderBy(desc(schema.dashboardRevisions.createdAt))
+    .limit(DASHBOARD_REVISION_LIMIT);
+  return rows.map(rowToDashboardRevisionMetadata);
+}
+
 export async function restoreDashboardRevision(
   dashboardId: string,
   revisionId: string,
@@ -2588,6 +2628,38 @@ export async function listAnalysisRevisions(
     .orderBy(desc(schema.analysisRevisions.createdAt))
     .limit(ANALYSIS_REVISION_LIMIT);
   return rows.map(rowToAnalysisRevision);
+}
+
+export async function listAnalysisRevisionMetadata(
+  analysisId: string,
+  ctx: AccessCtx,
+): Promise<
+  Pick<
+    AnalysisRevisionRecord,
+    "id" | "analysisId" | "name" | "description" | "createdAt" | "createdBy"
+  >[]
+> {
+  const existing = await getAnalysis(analysisId, ctx);
+  if (!existing) return [];
+  await assertAccess("analysis", analysisId, "viewer", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      id: schema.analysisRevisions.id,
+      analysisId: schema.analysisRevisions.analysisId,
+      name: schema.analysisRevisions.name,
+      description: schema.analysisRevisions.description,
+      createdAt: schema.analysisRevisions.createdAt,
+      createdBy: schema.analysisRevisions.createdBy,
+    })
+    .from(schema.analysisRevisions)
+    .where(eq(schema.analysisRevisions.analysisId, analysisId))
+    .orderBy(desc(schema.analysisRevisions.createdAt))
+    .limit(ANALYSIS_REVISION_LIMIT);
+  return rows;
 }
 
 export async function restoreAnalysisRevision(

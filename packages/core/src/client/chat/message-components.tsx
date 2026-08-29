@@ -351,9 +351,15 @@ export interface AssistantChatHistoryVersion {
   editable?: boolean;
 }
 
+export interface AssistantChatHistoryScope {
+  type: string;
+  id: string;
+}
+
 export interface AssistantChatHistoryMessage {
   id: string;
   createdAt: AssistantChatHistoryDate;
+  scope?: AssistantChatHistoryScope;
   parentId?: string;
   turnStartedAt?: AssistantChatHistoryDate;
   turnEndedAt?: AssistantChatHistoryDate;
@@ -380,6 +386,7 @@ export interface AssistantChatHistoryConfig<
       | ((message: AssistantChatHistoryMessage) => Record<string, unknown>);
   };
   isEditable?: (version: TVersion) => boolean;
+  scope?: AssistantChatHistoryScope;
   matchVersion?: (
     version: TVersion,
     message: AssistantChatHistoryMessage,
@@ -433,6 +440,23 @@ export function isAssistantChatHistoryVersion(
   );
 }
 
+function assistantMessageChatScope(
+  message: unknown,
+): AssistantChatHistoryScope | undefined {
+  const custom = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { chatScope?: unknown } }
+    | undefined;
+  const scope = custom?.custom?.chatScope;
+  if (!scope || typeof scope !== "object") return undefined;
+  const typed = scope as { type?: unknown; id?: unknown };
+  return typeof typed.type === "string" &&
+    typed.type.trim() &&
+    typeof typed.id === "string" &&
+    typed.id.trim()
+    ? { type: typed.type, id: typed.id }
+    : undefined;
+}
+
 export function assistantMessageHasCompletedSideEffect(
   message: unknown,
 ): boolean {
@@ -462,10 +486,18 @@ export function findMatchingAssistantChatHistoryVersion<
   message: AssistantChatHistoryMessage,
   options: Pick<
     AssistantChatHistoryConfig<unknown, TVersion>,
-    "isEditable" | "matchVersion"
+    "isEditable" | "matchVersion" | "scope"
   > = {},
 ): TVersion | null {
   if (!message.hasCompletedSideEffect) return null;
+  if (
+    options.scope &&
+    message.scope &&
+    (message.scope.type !== options.scope.type ||
+      message.scope.id !== options.scope.id)
+  ) {
+    return null;
+  }
 
   const turnStart = coerceMessageDate(
     message.turnStartedAt ?? message.createdAt,
@@ -2143,6 +2175,9 @@ export function AssistantMessage() {
     return {
       id: msg.id,
       createdAt: msg.createdAt,
+      ...(assistantMessageChatScope(msg)
+        ? { scope: assistantMessageChatScope(msg) }
+        : {}),
       ...(msg.parentId ? { parentId: msg.parentId } : {}),
       turnStartedAt,
       ...(nextUserMessage?.createdAt

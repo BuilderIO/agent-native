@@ -2878,6 +2878,7 @@ export function createAgentChatPlugin(
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
           return;
         }
+        const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (setThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -2894,6 +2895,7 @@ export function createAgentChatPlugin(
             run.events ?? [],
             run.runId,
             {
+              scope: chatScope,
               suppressInternalContinuation: true,
               turnId:
                 typeof run.turnId === "string" && run.turnId
@@ -2959,22 +2961,19 @@ export function createAgentChatPlugin(
           );
         });
 
-        const chatScope = options?.onAgentTurnComplete
-          ? getRequestRunContext()?.chatScope
-          : undefined;
+        // Checkpoint creation is part of durable turn completion. The helper
+        // catches and reports its own failures, so a broken app checkpoint does
+        // not strand the run while a successful checkpoint cannot be lost when
+        // a serverless invocation exits.
+        await runPostAgentTurnAutosave(
+          options?.onAgentTurnComplete,
+          chatScope,
+          run,
+        );
 
-        // Keep SQL run completion gated only on durable thread data. Follow-up
-        // hooks are useful, but they should never leave agent_runs stuck
-        // "running" if an automation/checkpoint path stalls.
+        // Event triggers and local git checkpoints remain best effort and do
+        // not extend the durable chat persistence gate.
         void (async () => {
-          if (options?.onAgentTurnComplete) {
-            await runPostAgentTurnAutosave(
-              options.onAgentTurnComplete,
-              chatScope,
-              run,
-            );
-          }
-
           // Emit agent.turn.completed for automation triggers.
           //
           // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
