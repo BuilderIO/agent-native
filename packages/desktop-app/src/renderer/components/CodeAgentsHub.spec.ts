@@ -526,8 +526,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("!showTerminalSurface");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
+    expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
     expect(hubSource).toContain(
-      "onOpenSidebar={() => setChatFirstSurfacePanelOpen(true)}",
+      "onToggleSidebar={chatFirstSurfacePanel.toggle}",
     );
     expect(hubSource).toContain(
       "{chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (",
