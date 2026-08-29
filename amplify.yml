@@ -7,10 +7,10 @@ applications:
         preBuild:
           commands:
             - nvm use 24 && node --version
-            - corepack enable && pnpm install --filter 'calendar...' --frozen-lockfile
+            - corepack enable && pnpm install --filter 'calendar...' --frozen-lockfile --ignore-scripts
         build:
           commands:
-            - NITRO_PRESET=aws_amplify pnpm --filter calendar build
+            - NITRO_PRESET=aws_amplify pnpm --filter 'calendar...' run build
       artifacts:
         baseDirectory: templates/calendar/.amplify-hosting
         files:
