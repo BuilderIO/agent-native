@@ -74,10 +74,8 @@ function parseDesignData(designId: string, value: unknown): string {
   try {
     const parsed: unknown = JSON.parse(value);
     if (isRecord(parsed)) return value;
-  } catch (error) {
-    throw new Error(`Design "${designId}" has invalid data JSON.`, {
-      cause: error,
-    });
+  } catch {
+    throw new Error(`Design "${designId}" has invalid data JSON.`);
   }
   throw new Error(`Design "${designId}" has invalid data JSON.`);
 }
