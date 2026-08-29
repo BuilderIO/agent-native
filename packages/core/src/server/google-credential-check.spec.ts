@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  checkGoogleManagedCredential,
   checkGoogleSignInCredential,
   resetGoogleCredentialCheckCache,
 } from "./google-credential-check.js";
@@ -207,5 +208,63 @@ describe("checkGoogleSignInCredential", () => {
 
     expect(result.status).toBe("unconfigured");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("probes the managed workspace OAuth client separately from sign-in", async () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "managed-client";
+    process.env.GOOGLE_CLIENT_SECRET = "managed-secret";
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkGoogleManagedCredential();
+
+    expect(result).toMatchObject({
+      status: "valid",
+      clientId: "managed-client",
+      credentialSource: "managed",
+    });
+    const sent = String(
+      (fetchMock.mock.calls[0] as unknown[])[1] &&
+        ((fetchMock.mock.calls[0] as unknown[])[1] as { body: unknown }).body,
+    );
+    expect(sent).toContain("managed-secret");
+    expect(sent).not.toContain("sign-in-secret");
+  });
+
+  it("single-flights and caches definitive managed checks", async () => {
+    process.env.GOOGLE_CLIENT_ID = "managed-client";
+    process.env.GOOGLE_CLIENT_SECRET = "managed-secret";
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [first, second] = await Promise.all([
+      checkGoogleManagedCredential(),
+      checkGoogleManagedCredential(),
+    ]);
+    await checkGoogleManagedCredential();
+
+    expect(first.status).toBe("valid");
+    expect(second.status).toBe("valid");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache a transient managed check failure", async () => {
+    process.env.GOOGLE_CLIENT_ID = "managed-client";
+    process.env.GOOGLE_CLIENT_SECRET = "managed-secret";
+    const failing = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    vi.stubGlobal("fetch", failing);
+
+    const first = await checkGoogleManagedCredential();
+    const recovered = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", recovered);
+    const second = await checkGoogleManagedCredential();
+
+    expect(first.status).toBe("unknown");
+    expect(second.status).toBe("valid");
+    expect(recovered).toHaveBeenCalledTimes(1);
   });
 });

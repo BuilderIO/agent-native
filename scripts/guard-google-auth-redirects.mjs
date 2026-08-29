@@ -11,7 +11,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const trackedFiles = execFileSync("git", ["ls-files"], {
   encoding: "utf8",
@@ -19,27 +19,29 @@ const trackedFiles = execFileSync("git", ["ls-files"], {
   .split("\n")
   .filter(Boolean);
 
-const GOOGLE_AUTH_URL_FILE_PATTERNS = [
-  /^packages\/core\/src\/server\/auth\.ts$/,
-  /^templates\/[^/]+\/server\/handlers\/google-auth\.ts$/,
-  /^templates\/[^/]+\/server\/routes\/(?:\[[^\]]+\]\/)?_agent-native\/google\/(?:add-account\/)?auth-url\.get\.ts$/,
-];
-
 const SEND_REDIRECT_CALL = /\bsendRedirect\s*\(/;
+const GOOGLE_AUTH_CONTEXT =
+  /\bGOOGLE_[A-Z_]+\b|\/(?:api\/auth\/google|_agent-native\/google(?:[\/?-]|$))|oauth2\.googleapis\.com|Google (?:Calendar|Docs|OAuth)/;
 
 const checked = [];
 const violations = [];
 
 for (const file of trackedFiles) {
-  if (!GOOGLE_AUTH_URL_FILE_PATTERNS.some((pattern) => pattern.test(file))) {
+  if (!/\.(?:[cm]?js|tsx?)$/.test(file)) continue;
+  if (!existsSync(file)) continue;
+  const contents = readFileSync(file, "utf8");
+  const lines = contents.split("\n");
+  const googleRedirectLines = lines.flatMap((line, index) => {
+    if (!SEND_REDIRECT_CALL.test(line)) return [];
+    const context = lines.slice(Math.max(0, index - 80), index + 81).join("\n");
+    return GOOGLE_AUTH_CONTEXT.test(context) ? [index] : [];
+  });
+  if (googleRedirectLines.length > 0) {
+    checked.push(file);
+    violations.push(file);
     continue;
   }
-
-  checked.push(file);
-  const contents = readFileSync(file, "utf8");
-  if (SEND_REDIRECT_CALL.test(contents)) {
-    violations.push(file);
-  }
+  if (GOOGLE_AUTH_CONTEXT.test(contents)) checked.push(file);
 }
 
 if (violations.length > 0) {
@@ -57,5 +59,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `guard-google-auth-redirects: clean (${checked.length} auth-url files checked).`,
+  `guard-google-auth-redirects: clean (${checked.length} Google auth source files checked).`,
 );

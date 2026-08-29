@@ -31,6 +31,18 @@ standard workspace connections and org/workspace vault scopes; never put them
 in `.env` or deployment environment variables, and never add a provider-specific
 action or startup bootstrap just to write a credential for one organization.
 
+## Google OAuth triage
+
+| Observation | Meaning | Next action |
+| --- | --- | --- |
+| `invalid_grant` from a deliberately fake code | Google accepted the client pair and rejected only the code | Do not rotate credentials; check flow state and callback registration |
+| `invalid_client` | Google rejected the client id/secret pair | Verify the exact pair and deployment source before rotating |
+| `redirect_uri_mismatch` | The client, host, callback path, and Google registration disagree | Compare that exact tuple in Google Cloud Console and rebuild build-time config |
+
+Probe the client used by the failing flow. A healthy sign-in pair does not prove
+the managed provider pair is healthy, and `mismatched` pairs are not by
+themselves a reason to delete either namespace.
+
 ## Credential Modeling Preflight
 
 Before registering a provider's fields, inspect the workspace/provider connection

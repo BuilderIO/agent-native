@@ -15,6 +15,8 @@ import {
 } from "./google-api.js";
 import {
   gmailBatchModifyByAccount,
+  exchangeCode,
+  getAuthUrl,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -954,6 +956,11 @@ describe("gmailBatchModifyByAccount", () => {
       );
 
       expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(createOAuth2Client).toHaveBeenCalledWith(
+        "client-id",
+        "client-secret",
+        "",
+      );
       expect(googleFetch).toHaveBeenCalledWith(
         expect.stringContaining("messages/batchModify"),
         "refreshed-access-token",
@@ -961,4 +968,15 @@ describe("gmailBatchModifyByAccount", () => {
       );
     },
   );
+});
+
+describe("Google OAuth URL construction", () => {
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+  });
 });

@@ -2493,7 +2493,6 @@ function workspaceOAuthCallbackRelayResponse(
   const provider = extractOAuthStateProvider(state);
   const isWorkspaceCallbackRelay = isWorkspaceOAuthCallbackRelayEnabled();
   const isStandaloneGoogleProviderCallback =
-    !basePath &&
     !isWorkspaceCallbackRelay &&
     normalizedPath === "/_agent-native/google/callback" &&
     isWorkspaceGoogleOAuthProvider(provider);
@@ -2526,7 +2525,7 @@ function workspaceOAuthCallbackRelayResponse(
   return new Response("", {
     status: 302,
     headers: {
-      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : ""}${providerCallbackPath}${search}`,
+      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : basePath || ""}${providerCallbackPath}${search}`,
     },
   });
 }
