@@ -34,6 +34,14 @@ describe("buildSlidesDeckGenerationContext", () => {
     expect(agentChatPlugin).toContain(
       "use import-file with the persisted file path",
     );
+    expect(agentChatPlugin).toContain("Explicit source import rule");
+    expect(agentChatPlugin).toContain("importIntoDeck: true");
+    expect(agentChatPlugin).toContain('"import-file"');
+    expect(agentChatPlugin).toContain('"import-pptx"');
+    expect(agentChatPlugin).toContain('"import-google-slides-reference"');
+    expect(agentChatPlugin).toContain(
+      "an attachment is reference context by default",
+    );
     expect(agentChatPlugin).toContain("Do not call Assets through call-agent");
   });
 
@@ -272,6 +280,13 @@ describe("prepareSlidesChatAttachments", () => {
 
     expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
     expect(result?.message).toContain("data/uploads/user/source.pdf");
+    expect(result?.message).toContain(
+      "explicitly asks to import or convert an attached PDF or PPTX",
+    );
+    expect(result?.message).toContain("importIntoDeck: true");
+    expect(result?.message).toContain(
+      "Attachments are reference context by default",
+    );
     expect(result?.attachments?.[0]?.data).toBe(
       "data:application/pdf;base64,JVBERi0x",
     );
