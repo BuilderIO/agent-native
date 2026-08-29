@@ -86,6 +86,16 @@ export function buildGmailEmailSearchQuery({
   return [viewQuery, searchClause].filter(Boolean).join(" ");
 }
 
+export function filterLabelMessages(
+  emails: EmailMessage[],
+  label: string,
+): EmailMessage[] {
+  return emails.filter(
+    (message) =>
+      !message.isTrashed && mailLabelsInclude(message.labelIds, label),
+  );
+}
+
 function threadKey(message: EmailMessage): string {
   return `${message.accountEmail ?? ""}:${message.threadId || message.id}`;
 }
