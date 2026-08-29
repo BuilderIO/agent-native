@@ -566,6 +566,43 @@ describe("recordUsage refId + cost override", () => {
     expect(rows[0].input_tokens).toBe(200);
   });
 
+  it("deduplicates a refId only within the same organization", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 10,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+    await runWithRequestContext(
+      { userEmail: "b@example.com", orgId: "org-b" },
+      () =>
+        recordUsage({
+          ownerEmail: "b@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "shared-recap",
+        }),
+    );
+
+    const rows = sqlite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'shared-recap' ORDER BY org_id",
+      )
+      .all() as Array<{ org_id: string; input_tokens: number }>;
+    expect(rows).toEqual([
+      { org_id: "org-a", input_tokens: 100 },
+      { org_id: "org-b", input_tokens: 200 },
+    ]);
+  });
+
   it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {
     await recordUsage({
       ownerEmail: "u@x.com",

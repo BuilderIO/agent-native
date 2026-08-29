@@ -351,6 +351,47 @@ describe("listDispatchUsageMetrics", () => {
               : rows,
           };
         }
+        if (
+          sql.includes("FROM token_usage") &&
+          sql.includes("GROUP BY COALESCE(NULLIF(app, ''), 'unattributed')")
+        ) {
+          if (sql.includes("action_key")) {
+            return {
+              rows: [
+                {
+                  app: "orders",
+                  action_key: "other",
+                  calls: 2,
+                  active_users: 2,
+                  last_active_at: now - 60 * 60_000,
+                },
+              ],
+            };
+          }
+          if (sql.includes("daily_active_users")) {
+            return {
+              rows: [
+                {
+                  app: "orders",
+                  daily_active_users: 1,
+                  weekly_active_users: 2,
+                },
+              ],
+            };
+          }
+          return {
+            rows: [
+              {
+                app: "orders",
+                calls: 2,
+                cost_x100: 400,
+                chat_calls: 0,
+                active_users: 2,
+                last_active_at: now - 60 * 60_000,
+              },
+            ],
+          };
+        }
         return { rows: [] };
       },
     );
@@ -460,6 +501,47 @@ describe("listDispatchUsageMetrics", () => {
               app: "orders",
               label: "approve-order",
               cost_cents_x100: 200,
+            },
+          ],
+        };
+      }
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("GROUP BY COALESCE(NULLIF(app, ''), 'unattributed')")
+      ) {
+        if (sql.includes("action_key")) {
+          return {
+            rows: [
+              {
+                app: "orders",
+                action_key: "other",
+                calls: 1,
+                active_users: 1,
+                last_active_at: now - 60 * 60_000,
+              },
+            ],
+          };
+        }
+        if (sql.includes("daily_active_users")) {
+          return {
+            rows: [
+              {
+                app: "orders",
+                daily_active_users: 1,
+                weekly_active_users: 2,
+              },
+            ],
+          };
+        }
+        return {
+          rows: [
+            {
+              app: "orders",
+              calls: 1,
+              cost_x100: 200,
+              chat_calls: 0,
+              active_users: 1,
+              last_active_at: now - 60 * 60_000,
             },
           ],
         };
@@ -608,9 +690,7 @@ describe("listDispatchUsageMetrics", () => {
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);
-        return (
-          sql.includes("ORDER BY created_at ASC") && sql.includes("org_id = ?")
-        );
+        return sql.includes("daily_active_users") && sql.includes("org_id = ?");
       }),
     ).toBe(true);
   });
@@ -637,31 +717,30 @@ describe("listDispatchUsageMetrics", () => {
           ],
         };
       }
-      if (
-        sql.includes("FROM token_usage") &&
-        sql.includes("ORDER BY created_at ASC")
-      ) {
+      if (sql.includes("FROM token_usage") && sql.includes("day_bucket")) {
         return {
           rows: [
             {
-              created_at: firstUsageAt,
+              day_bucket: Math.floor(firstUsageAt / 86_400_000),
               owner_email: "member@example.test",
-              label: "chat",
+              cost_x100: 10000,
+              calls: 1,
+              chat_calls: 1,
               input_tokens: 10,
               output_tokens: 20,
               cache_read_tokens: 0,
               cache_write_tokens: 0,
-              cost_cents_x100: 10000,
             },
             {
-              created_at: secondUsageAt,
+              day_bucket: Math.floor(secondUsageAt / 86_400_000),
               owner_email: "member@example.test",
-              label: "tool",
+              cost_x100: 20000,
+              calls: 1,
+              chat_calls: 0,
               input_tokens: 30,
               output_tokens: 40,
               cache_read_tokens: 5,
               cache_write_tokens: 2,
-              cost_cents_x100: 20000,
             },
           ],
         };

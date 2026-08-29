@@ -465,13 +465,15 @@ export async function recordUsage(
   const resolvedRef = refId ?? "";
   const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  // Replace any prior usage for this (label, refId) so re-recording the same
-  // run — e.g. a recap regenerated on a PR re-push — overwrites instead of
-  // double-counting. No-op when refId is unset (the common per-call path).
+  // Replace any prior usage for this (org, label, refId) so re-recording the
+  // same run — e.g. a recap regenerated on a PR re-push — overwrites instead
+  // of double-counting. No-op when refId is unset (the common per-call path).
   if (resolvedRef) {
     await client.execute({
-      sql: `DELETE FROM token_usage WHERE label = ? AND ref_id = ?`,
-      args: [resolvedLabel, resolvedRef],
+      sql: `DELETE FROM token_usage
+        WHERE label = ? AND ref_id = ?
+          AND ((org_id = ?) OR (org_id IS NULL AND ? IS NULL))`,
+      args: [resolvedLabel, resolvedRef, resolvedOrgId, resolvedOrgId],
     });
   }
 
