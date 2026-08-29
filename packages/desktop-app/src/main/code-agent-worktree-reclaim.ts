@@ -1,5 +1,6 @@
 export type CodeAgentWorktreeReclaimOutcome =
   | { status: "reclaimed" }
+  | { status: "recoverable"; error: string }
   | { status: "retry"; error?: string; nextAttemptAt?: string }
   | { status: "permanently-failed"; error: string };
 

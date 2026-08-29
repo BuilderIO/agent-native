@@ -4288,6 +4288,14 @@ function reclaimTerminalCodeAgentWorktree(
   if (!worktree || worktree.retain === true || worktree.keep === true) {
     return { status: "reclaimed" };
   }
+  if (worktree.state === "recoverable") {
+    return {
+      status: "recoverable",
+      error:
+        firstStringValue(worktree.lastCleanupError) ??
+        "The worktree was kept for recovery.",
+    };
+  }
   if (worktree.reclaimStatus === "permanently-failed") {
     return {
       status: "permanently-failed",
@@ -4424,12 +4432,18 @@ function reclaimTerminalCodeAgentWorktree(
         : hasCommittedChanges
           ? "Worktree contains commits after its base; it was kept for recovery."
           : "Worktree has uncommitted changes; it was kept for recovery.";
-      return scheduleCodeAgentWorktreeReclaimRetry(
-        runId,
-        worktree,
-        { state: "recoverable" },
-        message,
-      );
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            state: "recoverable",
+            reclaimAttempts: undefined,
+            reclaimNextAttemptAt: undefined,
+            lastCleanupError: message,
+          },
+        },
+      });
+      return { status: "recoverable", error: message };
     }
     const result = cleanupCodeAgentWorktree({
       sourcePath,
