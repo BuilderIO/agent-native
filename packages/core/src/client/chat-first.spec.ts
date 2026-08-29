@@ -367,6 +367,26 @@ describe("chat-first session watch contract", () => {
     store.closeAll();
   });
 
+  it("keeps the main chat active when opening a side app", () => {
+    const scope = "side-app-focus-test";
+    const store = getChatFirstSurfaceTabsStore(scope);
+    store.closeAll();
+
+    store.open({
+      id: "app:mail:/",
+      kind: "app",
+      title: "Mail",
+      appId: "mail",
+      placement: "side",
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      activeTabId: null,
+      tabs: [{ id: "app:mail:/", placement: "side" }],
+    });
+    store.closeAll();
+  });
+
   it("restores a valid app placement and rejects malformed persisted values", () => {
     const scope = "placement-test";
     const storage = createStorage();

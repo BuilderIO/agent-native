@@ -83,21 +83,18 @@ export default function DesktopIdentityGate({
   const emailRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (status === "sign-in-required" || status === "failed") {
+    if (status === "sign-in-required") {
       emailRef.current?.focus();
     }
-    if (status === "failed") {
-      setMagicLinkSentEmail(null);
-      setSubmitting(false);
-      setError((current) => current ?? COPY.failedToConnect);
-    }
-    if (status === "signed-in" || status === "idle") {
+    if (status === "signed-in" || status === "idle" || status === "failed") {
       setMagicLinkSentEmail(null);
       setSubmitting(false);
     }
   }, [status]);
 
-  if (status === "idle" || status === "signed-in") return null;
+  if (status === "idle" || status === "signed-in" || status === "failed") {
+    return null;
+  }
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -172,7 +169,7 @@ export default function DesktopIdentityGate({
     );
   }
 
-  if (magicLinkSentEmail && status !== "failed") {
+  if (magicLinkSentEmail) {
     return (
       <div
         className="desktop-identity-gate"
@@ -204,7 +201,6 @@ export default function DesktopIdentityGate({
   const canSubmit = Boolean(
     email.trim() && (authMode === "magic-link" || password),
   );
-
   return (
     <div
       className="desktop-identity-gate"

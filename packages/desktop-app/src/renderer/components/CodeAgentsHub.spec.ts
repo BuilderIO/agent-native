@@ -275,7 +275,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("onNewCliTab={handleNewCliTab}");
     expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
     expect(hubSource).toContain(
-      "chatEnabled={shouldUseDesktopAppChatShell(tab.path)}",
+      'shouldUseDesktopAppChatShell(tab.path) &&\n                  tab.placement !== "side"',
     );
     expect(hubSource).toContain(
       'newTabMode={terminalPreferences.enabled ? "cli" : "ui"}',
@@ -520,10 +520,30 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       'terminalPreferences.enabled ? "side" : "main"',
     );
+    expect(hubSource).toContain('resolution.target.view,\n        "side",');
     expect(hubSource).toContain("<AppWebview");
     expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
     expect(hubSource).toContain(
       "void window.electronAPI.shell.openExternal(url)",
+    );
+  });
+
+  it("keeps the shared sidebar reachable from an empty full-screen chat", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("!showTerminalSurface");
+    expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
+    expect(hubSource).toContain(
+      "onOpenSidebar={() => setChatFirstSurfacePanelOpen(true)}",
+    );
+    expect(hubSource).toContain(
+      "{chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (",
+    );
+    expect(hubSource).not.toContain(
+      "(hasChatFirstActiveChat || terminalPreferences.enabled) &&\n        chatFirstSurfacePanel.open",
     );
   });
 
@@ -833,10 +853,9 @@ describe("CodeAgentsHub desktop identity status", () => {
 
     expect(source).toContain("desktopIdentityStatusByTab");
     expect(source).toContain("handleDesktopIdentityStatusChange");
-    expect(source).toContain("onDesktopIdentitySyncFailure");
+    expect(source).not.toContain("onDesktopIdentitySyncFailure");
     expect(source).toContain('surfaceApp.id === "dispatch"');
     expect(source).toContain('app.id === "dispatch"');
-    expect(source).toContain('status === "failed"');
     expect(source).toContain("desktopIdentityStatusByTab,");
     expect(source).toContain("handleDesktopIdentityStatusChange,");
     expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");

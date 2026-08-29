@@ -100,7 +100,7 @@ async function snapshot(page: Page, name: string): Promise<SurfaceSnapshot> {
       ".agent-layout-main-surface",
     );
     const chat = document.querySelector<HTMLElement>(
-      ".agent-layout-main-surface > .relative",
+      ".agent-layout-main-surface .agent-chat-scroll",
     );
     return {
       panel: document.querySelectorAll("[data-chat-first-surface-panel]")
@@ -305,7 +305,7 @@ async function runSmoke(browser: Browser): Promise<void> {
     );
     assert.ok(
       empty.chatWidth >= empty.mainWidth - 2,
-      "chat should occupy the content width without a side panel",
+      `chat should occupy the content width without a side panel (${empty.chatWidth} / ${empty.mainWidth})`,
     );
   } finally {
     await emptyContext.context.close();
@@ -927,8 +927,8 @@ async function runElectronSmoke(): Promise<void> {
     );
     assert.equal(
       empty.toggle,
-      0,
-      "Electron empty chat must not offer a right-surface toggle",
+      1,
+      "Electron empty full-screen chat should offer a right-surface toggle",
     );
     assert.ok(
       empty.mainWidth > 0,
@@ -938,13 +938,34 @@ async function runElectronSmoke(): Promise<void> {
       await page
         .locator(".code-agents-main-toolbar [data-chat-first-surface-toggle]")
         .count(),
-      0,
-      "Electron empty chat should not expose the surface toggle",
+      1,
+      "Electron empty chat should expose the central surface toggle",
     );
     assert.ok(
       empty.composerRight - empty.composerLeft <= 752,
       "Electron full-page composer should be no wider than 750px",
     );
+    await page
+      .locator(".code-agents-main-toolbar [data-chat-first-surface-toggle]")
+      .click();
+    await page
+      .locator("[data-chat-first-surface-panel]")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    const emptySidebar = await electronSnapshot(
+      page,
+      "electron-01-chat-first-empty-sidebar",
+      electronApp,
+    );
+    assert.ok(
+      emptySidebar.appOptions >= 5,
+      "Electron empty chat should expose the app picker from its sidebar",
+    );
+    await page
+      .locator(".code-agents-main-toolbar [data-chat-first-surface-toggle]")
+      .click();
+    await page
+      .locator("[data-chat-first-surface-panel]")
+      .waitFor({ state: "detached", timeout: 15_000 });
     const defaultAppIds = await page
       .locator("[data-chat-first-app][data-app-id]")
       .evaluateAll((elements) =>
@@ -1000,7 +1021,7 @@ async function runElectronSmoke(): Promise<void> {
       "The empty chat-first center should not show a workbench before a chat is selected",
     );
     const topNavColors = await page
-      .locator(".code-agents-rail-scroll .code-agents-nav-link")
+      .locator(".code-agents-rail-scroll .code-agents-nav-list [role=tab]")
       .evaluateAll((buttons) =>
         buttons.map((button) => getComputedStyle(button).color),
       );
@@ -1095,6 +1116,13 @@ async function runElectronSmoke(): Promise<void> {
     });
 
     await installElectronAppCreationSmokeMock(electronApp);
+    const expandRailButton = page.getByRole("button", {
+      name: "Expand rail",
+      exact: true,
+    });
+    if (await expandRailButton.count()) {
+      await expandRailButton.click();
+    }
     const createAppButton = page.locator(
       '[data-chat-first-apps-rail] button[aria-label="Create app"]',
     );

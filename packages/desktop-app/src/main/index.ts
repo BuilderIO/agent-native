@@ -125,10 +125,7 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import {
-  DESKTOP_DEEP_LINK_PROTOCOL,
-  DESKTOP_RELEASE_CHANNEL,
-} from "@shared/release-channel";
+import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -215,6 +212,11 @@ import {
   CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
+import {
+  isPermanentCodeAgentWorktreeReclaimError,
+  nextCodeAgentWorktreeReclaimAttempt,
+  type CodeAgentWorktreeReclaimOutcome,
+} from "./code-agent-worktree-reclaim.js";
 import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
   claimCodeAgentWorktreeRun,
@@ -332,7 +334,6 @@ import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
-  releaseChannel: DESKTOP_RELEASE_CHANNEL,
   appDataPath: app.getPath("appData"),
   defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
@@ -376,6 +377,32 @@ process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
 });
 
 const IS_DEV = !app.isPackaged;
+
+function desktopRendererEntryPath(): string {
+  return path.join(__dirname, "../renderer/index.html");
+}
+
+function isDesktopRendererEntryUrl(url: string): boolean {
+  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
+    return url.startsWith(process.env["ELECTRON_RENDERER_URL"]);
+  }
+  try {
+    return (
+      path.resolve(fileURLToPath(new URL(url))) ===
+      path.resolve(desktopRendererEntryPath())
+    );
+  } catch {
+    return false;
+  }
+}
+
+function loadDesktopRenderer(window: BrowserWindow): void {
+  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
+    void window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    return;
+  }
+  void window.loadFile(desktopRendererEntryPath());
+}
 
 function isDesktopSsoEnabled(): boolean {
   return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
@@ -1775,6 +1802,37 @@ function createWindow(): BrowserWindow {
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
+  win.webContents.on("will-navigate", (event, url) => {
+    if (IS_DEV || isDesktopRendererEntryUrl(url)) return;
+    let protocol: string;
+    try {
+      protocol = new URL(url).protocol;
+    } catch {
+      return;
+    }
+    if (protocol !== "file:") return;
+    event.preventDefault();
+    loadDesktopRenderer(win);
+  });
+  win.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, _errorDescription, url, isMainFrame) => {
+      if (
+        IS_DEV ||
+        !isMainFrame ||
+        errorCode !== -6 ||
+        isDesktopRendererEntryUrl(url)
+      ) {
+        return;
+      }
+      try {
+        if (new URL(url).protocol !== "file:") return;
+      } catch {
+        return;
+      }
+      loadDesktopRenderer(win);
+    },
+  );
   win.webContents.on("did-finish-load", () => {
     // A reloaded renderer has no status yet, so the dedup cache must not
     // suppress the next send as an unchanged repeat.
@@ -1784,12 +1842,8 @@ function createWindow(): BrowserWindow {
   });
 
   // In dev, load from the Vite dev server; in prod, load built files
-  if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
-    void win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-    // DevTools will be opened for the active webview via Cmd+Shift+I
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
+  loadDesktopRenderer(win);
+  // DevTools will be opened for the active webview via Cmd+Shift+I
 
   mainWindow = win;
   // Coming back to the window is the strongest available signal that a tab
@@ -3841,7 +3895,6 @@ function codeAgentEventFilePath(runId: string): string | null {
 
 function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   reconcileInterruptedCodeAgentRuns("list", goalId);
-  reclaimTerminalCodeAgentWorktrees(goalId);
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
@@ -3866,7 +3919,6 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
   reconcileInterruptedCodeAgentRun(runId, "read");
-  reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
   const run = desktopCodeBackgroundAgentController.get(
     runId,
   ) as BackgroundAgentRun | null;
@@ -4197,23 +4249,66 @@ function cleanupDueManagedCodeAgentWorktrees(): void {
   }
 }
 
+function scheduleCodeAgentWorktreeReclaimRetry(
+  runId: string,
+  worktree: Record<string, unknown>,
+  updates: Record<string, unknown> = {},
+  error?: string,
+): CodeAgentWorktreeReclaimOutcome {
+  const { attempts, nextAttemptAt } = nextCodeAgentWorktreeReclaimAttempt(
+    new Date(),
+    worktree.reclaimAttempts,
+  );
+  touchCodeAgentRunRecord(runId, {
+    metadata: {
+      worktree: {
+        ...worktree,
+        ...updates,
+        reclaimAttempts: attempts,
+        reclaimNextAttemptAt: nextAttemptAt,
+        ...(error ? { lastCleanupError: error } : {}),
+      },
+    },
+  });
+  return { status: "retry", error, nextAttemptAt };
+}
+
 function reclaimTerminalCodeAgentWorktree(
   record: Record<string, unknown> | null,
-): void {
-  if (!record || !isTerminalCodeAgentRun(record)) return;
+): CodeAgentWorktreeReclaimOutcome {
+  if (!record || !isTerminalCodeAgentRun(record)) {
+    return { status: "reclaimed" };
+  }
   const metadata = isObject(record.metadata) ? record.metadata : undefined;
   if (metadata?.retainWorktree === true || metadata?.keepWorktree === true) {
-    return;
+    return { status: "reclaimed" };
   }
   const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
   if (!worktree || worktree.retain === true || worktree.keep === true) {
-    return;
+    return { status: "reclaimed" };
+  }
+  if (worktree.reclaimStatus === "permanently-failed") {
+    return {
+      status: "permanently-failed",
+      error:
+        firstStringValue(worktree.lastCleanupError) ??
+        "The Code Agent worktree could not be reclaimed.",
+    };
+  }
+  const reclaimNextAttemptAt = firstStringValue(worktree.reclaimNextAttemptAt);
+  if (
+    reclaimNextAttemptAt &&
+    new Date(reclaimNextAttemptAt).getTime() > Date.now()
+  ) {
+    return { status: "retry", nextAttemptAt: reclaimNextAttemptAt };
   }
   const sourcePath = firstStringValue(worktree.sourcePath);
   const worktreePath = firstStringValue(worktree.path);
   const branch = firstStringValue(worktree.branch);
   const baseCommit = firstStringValue(worktree.baseCommit);
-  if (!sourcePath || !worktreePath || !branch) return;
+  if (!sourcePath || !worktreePath || !branch) {
+    return { status: "reclaimed" };
+  }
 
   const runId = getRecordString(record, "id");
   const managedId = firstStringValue(worktree.id);
@@ -4235,36 +4330,63 @@ function reclaimTerminalCodeAgentWorktree(
           },
         });
         void startNextQueuedCodeAgentWorktreeRun(released.id);
+        return { status: "reclaimed" };
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isPermanentCodeAgentWorktreeReclaimError(error)) {
+        touchCodeAgentRunRecord(runId, {
+          metadata: {
+            worktree: {
+              ...worktree,
+              reclaimStatus: "permanently-failed",
+              lastCleanupError: message,
+            },
+          },
+        });
+        console.warn(
+          `[code-agents] Permanently failed to release worktree for run ${runId}:`,
+          message,
+        );
+        return { status: "permanently-failed", error: message };
+      }
       console.warn(
-        `[code-agents] Could not release worktree for run ${runId}:`,
-        error instanceof Error ? error.message : error,
+        `[code-agents] Could not release worktree for run ${runId}; retrying:`,
+        message,
+      );
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        {},
+        message,
       );
     }
-    return;
+    return { status: "reclaimed" };
   }
 
   // Older runs predate the registry. Keep their worktrees recoverable for the
   // same retention window and only remove them after checking for dirty files.
-  if (!runId) return;
+  if (!runId) return { status: "reclaimed" };
   const cleanupAfter = firstStringValue(worktree.cleanupAfter);
   if (!cleanupAfter) {
+    const nextAttemptAt = new Date(
+      Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+    ).toISOString();
     touchCodeAgentRunRecord(runId, {
       metadata: {
         worktree: {
           ...worktree,
           policy: "ephemeral",
           state: "cleanup-pending",
-          cleanupAfter: new Date(
-            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
-          ).toISOString(),
+          cleanupAfter: nextAttemptAt,
         },
       },
     });
-    return;
+    return { status: "retry", nextAttemptAt };
   }
-  if (new Date(cleanupAfter).getTime() > Date.now()) return;
+  if (new Date(cleanupAfter).getTime() > Date.now()) {
+    return { status: "retry", nextAttemptAt: cleanupAfter };
+  }
   if (
     listRawCodeAgentRunRecords().some(({ record: candidate }) => {
       if (candidate === record || !isActiveDesktopCodeAgentRun(candidate))
@@ -4281,7 +4403,7 @@ function reclaimTerminalCodeAgentWorktree(
       );
     })
   ) {
-    return;
+    return scheduleCodeAgentWorktreeReclaimRetry(runId, worktree);
   }
 
   try {
@@ -4296,20 +4418,17 @@ function reclaimTerminalCodeAgentWorktree(
         })
       : true;
     if (hasUncommittedChanges || hasCommittedChanges) {
-      touchCodeAgentRunRecord(runId, {
-        metadata: {
-          worktree: {
-            ...worktree,
-            state: "recoverable",
-            lastCleanupError: !baseCommit
-              ? "The worktree base could not be verified; it was kept for recovery."
-              : hasCommittedChanges
-                ? "Worktree contains commits after its base; it was kept for recovery."
-                : "Worktree has uncommitted changes; it was kept for recovery.",
-          },
-        },
-      });
-      return;
+      const message = !baseCommit
+        ? "The worktree base could not be verified; it was kept for recovery."
+        : hasCommittedChanges
+          ? "Worktree contains commits after its base; it was kept for recovery."
+          : "Worktree has uncommitted changes; it was kept for recovery.";
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        { state: "recoverable" },
+        message,
+      );
     }
     const result = cleanupCodeAgentWorktree({
       sourcePath,
@@ -4317,8 +4436,15 @@ function reclaimTerminalCodeAgentWorktree(
       branch,
     });
     if (!result.worktreeRemoved || !result.branchRemoved) {
+      const message = "Git did not fully remove the worktree and branch.";
       console.warn(
-        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}.`,
+        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}; retrying.`,
+      );
+      return scheduleCodeAgentWorktreeReclaimRetry(
+        runId,
+        worktree,
+        {},
+        message,
       );
     } else {
       touchCodeAgentRunRecord(runId, {
@@ -4326,15 +4452,38 @@ function reclaimTerminalCodeAgentWorktree(
           worktree: {
             ...worktree,
             state: "removed",
+            reclaimStatus: undefined,
+            reclaimAttempts: undefined,
+            reclaimNextAttemptAt: undefined,
+            lastCleanupError: undefined,
           },
         },
       });
+      return { status: "reclaimed" };
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (isPermanentCodeAgentWorktreeReclaimError(error)) {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            reclaimStatus: "permanently-failed",
+            lastCleanupError: message,
+          },
+        },
+      });
+      console.warn(
+        `[code-agents] Permanently failed to reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
+        message,
+      );
+      return { status: "permanently-failed", error: message };
+    }
     console.warn(
-      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
-      error instanceof Error ? error.message : error,
+      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}; retrying:`,
+      message,
     );
+    return scheduleCodeAgentWorktreeReclaimRetry(runId, worktree, {}, message);
   }
 }
 
@@ -5801,12 +5950,8 @@ async function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
-    const runMetadata = isObject(runRecord?.metadata) ? runRecord.metadata : {};
-    const isDesktopAppCreation =
-      runMetadata.kind === "desktop-create-app" ||
-      runMetadata.kind === "desktop-local-code-change";
     const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd, {
-      includeWorkspaceApps: !isDesktopAppCreation,
+      includeWorkspaceApps: true,
     });
     if (mcpEnvironment.remoteConfig.state === "unavailable") {
       appendCodeAgentStatusEvent(
@@ -11661,6 +11806,7 @@ function pushCodeAgentModelOptions(
     engineLabel: string;
     supportedModels: readonly string[];
     configured: boolean;
+    description?: string;
     statusLabel?: string;
     isSubscription?: boolean;
   },
@@ -11671,6 +11817,7 @@ function pushCodeAgentModelOptions(
       engineLabel: options.engineLabel,
       model,
       label: model,
+      ...(options.description ? { description: options.description } : {}),
       configured: options.configured,
       ...(options.statusLabel ? { statusLabel: options.statusLabel } : {}),
       ...(options.isSubscription ? { isSubscription: true } : {}),
@@ -11756,11 +11903,10 @@ function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
       }
     }
     if (claude.available) {
-      models.push({
+      pushCodeAgentModelOptions(models, {
         engine: CLAUDE_CLI_ENGINE_NAME,
         engineLabel: "Anthropic",
-        model: ANTHROPIC_MODEL_CONFIG.defaultModel,
-        label: ANTHROPIC_MODEL_CONFIG.defaultModel,
+        supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
         description: "Run locally through your signed-in Claude subscription.",
         configured: claude.authenticated,
         ...(claude.authenticated
@@ -12265,7 +12411,7 @@ registerCodeAgentsIpc({
 });
 
 const codeAgentWorktreeSweepTimer = setInterval(
-  cleanupDueManagedCodeAgentWorktrees,
+  reclaimTerminalCodeAgentWorktrees,
   60 * 60 * 1000,
 );
 codeAgentWorktreeSweepTimer.unref?.();

@@ -8,11 +8,15 @@ directories:
 files:
   - out/**
   - "!node_modules/**"
+  - node_modules/node-pty/**
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.*.json}"
+
+asarUnpack:
+  - node_modules/node-pty/prebuilds/**
 
 extraResources:
   - from: ../agent-chrome-extension/dist
