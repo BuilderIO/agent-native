@@ -48,27 +48,62 @@ jobs:
           (async () => {
             const repository = process.env.GITHUB_REPOSITORY;
             const token = process.env.GH_TOKEN;
-            const url = `https://api.github.com/repos/${repository}/actions/workflows/signup-e2e-scheduled.yml/runs?event=schedule&per_page=20`;
-            const response = await fetch(url, {
-              headers: {
-                accept: "application/vnd.github+json",
-                authorization: `Bearer ${token}`,
-                "x-github-api-version": "2022-11-28",
-              },
-            });
+            const headers = {
+              accept: "application/vnd.github+json",
+              authorization: `Bearer ${token}`,
+              "x-github-api-version": "2022-11-28",
+            };
+            const runsUrl = `https://api.github.com/repos/${repository}/actions/workflows/signup-e2e-scheduled.yml/runs?event=schedule&per_page=20`;
+            const workflowUrl = `https://api.github.com/repos/${repository}/actions/workflows/signup-e2e-scheduled.yml`;
+            const [response, workflowResponse] = await Promise.all([
+              fetch(runsUrl, { headers }),
+              fetch(workflowUrl, { headers }),
+            ]);
             if (!response.ok) {
               console.error(`FAIL\tsignup-e2e\tGitHub Actions API HTTP ${response.status}`);
               process.exitCode = 1;
+            } else if (!workflowResponse.ok) {
+              console.error(
+                `FAIL\tsignup-e2e\tGitHub Actions workflow API HTTP ${workflowResponse.status}`,
+              );
+              process.exitCode = 1;
             } else {
               const body = await response.json();
+              const workflow = await workflowResponse.json();
+              if (workflow.state !== "active") {
+                console.error(
+                  `FAIL\tsignup-e2e\tscheduled workflow state is ${workflow.state ?? "unknown"}`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              const workflowUpdatedAt = Date.parse(
+                workflow.updated_at ?? workflow.created_at,
+              );
+              const workflowAgeMs = Date.now() - workflowUpdatedAt;
+              const maxAgeMs = 48 * 60 * 60 * 1_000;
+              if (!Number.isFinite(workflowAgeMs)) {
+                console.error(
+                  "FAIL\tsignup-e2e\tscheduled workflow has no valid activation timestamp",
+                );
+                process.exitCode = 1;
+                return;
+              }
               const completed = (body.workflow_runs ?? []).filter(
                 (run) => run.status === "completed",
               );
               const successful = completed.find(
                 (run) => run.conclusion === "success",
               );
-              if (completed.length === 0) {
-                console.log("INFO\tsignup-e2e\tno completed scheduled run yet");
+              if (completed.length === 0 && workflowAgeMs > maxAgeMs) {
+                console.error(
+                  `FAIL\tsignup-e2e\tno completed scheduled run exists and workflow has been active for ${Math.round(workflowAgeMs / 3_600_000)}h`,
+                );
+                process.exitCode = 1;
+              } else if (completed.length === 0) {
+                console.log(
+                  `INFO\tsignup-e2e\tno completed scheduled run yet; ${Math.max(0, Math.round((maxAgeMs - workflowAgeMs) / 3_600_000))}h rollout grace remains`,
+                );
               } else if (!successful) {
                 console.error(
                   "FAIL\tsignup-e2e\tno successful scheduled run exists",
@@ -76,7 +111,7 @@ jobs:
                 process.exitCode = 1;
               } else {
                 const ageMs = Date.now() - Date.parse(successful.created_at);
-                if (!Number.isFinite(ageMs) || ageMs > 48 * 60 * 60 * 1_000) {
+                if (!Number.isFinite(ageMs) || ageMs > maxAgeMs) {
                   console.error(
                     `FAIL\tsignup-e2e\tlast successful scheduled run is ${Math.round(ageMs / 3_600_000)}h old`,
                   );
@@ -95,6 +130,7 @@ jobs:
           NODE
 
       - name: Probe every public host
+        if: ${{ always() }}
         id: probe
         run: |
           set -o pipefail
