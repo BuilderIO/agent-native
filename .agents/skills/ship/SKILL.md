@@ -36,6 +36,17 @@ below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
+## Merge policy
+
+The purpose of `/ship` is to land the PR. A branch being behind `origin/main`
+is observational only; it never triggers a merge, rebase, or maintenance
+commit. Check GitHub's live `mergeable` state before updating from `main`, and
+merge `origin/main` only when GitHub reports `CONFLICTING` or a local merge
+proves a real conflict. After conflict recovery, wait for the new checks and
+do not repeat the merge while the PR is conflict-free or checks are pending.
+Never enable GitHub auto-merge; use the explicit admin merge below once the
+gates pass.
+
 ## Branch-wide Push
 
 A worktree is a valid publishing checkout. When `/ship` is authorized from a
@@ -55,6 +66,10 @@ Treat these as an immediate call to it: `/ship`, "ship our latest local
 changes", or "push up my local changes". Push the first coherent branch
 snapshot before long validation so CI and review can start, then publish later
 snapshots as local work arrives.
+
+Never run `ship:push` for a clean or merely behind branch, and never create a
+maintenance or `chore: publish branch work` commit just to refresh `main`,
+restart checks, or satisfy a babysit timer tick.
 
 ## Deployment split
 
@@ -221,10 +236,14 @@ branch, stay on it.
    git rev-list --count HEAD..origin/main
    ```
 
-   Non-zero means reapply the work onto current `origin/main` before pushing —
-   shipping from a stale base conflicts with or reverts whatever landed in the
-   gap. Measured 2026-08-18: four live Codex worktrees sat 1,144 commits behind
-   `origin/main` while reporting themselves clean from the inside.
+   A non-zero count is only a freshness signal. Do not merge, rebase, or
+   otherwise update the branch merely because `origin/main` advanced; a PR may
+   be behind `main` while remaining valid and mergeable. Query GitHub's live
+   `mergeable` state before any main update. Only when it reports
+   `CONFLICTING` should you merge `origin/main` once, resolve the conflict,
+   push, and wait for the new checks. Do not repeat that merge while the PR is
+   `MERGEABLE` or `UNKNOWN`, or while checks are merely pending. A behind count
+   alone never justifies a merge commit.
 
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Push the first safe slice before running `pnpm run prep` or
@@ -239,22 +258,27 @@ branch, stay on it.
 
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or
-   additional concurrent work. Later commits update that same PR and let CI
-   and review run in parallel with the rest of the ship workflow. Push each
-   later coherent branch snapshot as soon as it is available.
+   additional concurrent work. Later actionable commits update that same PR
+   and let CI and review run in parallel with the rest of the ship workflow.
+   Do not push a clean tree, `origin/main` drift, queued checks, or a babysit
+   timer tick.
 
 5. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
    `codex`, `[codex]`, or similar agent labels in the title/body.
 
-   For every later safe slice, update this same PR immediately after pushing;
-   do not create a second PR or wait for prep to finish before handing the
-   slice to CI and review.
+   For every later safe slice that fixes failing CI, addresses PR feedback,
+   resolves a real merge conflict, or implements an explicit user request,
+   update this same PR immediately after pushing. Do not create a second PR or
+   wait for prep to finish before handing the slice to CI and review. A clean
+   tree, `origin/main` drift, queued checks, or a timer tick is not a safe
+   slice and must not produce a commit or push.
 
 6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 publishes the current nonignored branch snapshot, then
-   checks mergeability, every unaddressed review comment by reply state, and CI.
+   the PR. Its Step 0 checks the current nonignored branch snapshot and
+   publishes only actionable work, then checks mergeability, every unaddressed
+   review comment by reply state, and CI.
    Keep going until the PR is either merged/closed or the user explicitly tells
    you to stop.
 

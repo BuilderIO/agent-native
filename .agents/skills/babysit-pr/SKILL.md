@@ -16,15 +16,17 @@ to the shared checkout or require that an agent publish from the root checkout.
 ## Branch-wide Snapshot Rule
 
 During `/babysit-pr`, the PR remains the unit of review and the shared checkout
-is the branch snapshot. At the first tick, record the status. Every later tick
-must publish all nonignored local work with `corepack pnpm ship:push`; the helper
-excludes `learnings.md`, `bridge/**`, and `data/**`. Never revert, stash,
-overwrite, or absorb concurrent work.
+is the branch snapshot. At the first tick, record the status. On later ticks,
+inspect the tree before pushing and run `corepack pnpm ship:push` only for an
+actionable fix required by CI, PR feedback, a real merge conflict, or an
+explicit user request. A clean tree, `origin/main` drift, queued checks, or a
+timer tick is not a reason to commit or push. Never revert, stash, overwrite,
+or absorb concurrent work.
 
-When the branch is actively changing, publish a coherent snapshot for no more
-than two minutes, then push it to the existing PR so CI and review agents can
-work in parallel. The final clean-tree and merge-soak gates still apply before
-merging, except when the user explicitly invokes `/ship-now`.
+When the branch is actively changing, publish one coherent actionable snapshot
+to the existing PR so CI and review agents can work in parallel. The final
+clean-tree and merge-soak gates still apply before merging, except when the
+user explicitly invokes `/ship-now`.
 
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
@@ -41,7 +43,7 @@ merging, except when the user explicitly invokes `/ship-now`.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent
   agents may edit the checkout continuously. Re-run Step 0 every single tick
-  and publish all nonignored changes in the current branch snapshot.
+  and publish only actionable changes in the current branch snapshot.
 
 ## Each tick
 
@@ -53,9 +55,10 @@ git diff --name-only
 git log --oneline origin/$(git branch --show-current)..HEAD
 ```
 
-Run `corepack pnpm ship:push` after the status check to commit and push all
-nonignored local work. If the tree is clean but the branch has unpushed commits,
-push those commits directly.
+Run `corepack pnpm ship:push` after the status check only when the dirty or
+unpushed work is an intentional actionable fix. If the tree is clean and
+already pushed, do nothing. Never create a maintenance commit merely to make
+the branch look current, refresh `main`, restart checks, or satisfy a timer.
 
 Every tick starts here, no exceptions: on an active shared branch local files
 can change within minutes, so re-check before every push.
@@ -65,8 +68,8 @@ can change within minutes, so re-check before every push.
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. **Publish the complete
-   current snapshot first (Step 0)**, then prefer a **merge** over a rebase —
+2. If `CONFLICTING`: bring `main` in and resolve. **Publish any intentional
+   actionable fix first (Step 0)**, then prefer a **merge** over a rebase —
    `git fetch origin main && git merge --no-edit
    origin/main` — because this branch is shared with concurrent agents and a
    rebase would rewrite history and require a force-push that can clobber their
@@ -74,7 +77,9 @@ can change within minutes, so re-check before every push.
    with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm
    install --lockfile-only` against the merged `package.json`), complete the
    merge commit, and push (a normal push, never `--force`). This resets the soak
-   timer. Only rebase if the user explicitly asks for a linear history.
+   timer. Do not merge `origin/main` again while the PR is `MERGEABLE` or
+   `UNKNOWN`, or while checks are merely pending. Only rebase if the user
+   explicitly asks for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 ## Latest-feedback handoff
