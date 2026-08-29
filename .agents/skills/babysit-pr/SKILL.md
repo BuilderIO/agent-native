@@ -101,6 +101,13 @@ can change within minutes, so re-check before every actionable push.
    fi
    ```
 
+   If either publishable-path check is non-empty, do not attempt an in-place
+   isolation. Preserve the exact dirty paths and unpublished commits, leave the
+   checkout untouched, and wait for the owning session to publish or move its
+   work. A separate clean PR worktree may perform this recovery when one is
+   already available. Never use `git stash`, reset, restore, or a temporary
+   branch as a substitute for retaining concurrent work.
+
    Do not merge an obsolete local head.
    **Publish any intentional actionable fix first (Step 0)**, after verifying
    every dirty path and unpushed commit belongs to that fix; then prefer a

@@ -92,6 +92,7 @@ let pollerJob: IntervalJobHandle | null = null;
 // arming itself afterwards.
 let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
+let pollerGeneration = 0;
 
 // ─── Watch Channel Management ───────────────────────────────────────────────
 
@@ -107,6 +108,10 @@ type WatchStopResult =
   | { status: "retry"; claimId: string };
 type WatchChannel = { id: string; resourceId?: string };
 const watchCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function isCurrentPollerGeneration(generation?: number): boolean {
+  return generation === undefined || generation === pollerGeneration;
+}
 
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   if (typeof timer === "object" && timer !== null && "unref" in timer) {
@@ -176,6 +181,28 @@ function scheduleOrphanedWatchCleanup(
   watchCleanupTimers.set(channel.id, timer);
 }
 
+async function cleanupRegisteredWatch(
+  accessToken: string,
+  channel: WatchChannel,
+): Promise<void> {
+  const currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
+  if (currentConfig?.configData?.channelId === channel.id) {
+    await saveIntegrationConfigIfUnchanged(
+      PLATFORM,
+      {},
+      "watch-channel",
+      currentConfig,
+    );
+  }
+
+  const stopped = await stopGoogleDocsWatchChannel(
+    accessToken,
+    channel.id,
+    channel.resourceId,
+  );
+  if (!stopped) scheduleOrphanedWatchCleanup(channel);
+}
+
 /**
  * Register a Google Drive changes.watch channel so Google pushes
  * notifications to our webhook instead of us polling.
@@ -185,7 +212,10 @@ function scheduleOrphanedWatchCleanup(
 export async function registerWatch(
   webhookUrl: string,
   expectedChannelId?: string,
+  expectedPollerGeneration?: number,
 ): Promise<boolean> {
+  if (!isCurrentPollerGeneration(expectedPollerGeneration)) return false;
+
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return false;
 
@@ -195,6 +225,8 @@ export async function registerWatch(
     pageToken = await getStartPageToken(accessToken);
     await setPageToken(pageToken);
   }
+
+  if (!isCurrentPollerGeneration(expectedPollerGeneration)) return false;
 
   const channelId = `gdocs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const expiration = Date.now() + WATCH_CHANNEL_TTL_MS;
@@ -212,6 +244,8 @@ export async function registerWatch(
     ) {
       return false;
     }
+
+    if (!isCurrentPollerGeneration(expectedPollerGeneration)) return false;
 
     const res = await fetch(
       "https://www.googleapis.com/drive/v3/changes/watch",
@@ -245,6 +279,11 @@ export async function registerWatch(
     };
     registeredChannel = { id: data.id, resourceId: data.resourceId };
 
+    if (!isCurrentPollerGeneration(expectedPollerGeneration)) {
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
+      return false;
+    }
+
     // Promote only if no other registration changed the active channel while
     // this request was in flight. Stop this orphaned channel if it lost.
     const promoted = await saveIntegrationConfigIfUnchanged(
@@ -260,20 +299,15 @@ export async function registerWatch(
       currentConfig,
     );
     if (!promoted) {
-      const stopped = await stopGoogleDocsWatchChannel(
-        accessToken,
-        data.id,
-        data.resourceId,
-      );
-      if (!stopped) {
-        scheduleOrphanedWatchCleanup({
-          id: data.id,
-          resourceId: data.resourceId,
-        });
-      }
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
       console.warn(
         `[google-docs] Watch registration lost a concurrent update (channel: ${data.id})`,
       );
+      return false;
+    }
+
+    if (!isCurrentPollerGeneration(expectedPollerGeneration)) {
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
       return false;
     }
 
@@ -301,24 +335,27 @@ export async function registerWatch(
       }
     }
 
+    if (!isCurrentPollerGeneration(expectedPollerGeneration)) {
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
+      return false;
+    }
+
     console.log(
       `[google-docs] Watch registered (channel: ${data.id}, expires: ${new Date(parseInt(data.expiration)).toISOString()})`,
     );
 
     // Schedule renewal before expiration
-    scheduleWatchRenewal(webhookUrl, undefined, data.id);
+    scheduleWatchRenewal(
+      webhookUrl,
+      undefined,
+      data.id,
+      expectedPollerGeneration,
+    );
 
     return true;
   } catch (err) {
     if (registeredChannel) {
-      const stopped = await stopGoogleDocsWatchChannel(
-        accessToken,
-        registeredChannel.id,
-        registeredChannel.resourceId,
-      );
-      if (!stopped) {
-        scheduleOrphanedWatchCleanup(registeredChannel);
-      }
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
     }
     console.error("[google-docs] Watch registration error:", err);
     return false;
@@ -447,14 +484,25 @@ function scheduleWatchRenewal(
   webhookUrl: string,
   delayMs = WATCH_CHANNEL_TTL_MS - 60 * 60 * 1000,
   expectedChannelId?: string,
+  expectedPollerGeneration?: number,
 ): void {
+  if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
   if (watchRenewalTimer) clearTimeout(watchRenewalTimer);
 
   watchRenewalTimer = setTimeout(async () => {
     watchRenewalTimer = null;
+    if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
     try {
       console.log("[google-docs] Renewing watch channel...");
-      if (await registerWatch(webhookUrl, expectedChannelId)) return;
+      if (
+        await registerWatch(
+          webhookUrl,
+          expectedChannelId,
+          expectedPollerGeneration,
+        )
+      ) {
+        return;
+      }
 
       if (expectedChannelId !== undefined) {
         const currentConfig = await getIntegrationConfig(
@@ -466,16 +514,46 @@ function scheduleWatchRenewal(
         }
       }
 
+      if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
+
       console.warn(
         `[google-docs] Could not register the replacement watch; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
       );
-      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS, expectedChannelId);
+      scheduleWatchRenewal(
+        webhookUrl,
+        WATCH_RETRY_MS,
+        expectedChannelId,
+        expectedPollerGeneration,
+      );
     } catch (err) {
       console.warn(
         `[google-docs] Watch renewal failed; retrying in ${WATCH_RETRY_MS / 60_000} minutes`,
         err,
       );
-      scheduleWatchRenewal(webhookUrl, WATCH_RETRY_MS, expectedChannelId);
+      if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
+      if (expectedChannelId !== undefined) {
+        try {
+          const currentConfig = await getIntegrationConfig(
+            PLATFORM,
+            "watch-channel",
+          );
+          if (currentConfig?.configData?.channelId !== expectedChannelId) {
+            return;
+          }
+        } catch (configErr) {
+          console.warn(
+            "[google-docs] Could not verify the current watch before retrying",
+            configErr,
+          );
+          return;
+        }
+      }
+      scheduleWatchRenewal(
+        webhookUrl,
+        WATCH_RETRY_MS,
+        expectedChannelId,
+        expectedPollerGeneration,
+      );
     }
   }, delayMs);
   unrefTimer(watchRenewalTimer);
@@ -942,10 +1020,12 @@ export async function startGoogleDocsPoller(
     return;
   }
 
+  const generation = ++pollerGeneration;
   activeOptions = options;
 
   // Check if integration is enabled before trying to register watch
   const config = await getIntegrationConfig(PLATFORM);
+  if (!isCurrentPollerGeneration(generation)) return;
   if (!config?.configData?.enabled) {
     // Still start the poll loop so it picks up when enabled later
     startPollLoop(options, options.intervalMs ?? 30_000);
@@ -957,7 +1037,8 @@ export async function startGoogleDocsPoller(
   let pushMode = false;
 
   if (webhookUrl) {
-    pushMode = await registerWatch(webhookUrl);
+    pushMode = await registerWatch(webhookUrl, undefined, generation);
+    if (!isCurrentPollerGeneration(generation)) return;
     if (pushMode) {
       console.log("[google-docs] Push mode active — using Drive webhooks");
       // In push mode, still poll slowly as a safety net (every 5 min)
@@ -1034,6 +1115,8 @@ function startPollLoop(
  * Stop the Google Docs integration.
  */
 export async function stopGoogleDocsPoller(): Promise<void> {
+  pollerGeneration += 1;
+  activeOptions = null;
   if (pollerStartTimer) {
     clearTimeout(pollerStartTimer);
     pollerStartTimer = null;
@@ -1065,5 +1148,4 @@ export async function stopGoogleDocsPoller(): Promise<void> {
     );
     scheduleWatchCleanupRetry(undefined);
   }
-  activeOptions = null;
 }

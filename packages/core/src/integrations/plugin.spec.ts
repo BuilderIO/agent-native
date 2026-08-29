@@ -783,6 +783,7 @@ describe("integrations plugin routes", () => {
     expect(rejected.status).toBe(401);
     expect(handlePushNotificationMock).not.toHaveBeenCalled();
 
+    verifyGoogleDocsPushNotificationMock.mockResolvedValueOnce(true);
     const accepted = await dispatch(
       nitroApp,
       "/_agent-native/integrations/google-docs/webhook",
@@ -794,8 +795,29 @@ describe("integrations plugin routes", () => {
         "x-goog-resource-id": "resource-1",
       },
     );
-    expect(accepted.status).toBe(200);
-    expect(accepted.body).toBe("ok");
+    expect(accepted.status).toBe(404);
+    expect(accepted.body).toEqual({
+      ok: false,
+      error: "Integration google-docs is not enabled",
+    });
+    expect(handlePushNotificationMock).not.toHaveBeenCalled();
+
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const enabled = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/webhook",
+      "POST",
+      undefined,
+      {
+        "x-goog-channel-id": "channel-1",
+        "x-goog-channel-token": "token-1",
+        "x-goog-resource-id": "resource-1",
+      },
+    );
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toBe("ok");
     expect(verifyGoogleDocsPushNotificationMock).toHaveBeenLastCalledWith({
       channelId: "channel-1",
       channelToken: "token-1",

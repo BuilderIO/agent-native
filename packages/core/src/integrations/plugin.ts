@@ -3147,6 +3147,14 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 401);
               return { ok: false, error: "unauthorized" };
             }
+            const config = await getIntegrationConfig(platform);
+            if (!config?.configData?.enabled) {
+              setResponseStatus(event, 404);
+              return {
+                ok: false,
+                error: `Integration ${platform} is not enabled`,
+              };
+            }
             handlePushNotification().catch((err) => {
               console.error("[google-docs] Push handler error:", err);
             });
