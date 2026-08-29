@@ -22,6 +22,7 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const stopGoogleDocsPollerMock = vi.hoisted(() => vi.fn(async () => {}));
 const handlePushNotificationMock = vi.hoisted(() => vi.fn());
 const verifyGoogleDocsPushNotificationMock = vi.hoisted(() =>
   vi.fn(async () => true),
@@ -182,6 +183,7 @@ vi.mock("./integration-durable-dispatch.js", async () => {
 
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: vi.fn(),
+  stopGoogleDocsPoller: stopGoogleDocsPollerMock,
   handlePushNotification: handlePushNotificationMock,
   verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
 }));
@@ -614,6 +616,34 @@ describe("integrations plugin routes", () => {
     expect(result.status).toBe(401);
     expect(result.body).toEqual({ error: "unauthorized" });
     expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("stops the Google Docs poller when disabling the integration", async () => {
+    getSessionMock.mockResolvedValue({ email: "owner@example.test" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      ok: true,
+      platform: "google-docs",
+      enabled: false,
+    });
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "google-docs",
+      { enabled: false },
+      "default",
+      "owner@example.test",
+    );
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledTimes(1);
   });
 
   it("registers the Telegram webhook and returns the provider result", async () => {

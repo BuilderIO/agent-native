@@ -66,6 +66,7 @@ import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
+  stopGoogleDocsPoller,
   handlePushNotification,
   verifyGoogleDocsPushNotification,
 } from "./google-docs-poller.js";
@@ -3436,6 +3437,9 @@ export function createIntegrationsPlugin(
             "default",
             session?.email,
           );
+          if (platform === "google-docs") {
+            await stopGoogleDocsPoller();
+          }
           return { ok: true, platform, enabled: false };
         }
 
