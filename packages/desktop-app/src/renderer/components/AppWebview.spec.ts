@@ -27,6 +27,7 @@ import {
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
+  shouldShowDesktopIdentityRecovery,
   shouldUseDesktopIdentityGate,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
@@ -133,6 +134,41 @@ describe("Desktop identity lazy child synchronization", () => {
         eligible: true,
         active: false,
         enabled: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows child-local recovery when app session synchronization fails", () => {
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: false,
+        status: "failed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: false,
+        status: "sign-in-required",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: false,
+        showDesktopIdentityGate: false,
+        status: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: true,
+        status: "failed",
       }),
     ).toBe(false);
   });

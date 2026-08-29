@@ -298,6 +298,20 @@ export function shouldUseDesktopIdentityGate(input: {
   return input.eligible && input.active && input.enabled !== false;
 }
 
+export function shouldShowDesktopIdentityRecovery(input: {
+  eligible: boolean;
+  active: boolean;
+  showDesktopIdentityGate: boolean;
+  status: DesktopIdentityStatus | "checking";
+}): boolean {
+  return (
+    !input.showDesktopIdentityGate &&
+    input.eligible &&
+    input.active &&
+    input.status === "failed"
+  );
+}
+
 export function shouldSuppressDesktopSignInPrompt(
   app: Pick<AppDefinition, "id">,
   appConfig: Pick<
@@ -794,6 +808,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         eligible: desktopIdentityGateEligible,
         active: isActive,
         enabled: desktopIdentityEnabled,
+      });
+    const desktopIdentitySurfaceActive =
+      desktopIdentityGateActive ||
+      shouldShowDesktopIdentityRecovery({
+        eligible: desktopIdentityGateEligible,
+        active: isActive,
+        showDesktopIdentityGate,
+        status: desktopIdentityStatus,
       });
     const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
     const repairDesktopIdentitySession = useCallback(() => {
@@ -1844,7 +1866,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               flex: "1 1 auto",
               display:
                 error ||
-                (desktopIdentityGateActive && !desktopIdentitySessionReady)
+                (desktopIdentitySurfaceActive && !desktopIdentitySessionReady)
                   ? "none"
                   : "flex",
               flexDirection: "column",
@@ -1853,14 +1875,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         )}
 
         {isActive &&
-          desktopIdentityGateActive &&
+          desktopIdentitySurfaceActive &&
           !desktopIdentitySessionReady &&
           (desktopIdentityStatus === "idle" ||
             desktopIdentityStatus === "signed-in") && (
             <LoadingScreen app={app} slow={false} isDev={isDevMode} />
           )}
 
-        {desktopIdentityGateActive && (
+        {desktopIdentitySurfaceActive && (
           <DesktopIdentityGate
             appName={app.name}
             status={desktopIdentityStatus}
