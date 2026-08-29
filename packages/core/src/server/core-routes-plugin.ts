@@ -1393,6 +1393,12 @@ export interface CoreRoutesPluginOptions {
   googleOAuthCallbackPaths?: string[];
   /** Whether the managed Google client is deployment- or user-scoped. */
   googleOAuthCredentialMode?: "managed" | "user";
+  /**
+   * Whether this app exposes deployment-level Google workspace OAuth. Custom
+   * core-route plugins must declare this; the framework default declares that
+   * managed OAuth is not applicable.
+   */
+  googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
@@ -1643,6 +1649,8 @@ export function createCoreRoutesPlugin(
   );
   const googleOAuthCredentialMode =
     options.googleOAuthCredentialMode ?? "managed";
+  const googleOAuthManagedConnection =
+    options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     // No-op when called from inside the bootstrap (auto-mount path).
@@ -1743,17 +1751,27 @@ export function createCoreRoutesPlugin(
             setResponseHeader(event, "cache-control", "no-store");
             const result =
               event.url?.searchParams.get("client") === "managed"
-                ? googleOAuthCredentialMode === "user"
+                ? googleOAuthManagedConnection === "not_applicable"
                   ? {
                       status: "unconfigured" as const,
                       clientId: null,
                       mismatchedPairs: false,
-                      credentialSource: "user" as const,
+                      credentialSource: "none" as const,
                       reason:
-                        "user-scoped OAuth credentials are checked after authentication",
+                        "this app does not expose deployment-level Google OAuth",
                       checkedAt: Date.now(),
                     }
-                  : await checkGoogleManagedCredential()
+                  : googleOAuthCredentialMode === "user"
+                    ? {
+                        status: "unconfigured" as const,
+                        clientId: null,
+                        mismatchedPairs: false,
+                        credentialSource: "user" as const,
+                        reason:
+                          "user-scoped OAuth credentials are checked after authentication",
+                        checkedAt: Date.now(),
+                      }
+                    : await checkGoogleManagedCredential()
                 : await checkGoogleSignInCredential();
             // `invalid` is the fleet-wide outage shape: the deploy is up and
             // healthy while nobody can sign in. Page on it.
@@ -1762,6 +1780,7 @@ export function createCoreRoutesPlugin(
               ...result,
               callbackPaths: googleOAuthCallbackPaths,
               credentialMode: googleOAuthCredentialMode,
+              managedConnection: googleOAuthManagedConnection,
             };
           }),
         );
@@ -4857,4 +4876,6 @@ export function createCoreRoutesPlugin(
  * export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
  * ```
  */
-export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin();
+export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
+});

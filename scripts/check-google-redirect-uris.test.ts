@@ -20,6 +20,7 @@ test("reads callback ownership from the deployed health contract", () => {
         clientId: "client-id",
         credentialSource: "managed",
         credentialMode: "managed",
+        managedConnection: "required",
         callbackPaths: ["/_agent-native/google/callback", googleDocsCallback],
       }),
       { status: 200, headers: jsonHeaders },
@@ -29,6 +30,7 @@ test("reads callback ownership from the deployed health contract", () => {
       clientId: "client-id",
       credentialSource: "managed",
       credentialMode: "managed",
+      managedConnection: "required",
       callbackPaths: ["/_agent-native/google/callback", googleDocsCallback],
     }),
   );
@@ -37,6 +39,7 @@ test("reads callback ownership from the deployed health contract", () => {
     googleDocsCallback,
   ]);
   assert.equal(result.credentialMode, "managed");
+  assert.equal(result.managedConnection, "required");
 });
 
 test("separates definitive mismatches from inconclusive probe failures", () => {
@@ -74,6 +77,52 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
     }),
     0,
   );
+});
+
+test("recognizes an explicit non-managed app without treating missing credentials as a failure", () => {
+  const result = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "unconfigured",
+        credentialSource: "none",
+        credentialMode: "managed",
+        managedConnection: "not_applicable",
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "unconfigured",
+      credentialSource: "none",
+      credentialMode: "managed",
+      managedConnection: "not_applicable",
+    }),
+  );
+  assert.equal(result.status, "unconfigured");
+  assert.equal(result.credentialSource, "none");
+  assert.equal(result.managedConnection, "not_applicable");
+});
+
+test("keeps an undeclared managed capability explicit and inconclusive", () => {
+  const result = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "client-id",
+        credentialSource: "managed",
+        credentialMode: "managed",
+        managedConnection: "unknown",
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "client-id",
+      credentialSource: "managed",
+      credentialMode: "managed",
+      managedConnection: "unknown",
+    }),
+  );
+  assert.equal(result.managedConnection, "unknown");
 });
 
 test("classifies Google's sign-in redirect as registered", () => {
@@ -174,6 +223,7 @@ test("does not accept a success payload from an unexpected HTTP status", () => {
     mismatchedPairs: null,
     credentialSource: null,
     credentialMode: null,
+    managedConnection: null,
     callbackPaths: null,
   });
 });

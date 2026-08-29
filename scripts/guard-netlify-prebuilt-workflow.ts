@@ -94,6 +94,68 @@ export function validateProductionSiteConcurrency(workflows: {
   return issues;
 }
 
+export function validateGoogleCallbackVerificationWorkflow(
+  workflow: string,
+): string[] {
+  const issues: string[] = [];
+  const verifyStart = workflow.indexOf(
+    "name: Verify Google OAuth redirect registration",
+  );
+  const rollbackStart = workflow.indexOf(
+    "name: Roll back after Google callback verification failure",
+    verifyStart,
+  );
+  const failStart = workflow.indexOf(
+    "name: Fail after Google callback verification",
+    rollbackStart,
+  );
+  const verify =
+    verifyStart >= 0 && rollbackStart > verifyStart
+      ? workflow.slice(verifyStart, rollbackStart)
+      : "";
+  const rollback =
+    rollbackStart >= 0 && failStart > rollbackStart
+      ? workflow.slice(rollbackStart, failStart)
+      : "";
+
+  if (!verify) {
+    issues.push(
+      `${reusablePath} must verify Google OAuth after publishing a deploy`,
+    );
+  } else {
+    if (
+      !verify.includes(
+        "node --experimental-strip-types scripts/check-google-redirect-uris.ts",
+      )
+    ) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must run the probe directly with the supported Node loader`,
+      );
+    }
+    if (verify.includes("pnpm check:google-redirect-uris")) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must not depend on a package-script indirection`,
+      );
+    }
+    if (verify.includes("source_template != 'macros'")) {
+      issues.push(
+        `${reusablePath} Google OAuth verification must use the deployed capability contract instead of a template allowlist`,
+      );
+    }
+  }
+
+  if (
+    !rollback ||
+    !rollback.includes("steps.google_redirect.outcome == 'failure'") ||
+    !rollback.includes("steps.google_redirect.outputs.exit_code != '0'")
+  ) {
+    issues.push(
+      `${reusablePath} must roll back every non-zero Google OAuth verification result, including inconclusive checks`,
+    );
+  }
+  return issues;
+}
+
 try {
   for (const [path, source] of [
     [reusablePath, reusable],
@@ -231,6 +293,7 @@ const parsedResumeIndex = parsedStepIndex(
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
+issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
 if (
   parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||

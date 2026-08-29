@@ -11,6 +11,7 @@ import { parse } from "yaml";
 import {
   PRODUCTION_PURGE_CONDITION,
   PRODUCTION_SITE_GROUP,
+  validateGoogleCallbackVerificationWorkflow,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
@@ -45,6 +46,29 @@ const reusableSource = readFileSync(
 const nodeHeredocs = [
   ...reusableSource.matchAll(/node <<'NODE'\n([\s\S]*?)\n\s*NODE/g),
 ].map((match) => match[1]);
+
+describe("Google callback deploy verification guard", () => {
+  it("requires direct probe execution and fail-closed rollback", () => {
+    assert.deepEqual(
+      validateGoogleCallbackVerificationWorkflow(reusableSource),
+      [],
+    );
+    assert.match(
+      validateGoogleCallbackVerificationWorkflow(
+        reusableSource
+          .replace(
+            "node --experimental-strip-types scripts/check-google-redirect-uris.ts",
+            "pnpm check:google-redirect-uris --",
+          )
+          .replace(
+            "steps.google_redirect.outputs.exit_code != '0'",
+            "steps.google_redirect.outputs.exit_code == '1'",
+          ),
+      ).join("\n"),
+      /directly with the supported Node loader|every non-zero/,
+    );
+  });
+});
 
 describe("production Netlify site concurrency guard", () => {
   it("supports previous, N-back, and exact Netlify deploy rollbacks", () => {
