@@ -147,10 +147,10 @@ export function validateGoogleCallbackVerificationWorkflow(
   if (
     !rollback ||
     !rollback.includes("steps.google_redirect.outcome == 'failure'") ||
-    !rollback.includes("steps.google_redirect.outputs.exit_code != '0'")
+    !rollback.includes("steps.google_redirect.outputs.exit_code == '1'")
   ) {
     issues.push(
-      `${reusablePath} must roll back every non-zero Google OAuth verification result, including inconclusive checks`,
+      `${reusablePath} must roll back only definitive Google OAuth mismatches (exit code 1); inconclusive checks must not roll back`,
     );
   }
   return issues;

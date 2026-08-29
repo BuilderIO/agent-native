@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
+  fetchWithRetry,
   googleRedirectProbeExitCode,
 } from "./check-google-redirect-uris.ts";
 
@@ -185,6 +186,37 @@ test("keeps incomplete and changed provider responses unknown", () => {
     ).state,
     "unknown",
   );
+});
+
+test("retries transient provider responses before classifying the result", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(null, {
+        status: 429,
+        headers: { "retry-after": "0" },
+      });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: "https://accounts.google.com/v3/signin/identifier",
+      },
+    });
+  };
+  try {
+    const response = await fetchWithRetry(
+      "https://accounts.google.com/o/oauth2/v2/auth",
+      { redirect: "manual" },
+      Date.now() + 1_000,
+    );
+    assert.equal(response.status, 302);
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("keeps a client fingerprint alongside the id needed for the probe", () => {
