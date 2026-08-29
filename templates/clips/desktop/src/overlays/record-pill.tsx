@@ -482,6 +482,21 @@ export function RecordingPill() {
     );
     track(
       safeListen("clips:toolbar-preparing", () => {
+        if (modeRef.current === "done") {
+          if (stallTimerRef.current) {
+            clearTimeout(stallTimerRef.current);
+            stallTimerRef.current = null;
+          }
+          setViewUrl(null);
+          setCopied(false);
+          setSavedLocally(false);
+          setDoneStage("finishing");
+          sessionRef.current = {};
+        }
+        setElapsed(0);
+        elapsedAnchorRef.current = null;
+        setPendingAction(null);
+        resetToRest();
         toolbarDismissedRef.current = false;
         setToolbarVisible(true);
       }),
@@ -668,6 +683,11 @@ export function RecordingPill() {
 
     function saveDraggedPosition() {
       if (!userDragActiveRef.current) return;
+      if (revealedRef.current || playheadConfirmOpenRef.current) {
+        userDragActiveRef.current = false;
+        lastDraggedPosition = null;
+        return;
+      }
       const saveGeneration = userDragGenerationRef.current;
       const saveChange = userDragChangeRef.current;
       const remainingGuardMs = animatingUntilRef.current - Date.now();
@@ -689,6 +709,16 @@ export function RecordingPill() {
 
     void getCurrentWindow()
       .onMoved(({ payload }) => {
+        if (revealedRef.current || playheadConfirmOpenRef.current) {
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = false;
+          lastDraggedPosition = null;
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          return;
+        }
         if (!userDragArmedRef.current && !userDragActiveRef.current) return;
         if (userDragArmedRef.current) {
           userDragArmedRef.current = false;
