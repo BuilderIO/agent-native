@@ -39,9 +39,35 @@ action or startup bootstrap just to write a credential for one organization.
 | `invalid_client` | Google rejected the client id/secret pair | Verify the exact pair and deployment source before rotating |
 | `redirect_uri_mismatch` | The client, host, callback path, and Google registration disagree | Compare that exact tuple in Google Cloud Console and rebuild build-time config |
 
-Probe the client used by the failing flow. A healthy sign-in pair does not prove
-the managed provider pair is healthy, and `mismatched` pairs are not by
-themselves a reason to delete either namespace.
+Do not reason about this from memory. Verify registration with the probe, which
+asks Google directly whether each host's live `(client_id, redirect_uri)` pair
+is registered:
+
+```bash
+pnpm check:google-redirect-uris -- --env all
+```
+
+That probe reads the **managed** contract only. Sign-in and managed connect
+resolve credentials through different functions: `resolveGoogleSignInCredentials`
+reads `GOOGLE_SIGN_IN_*`, `resolveProviderClientCredentials` reads
+`GOOGLE_CLIENT_*`, and they land on different Google clients on some hosts, so
+a clean probe says nothing about sign-in. This is why per-host verification of
+one flow has repeatedly "confirmed" a fix that changed nothing. Read both
+contracts before changing anything:
+
+```bash
+curl -s https://HOST/_agent-native/health/google | jq '{clientId,mismatchedPairs,credentialSource}'
+curl -s "https://HOST/_agent-native/health/google?client=managed" | jq '{clientId,mismatchedPairs,credentialSource}'
+```
+
+Different `clientId` values across those two, or `mismatchedPairs: true`, is a
+divergence to understand, not damage to undo. Never repair it by rotating a
+secret: writing a fresh value into whichever namespace the failing flow does
+not read verifies clean and changes nothing. Do not collapse the namespaces
+without first confirming which flow uses which client; separate sign-in and
+managed clients on one host can be deliberate. When a credential genuinely
+must change, deployment environment is build-time: the site must be rebuilt
+before the new value is live.
 
 ## Credential Modeling Preflight
 
