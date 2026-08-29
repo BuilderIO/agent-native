@@ -1372,6 +1372,14 @@ export interface CoreRoutesPluginOptions {
   disablePing?: boolean;
   /** Disable the /_agent-native/health DB liveness + warmup probe. */
   disableHealth?: boolean;
+  /**
+   * Callback paths emitted by this app's Google OAuth health contract. The
+   * default is the shared framework callback; app-owned callbacks must opt in
+   * so fleet probes read the deployed app instead of guessing from a hostname.
+   */
+  googleOAuthCallbackPaths?: string[];
+  /** Whether the managed Google client is deployment- or user-scoped. */
+  googleOAuthCredentialMode?: "managed" | "user";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
@@ -1412,6 +1420,23 @@ export interface CoreRoutesPluginOptions {
    * own browser-scoped agent session.
    */
   anonymousOwner?: BuilderAnonymousOwnerResolver;
+}
+
+const DEFAULT_GOOGLE_OAUTH_CALLBACK_PATH = "/_agent-native/google/callback";
+const GOOGLE_OAUTH_CALLBACK_PATH_PATTERN =
+  /^\/_agent-native\/[A-Za-z0-9._/-]+\/callback$/;
+
+function normalizeGoogleOAuthCallbackPaths(paths?: string[]): string[] {
+  const values = [...new Set(paths ?? [DEFAULT_GOOGLE_OAUTH_CALLBACK_PATH])];
+  if (
+    values.length === 0 ||
+    values.some((value) => !GOOGLE_OAUTH_CALLBACK_PATH_PATTERN.test(value))
+  ) {
+    throw new Error(
+      "googleOAuthCallbackPaths must contain /_agent-native/*/callback paths.",
+    );
+  }
+  return values;
 }
 
 interface LegacyCoreRouteInitSettings {
@@ -1600,6 +1625,11 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
+  const googleOAuthCallbackPaths = normalizeGoogleOAuthCallbackPaths(
+    options.googleOAuthCallbackPaths,
+  );
+  const googleOAuthCredentialMode =
+    options.googleOAuthCredentialMode ?? "managed";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     // No-op when called from inside the bootstrap (auto-mount path).
@@ -1700,12 +1730,26 @@ export function createCoreRoutesPlugin(
             setResponseHeader(event, "cache-control", "no-store");
             const result =
               event.url?.searchParams.get("client") === "managed"
-                ? await checkGoogleManagedCredential()
+                ? googleOAuthCredentialMode === "user"
+                  ? {
+                      status: "unconfigured" as const,
+                      clientId: null,
+                      mismatchedPairs: false,
+                      credentialSource: "user" as const,
+                      reason:
+                        "user-scoped OAuth credentials are checked after authentication",
+                      checkedAt: Date.now(),
+                    }
+                  : await checkGoogleManagedCredential()
                 : await checkGoogleSignInCredential();
             // `invalid` is the fleet-wide outage shape: the deploy is up and
             // healthy while nobody can sign in. Page on it.
             if (result.status === "invalid") setResponseStatus(event, 503);
-            return result;
+            return {
+              ...result,
+              callbackPaths: googleOAuthCallbackPaths,
+              credentialMode: googleOAuthCredentialMode,
+            };
           }),
         );
         getH3App(nitroApp).use(

@@ -31,10 +31,6 @@ const OPTIONAL_CALLBACK_PATHS = {
   google_drive: "/_agent-native/connections/oauth/google_drive/callback",
 } as const;
 const ALL_CALLBACK_PATHS = { ...CALLBACK_PATHS, ...OPTIONAL_CALLBACK_PATHS };
-const SCOPED_CALLBACK_PATHS = new Set([
-  CALLBACK_PATHS.google_docs,
-  ...Object.values(OPTIONAL_CALLBACK_PATHS),
-]);
 const HEALTH_STATUSES = [
   "valid",
   "invalid",
@@ -42,7 +38,13 @@ const HEALTH_STATUSES = [
   "unknown",
 ] as const;
 const SAFE_HEALTH_REASONS = new Set(["invalid_client", "invalid_grant"]);
-const SAFE_CREDENTIAL_SOURCES = new Set(["active", "preferred", "managed"]);
+const SAFE_CREDENTIAL_SOURCES = new Set([
+  "active",
+  "preferred",
+  "managed",
+  "user",
+]);
+const SAFE_CREDENTIAL_MODES = new Set(["managed", "user"]);
 
 setDefaultResultOrder("ipv4first");
 
@@ -71,6 +73,8 @@ export type GoogleHealthResult = {
   clientFingerprint: string | null;
   mismatchedPairs: boolean | null;
   credentialSource: string | null;
+  credentialMode: "managed" | "user" | null;
+  callbackPaths: string[] | null;
 };
 
 export function googleRedirectProbeExitCode(input: {
@@ -80,9 +84,10 @@ export function googleRedirectProbeExitCode(input: {
   unprobeable: number;
   invalidCredentials: number;
   skippedRequired: number;
+  allowNoCoverage?: boolean;
 }): number {
-  if (input.expected === 0) return 2;
   if (input.unregistered > 0) return 1;
+  if (input.expected === 0) return input.allowNoCoverage ? 0 : 2;
   if (
     input.unknown > 0 ||
     input.unprobeable > 0 ||
@@ -99,9 +104,10 @@ type Manifest = Record<string, string[]>;
 type Options = {
   env?: string;
   host?: string;
-  paths: string[];
+  paths: string[] | null;
   skip: Set<string>;
   budgetMs: number;
+  allowLegacyHealth: boolean;
 };
 
 type Target = { lane: string; host: string };
@@ -149,6 +155,8 @@ function emptyHealth(
     clientFingerprint: null,
     mismatchedPairs: null,
     credentialSource: null,
+    credentialMode: null,
+    callbackPaths: null,
   };
 }
 
@@ -173,7 +181,8 @@ function parseHost(value: string): string {
   return host.toLowerCase();
 }
 
-function parsePaths(value: string): string[] {
+function parsePaths(value: string): string[] | null {
+  if (value.trim().toLowerCase() === "auto") return null;
   const paths = value
     .split(",")
     .map((entry) => entry.trim())
@@ -193,20 +202,10 @@ function parsePaths(value: string): string[] {
   return [...new Set(paths)];
 }
 
-export function callbackPathsForHost(host: string, paths: string[]): string[] {
-  const normalizedHost = host.toLowerCase();
-  const isSlidesHost =
-    normalizedHost === "slides.agent-native.com" ||
-    normalizedHost.endsWith(".slides.agent-native.com");
-  return paths.filter(
-    (callbackPath) => !SCOPED_CALLBACK_PATHS.has(callbackPath) || isSlidesHost,
-  );
-}
-
 function parseOptions(argv: string[]): Options | null {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
-      "Usage: pnpm check:google-redirect-uris -- [--env production|beta|workspace|all] [--host HOST] [--paths root,google_docs] [--skip HOST,...] [--budget-seconds N]",
+      "Usage: pnpm check:google-redirect-uris -- [--env production|beta|workspace|all] [--host HOST] [--paths auto|root,google_docs] [--skip HOST,...] [--budget-seconds N] [--allow-legacy-health]",
     );
     return null;
   }
@@ -246,11 +245,10 @@ function parseOptions(argv: string[]): Options | null {
   return {
     env,
     host: hostValue ? parseHost(hostValue) : undefined,
-    paths: parsePaths(
-      getValue("--paths") ?? Object.keys(CALLBACK_PATHS).join(","),
-    ),
+    paths: parsePaths(getValue("--paths") ?? "auto"),
     skip,
     budgetMs: budgetSeconds * 1_000,
+    allowLegacyHealth: argv.includes("--allow-legacy-health"),
   };
 }
 
@@ -399,6 +397,17 @@ function safeHealthReason(
   return null;
 }
 
+function advertisedCallbackPaths(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const paths = value.filter(
+    (path): path is string =>
+      typeof path === "string" &&
+      path.startsWith("/_agent-native/") &&
+      path.endsWith("/callback"),
+  );
+  return paths.length === value.length ? [...new Set(paths)] : null;
+}
+
 /** Parse the public health contract without trusting arbitrary response text. */
 export function classifyGoogleHealthResponse(
   response: Response,
@@ -466,12 +475,19 @@ export function classifyGoogleHealthResponse(
       SAFE_CREDENTIAL_SOURCES.has(body.credentialSource)
         ? body.credentialSource
         : null,
+    credentialMode:
+      typeof body.credentialMode === "string" &&
+      SAFE_CREDENTIAL_MODES.has(body.credentialMode)
+        ? (body.credentialMode as "managed" | "user")
+        : null,
+    callbackPaths: advertisedCallbackPaths(body.callbackPaths),
   };
 }
 
 async function healthOf(
   host: string,
   deadline: number,
+  allowLegacyHealth: boolean,
 ): Promise<GoogleHealthResult> {
   if (Date.now() >= deadline) {
     return emptyHealth("unknown", "host probe budget exhausted");
@@ -486,7 +502,23 @@ async function healthOf(
       return emptyHealth("unknown", "health response exceeded 64 KiB");
     }
     const health = classifyGoogleHealthResponse(response, bodyText);
-    return health.credentialSource === "managed"
+    if (health.credentialMode === "user") {
+      return emptyHealth(
+        "not_applicable",
+        "OAuth credentials are user-scoped and checked after authentication",
+      );
+    }
+    if (health.credentialSource === "managed") {
+      return health.credentialMode === "managed"
+        ? health
+        : emptyHealth(
+            "unknown",
+            "managed health response omitted its credential mode",
+          );
+    }
+    return allowLegacyHealth &&
+      (health.credentialSource === "active" ||
+        health.credentialSource === "preferred")
       ? health
       : emptyHealth(
           "unknown",
@@ -585,8 +617,17 @@ async function run(argv: string[]): Promise<number> {
         };
       }
       const hostDeadline = Math.min(runDeadline, Date.now() + HOST_TIMEOUT_MS);
-      const health = await healthOf(target.host, hostDeadline);
-      const callbackPaths = callbackPathsForHost(target.host, options.paths);
+      const health = await healthOf(
+        target.host,
+        hostDeadline,
+        options.allowLegacyHealth,
+      );
+      const callbackPaths =
+        health.callbackPaths && options.paths
+          ? health.callbackPaths.filter((callbackPath) =>
+              options.paths?.includes(callbackPath),
+            )
+          : (health.callbackPaths ?? []);
       const results = health.clientId
         ? await mapWithLimit(callbackPaths, 3, async (callbackPath) => {
             const redirectUri = `https://${target.host}${callbackPath}`;
@@ -611,6 +652,7 @@ async function run(argv: string[]): Promise<number> {
   let invalidCredentials = 0;
   let verified = 0;
   let expected = 0;
+  let managedHosts = 0;
   for (const row of rows) {
     const healthLabel = [
       row.health.status,
@@ -626,6 +668,26 @@ async function run(argv: string[]): Promise<number> {
       `HOST\t${row.lane}\t${row.host}\tclient=${row.health.clientFingerprint ?? "none"}\t${healthLabel}`,
     );
     if (row.health.status === "not_applicable") continue;
+    if (row.health.credentialSource === "managed") managedHosts += 1;
+    if (
+      options.allowLegacyHealth &&
+      row.health.credentialSource !== "managed"
+    ) {
+      console.log(
+        `NOT VERIFIED\t${row.host}\tmanaged OAuth health contract is not deployed`,
+      );
+      continue;
+    }
+    if (
+      row.health.credentialSource === "managed" &&
+      row.health.callbackPaths === null
+    ) {
+      unknown += 1;
+      console.log(
+        `UNKNOWN\t${row.host}\thealth\thealth response omitted callback paths`,
+      );
+      continue;
+    }
     if (row.health.status === "invalid") invalidCredentials += 1;
     if (row.health.status === "invalid") {
       console.log(
@@ -662,7 +724,7 @@ async function run(argv: string[]): Promise<number> {
   }
 
   console.log(
-    `\nSummary: hosts=${rows.length} paths=${options.paths.length} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
+    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
   );
   return googleRedirectProbeExitCode({
     expected,
@@ -671,6 +733,10 @@ async function run(argv: string[]): Promise<number> {
     unprobeable,
     invalidCredentials,
     skippedRequired: skippedRequired.length,
+    allowNoCoverage:
+      managedHosts === 0 &&
+      (options.allowLegacyHealth ||
+        rows.every((row) => row.health.status === "not_applicable")),
   });
 }
 

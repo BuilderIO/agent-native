@@ -837,7 +837,7 @@ jobs:
           HOST: ${{ steps.target.outputs.host }}
         run: |
           set +e
-          pnpm check:google-redirect-uris -- --host "$HOST" --paths root,google_docs
+          pnpm check:google-redirect-uris -- --host "$HOST" --paths auto
           status=$?
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit "$status"

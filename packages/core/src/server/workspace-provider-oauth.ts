@@ -126,6 +126,33 @@ export interface WorkspaceProviderOAuthFlow {
   expiresAt: number;
 }
 
+function isWorkspaceProviderOAuthFlow(
+  value: unknown,
+): value is WorkspaceProviderOAuthFlow {
+  const flow = record(value);
+  return Boolean(
+    flow &&
+    typeof flow.provider === "string" &&
+    SUPPORTED_PROVIDERS.has(flow.provider as GenericWorkspaceOAuthProvider) &&
+    typeof flow.flowId === "string" &&
+    flow.flowId.length > 0 &&
+    typeof flow.verifier === "string" &&
+    flow.verifier.length > 0 &&
+    typeof flow.redirectUri === "string" &&
+    flow.redirectUri.length > 0 &&
+    typeof flow.owner === "string" &&
+    flow.owner.length > 0 &&
+    (flow.orgId === undefined || typeof flow.orgId === "string") &&
+    typeof flow.appId === "string" &&
+    flow.appId.length > 0 &&
+    isWorkspaceProviderOAuthScope(flow.scope) &&
+    (flow.salesforceLoginUrl === undefined ||
+      typeof flow.salesforceLoginUrl === "string") &&
+    typeof flow.expiresAt === "number" &&
+    Number.isFinite(flow.expiresAt),
+  );
+}
+
 export function workspaceProviderOAuthPath(
   provider: GenericWorkspaceOAuthProvider,
   phase: "start" | "callback",
@@ -327,14 +354,15 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const flow = readStoredFlow(event, providerId);
-  if (!flow || !isWorkspaceProviderOAuthScope(flow.scope)) {
+  const storedFlow = readStoredFlow(event, providerId);
+  if (!storedFlow.flow) {
     return oauthFlowFailure(
       event,
       400,
-      "OAuth flow cookie is missing or invalid.",
+      `OAuth flow cookie ${storedFlow.reason}.`,
     );
   }
+  const flow = storedFlow.flow;
   const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
     flow.appId,
@@ -983,16 +1011,28 @@ function requiredProvider(
 function readStoredFlow(
   event: H3Event,
   provider: GenericWorkspaceOAuthProvider,
-): WorkspaceProviderOAuthFlow | null {
+): { flow: WorkspaceProviderOAuthFlow | null; reason: string } {
   const encrypted = getCookie(event, flowCookieName(provider));
-  if (!encrypted) return null;
+  if (!encrypted) return { flow: null, reason: "is missing" };
+  let decrypted: string;
   try {
-    return JSON.parse(
-      decryptSecretValue(encrypted),
-    ) as WorkspaceProviderOAuthFlow;
+    decrypted = decryptSecretValue(encrypted);
   } catch {
-    return null;
+    return { flow: null, reason: "could not be decrypted" };
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decrypted);
+  } catch {
+    return { flow: null, reason: "is malformed" };
+  }
+  const parsedRecord = record(parsed);
+  if (parsedRecord && !isWorkspaceProviderOAuthScope(parsedRecord.scope)) {
+    return { flow: null, reason: "has an invalid scope" };
+  }
+  return isWorkspaceProviderOAuthFlow(parsed)
+    ? { flow: parsed, reason: "is valid" }
+    : { flow: null, reason: "is malformed" };
 }
 
 export function workspaceProviderOAuthFlowInvalidReason(input: {
@@ -1003,10 +1043,16 @@ export function workspaceProviderOAuthFlowInvalidReason(input: {
   sessionOrgId?: string;
   now?: number;
 }): string | undefined {
+  if (!Number.isFinite(input.flow.expiresAt)) {
+    return "flow expiry is invalid";
+  }
   if (input.flow.expiresAt < (input.now ?? Date.now())) return "flow expired";
   if (input.flow.provider !== input.provider) return "provider mismatch";
-  if (!input.state.flowId || input.state.flowId !== input.flow.flowId) {
+  if (!input.state.flowId) {
     return "state is missing, malformed, or has an invalid signature";
+  }
+  if (input.state.flowId !== input.flow.flowId) {
+    return "state does not match the OAuth flow";
   }
   if (input.state.redirectUri !== input.flow.redirectUri) {
     return "redirect URI mismatch";

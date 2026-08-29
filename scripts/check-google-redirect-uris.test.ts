@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  callbackPathsForHost,
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
   googleRedirectProbeExitCode,
@@ -13,27 +12,31 @@ const redirectUri =
 const jsonHeaders = { "content-type": "application/json" };
 const googleDocsCallback = "/_agent-native/google-docs/callback";
 
-test("scopes the Slides-owned callback to Slides hosts", () => {
-  assert.deepEqual(
-    callbackPathsForHost("calendar.agent-native.com", [
-      "/_agent-native/google/callback",
-      "/_agent-native/connections/oauth/google_drive/callback",
-      googleDocsCallback,
-    ]),
-    ["/_agent-native/google/callback"],
+test("reads callback ownership from the deployed health contract", () => {
+  const result = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "client-id",
+        credentialSource: "managed",
+        credentialMode: "managed",
+        callbackPaths: ["/_agent-native/google/callback", googleDocsCallback],
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "client-id",
+      credentialSource: "managed",
+      credentialMode: "managed",
+      callbackPaths: ["/_agent-native/google/callback", googleDocsCallback],
+    }),
   );
-  assert.deepEqual(
-    callbackPathsForHost("beta.slides.agent-native.com", [
-      "/_agent-native/google/callback",
-      "/_agent-native/connections/oauth/google_drive/callback",
-      googleDocsCallback,
-    ]),
-    [
-      "/_agent-native/google/callback",
-      "/_agent-native/connections/oauth/google_drive/callback",
-      googleDocsCallback,
-    ],
-  );
+  assert.deepEqual(result.callbackPaths, [
+    "/_agent-native/google/callback",
+    googleDocsCallback,
+  ]);
+  assert.equal(result.credentialMode, "managed");
 });
 
 test("separates definitive mismatches from inconclusive probe failures", () => {
@@ -58,6 +61,18 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
       skippedRequired: 0,
     }),
     2,
+  );
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 0,
+      unregistered: 0,
+      unknown: 0,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+      allowNoCoverage: true,
+    }),
+    0,
   );
 });
 
@@ -158,6 +173,8 @@ test("does not accept a success payload from an unexpected HTTP status", () => {
     clientFingerprint: null,
     mismatchedPairs: null,
     credentialSource: null,
+    credentialMode: null,
+    callbackPaths: null,
   });
 });
 

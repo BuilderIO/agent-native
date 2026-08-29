@@ -38,9 +38,10 @@ export interface GoogleCredentialCheck {
    * Where the probed pair came from. `active` is the pair Better Auth wired to
    * the provider; `preferred` means auth had not initialised yet and this fell
    * back to the preferred pair; `managed` is the deployment-level pair used by
-   * the unauthenticated workspace OAuth health contract.
+   * the unauthenticated workspace OAuth health contract; `user` means the app
+   * intentionally resolves a user-scoped pair after sign-in.
    */
-  credentialSource: "active" | "preferred" | "managed";
+  credentialSource: "active" | "preferred" | "managed" | "user";
   /** Google's `error` field, or the transport failure, when there was one. */
   reason: string | null;
   checkedAt: number;

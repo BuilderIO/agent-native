@@ -191,6 +191,24 @@ describe("workspace provider OAuth", () => {
         state: { ...state, flowId: undefined },
       }),
     ).toBe("state is missing, malformed, or has an invalid signature");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        state: { ...state, flowId: "another-flow" },
+      }),
+    ).toBe("state does not match the OAuth flow");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        flow: { ...flow, expiresAt: Number.NaN },
+      }),
+    ).toBe("flow expiry is invalid");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        flow: { ...flow, expiresAt: Number.POSITIVE_INFINITY },
+      }),
+    ).toBe("flow expiry is invalid");
   });
 
   it("preserves the provider in signed callback state", () => {
