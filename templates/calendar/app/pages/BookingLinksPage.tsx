@@ -47,9 +47,11 @@ import {
   isToday,
   isBefore,
   addDays,
+  addMinutes,
   addMonths,
   subMonths,
   format,
+  parse,
   parseISO,
   startOfDay,
   getDay,
@@ -2482,6 +2484,28 @@ function BookingPreview({
 
   const confirmedDuration = selectedDuration ?? primaryDuration;
 
+  const selectedLiveSlot = hasLiveAvailability
+    ? (liveSlots.find(
+        (slot) => format(parseISO(slot.start), "h:mm a") === selectedSlot,
+      ) ?? null)
+    : null;
+
+  const confirmedRange =
+    selectedDate && selectedSlot
+      ? selectedLiveSlot
+        ? {
+            start: parseISO(selectedLiveSlot.start),
+            end: parseISO(selectedLiveSlot.end),
+          }
+        : {
+            start: parse(selectedSlot, "h:mm a", selectedDate),
+            end: addMinutes(
+              parse(selectedSlot, "h:mm a", selectedDate),
+              confirmedDuration,
+            ),
+          }
+      : null;
+
   function updatePreviewForm(patch: Partial<BookingPreviewFormValue>) {
     setPreviewForm((prev) => ({ ...prev, ...patch }));
   }
@@ -2770,47 +2794,40 @@ function BookingPreview({
 
         {/* Time step */}
         {step === "time" && (
-          <div className="space-y-2">
-            {selectedDate && (
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {format(selectedDate, "EEEE, MMM d")}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-medium">
+                {t("bookingLinks.selectTime")}
+              </h4>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDate(null);
+                  setSelectedSlot(null);
+                  setForcedStep(null);
+                }}
+                className={cn("text-[11px] hover:underline", BRAND_LINK_CLASS)}
+              >
+                {t("bookingLinks.changeDate")}
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              {selectedDate ? (
+                <p className="text-xs text-muted-foreground">
+                  {format(selectedDate, "EEEE, MMMM d, yyyy")}
                 </p>
-                <div className="flex items-center gap-2">
-                  {hasLiveAvailability && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPreviewTimeZones((prev) => !prev)}
-                      className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
-                    >
-                      {showPreviewTimeZones
-                        ? t("bookingLinks.hideTimeZones")
-                        : t("bookingLinks.showTimeZones")}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedDate(null);
-                      setSelectedSlot(null);
-                      setForcedStep(null);
-                    }}
-                    className={cn(
-                      "text-[11px] hover:underline",
-                      BRAND_LINK_CLASS,
-                    )}
-                  >
-                    {t("bookingLinks.changeDate")}
-                  </button>
-                </div>
-              </div>
-            )}
-            {!selectedDate && (
-              <p className="text-xs font-medium text-center text-muted-foreground">
-                {t("bookingLinks.availableTimes")}
-              </p>
-            )}
-            {hasLiveAvailability && showPreviewTimeZones ? (
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setShowPreviewTimeZones((prev) => !prev)}
+                className="text-[11px] font-normal text-[#00B5FF] hover:text-[#33C4FF]"
+              >
+                {showPreviewTimeZones
+                  ? t("bookingLinks.hideTimeZones")
+                  : t("bookingLinks.showTimeZones")}
+              </button>
+            </div>
+            {showPreviewTimeZones ? (
               <TimeZoneGrid
                 slots={liveSlots}
                 selectedSlot={selectedLiveSlotStart}
@@ -2870,32 +2887,34 @@ function BookingPreview({
         {/* Info step */}
         {step === "info" && (
           <form className="space-y-3" onSubmit={handlePreviewSubmit}>
-            {selectedDate && selectedSlot ? (
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("bookingLinks.selectedDateTime", {
-                    date: format(selectedDate, "EEEE, MMM d"),
-                    time: selectedSlot,
-                  })}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedSlot(null);
-                    setForcedStep(null);
-                  }}
-                  className={cn(
-                    "text-[11px] hover:underline",
-                    BRAND_LINK_CLASS,
-                  )}
-                >
-                  {t("bookingLinks.changeTime")}
-                </button>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-medium">
+                {t("bookingLinks.yourInformation")}
+              </h4>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSlot(null);
+                  setForcedStep(null);
+                }}
+                className={cn("text-[11px] hover:underline", BRAND_LINK_CLASS)}
+              >
+                {t("bookingLinks.changeTime")}
+              </button>
+            </div>
+            {confirmedRange && (
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {t("bookingLinks.confirming")}
+                </div>
+                <div className="mt-1 font-medium text-foreground">
+                  {format(confirmedRange.start, "EEEE, MMMM d")}
+                </div>
+                <div className="text-muted-foreground">
+                  {format(confirmedRange.start, "h:mm a")} -{" "}
+                  {format(confirmedRange.end, "h:mm a")}
+                </div>
               </div>
-            ) : (
-              <p className="text-xs font-medium text-center text-muted-foreground">
-                {t("bookingLinks.bookingDetails")}
-              </p>
             )}
             <div className="space-y-2">
               <div className="space-y-1.5">
