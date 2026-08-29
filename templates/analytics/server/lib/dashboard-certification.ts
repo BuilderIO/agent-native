@@ -5,43 +5,54 @@ export interface DashboardCertification {
   certifiedForUpdatedAt: string;
 }
 
-export function readDashboardCertification(
-  config: Record<string, unknown>,
-): DashboardCertification | null {
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return null;
+export type DashboardCertificationRead =
+  | { status: "absent"; certification?: undefined }
+  | { status: "invalid"; certification?: undefined }
+  | { status: "valid"; certification: DashboardCertification };
+
+export function parseDashboardCertification(
+  value: unknown,
+): DashboardCertificationRead {
+  if (value === undefined || value === null || value === "") {
+    return { status: "absent" };
   }
-  const value = config.certification;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const certification = value as Record<string, unknown>;
+  let candidate = value;
+  if (typeof value === "string") {
+    try {
+      candidate = JSON.parse(value);
+    } catch {
+      return { status: "invalid" };
+    }
+  }
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return { status: "invalid" };
+  }
+  const raw = candidate as Record<string, unknown>;
   if (
-    certification.status !== "certified" ||
-    typeof certification.certifiedAt !== "string" ||
-    typeof certification.certifiedBy !== "string" ||
-    typeof certification.certifiedForUpdatedAt !== "string"
+    raw.status !== "certified" ||
+    typeof raw.certifiedAt !== "string" ||
+    typeof raw.certifiedBy !== "string" ||
+    typeof raw.certifiedForUpdatedAt !== "string"
   ) {
-    return null;
+    return { status: "invalid" };
   }
   return {
-    status: "certified",
-    certifiedAt: certification.certifiedAt as string,
-    certifiedBy: certification.certifiedBy as string,
-    certifiedForUpdatedAt: certification.certifiedForUpdatedAt as string,
+    status: "valid",
+    certification: {
+      status: "certified",
+      certifiedAt: raw.certifiedAt,
+      certifiedBy: raw.certifiedBy,
+      certifiedForUpdatedAt: raw.certifiedForUpdatedAt,
+    },
   };
 }
 
 export function isDashboardCertified(
-  config: Record<string, unknown>,
+  certification: DashboardCertification | null | undefined,
   updatedAt: string,
 ): boolean {
   return (
-    readDashboardCertification(config)?.certifiedForUpdatedAt === updatedAt
+    certification?.status === "certified" &&
+    certification.certifiedForUpdatedAt === updatedAt
   );
-}
-
-export function certifyDashboardConfig(
-  config: Record<string, unknown>,
-  certification: DashboardCertification,
-): Record<string, unknown> {
-  return { ...config, certification };
 }

@@ -41,7 +41,7 @@ import {
 
 import { getDb, schema } from "../db/index.js";
 import {
-  readDashboardCertification,
+  parseDashboardCertification,
   type DashboardCertification,
 } from "./dashboard-certification.js";
 
@@ -65,6 +65,7 @@ export interface DashboardRecord {
   /** ISO timestamp set when the dashboard is hidden from default navigation. */
   hiddenAt: string | null;
   hiddenBy: string | null;
+  certification?: DashboardCertification;
   /** Effective role for the caller when loaded by id. List rows omit this. */
   role?: AccessRole;
   canEdit?: boolean;
@@ -488,6 +489,7 @@ function accessFields(role?: AccessRole): {
 }
 
 function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
+  const certification = parseDashboardCertification(row.certification);
   return {
     id: row.id,
     kind: row.kind,
@@ -504,6 +506,9 @@ function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
     archivedAt: row.archivedAt ?? null,
     hiddenAt: row.hiddenAt ?? null,
     hiddenBy: row.hiddenBy ?? null,
+    ...(certification.status === "valid"
+      ? { certification: certification.certification }
+      : {}),
     ...accessFields(role),
   };
 }
@@ -854,23 +859,32 @@ export async function listDashboardSummaries(
       archivedAt: schema.dashboards.archivedAt,
       hiddenAt: schema.dashboards.hiddenAt,
       hiddenBy: schema.dashboards.hiddenBy,
+      certification: schema.dashboards.certification,
     })
     .from(schema.dashboards)
     .where(where);
-  const out: DashboardSummaryRecord[] = rows.map((row: any) => ({
-    ...row,
-    description: typeof row.description === "string" ? row.description : null,
-    configName: typeof row.configName === "string" ? row.configName : null,
-    catalogTemplateId:
-      typeof row.catalogTemplateId === "string" ? row.catalogTemplateId : null,
-    demoId: typeof row.demoId === "string" ? row.demoId : null,
-    parentId: typeof row.parentId === "string" ? row.parentId : null,
-    folderId: typeof row.folderId === "string" ? row.folderId : null,
-    orgId: row.orgId ?? null,
-    archivedAt: row.archivedAt ?? null,
-    hiddenAt: row.hiddenAt ?? null,
-    hiddenBy: row.hiddenBy ?? null,
-  }));
+  const out: DashboardSummaryRecord[] = rows.map((row: any) => {
+    const certification = parseDashboardCertification(row.certification);
+    return {
+      ...row,
+      description: typeof row.description === "string" ? row.description : null,
+      configName: typeof row.configName === "string" ? row.configName : null,
+      catalogTemplateId:
+        typeof row.catalogTemplateId === "string"
+          ? row.catalogTemplateId
+          : null,
+      demoId: typeof row.demoId === "string" ? row.demoId : null,
+      parentId: typeof row.parentId === "string" ? row.parentId : null,
+      folderId: typeof row.folderId === "string" ? row.folderId : null,
+      orgId: row.orgId ?? null,
+      archivedAt: row.archivedAt ?? null,
+      hiddenAt: row.hiddenAt ?? null,
+      hiddenBy: row.hiddenBy ?? null,
+      ...(certification.status === "valid"
+        ? { certification: certification.certification }
+        : {}),
+    };
+  });
   const seen = new Set(out.map((row) => row.id));
 
   if (archived === "archived" || hidden === "hidden") return out;
@@ -985,14 +999,8 @@ export async function searchDashboardReferences(
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       name: schema.dashboards.title,
-      description: isPostgres()
-        ? sql<
-            string | null
-          >`(${schema.dashboards.config}::jsonb ->> 'description')`
-        : sql<
-            string | null
-          >`json_extract(${schema.dashboards.config}, '$.description')`,
       config: schema.dashboards.config,
+      certification: schema.dashboards.certification,
       ownerEmail: schema.dashboards.ownerEmail,
       orgId: schema.dashboards.orgId,
       visibility: schema.dashboards.visibility,
@@ -1007,19 +1015,33 @@ export async function searchDashboardReferences(
     record: DashboardReferenceRecord;
     score: number;
   }> = rows
-    .map((row: any) =>
-      dashboardReferenceMatch(
+    .map((row: any) => {
+      let description =
+        typeof row.description === "string" ? row.description : null;
+      if (!description && typeof row.config === "string") {
+        try {
+          const config = JSON.parse(row.config) as unknown;
+          if (config && typeof config === "object" && !Array.isArray(config)) {
+            const value = (config as Record<string, unknown>).description;
+            description = typeof value === "string" ? value : null;
+          }
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+          // Keep malformed configs searchable by id/title, without claiming a description.
+        }
+      }
+      const certification = parseDashboardCertification(row.certification);
+      return dashboardReferenceMatch(
         {
           ...row,
-          certification: readDashboardCertification(
-            typeof row.config === "string"
-              ? JSON.parse(row.config)
-              : row.config,
-          ),
+          description,
+          ...(certification.status === "valid"
+            ? { certification: certification.certification }
+            : {}),
         },
         query,
-      ),
-    )
+      );
+    })
     .filter(
       (
         match: { record: DashboardReferenceRecord; score: number } | null,
@@ -1066,7 +1088,6 @@ export async function searchDashboardReferences(
             : typeof config.createdAt === "string"
               ? config.createdAt
               : "",
-        certification: readDashboardCertification(config),
       },
       query,
     );
@@ -1187,15 +1208,25 @@ export async function loadDashboardCatalogDashboards(
       title: schema.dashboards.title,
       description,
       config: schema.dashboards.config,
+      certification: schema.dashboards.certification,
     })
     .from(schema.dashboards)
     .where(where);
 
   const byId = new Map<string, DashboardCatalogRecord>(
-    sqlRows.map((row: any) => {
-      const config =
-        typeof row.config === "string" ? JSON.parse(row.config) : row.config;
-      const certification = readDashboardCertification(config);
+    sqlRows.flatMap((row: any) => {
+      let config: Record<string, unknown> | null = null;
+      try {
+        config =
+          typeof row.config === "string" ? JSON.parse(row.config) : row.config;
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        return [];
+      }
+      if (!config || typeof config !== "object" || Array.isArray(config)) {
+        return [];
+      }
+      const certification = parseDashboardCertification(row.certification);
       const catalogRow: DashboardCatalogRecord = {
         id: row.id,
         kind: row.kind,
@@ -1203,9 +1234,11 @@ export async function loadDashboardCatalogDashboards(
         description:
           typeof row.description === "string" ? row.description : null,
         config,
-        ...(certification ? { certification } : {}),
+        ...(certification.status === "valid"
+          ? { certification: certification.certification }
+          : {}),
       };
-      return [row.id, catalogRow];
+      return [[row.id, catalogRow] as [string, DashboardCatalogRecord]];
     }),
   );
 
@@ -1220,14 +1253,12 @@ export async function loadDashboardCatalogDashboards(
     const legacy = await findLegacyDashboard(id, ctx);
     if (!legacy) continue;
     const { title, config } = configFromSettings(legacy.data);
-    const certification = readDashboardCertification(config);
     out.push({
       id,
       kind: legacy.kind,
       title,
       description: configDescriptionFromValue(config),
       config,
-      ...(certification ? { certification } : {}),
     });
   }
   return out;
@@ -1363,7 +1394,6 @@ export async function upsertDashboard(
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
-  options?: { preserveUpdatedAt?: boolean },
 ): Promise<DashboardRecord> {
   // If the row exists (or legacy-migrates), require editor.
   const existing = await getDashboard(id, ctx);
@@ -1400,7 +1430,7 @@ export async function upsertDashboard(
         kind,
         title,
         config: configJson,
-        updatedAt: options?.preserveUpdatedAt ? existing.updatedAt : nowIso(),
+        updatedAt: nowIso(),
         updatedBy: ctx.email,
       };
       if (expectedUpdatedAt !== undefined) {
@@ -1506,12 +1536,10 @@ export async function upsertDashboardWithRetry(
     | {
         kind: DashboardKind;
         body: Record<string, unknown>;
-        preserveUpdatedAt?: boolean;
       }
     | Promise<{
         kind: DashboardKind;
         body: Record<string, unknown>;
-        preserveUpdatedAt?: boolean;
       }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
 ): Promise<DashboardRecord> {
@@ -1526,9 +1554,7 @@ export async function upsertDashboardWithRetry(
     const result = await mutate(existing);
     const { kind, body } = result;
     try {
-      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt, {
-        preserveUpdatedAt: result.preserveUpdatedAt,
-      });
+      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt);
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
@@ -1539,6 +1565,88 @@ export async function upsertDashboardWithRetry(
   }
   const finalError = new Error(
     `Could not save dashboard "${id}" after ${maxAttempts} attempt(s); it kept changing concurrently. Re-read the dashboard and try again.`,
+  );
+  if (lastConflict !== undefined) {
+    (finalError as Error & { cause?: unknown }).cause = lastConflict;
+  }
+  throw finalError;
+}
+
+function nextDashboardVersion(updatedAt: string): string {
+  const now = Date.now();
+  const current = Date.parse(updatedAt);
+  return new Date(
+    Number.isFinite(current) && current >= now ? current + 1 : now,
+  ).toISOString();
+}
+
+/** Persist an admin certification as server-owned metadata and a new write version. */
+export async function certifyDashboardWithRetry(
+  id: string,
+  ctx: AccessCtx,
+  maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+): Promise<DashboardRecord> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const existing = await getDashboard(id, ctx);
+    if (!existing) {
+      throw new Error(
+        `dashboard "${id}" not found (or you don't have access).`,
+      );
+    }
+    if (existing.kind !== "sql") {
+      throw new Error("Only SQL dashboards can be certified for AI queries.");
+    }
+    const updatedAt = nextDashboardVersion(existing.updatedAt);
+    const certification: DashboardCertification = {
+      status: "certified",
+      certifiedAt: new Date().toISOString(),
+      certifiedBy: ctx.email,
+      certifiedForUpdatedAt: updatedAt,
+    };
+    const updateResult = await (getDb() as any)
+      .update(schema.dashboards)
+      .set({
+        certification: JSON.stringify(certification),
+        updatedAt,
+        updatedBy: ctx.email,
+      })
+      .where(
+        and(
+          eq(schema.dashboards.id, id),
+          eq(schema.dashboards.updatedAt, existing.updatedAt),
+        ),
+      );
+    const affected = affectedRowCount(updateResult);
+    if (affected === undefined) {
+      throw new Error(
+        "The database driver did not report an affected-row count for the dashboard certification update.",
+      );
+    }
+    if (affected === 0) {
+      lastConflict = new DashboardConflictError(id);
+      continue;
+    }
+    const [row] = await (getDb() as any)
+      .select()
+      .from(schema.dashboards)
+      .where(eq(schema.dashboards.id, id));
+    if (!row) {
+      throw new Error(`Dashboard "${id}" disappeared after certification.`);
+    }
+    const dashboard = rowToDashboard(row, existing.role);
+    recordScopedChange(
+      "dashboards",
+      "change",
+      dashboard.id,
+      dashboard.ownerEmail,
+      dashboard.orgId,
+      dashboard.visibility,
+    );
+    return dashboard;
+  }
+  const finalError = new Error(
+    `Could not certify dashboard "${id}" after ${maxAttempts} attempt(s); it kept changing concurrently. Re-read the dashboard and try again.`,
   );
   if (lastConflict !== undefined) {
     (finalError as Error & { cause?: unknown }).cause = lastConflict;

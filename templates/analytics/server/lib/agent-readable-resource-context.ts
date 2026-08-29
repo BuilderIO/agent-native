@@ -4,10 +4,7 @@ import {
   clampDashboardColumns,
   type SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
-import {
-  isDashboardCertified,
-  readDashboardCertification,
-} from "./dashboard-certification.js";
+import { isDashboardCertified } from "./dashboard-certification.js";
 import type { AnalysisRecord, DashboardRecord } from "./dashboards-store.js";
 
 function dashboardLayoutSummary(config: Record<string, unknown>) {
@@ -111,8 +108,11 @@ export function buildDashboardAgentContext(
     createdBy: dashboard.createdBy,
     updatedAt: dashboard.updatedAt,
     updatedBy: dashboard.updatedBy,
-    certification: readDashboardCertification(config),
-    certified: isDashboardCertified(config, dashboard.updatedAt),
+    certification: dashboard.certification ?? null,
+    certified: isDashboardCertified(
+      dashboard.certification,
+      dashboard.updatedAt,
+    ),
     url: `/dashboards/${dashboard.id}`,
   };
   return options.includeConfig === false
@@ -151,11 +151,8 @@ export function buildDashboardSeedAgentContext(
     hiddenAt: null,
     hiddenBy: null,
     createdBy: null,
-    certification: readDashboardCertification(seed),
-    certified: isDashboardCertified(
-      seed,
-      typeof seed.updatedAt === "string" ? seed.updatedAt : "",
-    ),
+    certification: null,
+    certified: false,
     url: `/dashboards/${id}`,
   };
   return options.includeConfig === false

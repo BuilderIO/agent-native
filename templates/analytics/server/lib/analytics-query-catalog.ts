@@ -102,6 +102,7 @@ export type AnalyticsQueryCatalogCandidate =
       timeScope?: string;
       dashboardCertification?: DashboardCertification;
       dashboardCertified: boolean;
+      favorite?: boolean;
     }
   | {
       kind: "data-dictionary";
@@ -399,20 +400,18 @@ function dashboardPanelCandidates(args: {
       text(panel.chartType) === "metric"
         ? 20
         : 0;
-    const score =
+    const relevanceScore =
       rawScore -
       titleSpecificityPenalty -
       missingQueryPenalty +
-      aggregateIntent +
-      (args.dashboardUpdatedAt &&
-      isDashboardCertified(
-        { certification: args.certification },
-        args.dashboardUpdatedAt,
-      )
-        ? 60
-        : 0) +
-      (args.favorite ? 20 : 0);
-    if (score <= 0) return [];
+      aggregateIntent;
+    if (relevanceScore <= 0) return [];
+    const dashboardCertified = Boolean(
+      args.dashboardUpdatedAt &&
+      isDashboardCertified(args.certification, args.dashboardUpdatedAt),
+    );
+    const score =
+      relevanceScore + (dashboardCertified ? 60 : 0) + (args.favorite ? 20 : 0);
 
     return [
       {
@@ -436,13 +435,7 @@ function dashboardPanelCandidates(args: {
         ...(args.certification
           ? { dashboardCertification: args.certification }
           : {}),
-        dashboardCertified: Boolean(
-          args.dashboardUpdatedAt &&
-          isDashboardCertified(
-            { certification: args.certification },
-            args.dashboardUpdatedAt,
-          ),
-        ),
+        dashboardCertified,
         ...(args.favorite ? { favorite: true } : {}),
       },
     ];
@@ -526,6 +519,12 @@ function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
     .toLowerCase()}`;
 }
 
+function candidateTrustTier(candidate: AnalyticsQueryCatalogCandidate): number {
+  if (candidate.kind !== "dashboard-panel") return 0;
+  if (candidate.dashboardCertified) return 2;
+  return candidate.favorite ? 1 : 0;
+}
+
 export function rankAnalyticsQueryCatalog(args: {
   search: string;
   dashboards: Array<{
@@ -559,6 +558,9 @@ export function rankAnalyticsQueryCatalog(args: {
   ];
 
   const ranked = candidates.sort((a, b) => {
+    const aTrustTier = candidateTrustTier(a);
+    const bTrustTier = candidateTrustTier(b);
+    if (bTrustTier !== aTrustTier) return bTrustTier - aTrustTier;
     if (b.score !== a.score) return b.score - a.score;
     // Prefer something the agent can run over something it must look up again.
     const aRunnable = candidateIsRunnable(a);

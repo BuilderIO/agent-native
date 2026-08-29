@@ -213,6 +213,99 @@ describe("analytics query catalog", () => {
     });
   });
 
+  it("requires relevance before applying certification or favorite signals", () => {
+    const certification = {
+      status: "certified" as const,
+      certifiedAt: "2026-08-28T00:00:00.000Z",
+      certifiedBy: "admin@example.com",
+      certifiedForUpdatedAt: "v1",
+    };
+    const results = rankAnalyticsQueryCatalog({
+      search: "revenue",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "signups",
+          title: "Signups",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "signups",
+                title: "Signups",
+                source: "first-party",
+                sql: "SELECT COUNT(*) AS signups FROM analytics_events",
+              },
+            ],
+          },
+          certification,
+          updatedAt: "v1",
+          favorite: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("ranks certified dashboards ahead of more relevant ordinary panels", () => {
+    const certification = {
+      status: "certified" as const,
+      certifiedAt: "2026-08-28T00:00:00.000Z",
+      certifiedBy: "admin@example.com",
+      certifiedForUpdatedAt: "v1",
+    };
+    const results = rankAnalyticsQueryCatalog({
+      search: "revenue growth",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "certified-revenue",
+          title: "Revenue",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "revenue",
+                title: "Revenue",
+                source: "first-party",
+                sql: "SELECT revenue FROM revenue_events",
+              },
+            ],
+          },
+          certification,
+          updatedAt: "v1",
+        },
+        {
+          id: "ordinary-revenue-growth",
+          title: "Revenue Growth",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "revenue-growth",
+                title: "Revenue Growth",
+                source: "first-party",
+                sql: "SELECT revenue, growth FROM revenue_events",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      dashboardId: "certified-revenue",
+      dashboardCertified: true,
+    });
+    expect(results[1]).toMatchObject({
+      dashboardId: "ordinary-revenue-growth",
+      dashboardCertified: false,
+    });
+  });
+
   it("surfaces extension panels that have no SQL", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "risk meeting",

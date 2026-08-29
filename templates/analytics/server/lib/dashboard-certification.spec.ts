@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  certifyDashboardConfig,
   isDashboardCertified,
-  readDashboardCertification,
+  parseDashboardCertification,
 } from "./dashboard-certification";
 
 describe("dashboard certification", () => {
@@ -15,17 +14,34 @@ describe("dashboard certification", () => {
   };
 
   it("is current only for the certified dashboard version", () => {
-    const config = certifyDashboardConfig({ name: "Revenue" }, certification);
-    expect(readDashboardCertification(config)).toEqual(certification);
-    expect(isDashboardCertified(config, "v1")).toBe(true);
-    expect(isDashboardCertified(config, "v2")).toBe(false);
+    const parsed = parseDashboardCertification(JSON.stringify(certification));
+    expect(parsed).toEqual({ status: "valid", certification });
+    expect(
+      isDashboardCertified(
+        parsed.status === "valid" ? parsed.certification : undefined,
+        "v1",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardCertified(
+        parsed.status === "valid" ? parsed.certification : undefined,
+        "v2",
+      ),
+    ).toBe(false);
   });
 
-  it("rejects malformed certification metadata", () => {
+  it("distinguishes absent and unreadable certification metadata", () => {
+    expect(parseDashboardCertification(undefined)).toEqual({
+      status: "absent",
+    });
+    expect(parseDashboardCertification("not-json")).toEqual({
+      status: "invalid",
+    });
     expect(
-      readDashboardCertification({
-        certification: { status: "certified", certifiedBy: "admin" },
+      parseDashboardCertification({
+        status: "certified",
+        certifiedBy: "admin",
       }),
-    ).toBeNull();
+    ).toEqual({ status: "invalid" });
   });
 });
