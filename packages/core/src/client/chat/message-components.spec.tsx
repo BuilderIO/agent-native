@@ -94,14 +94,23 @@ describe("assistant request ID resolution", () => {
 describe("assistant chat history matching", () => {
   it("requires a completed side effect and picks the earliest version in the turn", () => {
     const versions = [
-      { id: "later", createdAt: "2026-08-29T10:01:00.000Z" },
-      { id: "first", createdAt: "2026-08-29T10:00:00.000Z" },
+      {
+        id: "later",
+        createdAt: "2026-08-29T10:01:00.000Z",
+        chatContext: { runId: "run-1" },
+      },
+      {
+        id: "first",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        chatContext: { runId: "run-1" },
+      },
     ];
     const message = {
       id: "assistant-1",
       createdAt: "2026-08-29T10:02:00.000Z",
       turnStartedAt: "2026-08-29T09:59:00.000Z",
       turnEndedAt: "2026-08-29T10:03:00.000Z",
+      runId: "run-1",
       hasCompletedSideEffect: true,
     };
 
@@ -123,7 +132,11 @@ describe("assistant chat history matching", () => {
         createdAt: "2026-08-29T10:00:00.000Z",
         editable: false,
       },
-      { id: "selected", createdAt: "2026-08-29T10:01:00.000Z" },
+      {
+        id: "selected",
+        createdAt: "2026-08-29T10:01:00.000Z",
+        chatContext: { turnId: "turn-1" },
+      },
     ];
 
     expect(
@@ -132,6 +145,7 @@ describe("assistant chat history matching", () => {
         {
           id: "assistant-1",
           createdAt: "2026-08-29T10:02:00.000Z",
+          turnId: "turn-1",
           hasCompletedSideEffect: true,
         },
         {
@@ -152,6 +166,35 @@ describe("assistant chat history matching", () => {
           scope: { type: "deck", id: "other-deck" },
         },
         { scope: { type: "deck", id: "current-deck" } },
+      ),
+    ).toBeNull();
+  });
+
+  it("does not match a timestamp-only checkpoint or a different chat turn", () => {
+    const version = {
+      id: "checkpoint",
+      createdAt: "2026-08-29T10:00:00.000Z",
+      chatContext: { runId: "other-run" },
+    };
+    expect(
+      findMatchingAssistantChatHistoryVersion([version], {
+        id: "assistant-1",
+        createdAt: "2026-08-29T10:02:00.000Z",
+        turnStartedAt: "2026-08-29T09:59:00.000Z",
+        turnEndedAt: "2026-08-29T10:03:00.000Z",
+        hasCompletedSideEffect: true,
+      }),
+    ).toBeNull();
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [version],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          hasCompletedSideEffect: true,
+        },
+        { matchVersion: () => true },
       ),
     ).toBeNull();
   });

@@ -7,6 +7,7 @@ export {
   createDashboardStorage,
   DashboardStorageConflictError,
   type DashboardRecord,
+  type DashboardRevisionChatContext,
   type DashboardRevisionMetadataRecord,
   type DashboardRevisionRecord,
   type DashboardStorageOptions,

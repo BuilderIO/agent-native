@@ -163,6 +163,7 @@ export {
 export {
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryConfig,
+  type AssistantChatHistoryContext,
   type AssistantChatHistoryMessage,
   type AssistantChatHistoryScope,
   type AssistantChatHistoryVersion,

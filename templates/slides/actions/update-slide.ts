@@ -15,7 +15,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import {
   applySlideContentEdits,
   formatSlideHtml,
@@ -651,6 +654,7 @@ export default defineAction({
                 ctx?.caller === "tool" ||
                 ctx?.caller === "mcp" ||
                 ctx?.caller === "a2a",
+              chatContext: deckVersionChatContextFromAction(ctx),
               label: "Before slide edit",
               db: tx,
             },

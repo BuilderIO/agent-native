@@ -91,11 +91,21 @@ export function Layout({ children }: LayoutProps) {
             if (!isAssistantChatHistoryVersion(version)) return [];
             const previous = versions[index + 1];
             if (!isAssistantChatHistoryVersion(previous)) return [];
+            const chatContext = (
+              version as AssistantChatHistoryVersion & {
+                chatContext?: {
+                  threadId?: string;
+                  runId?: string;
+                  turnId?: string;
+                };
+              }
+            ).chatContext;
             return [
               {
                 ...previous,
                 createdAt: version.createdAt,
-                editable: true,
+                editable: Boolean(chatContext),
+                ...(chatContext ? { chatContext } : {}),
               },
             ];
           });

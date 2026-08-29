@@ -69,45 +69,117 @@ const ANALYSIS_EDIT_TOOLS = new Set([
   "save-analysis",
 ]);
 
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function analyticsToolTarget(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+  scopeType: "dashboard" | "analysis",
+): unknown {
+  if (scopeType === "dashboard") {
+    if (
+      tool === "compose-dashboard" ||
+      tool === "mutate-dashboard" ||
+      tool === "reorder-dashboard-panels" ||
+      tool === "update-dashboard" ||
+      tool === "update-dashboard-demo" ||
+      tool === "update-dashboard-summary"
+    ) {
+      return input?.dashboardId ?? input?.id;
+    }
+    return input?.id ?? input?.dashboardId;
+  }
+  return input?.analysisId ?? input?.id;
+}
+
 function hasAnalyticsEdit(
   run: { events: readonly unknown[] },
   tools: ReadonlySet<string>,
+  scopeType: "dashboard" | "analysis",
+  scopeId: string,
 ): boolean {
-  return run.events.some((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const event = (entry as { event?: unknown }).event;
-    if (!event || typeof event !== "object") return false;
-    const record = event as Record<string, unknown>;
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    if (!record) return false;
+    const input = inputForCompletedTool(run.events, index, record);
     return (
       record.type === "tool_done" &&
       record.completedSideEffect === true &&
       record.isError !== true &&
       typeof record.tool === "string" &&
-      tools.has(record.tool)
+      tools.has(record.tool) &&
+      analyticsToolTarget(record.tool, input, scopeType) === scopeId
     );
   });
 }
 
 async function autosaveAnalyticsAfterAgentTurn(
   scope: { type: string; id: string },
-  run: { events: readonly unknown[] },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
 ): Promise<void> {
   const email = getRequestUserEmail();
   if (!email) return;
   const ctx = { email, orgId: getRequestOrgId() || null };
   if (
     scope.type === "dashboard" &&
-    hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS)
+    hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS, "dashboard", scope.id)
   ) {
     const { createDashboardRevisionSnapshot } =
       await import("../lib/dashboards-store.js");
-    await createDashboardRevisionSnapshot(scope.id, ctx);
+    await createDashboardRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
     return;
   }
-  if (scope.type === "analysis" && hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS)) {
+  if (
+    scope.type === "analysis" &&
+    hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS, "analysis", scope.id)
+  ) {
     const { createAnalysisRevisionSnapshot } =
       await import("../lib/dashboards-store.js");
-    await createAnalysisRevisionSnapshot(scope.id, ctx);
+    await createAnalysisRevisionSnapshot(scope.id, ctx, {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    });
   }
 }
 

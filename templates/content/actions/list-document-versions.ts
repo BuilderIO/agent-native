@@ -4,6 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { parseDocumentVersionChatContext } from "../server/lib/document-version-context.js";
 
 export default defineAction({
   description: "List saved versions for a document.",
@@ -41,6 +42,7 @@ export default defineAction({
             documentId: schema.documentVersions.documentId,
             title: schema.documentVersions.title,
             createdAt: schema.documentVersions.createdAt,
+            chatContext: schema.documentVersions.chatContext,
           })
           .from(schema.documentVersions)
           .where(where)
@@ -48,15 +50,25 @@ export default defineAction({
           .limit(args.limit);
 
     return {
-      versions: versions.map((version) => ({
-        id: version.id,
-        documentId: version.documentId,
-        title: version.title,
-        ...(args.includeContent && "content" in version
-          ? { content: version.content }
-          : {}),
-        createdAt: version.createdAt,
-      })),
+      versions: versions.map((version) => {
+        let chatContext;
+        try {
+          chatContext = parseDocumentVersionChatContext(version.chatContext);
+        } catch {
+          chatContext = undefined;
+        }
+        return {
+          id: version.id,
+          documentId: version.documentId,
+          title: version.title,
+          ...(args.includeContent && "content" in version
+            ? { content: version.content }
+            : {}),
+          createdAt: version.createdAt,
+          editable: Boolean(chatContext),
+          ...(chatContext ? { chatContext } : {}),
+        };
+      }),
     };
   },
 });

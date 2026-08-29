@@ -26,7 +26,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -919,7 +922,12 @@ export default defineAction({
               data: row.data ?? "",
               ownerEmail: row.ownerEmail,
             },
-            { force: true, label: "Before deck patch", db: tx },
+            {
+              force: true,
+              chatContext: deckVersionChatContextFromAction(ctx),
+              label: "Before deck patch",
+              db: tx,
+            },
           );
         }
         const updateResult = await tx

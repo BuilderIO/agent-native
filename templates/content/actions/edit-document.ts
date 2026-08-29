@@ -18,6 +18,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  documentVersionChatContextFromAction,
+  serializeDocumentVersionChatContext,
+} from "../server/lib/document-version-context.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
@@ -332,6 +336,9 @@ export default defineAction({
             documentId: id,
             title: existing.title,
             content: existing.content ?? "",
+            chatContext: serializeDocumentVersionChatContext(
+              documentVersionChatContextFromAction(ctx),
+            ),
             createdAt: now,
           });
         }

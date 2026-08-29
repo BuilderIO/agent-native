@@ -7,6 +7,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
+import { deckVersionChatContextFromRun } from "../lib/deck-versions.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -100,7 +101,12 @@ function hasDeckEdit(
 
 async function autosaveDeckAfterAgentTurn(
   scope: { type: string; id: string },
-  run: { events: readonly unknown[] },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
 ): Promise<void> {
   if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
 
@@ -115,6 +121,7 @@ async function autosaveDeckAfterAgentTurn(
   await createDeckVersionSnapshot(deck, {
     force: true,
     label: "Chat autosave",
+    chatContext: deckVersionChatContextFromRun(run),
   });
 }
 

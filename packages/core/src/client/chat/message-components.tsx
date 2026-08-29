@@ -345,10 +345,17 @@ export const CheckpointContext = React.createContext<{
 
 export type AssistantChatHistoryDate = string | number | Date;
 
+export interface AssistantChatHistoryContext {
+  threadId?: string;
+  runId?: string;
+  turnId?: string;
+}
+
 export interface AssistantChatHistoryVersion {
   id: string;
   createdAt: AssistantChatHistoryDate;
   editable?: boolean;
+  chatContext?: AssistantChatHistoryContext;
 }
 
 export interface AssistantChatHistoryScope {
@@ -363,6 +370,8 @@ export interface AssistantChatHistoryMessage {
   parentId?: string;
   turnStartedAt?: AssistantChatHistoryDate;
   turnEndedAt?: AssistantChatHistoryDate;
+  runId?: string;
+  turnId?: string;
   hasCompletedSideEffect: boolean;
 }
 
@@ -492,19 +501,12 @@ export function findMatchingAssistantChatHistoryVersion<
   if (!message.hasCompletedSideEffect) return null;
   if (
     options.scope &&
-    message.scope &&
-    (message.scope.type !== options.scope.type ||
+    (!message.scope ||
+      message.scope.type !== options.scope.type ||
       message.scope.id !== options.scope.id)
   ) {
     return null;
   }
-
-  const turnStart = coerceMessageDate(
-    message.turnStartedAt ?? message.createdAt,
-  )?.getTime();
-  const turnEnd = message.turnEndedAt
-    ? coerceMessageDate(message.turnEndedAt)?.getTime()
-    : undefined;
   let match: TVersion | null = null;
   let matchTime = Number.POSITIVE_INFINITY;
 
@@ -513,13 +515,18 @@ export function findMatchingAssistantChatHistoryVersion<
     if (version.editable === false || options.isEditable?.(version) === false) {
       continue;
     }
+    const chatContext = version.chatContext;
+    const matchesChatTurn = Boolean(
+      chatContext &&
+      ((message.turnId && chatContext.turnId === message.turnId) ||
+        (message.runId && chatContext.runId === message.runId)),
+    );
+    if (!matchesChatTurn) continue;
     const versionTime = coerceMessageDate(version.createdAt)?.getTime();
     if (versionTime == null) continue;
     const matches = options.matchVersion
       ? options.matchVersion(version, message)
-      : turnStart != null &&
-        versionTime >= turnStart &&
-        (turnEnd == null || versionTime < turnEnd);
+      : true;
     if (!matches || versionTime >= matchTime) continue;
     match = version;
     matchTime = versionTime;
@@ -2183,6 +2190,8 @@ export function AssistantMessage() {
       ...(nextUserMessage?.createdAt
         ? { turnEndedAt: nextUserMessage.createdAt }
         : {}),
+      ...(messageRunId ? { runId: messageRunId } : {}),
+      ...(messageTurnId ? { turnId: messageTurnId } : {}),
       hasCompletedSideEffect,
     };
   }, [
@@ -2190,6 +2199,8 @@ export function AssistantMessage() {
     msg.createdAt,
     msg.id,
     msg.parentId,
+    messageRunId,
+    messageTurnId,
     thread.messages,
     threadRuntime,
   ]);

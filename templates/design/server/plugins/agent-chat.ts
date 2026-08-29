@@ -3,6 +3,7 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
@@ -70,28 +71,103 @@ const DESIGN_EDIT_TOOLS = new Set([
   "insert-design-native-asset",
   "remove-breakpoint",
   "remove-motion-timeline",
-  "rename-screen",
-  "restore-design-version",
-  "set-active-breakpoint",
   "swap-component-instance",
   "update-design",
   "update-file",
 ]);
 
-function hasDesignEdit(run: { events: readonly unknown[] }): boolean {
-  return run.events.some((entry) => {
-    if (!entry || typeof entry !== "object") return false;
-    const event = (entry as { event?: unknown }).event;
-    if (!event || typeof event !== "object") return false;
-    const record = event as Record<string, unknown>;
-    return (
-      record.type === "tool_done" &&
-      record.completedSideEffect === true &&
-      record.isError !== true &&
-      typeof record.tool === "string" &&
-      DESIGN_EDIT_TOOLS.has(record.tool)
-    );
-  });
+const DESIGN_FILE_TARGET_TOOLS = new Set([
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-visual-edit",
+  "delete-file",
+  "detach-component-instance",
+  "edit-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-motion-timeline",
+  "swap-component-instance",
+  "update-file",
+]);
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+async function fileDesignId(fileId: string): Promise<string | undefined> {
+  const { getDb, schema } = await import("../db/index.js");
+  const [file] = await getDb()
+    .select({ designId: schema.designFiles.designId })
+    .from(schema.designFiles)
+    .where(eq(schema.designFiles.id, fileId))
+    .limit(1);
+  return file?.designId;
+}
+
+async function designIdForTool(
+  tool: string,
+  input: Record<string, unknown> | undefined,
+): Promise<string | undefined> {
+  if (typeof input?.designId === "string") return input.designId;
+  if (!DESIGN_FILE_TARGET_TOOLS.has(tool)) return undefined;
+  const fileId =
+    tool === "delete-file" || tool === "update-file"
+      ? input?.id
+      : input?.fileId;
+  return typeof fileId === "string" ? fileDesignId(fileId) : undefined;
+}
+
+async function hasDesignEdit(
+  run: { events: readonly unknown[] },
+  designId: string,
+): Promise<boolean> {
+  for (const [index, entry] of run.events.entries()) {
+    const record = eventRecord(entry);
+    if (
+      record?.type !== "tool_done" ||
+      record.completedSideEffect !== true ||
+      record.isError === true ||
+      typeof record.tool !== "string" ||
+      !DESIGN_EDIT_TOOLS.has(record.tool)
+    ) {
+      continue;
+    }
+    const input = inputForCompletedTool(run.events, index, record);
+    if ((await designIdForTool(record.tool, input)) === designId) return true;
+  }
+  return false;
 }
 
 async function autosaveDesignAfterAgentTurn(
@@ -103,7 +179,7 @@ async function autosaveDesignAfterAgentTurn(
     turnId?: string;
   },
 ): Promise<void> {
-  if (scope.type !== "design" || !hasDesignEdit(run)) return;
+  if (scope.type !== "design" || !(await hasDesignEdit(run, scope.id))) return;
 
   const { createDesignVersionSnapshot } =
     await import("../lib/design-versions.js");

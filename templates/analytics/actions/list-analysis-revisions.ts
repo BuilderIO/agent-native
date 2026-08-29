@@ -34,6 +34,8 @@ export default defineAction({
         description: revision.description,
         createdAt: revision.createdAt,
         createdBy: revision.createdBy,
+        editable: Boolean(revision.chatContext),
+        ...(revision.chatContext ? { chatContext: revision.chatContext } : {}),
       })),
     };
   },
