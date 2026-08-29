@@ -318,15 +318,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     prevSearchQueryRef.current = activeSearchQuery;
   }, [activeSearchQuery]);
-  const {
-    data: labelsData,
-    isLoading: labelsLoading,
-    isError: labelsError,
-    error: labelsQueryError,
-    isFetching: labelsFetching,
-    refetch: refetchLabels,
-  } = useLabels();
-  const labels = labelsData ?? EMPTY_LABELS;
   const { data: settings, isLoading: settingsLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -363,6 +354,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
+  const {
+    data: labelsData,
+    isLoading: labelsLoading,
+    isError: labelsError,
+    error: labelsQueryError,
+    isFetching: labelsFetching,
+    refetch: refetchLabels,
+  } = useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined);
+  const labels = labelsData ?? EMPTY_LABELS;
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
   // Spin the refresh icon only when the user clicked the button — background
@@ -1049,8 +1049,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     );
   };
 
-  const useServerLabelCounts = activeAccounts.size === 0;
-
   // Gmail category tabs partition the inbox; regular labels span the mailbox.
   // Keep only the former tied to the loaded inbox partition.
   const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);
@@ -1076,9 +1074,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const localCounts = localCountsForKind(kind);
     const serverCount = inboxLabel?.[countField];
     const localCount = localCounts["__inboxTotal"] ?? 0;
-    return typeof serverCount === "number" && useServerLabelCounts
-      ? serverCount
-      : localCount;
+    return typeof serverCount === "number" ? serverCount : localCount;
   };
 
   const getOtherCount = (kind: CountKind) => {
@@ -1102,9 +1098,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
     if (inboxPartitionTabIds.has(viewId)) return localCount;
     const serverCount = label?.[countField];
-    return typeof serverCount === "number" && useServerLabelCounts
-      ? serverCount
-      : localCount;
+    return typeof serverCount === "number" ? serverCount : localCount;
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");

@@ -87,7 +87,15 @@ describe("AppLayout inbox rail count", () => {
 
     expect(source).not.toContain("Math.max(serverCount, localCount)");
     expect(source).toContain(
-      'typeof serverCount === "number" && useServerLabelCounts',
+      'typeof serverCount === "number" ? serverCount : localCount',
+    );
+  });
+
+  it("scopes label counts to the selected accounts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
     );
   });
 

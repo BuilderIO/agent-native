@@ -1468,10 +1468,18 @@ export function useContacts() {
 
 export const EMPTY_LABELS: Label[] = [];
 
-export function useLabels() {
+export function useLabels(accountEmails?: readonly string[]) {
+  const accountFilter = accountEmails?.length
+    ? [...new Set(accountEmails.map((email) => email.toLowerCase()))].sort()
+    : undefined;
   return useQuery<Label[]>({
-    queryKey: ["labels"],
-    queryFn: () => apiFetch("/api/labels"),
+    queryKey: ["labels", accountFilter],
+    queryFn: () => {
+      const params = accountFilter?.length
+        ? `?accountEmails=${encodeURIComponent(accountFilter.join(","))}`
+        : "";
+      return apiFetch(`/api/labels${params}`);
+    },
     // A failed background refresh must not erase the last complete label map.
     // The layout still surfaces isError so an initial failure has an explicit
     // retry path instead of looking like an empty mailbox.
