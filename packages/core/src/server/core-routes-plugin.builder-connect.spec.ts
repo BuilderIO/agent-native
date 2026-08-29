@@ -48,6 +48,7 @@ describe("resolveBuilderOrgMutation", () => {
       }),
     ).resolves.toEqual({
       orgId: "org-123",
+      role: "member",
       deny: null,
     });
   });
@@ -61,6 +62,7 @@ describe("resolveBuilderOrgMutation", () => {
     await expect(resolveBuilderOrgMutation(createMockEvent())).resolves.toEqual(
       {
         orgId: "org-123",
+        role: "member",
         deny: "Only an organization owner or admin can change the shared Builder connection.",
       },
     );

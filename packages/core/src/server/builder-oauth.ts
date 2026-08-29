@@ -42,50 +42,82 @@ export type BuilderOAuthPendingFlow = {
   redirectUri: string;
 };
 
+export type BuilderOAuthScope = "user" | "org";
+
 export type BuilderOAuthSession = {
   accessToken: string;
   expiresAt?: number;
   scopes: string[];
+  scope: BuilderOAuthScope;
 };
 
 export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
   ownerEmail: string;
 };
 
-// The Builder connection is shared by everyone in the caller's org: the
-// credential is scoped to the org so every member reads the same token. Every
-// user belongs to an org, so a missing org is a broken invariant, not a case
-// to fall back on.
+// Builder connections follow the same scope policy as legacy Builder keys:
+// owner/admin writes are shared with the org, while a member's connection is
+// personal and cannot replace the org grant.
 function normalizeOwnerEmail(ownerEmail: string): string {
   const email = ownerEmail.trim().toLowerCase();
   if (!email) throw new Error("Builder OAuth owner email is required");
   return email;
 }
 
-// Read paths use this: a caller with no org simply has no Builder session, so
-// engine detection and status checks get null instead of an exception.
-//
-// An explicit orgId wins over the user's active org. The grant is org-scoped,
-// so work that carries its own organization — a recording finalizing after the
-// user switched active org, a background run — must authorize against that org
-// rather than whichever one the user happens to be looking at now.
-async function resolveOwnerOptions(ownerEmail: string, orgId?: string | null) {
-  const email = normalizeOwnerEmail(ownerEmail);
-  const resolvedOrgId = orgId?.trim() || (await resolveOrgIdForEmail(email));
-  if (!resolvedOrgId) return null;
-  return orgOwnerOptions(resolvedOrgId);
+function userOAuthKey(ownerEmail: string): string {
+  const digest = createHash("sha256")
+    .update(normalizeOwnerEmail(ownerEmail))
+    .digest("hex");
+  return `${BUILDER_OAUTH_KEY}:u:${digest}`;
 }
 
-// Write paths use this: storing a Builder credential without an org is a broken
-// invariant, so a missing org fails loudly rather than silently dropping it.
-async function ownerOptions(ownerEmail: string) {
-  const options = await resolveOwnerOptions(ownerEmail);
-  if (!options) {
-    throw new Error(
-      `Builder OAuth requires an organization for ${normalizeOwnerEmail(ownerEmail)}`,
-    );
+function userOwnerOptions(ownerEmail: string) {
+  const scopeId = normalizeOwnerEmail(ownerEmail);
+  return {
+    key: userOAuthKey(scopeId),
+    scope: "user" as const,
+    scopeId,
+    serverUrl: BUILDER_OAUTH_RESOURCE,
+  };
+}
+
+// Read paths try a member's personal grant first, then the org grant. An
+// explicit orgId wins over the user's active org so background work stays
+// bound to the organization that authorized it.
+async function resolveBuilderOAuthOptions(
+  ownerEmail: string,
+  orgId?: string | null,
+) {
+  const email = normalizeOwnerEmail(ownerEmail);
+  const userOptions = userOwnerOptions(email);
+  const resolvedOrgId = orgId?.trim() || (await resolveOrgIdForEmail(email));
+  return resolvedOrgId
+    ? [userOptions, orgOwnerOptions(resolvedOrgId)]
+    : [userOptions];
+}
+
+async function resolveBuilderOAuthOptionsForScope(
+  ownerEmail: string,
+  scope: BuilderOAuthScope,
+  orgId?: string | null,
+) {
+  if (scope === "user") return [userOwnerOptions(ownerEmail)];
+  const resolvedOrgId =
+    orgId?.trim() || (await resolveOrgIdForEmail(ownerEmail));
+  return resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
+}
+
+async function writeBuilderOAuthOptions(input: {
+  ownerEmail: string;
+  orgId?: string | null;
+  role?: string | null;
+}) {
+  if (input.role === "owner" || input.role === "admin") {
+    const orgId =
+      input.orgId?.trim() || (await resolveOrgIdForEmail(input.ownerEmail));
+    if (orgId) return orgOwnerOptions(orgId);
   }
-  return options;
+  return userOwnerOptions(input.ownerEmail);
 }
 
 function orgOwnerOptions(orgId: string) {
@@ -217,20 +249,22 @@ export async function exchangeBuilderOAuthAuthorization(input: {
 
 export async function saveBuilderOAuthCredentials(input: {
   ownerEmail: string;
-  orgId?: string;
+  orgId?: string | null;
+  role?: string | null;
   credentials: McpOAuthCredentialBundle;
-}): Promise<void> {
+}): Promise<BuilderOAuthScope> {
+  const options = await writeBuilderOAuthOptions(input);
   await saveMcpOAuthCredentials({
-    ...(input.orgId
-      ? orgOwnerOptions(input.orgId)
-      : await ownerOptions(input.ownerEmail)),
+    ...options,
     credentials: input.credentials,
   });
+  return options.scope;
 }
 
 export async function finishBuilderOAuthAuthorization(input: {
   ownerEmail: string;
-  orgId?: string;
+  orgId?: string | null;
+  role?: string | null;
   code: string;
   iss?: string;
   pending: BuilderOAuthPendingFlow;
@@ -239,57 +273,97 @@ export async function finishBuilderOAuthAuthorization(input: {
   await saveBuilderOAuthCredentials({
     ownerEmail: input.ownerEmail,
     orgId: input.orgId,
+    role: input.role,
     credentials,
   });
 }
 
 export async function markBuilderOAuthReconnectRequired(
   ownerEmail: string,
+  scope?: BuilderOAuthScope,
+  orgId?: string | null,
 ): Promise<void> {
-  const options = await resolveOwnerOptions(ownerEmail);
-  if (!options) return;
-  await markMcpOAuthReconnectRequired(options);
+  const options = scope
+    ? await resolveBuilderOAuthOptionsForScope(ownerEmail, scope, orgId)
+    : await resolveBuilderOAuthOptions(ownerEmail, orgId);
+  for (const candidate of options) {
+    if (
+      (await getOAuthTokens(
+        "mcp",
+        candidate.key,
+        `${candidate.scope}:${candidate.scopeId}`,
+      )) !== null
+    ) {
+      await markMcpOAuthReconnectRequired(candidate);
+      return;
+    }
+  }
 }
 
 export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
 ): Promise<BuilderOAuthSession | null> {
-  const options = await resolveOwnerOptions(ownerEmail, orgId);
-  if (!options) return null;
-  // Delegates refresh single-flight and reconnect latching to the shared
-  // credential lifecycle; a null token covers missing, expired-unrefreshable,
-  // and reconnect_required alike.
-  const accessToken = await getMcpOAuthAccessToken(options);
-  if (!accessToken) return null;
-  const credentials = await readMcpOAuthCredentials(options);
-  if (!credentials || !isBuilderCredential(credentials)) return null;
-  return {
-    accessToken,
-    expiresAt: credentials.tokenExpiresAt,
-    scopes: scopesFrom(credentials),
-  };
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored === null) continue;
+    // Delegates refresh single-flight and reconnect latching to the shared
+    // credential lifecycle; a null token covers expired-unrefreshable and
+    // reconnect_required alike, so an org fallback can still be used.
+    const accessToken = await getMcpOAuthAccessToken(options);
+    if (!accessToken) continue;
+    const credentials = await readMcpOAuthCredentials(options);
+    if (!credentials || !isBuilderCredential(credentials)) continue;
+    return {
+      accessToken,
+      expiresAt: credentials.tokenExpiresAt,
+      scopes: scopesFrom(credentials),
+      scope: options.scope,
+    };
+  }
+  return null;
 }
 
 export async function hasBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
 ): Promise<boolean> {
-  const options = await resolveOwnerOptions(ownerEmail, orgId);
-  if (!options) return false;
-  const stored = await getOAuthTokens(
-    "mcp",
-    options.key,
-    `${options.scope}:${options.scopeId}`,
-  );
-  return stored !== null;
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored !== null) return true;
+  }
+  return false;
+}
+
+export async function getBuilderOAuthConnectionScope(
+  ownerEmail: string,
+  orgId?: string | null,
+): Promise<BuilderOAuthScope | null> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored !== null) return options.scope;
+  }
+  return null;
 }
 
 export async function resolveBuilderOAuthRequestAccess(input: {
   ownerEmail: string;
   requiredScope: string;
+  orgId?: string | null;
 }): Promise<BuilderOAuthRequestAccess | null> {
-  const session = await getBuilderOAuthSession(input.ownerEmail);
+  const session = await getBuilderOAuthSession(input.ownerEmail, input.orgId);
   if (!session) return null;
   if (!session.scopes.includes(input.requiredScope)) {
     throw new Error(
@@ -301,10 +375,27 @@ export async function resolveBuilderOAuthRequestAccess(input: {
 
 export async function deleteBuilderOAuthSession(
   ownerEmail: string,
+  scope?: BuilderOAuthScope,
+  orgId?: string | null,
 ): Promise<{ localDeleted: boolean; remoteRevoked: boolean }> {
-  const options = await resolveOwnerOptions(ownerEmail);
-  if (!options) return { localDeleted: false, remoteRevoked: false };
-  const result = await revokeMcpOAuthCredentials(options);
+  const options = scope
+    ? await resolveBuilderOAuthOptionsForScope(ownerEmail, scope, orgId)
+    : await resolveBuilderOAuthOptions(ownerEmail, orgId);
+  let selected: (typeof options)[number] | null = null;
+  for (const candidate of options) {
+    if (
+      (await getOAuthTokens(
+        "mcp",
+        candidate.key,
+        `${candidate.scope}:${candidate.scopeId}`,
+      )) !== null
+    ) {
+      selected = candidate;
+      break;
+    }
+  }
+  if (!selected) return { localDeleted: false, remoteRevoked: false };
+  const result = await revokeMcpOAuthCredentials(selected);
   return {
     localDeleted: result.local === "deleted",
     remoteRevoked: result.remote === "succeeded",

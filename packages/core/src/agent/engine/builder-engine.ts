@@ -471,6 +471,7 @@ class BuilderEngine implements AgentEngine {
           creditsLane,
           requestShape,
           recordLegacyCredentialFailure: !oauthAccess,
+          oauthScope: oauthAccess?.scope,
         });
         return;
       }
@@ -541,6 +542,7 @@ class BuilderEngine implements AgentEngine {
         requestStartedAt: tStart,
         requestShape,
         recordLegacyCredentialFailure: !oauthAccess,
+        oauthScope: oauthAccess?.scope,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -621,6 +623,7 @@ function gatewayErrorStop(
 
 async function recordAuthFailureForCurrentLane(opts: {
   recordLegacyCredentialFailure?: boolean;
+  oauthScope?: "user" | "org";
   status?: number;
   code?: string;
   message?: string;
@@ -634,7 +637,13 @@ async function recordAuthFailureForCurrentLane(opts: {
     return;
   }
   const ownerEmail = getRequestUserEmail();
-  if (ownerEmail) await markBuilderOAuthReconnectRequired(ownerEmail);
+  if (ownerEmail) {
+    if (opts.oauthScope) {
+      await markBuilderOAuthReconnectRequired(ownerEmail, opts.oauthScope);
+    } else {
+      await markBuilderOAuthReconnectRequired(ownerEmail);
+    }
+  }
 }
 
 async function* emitHttpError(
@@ -643,6 +652,7 @@ async function* emitHttpError(
     creditsLane: boolean;
     requestShape?: EngineRequestShape;
     recordLegacyCredentialFailure?: boolean;
+    oauthScope?: "user" | "org";
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
@@ -683,6 +693,7 @@ async function* emitHttpError(
   if (status === 401 || code === "unauthorized") {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
       status,
       code,
       message,
@@ -697,6 +708,7 @@ async function* emitHttpError(
   if (status === 403 && isBuilderCredentialAuthError(message)) {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
       status,
       code,
       message,
@@ -784,6 +796,7 @@ async function* parseJsonlStream(
     creditsLane?: boolean;
     requestShape?: EngineRequestShape;
     recordLegacyCredentialFailure?: boolean;
+    oauthScope?: "user" | "org";
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -1037,6 +1050,7 @@ async function* parseJsonlStream(
               await recordAuthFailureForCurrentLane({
                 recordLegacyCredentialFailure:
                   captureContext.recordLegacyCredentialFailure,
+                oauthScope: captureContext.oauthScope,
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),

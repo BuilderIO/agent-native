@@ -154,10 +154,10 @@ describe("buildChatModelGroups", () => {
     expect(groups.map((group) => group.label)).toEqual([
       "OpenAI",
       "Claude",
-      "Gemini",
-      "OpenRouter",
+      "Google AI",
+      "Router",
     ]);
-    expect(groups.find((group) => group.label === "Gemini")).toMatchObject({
+    expect(groups.find((group) => group.label === "Google AI")).toMatchObject({
       engine: "ai-sdk:google",
       configured: true,
     });
@@ -171,7 +171,7 @@ describe("buildChatModelGroups", () => {
     expect(groups.find((group) => group.label === "Claude")).toMatchObject({
       models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8"],
     });
-    expect(groups.find((group) => group.label === "OpenRouter")).toMatchObject({
+    expect(groups.find((group) => group.label === "Router")).toMatchObject({
       engine: "ai-sdk:openrouter",
       models: ["z-ai/glm-5.2"],
       configured: true,

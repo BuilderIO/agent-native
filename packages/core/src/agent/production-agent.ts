@@ -4800,9 +4800,16 @@ export async function runAgentLoop(opts: {
       added.push(name);
     }
     if (added.length > 0) {
-      activeTools = (availableTools ?? tools).filter((tool) =>
+      const expandedTools = (availableTools ?? tools).filter((tool) =>
         activeToolNames.has(tool.name),
       );
+      const prioritizedNames = new Set(names);
+      // Provider adapters cap the schema list; keep search results in the
+      // prefix so the next request can actually call what it discovered.
+      activeTools = [
+        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
+        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
+      ];
     }
     if (
       !reportedExpandedToolSchemaBytes &&

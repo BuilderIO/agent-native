@@ -178,6 +178,7 @@ import {
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
+  getBuilderOAuthConnectionScope,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
@@ -472,7 +473,11 @@ async function resolveAgentEngineStatusIdentity(
 export async function resolveBuilderOrgMutation(
   event: H3Event,
   options: { allowMemberInitiation?: boolean } = {},
-): Promise<{ orgId: string | null; deny: string | null }> {
+): Promise<{
+  orgId: string | null;
+  role: string | null;
+  deny: string | null;
+}> {
   let orgId: string | null = null;
   let role: string | null = null;
   try {
@@ -483,19 +488,21 @@ export async function resolveBuilderOrgMutation(
     // coercion-ok: org is missing, it will fail closed
   }
   if (options.allowMemberInitiation) {
-    if (orgId) return { orgId, deny: null };
+    if (orgId) return { orgId, role, deny: null };
     return {
       orgId,
+      role,
       deny: "Only signed-in organization members can connect Builder.",
     };
   }
   if (role !== "owner" && role !== "admin") {
     return {
       orgId,
+      role,
       deny: "Only an organization owner or admin can change the shared Builder connection.",
     };
   }
-  return { orgId, deny: null };
+  return { orgId, role, deny: null };
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -2881,10 +2888,13 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
-          const { orgId: connectOrgId, deny: orgConnectDenied } =
-            await resolveBuilderOrgMutation(event, {
-              allowMemberInitiation: true,
-            });
+          const {
+            orgId: connectOrgId,
+            role: connectRole,
+            deny: orgConnectDenied,
+          } = await resolveBuilderOrgMutation(event, {
+            allowMemberInitiation: true,
+          });
           if (orgConnectDenied) {
             await trackBuilderLifecycle(
               event,
@@ -2924,7 +2934,7 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
               orgId: connectOrgId,
-              role: null,
+              role: connectRole,
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
               expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
@@ -3495,11 +3505,13 @@ export function createCoreRoutesPlugin(
           // PKCE proves the callback belongs to this flow before its pending
           // row is consumed. Persist first so a transient credential-store
           // failure does not strand an otherwise valid pending flow.
+          let credentialScope: "user" | "org" = "user";
           try {
-            await saveBuilderOAuthCredentials({
+            credentialScope = await saveBuilderOAuthCredentials({
               ownerEmail,
               orgId:
                 typeof pending.orgId === "string" ? pending.orgId : undefined,
+              role: typeof pending.role === "string" ? pending.role : null,
               credentials,
             });
           } catch {
@@ -3563,7 +3575,7 @@ export function createCoreRoutesPlugin(
             {
               ...builderConnectTrackingProperties(tracking),
               stage: "callback",
-              credential_scope: "user",
+              credential_scope: credentialScope,
             },
           );
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
@@ -3592,18 +3604,21 @@ export function createCoreRoutesPlugin(
           }
 
           try {
-            const hadOAuth = await hasBuilderOAuthSession(session.email);
+            const oauthScope = await getBuilderOAuthConnectionScope(
+              session.email,
+            );
+            const hadOAuth = oauthScope !== null;
             // Revoking an org-scoped grant takes the connection offline for
             // every member, so require org owner/admin before doing so.
-            if (hadOAuth) {
+            if (oauthScope === "org") {
               const { deny } = await resolveBuilderOrgMutation(event);
               if (deny) {
                 setResponseStatus(event, 403);
                 return { error: deny };
               }
             }
-            const oauthResult = hadOAuth
-              ? await deleteBuilderOAuthSession(session.email)
+            const oauthResult = oauthScope
+              ? await deleteBuilderOAuthSession(session.email, oauthScope)
               : { localDeleted: false, remoteRevoked: false };
             const { deleteBuilderCredentials } =
               await import("./credential-provider.js");
@@ -3619,7 +3634,7 @@ export function createCoreRoutesPlugin(
             }
             await deleteBuilderCredentials(
               session.email,
-              hadOAuth ? undefined : { orgId, role },
+              oauthScope ? undefined : { orgId, role },
             );
             await trackBuilderLifecycle(
               event,
