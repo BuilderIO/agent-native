@@ -62,7 +62,9 @@ describe("DesktopSurfaceMcpBridge", () => {
       arguments: {},
     });
     const appsText = apps.content?.find((item) => item.type === "text");
-    expect(appsText?.type === "text" ? JSON.parse(appsText.text) : null).toEqual(
+    expect(
+      appsText?.type === "text" ? JSON.parse(appsText.text) : null,
+    ).toEqual(
       expect.objectContaining({
         apps: expect.arrayContaining([{ id: "mail", name: "Mail" }]),
       }),
