@@ -2074,7 +2074,7 @@ export function createAgentChatAdapter(
   }
 
   return {
-    async *run({ messages, abortSignal, runConfig }) {
+    async *run({ messages, abortSignal, runConfig, unstable_parentId }) {
       // Extract latest user message and build history from prior messages
       const adapterMessages = messages as readonly AdapterMessage[];
       const latestUserIndex = (() => {
@@ -4030,6 +4030,9 @@ export function createAgentChatAdapter(
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
                   ...(usageLabel ? { usageLabel } : {}),
                   ...(threadId ? { threadId } : {}),
+                  ...(unstable_parentId !== undefined
+                    ? { parentId: unstable_parentId }
+                    : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }
                     : {}),

@@ -53,6 +53,10 @@ import {
 } from "../server/agent-chat/recurring-jobs-runtime.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "../server/cookie-namespace.js";
+import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
@@ -921,7 +925,11 @@ export function generateWorkerEntry(
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const ssrAuthRedirectScript = getSsrAuthRedirectScript();
+  const ssrAuthRedirectScript = getSsrAuthRedirectScript(
+    frameworkSessionHintCookieName(
+      resolveAuthCookieNamespace().frameworkCookieName,
+    ),
+  );
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 

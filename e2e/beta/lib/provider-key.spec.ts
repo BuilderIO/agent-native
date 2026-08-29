@@ -24,7 +24,6 @@ test("requires the user-scoped OpenAI install response contract", () => {
     false,
   );
 });
-
 test("validates the model execution path, not only the models listing", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; method: string; body?: string }> = [];

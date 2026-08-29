@@ -8773,6 +8773,7 @@ export function createProductionAgentHandler(
       threadId,
       attachments,
       displayMessage,
+      parentId,
       queuedMessageId,
       internalContinuation,
       turnId: requestTurnId,
@@ -8784,6 +8785,12 @@ export function createProductionAgentHandler(
       harness: requestHarness,
       trackInRunsTray,
     } = body;
+    const requestParentId =
+      parentId === null
+        ? null
+        : typeof parentId === "string" && parentId.trim()
+          ? parentId.trim()
+          : undefined;
     setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
@@ -11027,6 +11034,7 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        parentId: requestParentId,
         waitUntil: getRequestRunContext()?.waitUntil,
         // A durable background worker reaches this same call site, so keying
         // only on the foreground self-chain flag stamped every worker run

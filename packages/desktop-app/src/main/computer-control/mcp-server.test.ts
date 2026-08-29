@@ -19,6 +19,7 @@ import type { MutationOperation, SemanticSnapshot } from "./types";
 const snapshot: SemanticSnapshot = {
   snapshotId: "snapshot-1",
   bundleId: "com.example.Editor",
+  applicationName: "Editor",
   origin: "https://example.com/private/path",
   capturedAt: "2026-07-10T00:00:00.000Z",
   nodes: [{ id: "button-1", role: "AXButton", title: "Continue" }],
@@ -75,7 +76,7 @@ async function createHarness(
       getSources: vi.fn(async () => [
         {
           id: "screen:1:0",
-          name: "Private window title",
+          name: "Editor",
           thumbnail: {
             isEmpty: () => false,
             getSize: () => ({ width: 800, height: 600 }),

@@ -5,13 +5,31 @@
  * browser owns the session check and redirect so the shell stays anonymous and
  * safe for a shared CDN cache.
  */
-export function getSsrAuthRedirectScript(): string {
+export function getSsrAuthRedirectScript(
+  sessionHintCookieName = "an_session_hint",
+): string {
   return `<script data-agent-native-auth-redirect>(function () {
   if (window.__agentNativeAuthRedirectStarted) return;
   window.__agentNativeAuthRedirectStarted = true;
   var root = window.location.pathname.replace(/\\/+$/, "");
-  var sessionPath = (root || "") + "/_agent-native/auth/session";
   var homePath = (root || "") + "/home";
+  var sessionHintCookieName = ${JSON.stringify(sessionHintCookieName)};
+  function hasSessionHint() {
+    if (typeof document !== "object" || typeof document.cookie !== "string") return false;
+    var prefix = sessionHintCookieName + "=";
+    return document.cookie.split(";").some(function (cookie) {
+      var entry = cookie.trim();
+      return entry.indexOf(prefix) === 0 && entry.slice(prefix.length) === "1";
+    });
+  }
+  function redirectFromHint() {
+    window.location.replace(homePath + window.location.search + window.location.hash);
+  }
+  if (hasSessionHint()) {
+    redirectFromHint();
+    return;
+  }
+  var sessionPath = (root || "") + "/_agent-native/auth/session";
   function redirectToAppHome() {
     return fetch(homePath, {
       method: "HEAD",
@@ -20,7 +38,7 @@ export function getSsrAuthRedirectScript(): string {
       headers: { "Accept": "text/html" }
     }).then(function (response) {
       if (!response || !response.ok) return;
-      window.location.replace(homePath + window.location.search + window.location.hash);
+      redirectFromHint();
     });
   }
   fetch(sessionPath, {
