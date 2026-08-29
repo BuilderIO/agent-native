@@ -4,10 +4,10 @@ const isCi = Boolean(process.env.CI);
 
 export default defineConfig({
   testDir: "./specs",
-  fullyParallel: false,
+  fullyParallel: true,
   forbidOnly: isCi,
   retries: isCi ? 1 : 0,
-  workers: 1,
+  workers: 4,
   timeout: 360_000,
   expect: { timeout: 30_000 },
   reporter: isCi ? [["github"], ["list"]] : [["list"]],

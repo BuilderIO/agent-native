@@ -10,9 +10,10 @@ The scheduled target is `all` email-capable sites on beta. That currently covers
 without the Better Auth email magic-link flow (`factory` and `macros`) are
 intentionally excluded. Every target uses a fresh reserved address per run to
 exercise new-user creation. Production is opt-in through `workflow_dispatch`
-and also uses a fresh reserved address. The workflow is serial so one run
-creates a bounded number of canary accounts instead of multiplying them across
-a matrix.
+and also uses a fresh reserved address. The runner uses four workers against
+different hosts, so a fleet-wide outage reaches the alert path promptly while
+one run still creates a bounded number of canary accounts instead of
+multiplying them across a matrix.
 
 ## GitHub Actions setup
 
