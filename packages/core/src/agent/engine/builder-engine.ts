@@ -221,17 +221,19 @@ class BuilderEngine implements AgentEngine {
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
+    const orgId = getRequestOrgId() ?? null;
     let oauthAccess: Awaited<
       ReturnType<typeof resolveBuilderOAuthRequestAccess>
     > = null;
     let hasStoredOAuth = false;
     if (ownerEmail) {
-      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail);
+      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail, orgId);
       if (hasStoredOAuth) {
         try {
           oauthAccess = await resolveBuilderOAuthRequestAccess({
             ownerEmail,
             requiredScope: BUILDER_OAUTH_SCOPE,
+            orgId,
           });
         } catch {
           // coercion-ok: unusable OAuth custody must not fall back to legacy keys.

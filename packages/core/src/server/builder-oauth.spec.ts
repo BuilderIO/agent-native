@@ -339,6 +339,18 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
+  it("does not fall back to the active org when the caller has no org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+
+    await expect(hasBuilderOAuthSession(ownerEmail, null)).resolves.toBe(false);
+    expect(getRawTokensMock).toHaveBeenCalledTimes(1);
+    expect(getRawTokensMock).toHaveBeenCalledWith(
+      "mcp",
+      perUserKey(ownerEmail),
+      "user:alice@example.com",
+    );
+  });
+
   it("shares one org-scoped credential across members of the same org", async () => {
     resolveOrgMock.mockResolvedValue("org-acme");
     getRawTokensMock.mockImplementation(

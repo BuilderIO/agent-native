@@ -27,7 +27,10 @@ import {
   resolveSecret,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
@@ -775,12 +778,17 @@ async function builderOAuthLaneUsable(
 ): Promise<boolean | null> {
   const ownerEmail =
     identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
-  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail))) return null;
+  const orgId =
+    identity?.orgId !== undefined ? identity.orgId : getRequestOrgId();
+  const requestOrgId = orgId ?? null;
+  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail, requestOrgId)))
+    return null;
   try {
     return Boolean(
       await resolveBuilderOAuthRequestAccess({
         ownerEmail,
         requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: requestOrgId,
       }),
     );
   } catch {

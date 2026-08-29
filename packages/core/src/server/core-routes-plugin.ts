@@ -2397,7 +2397,10 @@ export function createCoreRoutesPlugin(
               > = null;
               let hasOAuthCustody = false;
               try {
-                hasOAuthCustody = await hasBuilderOAuthSession(userEmail);
+                hasOAuthCustody = await hasBuilderOAuthSession(
+                  userEmail,
+                  orgId,
+                );
               } catch {
                 return withConnectToken({
                   ...requestStatus,
@@ -2417,6 +2420,7 @@ export function createCoreRoutesPlugin(
                   oauthAccess = await resolveBuilderOAuthRequestAccess({
                     ownerEmail: userEmail,
                     requiredScope: BUILDER_OAUTH_SCOPE,
+                    orgId,
                   });
                 } catch {
                   oauthAccess = null;
@@ -3618,20 +3622,6 @@ export function createCoreRoutesPlugin(
           }
 
           try {
-            const oauthScope = await getBuilderOAuthStoredScope(session.email);
-            const hadOAuth = oauthScope !== null;
-            // Revoking an org-scoped grant takes the connection offline for
-            // every member, so require org owner/admin before doing so.
-            if (oauthScope === "org") {
-              const { deny } = await resolveBuilderOrgMutation(event);
-              if (deny) {
-                setResponseStatus(event, 403);
-                return { error: deny };
-              }
-            }
-            const oauthResult = oauthScope
-              ? await deleteBuilderOAuthSession(session.email, oauthScope)
-              : { localDeleted: false, remoteRevoked: false };
             const { deleteBuilderCredentials } =
               await import("./credential-provider.js");
             let orgId: string | null = null;
@@ -3644,6 +3634,27 @@ export function createCoreRoutesPlugin(
             } catch {
               // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
             }
+            const oauthScope = await getBuilderOAuthStoredScope(
+              session.email,
+              orgId,
+            );
+            const hadOAuth = oauthScope !== null;
+            // Revoking an org-scoped grant takes the connection offline for
+            // every member, so require org owner/admin before doing so.
+            if (oauthScope === "org") {
+              const { deny } = await resolveBuilderOrgMutation(event);
+              if (deny) {
+                setResponseStatus(event, 403);
+                return { error: deny };
+              }
+            }
+            const oauthResult = oauthScope
+              ? await deleteBuilderOAuthSession(
+                  session.email,
+                  oauthScope,
+                  orgId,
+                )
+              : { localDeleted: false, remoteRevoked: false };
             await deleteBuilderCredentials(
               session.email,
               oauthScope ? undefined : { orgId, role },

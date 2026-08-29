@@ -55,7 +55,7 @@ export async function resolveBuilderApiAuthorization(
   // the grant is org-scoped, and a recording that finalizes after the user
   // switched org must still authorize against the org it belongs to. The
   // legacy private-key path already resolves this way.
-  const orgId = getRequestOrgId();
+  const orgId = getRequestOrgId() ?? null;
 
   if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
     const session = await readCredentialStore(() =>
@@ -91,7 +91,8 @@ export async function resolveBuilderApiAuthorization(
  */
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  if (ownerEmail && (await readOAuthCustody(ownerEmail, getRequestOrgId()))) {
+  const orgId = getRequestOrgId() ?? null;
+  if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
     return true;
   }
   return !!(await resolveBuilderPrivateKey());
@@ -105,7 +106,7 @@ export async function canAuthorizeBuilderApiRequest(
   requiredScope?: string,
 ): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
-  const orgId = getRequestOrgId();
+  const orgId = getRequestOrgId() ?? null;
 
   if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
     const session = await getBuilderOAuthSession(ownerEmail, orgId);

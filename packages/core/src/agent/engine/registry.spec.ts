@@ -1386,12 +1386,30 @@ describe("AgentEngine registry", () => {
       const { builderEngine } =
         registerBuilderAndAnthropic(registerAgentEngine);
       const entry = getAgentEngineEntry("builder")!;
+      const identity = {
+        userEmail: "visitor@example.com",
+        orgId: "org-request",
+      };
 
       await expect(
-        isResolvedEngineUsableForRequest(builderEngine),
+        isResolvedEngineUsableForRequest(builderEngine, {
+          credentialIdentity: identity,
+        }),
       ).resolves.toBe(true);
-      await expect(isStoredEngineUsableForRequest(null, entry)).resolves.toBe(
-        true,
+      await expect(
+        isStoredEngineUsableForRequest(null, entry, {
+          credentialIdentity: identity,
+        }),
+      ).resolves.toBe(true);
+      expect(hasBuilderOAuthSession).toHaveBeenCalledWith(
+        identity.userEmail,
+        identity.orgId,
+      );
+      expect(resolveBuilderOAuthRequestAccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerEmail: identity.userEmail,
+          orgId: identity.orgId,
+        }),
       );
     });
 

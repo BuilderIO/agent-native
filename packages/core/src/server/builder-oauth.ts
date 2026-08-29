@@ -90,7 +90,10 @@ async function resolveBuilderOAuthOptions(
 ) {
   const email = normalizeOwnerEmail(ownerEmail);
   const userOptions = userOwnerOptions(email);
-  const resolvedOrgId = orgId?.trim() || (await resolveOrgIdForEmail(email));
+  const resolvedOrgId =
+    orgId === undefined
+      ? await resolveOrgIdForEmail(email)
+      : orgId?.trim() || null;
   return resolvedOrgId
     ? [userOptions, orgOwnerOptions(resolvedOrgId)]
     : [userOptions];
@@ -103,7 +106,9 @@ async function resolveBuilderOAuthOptionsForScope(
 ) {
   if (scope === "user") return [userOwnerOptions(ownerEmail)];
   const resolvedOrgId =
-    orgId?.trim() || (await resolveOrgIdForEmail(ownerEmail));
+    orgId === undefined
+      ? await resolveOrgIdForEmail(ownerEmail)
+      : orgId?.trim() || null;
   return resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
 }
 
