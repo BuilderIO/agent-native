@@ -51,13 +51,18 @@ Analytics.
 | Lane       | Gates a promotion | Credentials          | Model spend               |
 | ---------- | ----------------- | -------------------- | ------------------------- |
 | `public`   | yes               | none                 | none                      |
-| `authed`   | yes               | session + OpenAI key | ~1 luna turn per chat app |
+| `registry` | yes               | session              | none                      |
+| `chat`     | yes               | session + OpenAI key | ~1 luna turn per chat app; Slides adds one A2A turn |
 | `journeys` | yes               | session              | none                      |
 | `advisory` | no                | none                 | none                      |
 
 `public` is the one that always runs and needs nothing set up. It already
 covers the most-reported failures, because most of them are visible before a
 user finishes signing in.
+
+The workflow's `authed` lane runs the three authenticated projects above as
+separate serialized jobs, so a provider failure cannot hide a registry or
+journey regression.
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database

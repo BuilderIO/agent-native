@@ -2423,6 +2423,7 @@ function applyCorsHeaders(
           "X-Agent-Native-CSRF",
           "X-User-Timezone",
           "X-Agent-Native-Desktop-Verifier",
+          "X-Agent-Native-Test-Traffic",
           EMBED_TARGET_HEADER,
         ].join(","),
   );

@@ -3,8 +3,14 @@ import { existsSync } from "node:fs";
 import { test, type Browser, type BrowserContext } from "@playwright/test";
 
 import { seedModelSelection } from "./chat";
-import { type BetaSite, originFor } from "./fleet";
-import { authStatePath, authedLaneReady, expectedEmail } from "./session";
+import { authenticatedEntryPath, type BetaSite, originFor } from "./fleet";
+import {
+  authStatePath,
+  authedLaneReady,
+  expectedEmail,
+  sessionFailureReason,
+} from "./session";
+import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./test-traffic";
 
 /**
  * Shared setup for the authenticated lane.
@@ -28,7 +34,7 @@ export function authedLaneEnabled(): boolean {
 export function skipUnlessAuthed(): void {
   test.skip(
     !authedLaneEnabled(),
-    "authenticated lane not requested (set BETA_E2E_SESSION_TOKENS and BETA_E2E_OPENAI_API_KEY, or BETA_E2E_AUTHED=1)",
+    "authenticated lane not requested (set session credentials; chat also needs BETA_E2E_OPENAI_API_KEY, or BETA_E2E_AUTHED=1)",
   );
 }
 
@@ -44,7 +50,10 @@ export async function signedInContext(
       `No stored session for ${site.id} at ${statePath}. Global setup should have created it; running this spec signed out would assert nothing.`,
     );
   }
-  const context = await browser.newContext({ storageState: statePath });
+  const context = await browser.newContext({
+    storageState: statePath,
+    extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+  });
   if (seedModel) {
     const namespaces =
       site.id === "chat" || site.id === "analytics" || site.id === "dispatch"
@@ -70,7 +79,7 @@ export async function assertSignedInOnBeta(
   const origin = originFor(site);
   const page = await context.newPage();
   try {
-    await page.goto(`${origin}/`, {
+    await page.goto(`${origin}${authenticatedEntryPath(site)}`, {
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
@@ -90,7 +99,7 @@ export async function assertSignedInOnBeta(
 
     if (!email) {
       throw new Error(
-        `${site.host} does not consider this context signed in (HTTP ${session.status}: ${session.body.slice(0, 200)}). The stored session has probably expired — re-run \`pnpm e2e:beta:capture\`.`,
+        `${site.host} does not consider this context signed in (HTTP ${session.status}: ${session.body.slice(0, 200)}). ${sessionFailureReason({ status: session.status, body: session.body, tokenProvided: false })}`,
       );
     }
     const expected = expectedEmail();

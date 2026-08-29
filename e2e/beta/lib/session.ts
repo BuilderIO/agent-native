@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import type { Browser, BrowserContext } from "@playwright/test";
 
 import { type BetaSite, originFor } from "./fleet";
+import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./test-traffic";
 
 /**
  * Authenticated-session bootstrap for the beta fleet.
@@ -176,6 +177,35 @@ export function missingCredentialsMessage(): string {
   ].join("\n");
 }
 
+export function sessionFailureReason(options: {
+  status: number;
+  body: string;
+  tokenProvided: boolean;
+}): string {
+  const credential = options.tokenProvided
+    ? "supplied session token"
+    : "stored session cookie";
+  if (options.status >= 500) {
+    return `The beta host's session endpoint was unavailable (HTTP ${options.status}); retry the host.`;
+  }
+  if (options.status === 401 || options.status === 403) {
+    return `The ${credential} was rejected by this host (HTTP ${options.status}).`;
+  }
+
+  try {
+    const parsed = JSON.parse(options.body) as { error?: unknown } | null;
+    if (
+      typeof parsed?.error === "string" &&
+      /not authenticated/i.test(parsed.error)
+    ) {
+      return "The host answered successfully but did not honor the supplied session credential.";
+    }
+  } catch {
+    return `The beta host returned an unreadable session response (HTTP ${options.status}).`;
+  }
+  return `The beta host returned no authenticated identity (HTTP ${options.status}).`;
+}
+
 /** Read the live session the way the app itself would, from inside the page. */
 async function readSessionIdentity(
   context: BrowserContext,
@@ -223,7 +253,12 @@ export async function bootstrapAppSession(
   if (!blob && !token) throw new Error(missingCredentialsMessage());
 
   const context = await browser.newContext(
-    blob ? { storageState: JSON.parse(blob) } : {},
+    blob
+      ? {
+          storageState: JSON.parse(blob),
+          extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+        }
+      : { extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS },
   );
 
   try {
@@ -286,9 +321,11 @@ export async function bootstrapAppSession(
         [
           `Beta session bootstrap failed for ${site.id} (${origin}).`,
           `GET /_agent-native/auth/session returned HTTP ${status}: ${body}`,
-          token
-            ? "The supplied session token was rejected. Framework sessions expire after 30 days — re-run `pnpm e2e:beta:capture`."
-            : "The supplied storage state carried no session cookie this host accepts.",
+          sessionFailureReason({
+            status,
+            body,
+            tokenProvided: Boolean(token),
+          }),
         ].join("\n"),
       );
     }
