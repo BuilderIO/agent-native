@@ -1,3 +1,5 @@
+/** @jsxRuntime classic */
+
 import { MarketingHome, Starfield } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
 import * as React from "react";
@@ -200,6 +202,13 @@ function authErrorText(
     return fallback;
   }
   return message;
+}
+
+export function shouldRetryAuthSessionProbe(
+  response: Pick<Response, "status">,
+  readable: boolean,
+): boolean {
+  return !readable || response.status === 429 || response.status >= 500;
 }
 
 async function requestJson(
@@ -777,8 +786,7 @@ export function AuthPage(props: AuthPageProps) {
             redirectToSignedInApp();
             return;
           }
-          retry =
-            !readable || response.status === 429 || response.status >= 500;
+          retry = shouldRetryAuthSessionProbe(response, readable);
         } catch {
           retry = true;
         }

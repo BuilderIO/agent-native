@@ -1,3 +1,5 @@
+/** @jsxRuntime classic */
+
 import * as React from "react";
 
 export interface ResetPasswordPageProps {
