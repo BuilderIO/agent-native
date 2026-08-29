@@ -365,6 +365,9 @@ export async function fetchWithRetry(
 ): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_TRANSIENT_ATTEMPTS; attempt += 1) {
+    if (Date.now() >= deadline) {
+      throw new Error("Google probe request deadline exceeded.");
+    }
     try {
       const response = await fetch(input, {
         ...init,

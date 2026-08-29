@@ -243,6 +243,28 @@ test("retries transient provider responses before classifying the result", async
   }
 });
 
+test("does not fetch after the probe deadline", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return new Response(null, { status: 302 });
+  };
+  try {
+    await assert.rejects(
+      fetchWithRetry(
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        { redirect: "manual" },
+        Date.now() - 1,
+      ),
+      /Google probe request deadline exceeded/,
+    );
+    assert.equal(attempts, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps a client fingerprint alongside the id needed for the probe", () => {
   const result = classifyGoogleHealthResponse(
     new Response(JSON.stringify({ status: "valid", clientId: "ignored" }), {
