@@ -115,6 +115,7 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
+export { isQaTestEmail } from "./qa-test-email.js";
 export {
   NATIVE_AUTH_COPY,
   resolveNativeAuthCopy,

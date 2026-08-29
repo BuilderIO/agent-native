@@ -263,14 +263,14 @@ production deployment:
 
 ## CI-only variables
 
-| Variable                      | Purpose                                                                                                                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                            |
-| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                    |
-| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                               |
-| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                    |
-| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                           |
-| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when the keep-warm audit fails; GitHub issue reporting remains the fallback when it is unset. |
+| Variable                      | Purpose                                                                                                                                                                                 |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                                            |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                                    |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                                               |
+| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                    |
+| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                           |
+| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
 ### Beta E2E browser suite
 
@@ -295,6 +295,19 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_ALLOW_SHARED_KEY`      | Set by the workflow when the dispatch chooses `key_source=shared`. Opts a run into billing the shared key instead of the dedicated one.                 |
 | `BETA_E2E_MODEL`                 | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                       |
 | `BETA_E2E_ENGINE`                | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                         |
+
+### Scheduled signup E2E canary
+
+Read by `.github/workflows/signup-e2e-scheduled.yml` and `e2e/signup/`, never
+by application runtime code. Mailosaur credentials are live service secrets:
+store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
+
+| Variable                  | Purpose                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `MAILOSAUR_API_KEY`       | Mailosaur API key used to read the verification message delivered to the signup canary inbox. |
+| `MAILOSAUR_SERVER_ID`     | Mailosaur server whose generated domain receives the canary verification messages.            |
+| `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
+| `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
