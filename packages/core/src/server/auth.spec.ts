@@ -5303,6 +5303,112 @@ describe("server/auth", () => {
       expect(cookies).not.toContain("Partitioned");
     });
 
+    it("drops partitioned Better Auth cookies and persists the Lax token in sessions", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn(async (query: { sql?: string } | string) => {
+        const sql = typeof query === "string" ? query : (query.sql ?? "");
+        if (sql.includes('FROM "session"')) {
+          return { rows: [{ email: "Designer@Example.COM" }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (err: unknown) => String(err),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () => {
+            const headers = new Headers({
+              location: "/",
+              "set-auth-token": "ba_session_token",
+            });
+            headers.append(
+              "set-cookie",
+              "__Secure-an.session_token=ba_session_token; Path=/; HttpOnly; Secure; SameSite=None; Partitioned",
+            );
+            headers.append(
+              "set-cookie",
+              "__Secure-an.session_data=cache; Path=/; HttpOnly; Secure; SameSite=None; Partitioned",
+            );
+            return new Response(null, { status: 302, headers });
+          },
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath =
+        "/_agent-native/auth/ba/magic-link/verify?token=magic-token&callbackURL=%2F";
+      const request = new Request(
+        `https://beta.design.agent-native.com${fullPath}`,
+        {
+          method: "GET",
+          headers: { "x-forwarded-proto": "https" },
+        },
+      );
+      const event = {
+        req: request,
+        url: new URL(`https://beta.design.agent-native.com${fullPath}`),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: {
+            headers: { "x-forwarded-proto": "https" },
+            url: fullPath,
+            method: "GET",
+          },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: fullPath,
+      };
+
+      const response = await baHandler(event);
+      const cookies =
+        typeof response.headers.getSetCookie === "function"
+          ? response.headers.getSetCookie().join("\n")
+          : (response.headers.get("set-cookie") ?? "");
+
+      expect(response.status).toBe(200);
+      expect(cookies).toContain("__Secure-an.session_token=ba_session_token");
+      expect(cookies).toContain("an_session=ba_session_token");
+      expect(cookies).toContain("SameSite=Lax");
+      expect(cookies).not.toContain("Partitioned");
+      expect(cookies).not.toContain("session_data=");
+      expect(mockExecute).toHaveBeenCalledWith({
+        sql: "INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)",
+        args: ["ba_session_token", "designer@example.com", expect.any(Number)],
+      });
+    });
+
     it("reconciles pending invitations for a bearer-only magic-link verify 302", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -6293,6 +6399,46 @@ describe("server/auth", () => {
         })
         .filter(Boolean);
       expect(selectedTokens).toEqual(["stale-token", "fresh-token"]);
+    });
+
+    it("resolves a Better Auth token stored in the framework session cookie", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (
+          typeof sql === "string" &&
+          sql.includes('FROM "session"') &&
+          args?.[0] === "ba_session_token"
+        ) {
+          return { rows: [{ email: "Designer@Example.COM" }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: { cookie: "an_session=ba_session_token" },
+      });
+
+      expect(await getSession(event)).toEqual({
+        email: "designer@example.com",
+        token: "ba_session_token",
+      });
     });
 
     it("migrates a legacy shared framework cookie into the isolated cookie name", async () => {

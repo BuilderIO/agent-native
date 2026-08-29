@@ -577,7 +577,9 @@ async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
-    const email = await getSessionEmail(value);
+    const email =
+      (await getSessionEmail(value)) ??
+      (await emailFromBetterAuthSessionToken(value));
     if (email) {
       let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
@@ -1118,20 +1120,40 @@ async function ensureEmailVerifiedForRedirect(
   }
 }
 
+async function emailFromBetterAuthSessionToken(
+  token: string,
+): Promise<string | null> {
+  try {
+    const db = getDbExec();
+    const { rows } = await db.execute({
+      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+      args: [token],
+    });
+    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+  } catch {
+    return null;
+  }
+}
+
 async function emailFromVerificationResponseSession(
   response: Response,
 ): Promise<string | null> {
   const sessionToken = extractSessionTokenFromAuthResponse(response);
   if (!sessionToken) return null;
+  return emailFromBetterAuthSessionToken(sessionToken);
+}
+
+async function persistMagicLinkLegacySession(
+  response: Response,
+): Promise<void> {
+  const token = extractSessionTokenFromAuthResponse(response);
+  if (!token) return;
+  const email = await emailFromBetterAuthSessionToken(token);
+  if (!email) return;
   try {
-    const db = getDbExec();
-    const { rows } = await db.execute({
-      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
-      args: [sessionToken],
-    });
-    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
-  } catch {
-    return null;
+    await addSession(token, email);
+  } catch (error) {
+    console.error("[auth] failed to persist magic-link session", error);
   }
 }
 
@@ -4168,6 +4190,11 @@ function magicLinkVerifyContinuePage(
  * Hosted verify 302s (Netlify/Cloudflare) have been observed to keep
  * `set-auth-token` and drop `Set-Cookie`. A 200 document can set the session
  * before the browser follows through to Location.
+ *
+ * Do not forward Better Auth's own Set-Cookie lines: they are
+ * `SameSite=None; Partitioned` (CHIPS) and Brave/Safari drop them on a
+ * top-level email click. The first cookie name wins in the continue page,
+ * so forwarding those would also hide the Lax rewrite.
  */
 function attachMissingMagicLinkSessionCookies(
   event: H3Event,
@@ -4185,7 +4212,6 @@ function attachMissingMagicLinkSessionCookies(
   return magicLinkVerifyContinuePage(
     location,
     [
-      ...getSetCookieHeaders(response.headers),
       serializeMagicLinkSessionCookie(
         event,
         betterAuthSessionCookieName(event),
@@ -5414,6 +5440,7 @@ async function mountBetterAuthRoutes(
               authRequest,
               response as Response,
             );
+            await persistMagicLinkLegacySession(response as Response);
           }
         }
       }
