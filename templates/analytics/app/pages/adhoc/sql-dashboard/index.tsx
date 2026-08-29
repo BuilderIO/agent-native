@@ -14,6 +14,7 @@ import {
   type AuthSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
@@ -413,6 +414,7 @@ type FetchedDashboard = {
   archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
+  orgId: string | null;
   visibility: "private" | "org" | "public";
   createdAt: string | null;
   createdBy: string | null;
@@ -521,6 +523,7 @@ async function fetchDashboard(
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
       hiddenAt: typeof data.hiddenAt === "string" ? data.hiddenAt : null,
       hiddenBy: typeof data.hiddenBy === "string" ? data.hiddenBy : null,
+      orgId: typeof data.orgId === "string" ? data.orgId : null,
       visibility:
         data.visibility === "org" || data.visibility === "public"
           ? data.visibility
@@ -601,6 +604,7 @@ function SqlDashboardPageContent({
   session: AuthSession | null;
 }) {
   const t = useT();
+  const { canManageOrg, org } = useOrgRole();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -625,6 +629,7 @@ function SqlDashboardPageContent({
 
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
+  const [dashboardOrgId, setDashboardOrgId] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
     "private" | "org" | "public" | null
   >(null);
@@ -674,6 +679,10 @@ function SqlDashboardPageContent({
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  const canCertify =
+    !reportScreenshot &&
+    canManageOrg &&
+    Boolean(org?.orgId && dashboardOrgId === org.orgId);
   const canArchive = canEdit || canManage;
   const dashboardCertified = Boolean(
     dashboard?.certification?.status === "certified" &&
@@ -930,6 +939,7 @@ function SqlDashboardPageContent({
     setDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
+    setDashboardOrgId(null);
     setDashboardVisibility(null);
     setDashboardCreatedBy(null);
     setDashboardCreatedAt(null);
@@ -977,6 +987,7 @@ function SqlDashboardPageContent({
     setDashboard(fetchedConfig);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
+    setDashboardOrgId(fetched?.orgId ?? null);
     setDashboardVisibility(fetchedVisibility);
     setDashboardCreatedBy(fetched?.createdBy ?? null);
     setDashboardCreatedAt(fetched?.createdAt ?? null);
@@ -1692,7 +1703,8 @@ function SqlDashboardPageContent({
   ]);
 
   const handleCertify = useCallback(async () => {
-    if (!dashboardId || !dashboardUpdatedAt || !canManage || archivedAt) return;
+    if (!dashboardId || !dashboardUpdatedAt || !canCertify || archivedAt)
+      return;
     try {
       const result = await certifyDashboardAction({ id: dashboardId });
       const certification = parseDashboardCertification(
@@ -1718,7 +1730,7 @@ function SqlDashboardPageContent({
     }
   }, [
     archivedAt,
-    canManage,
+    canCertify,
     certifyDashboardAction,
     dashboardId,
     dashboardUpdatedAt,
@@ -1887,7 +1899,7 @@ function SqlDashboardPageContent({
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
-        {dashboardId && dashboardUpdatedAt && canManage && !archivedAt ? (
+        {dashboardId && dashboardUpdatedAt && canCertify && !archivedAt ? (
           <Button
             size="sm"
             variant={dashboardCertified ? "secondary" : "outline"}

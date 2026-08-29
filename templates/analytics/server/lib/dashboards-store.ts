@@ -117,6 +117,7 @@ export interface DashboardCatalogRecord {
   title: string;
   description: string | null;
   config: Record<string, unknown>;
+  updatedAt?: string;
   certification?: DashboardCertification;
 }
 
@@ -1183,11 +1184,6 @@ export async function loadDashboardCatalogDashboards(
   ].slice(0, MAX_CATALOG_DASHBOARD_HYDRATION);
   if (!uniqueIds.length) return [];
 
-  const description = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'description')`
-    : sql<
-        string | null
-      >`json_extract(${schema.dashboards.config}, '$.description')`;
   const archived = isNull(schema.dashboards.archivedAt);
   const visible = isNull(schema.dashboards.hiddenAt);
   const where = and(
@@ -1206,9 +1202,9 @@ export async function loadDashboardCatalogDashboards(
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       title: schema.dashboards.title,
-      description,
       config: schema.dashboards.config,
       certification: schema.dashboards.certification,
+      updatedAt: schema.dashboards.updatedAt,
     })
     .from(schema.dashboards)
     .where(where);
@@ -1227,13 +1223,21 @@ export async function loadDashboardCatalogDashboards(
         return [];
       }
       const certification = parseDashboardCertification(row.certification);
+      const description =
+        typeof row.description === "string"
+          ? row.description
+          : typeof config.description === "string"
+            ? config.description
+            : null;
       const catalogRow: DashboardCatalogRecord = {
         id: row.id,
         kind: row.kind,
         title: row.title,
-        description:
-          typeof row.description === "string" ? row.description : null,
+        description,
         config,
+        ...(typeof row.updatedAt === "string"
+          ? { updatedAt: row.updatedAt }
+          : {}),
         ...(certification.status === "valid"
           ? { certification: certification.certification }
           : {}),
@@ -1259,6 +1263,9 @@ export async function loadDashboardCatalogDashboards(
       title,
       description: configDescriptionFromValue(config),
       config,
+      ...(typeof config.updatedAt === "string"
+        ? { updatedAt: config.updatedAt }
+        : {}),
     });
   }
   return out;
@@ -1597,6 +1604,11 @@ export async function certifyDashboardWithRetry(
     if (existing.kind !== "sql") {
       throw new Error("Only SQL dashboards can be certified for AI queries.");
     }
+    if (!ctx.orgId || existing.orgId !== ctx.orgId) {
+      throw new Error(
+        "Only dashboards owned by the active organization can be certified for AI queries.",
+      );
+    }
     const updatedAt = nextDashboardVersion(existing.updatedAt);
     const certification: DashboardCertification = {
       status: "certified",
@@ -1614,6 +1626,7 @@ export async function certifyDashboardWithRetry(
       .where(
         and(
           eq(schema.dashboards.id, id),
+          eq(schema.dashboards.orgId, ctx.orgId),
           eq(schema.dashboards.updatedAt, existing.updatedAt),
         ),
       );

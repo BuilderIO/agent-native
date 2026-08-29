@@ -624,7 +624,7 @@ function savedDashboardInput(
     config: dashboard.config,
     origin: "saved-dashboard" as const,
     certification: dashboard.certification,
-    updatedAt: summary.updatedAt,
+    ...(dashboard.updatedAt ? { updatedAt: dashboard.updatedAt } : {}),
     favorite: summary.favorite === true,
   };
 }
