@@ -998,6 +998,32 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("preserves an explicit root parent when appending an assistant message", () => {
+    const finalMessage = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Root answer." } }],
+      "run-root",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const updated = upsertAssistantMessage(
+      {
+        messages: [
+          {
+            id: "assistant-old",
+            role: "assistant",
+            content: [{ type: "text", text: "Old answer." }],
+            status: { type: "complete", reason: "stop" },
+          },
+        ],
+      },
+      finalMessage!,
+      null,
+    );
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1].parentId).toBeNull();
+  });
+
   it("keeps the prior answer when a regeneration targets the same user branch", () => {
     const regenerated = buildAssistantMessage(
       [

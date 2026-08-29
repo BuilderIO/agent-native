@@ -100,6 +100,33 @@ describe("ComputerControlBroker", () => {
     expect(helper.snapshot).not.toHaveBeenCalled();
   });
 
+  it("rejects an observation that finishes after another task acquires control", async () => {
+    let resolveSnapshot: ((value: SemanticSnapshot) => void) | undefined;
+    const helper = createHelper({
+      snapshot: vi.fn(
+        () =>
+          new Promise<SemanticSnapshot>((resolve) => {
+            resolveSnapshot = resolve;
+          }),
+      ),
+    });
+    const broker = new ComputerControlBroker({ helper });
+    const observing = broker.execute("act", {
+      kind: "observe.snapshot",
+      taskId: "task-1",
+    });
+
+    await vi.waitFor(() => expect(helper.snapshot).toHaveBeenCalledTimes(1));
+    await broker.acquireLease(
+      "task-2",
+      { bundleIds: ["com.google.Chrome"], origins: ["https://example.com"] },
+      60_000,
+    );
+    resolveSnapshot?.(snapshot);
+
+    await expect(observing).rejects.toMatchObject({ code: "CONTROL_BUSY" });
+  });
+
   it("blocks every mutation in Plan mode before the helper runs", async () => {
     const { broker, helper, lease } = await prepare();
 

@@ -1851,17 +1851,20 @@ export function upsertAssistantMessage(
     return nextRepo;
   }
 
+  const fallbackParentId =
+    nextRepo.messages.length > 0
+      ? (messageId(
+          getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
+        ) ?? null)
+      : null;
   const resolvedParentId =
-    parentId !== undefined &&
-    nextRepo.messages.some(
-      (entry: any) => messageId(getStoredMessage(entry)) === parentId,
-    )
+    parentId === null ||
+    (typeof parentId === "string" &&
+      nextRepo.messages.some(
+        (entry: any) => messageId(getStoredMessage(entry)) === parentId,
+      ))
       ? parentId
-      : nextRepo.messages.length > 0
-        ? (messageId(
-            getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
-          ) ?? null)
-        : null;
+      : fallbackParentId;
   nextRepo.messages.push({ message: assistantMsg, parentId: resolvedParentId });
   nextRepo.headId = assistantMsg.id;
   return nextRepo;

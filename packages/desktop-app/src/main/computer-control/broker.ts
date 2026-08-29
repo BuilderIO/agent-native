@@ -121,9 +121,30 @@ export class ComputerControlBroker {
         await this.audit(operation, "blocked", { permission: "accessibility" });
         throw error;
       }
+      const observationGeneration = this.generation;
+      const observationAbort = this.activeAbort;
       const snapshot = await this.options.helper.snapshot(
         this.activeAbort.signal,
       );
+      if (
+        observationGeneration !== this.generation ||
+        observationAbort !== this.activeAbort
+      ) {
+        const error = new ComputerControlPolicyError(
+          "Computer control changed while observing the desktop. Observe again before acting.",
+          "CONTROL_CANCELLED",
+        );
+        await this.audit(operation, "blocked", auditMetadata(operation));
+        throw error;
+      }
+      if (!this.canObserve(operation.taskId)) {
+        const error = new ComputerControlPolicyError(
+          "Computer control is already leased to another task.",
+          "CONTROL_BUSY",
+        );
+        await this.audit(operation, "blocked", auditMetadata(operation));
+        throw error;
+      }
       this.snapshots.set(operation.taskId, snapshot);
       await this.audit(operation, "succeeded", snapshotMetadata(snapshot));
       return snapshot;
