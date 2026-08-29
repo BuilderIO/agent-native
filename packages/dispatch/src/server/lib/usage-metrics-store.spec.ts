@@ -293,24 +293,32 @@ describe("listDispatchUsageMetrics", () => {
         visibility: "org",
       },
     ]);
-    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
-      if (sql.includes("SELECT role FROM org_members")) {
-        return { rows: [{ role: "member" }] };
-      }
-      if (sql.includes("SELECT email, role, joined_at")) {
-        return {
-          rows: [
-            { email: "owner@example.test", role: "member", joined_at: null },
-            { email: "member@example.test", role: "member", joined_at: null },
-          ],
-        };
-      }
-      if (
-        sql.includes("FROM token_usage") &&
-        sql.includes("ORDER BY created_at ASC")
-      ) {
-        return {
-          rows: [
+    mocks.execute.mockImplementation(
+      async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+        if (sql.includes("SELECT role FROM org_members")) {
+          return { rows: [{ role: "member" }] };
+        }
+        if (sql.includes("SELECT email, role, joined_at")) {
+          return {
+            rows: [
+              {
+                email: "owner@example.test",
+                role: "member",
+                joined_at: null,
+              },
+              {
+                email: "member@example.test",
+                role: "member",
+                joined_at: null,
+              },
+            ],
+          };
+        }
+        if (
+          sql.includes("FROM token_usage") &&
+          sql.includes("ORDER BY created_at ASC")
+        ) {
+          const rows = [
             {
               created_at: now - 2 * 86_400_000,
               owner_email: "owner@example.test",
@@ -332,11 +340,20 @@ describe("listDispatchUsageMetrics", () => {
               label: "approve-order",
               cost_cents_x100: 300,
             },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
+          ];
+          return {
+            rows: sql.includes("LOWER(COALESCE(app, '')) = ?")
+              ? rows.filter(
+                  (row) =>
+                    row.app.toLowerCase() ===
+                    String(args?.at(-1) ?? "").toLowerCase(),
+                )
+              : rows,
+          };
+        }
+        return { rows: [] };
+      },
+    );
 
     const metrics = await listDispatchUsageMetrics({
       sinceDays: 30,
@@ -361,15 +378,15 @@ describe("listDispatchUsageMetrics", () => {
       usersWithUsage: 2,
       dailyActiveUsers: 1,
       weeklyActiveUsers: 2,
-      usageCalls: 3,
-      costCents: 6,
+      usageCalls: 2,
+      costCents: 4,
     });
     expect(metrics.appAccess[0].actionMetrics).toEqual([
       {
         key: "create-order",
         label: "create-order",
-        calls: 2,
-        activeUsers: 2,
+        calls: 1,
+        activeUsers: 1,
         lastActiveAt: expect.any(Number),
       },
       {
@@ -383,7 +400,7 @@ describe("listDispatchUsageMetrics", () => {
     expect(
       mocks.execute.mock.calls.some(([query]) =>
         String((query as { sql?: string }).sql).includes(
-          "LOWER(COALESCE(app, '')) IN",
+          "LOWER(COALESCE(app, '')) = ?",
         ),
       ),
     ).toBe(true);

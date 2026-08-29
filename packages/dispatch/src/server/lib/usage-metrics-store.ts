@@ -358,10 +358,9 @@ function labelForKey(value: string): string {
   return trimmed || "Unattributed";
 }
 
-function normalizeAppKey(value: string | null | undefined): string {
+function appUsageKey(value: string | null | undefined): string {
   const raw = (value ?? "").trim().toLowerCase();
-  if (!raw) return "unattributed";
-  return raw.replace(/^agent-native-/, "");
+  return raw || "unattributed";
 }
 
 function appOwner(app: WorkspaceAppSummary): string | null {
@@ -522,16 +521,11 @@ function appUsageScope(
   orgId: string | null,
 ): { where: string; args: unknown[] } {
   const scope = usageScope(sinceMs, memberEmails);
-  const raw = appId.trim().toLowerCase();
-  const normalized = normalizeAppKey(appId);
-  const keys = [...new Set([raw, normalized, `agent-native-${normalized}`])];
   const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
   const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
   return {
-    where: `${scope.where} AND ${orgClause} AND LOWER(COALESCE(app, '')) IN (${keys
-      .map(() => "?")
-      .join(", ")})`,
-    args: [...scope.args, ...orgArgs, ...keys],
+    where: `${scope.where} AND ${orgClause} AND LOWER(COALESCE(app, '')) = ?`,
+    args: [...scope.args, ...orgArgs, appUsageKey(appId)],
   };
 }
 
@@ -920,7 +914,7 @@ export async function listDispatchUsageMetrics(input: {
       dailyMap.set(date, current);
     }
 
-    const appKey = normalizeAppKey(stringField(row, "app"));
+    const appKey = appUsageKey(stringField(row, "app"));
     const appAdoption = appAdoptionMap.get(appKey) ?? {
       calls: 0,
       costCents: 0,
@@ -1058,7 +1052,7 @@ export async function listDispatchUsageMetrics(input: {
     viewScope === "app" ? [] : await hydrateRecentPrompts(recentRows);
 
   const appUsageByKey = new Map(
-    byApp.map((bucket) => [normalizeAppKey(bucket.key), bucket]),
+    byApp.map((bucket) => [appUsageKey(bucket.key), bucket]),
   );
   const accessUsers = members.length || byUserMap.size;
   const accessModel =
@@ -1071,8 +1065,8 @@ export async function listDispatchUsageMetrics(input: {
         : "Signed-in users";
   const appRows = selectedApp ? [selectedApp] : apps;
   const appAccess = appRows.map((app) => {
-    const usageBucket = appUsageByKey.get(normalizeAppKey(app.id));
-    const adoption = appAdoptionMap.get(normalizeAppKey(app.id));
+    const usageBucket = appUsageByKey.get(appUsageKey(app.id));
+    const adoption = appAdoptionMap.get(appUsageKey(app.id));
     const ownerEmail = appOwner(app);
     const isOwnedByViewer =
       ownerEmail?.toLowerCase() === viewerEmail.toLowerCase();
