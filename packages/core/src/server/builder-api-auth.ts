@@ -58,9 +58,24 @@ export async function resolveBuilderApiAuthorization(
   const orgId = getRequestOrgId() ?? null;
 
   if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
-    const session = await readCredentialStore(() =>
-      getBuilderOAuthSession(ownerEmail, orgId),
-    );
+    let session: Awaited<ReturnType<typeof getBuilderOAuthSession>>;
+    try {
+      session = await readCredentialStore(() =>
+        getBuilderOAuthSession(ownerEmail, orgId, requiredScope),
+      );
+    } catch (err) {
+      if (
+        requiredScope &&
+        err instanceof Error &&
+        err.message ===
+          `Builder OAuth connection does not grant ${requiredScope}`
+      ) {
+        throw new Error(
+          `Builder.io access needs re-authorizing to grant ${requiredScope}. Open Settings and authorize Builder.io again.`,
+        );
+      }
+      throw err;
+    }
     if (!session) {
       throw new Error(
         "Builder.io access expired. Re-authorize Builder.io in Settings to continue.",
@@ -109,10 +124,26 @@ export async function canAuthorizeBuilderApiRequest(
   const orgId = getRequestOrgId() ?? null;
 
   if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail, orgId))) {
-    const session = await getBuilderOAuthSession(ownerEmail, orgId);
-    return (
-      !!session && (!requiredScope || session.scopes.includes(requiredScope))
-    );
+    try {
+      const session = await getBuilderOAuthSession(
+        ownerEmail,
+        orgId,
+        requiredScope,
+      );
+      return (
+        !!session && (!requiredScope || session.scopes.includes(requiredScope))
+      );
+    } catch (err) {
+      if (
+        requiredScope &&
+        err instanceof Error &&
+        err.message ===
+          `Builder OAuth connection does not grant ${requiredScope}`
+      ) {
+        return false;
+      }
+      throw err;
+    }
   }
 
   return !!(await resolveBuilderPrivateKey());
