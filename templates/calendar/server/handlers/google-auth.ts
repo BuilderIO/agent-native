@@ -241,6 +241,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const redirectUri = resolveOAuthRedirectUri(
       event,
       "/_agent-native/google/callback",
+      { allowRootCallback: true },
     );
     if (!redirectUri) {
       setResponseStatus(event, 400);
@@ -536,7 +537,11 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       );
     }
     try {
-      const redirectUri = resolveOAuthRedirectUri(event);
+      const redirectUri = resolveOAuthRedirectUri(
+        event,
+        "/_agent-native/google/callback",
+        { allowRootCallback: true },
+      );
       if (!redirectUri) {
         setResponseStatus(event, 400);
         return {

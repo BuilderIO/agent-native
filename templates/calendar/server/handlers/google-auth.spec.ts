@@ -111,6 +111,7 @@ vi.mock("../lib/google-calendar.js", () => ({
 
 const {
   getGoogleAuthUrl,
+  getGoogleAddAccountUrl,
   handleGoogleAddAccountCallback,
   handleGoogleCallback,
 } = await import("./google-auth.js");
@@ -247,10 +248,26 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
       expect.anything(),
       "/_agent-native/google/callback",
+      { allowRootCallback: true },
     );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
     });
+  });
+
+  it("uses the root callback for add-account OAuth on mounted apps", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-123",
+    });
+
+    await getGoogleAddAccountUrl(createEvent() as any);
+
+    expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
+      expect.anything(),
+      "/_agent-native/google/callback",
+      { allowRootCallback: true },
+    );
   });
 
   it("publishes a desktop exchange for Calendar connect without switching away from the owner", async () => {
