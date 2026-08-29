@@ -167,6 +167,21 @@ test("allows explicitly enabled legacy health with no redirect coverage", () => 
   );
 });
 
+test("does not let legacy no coverage hide an inconclusive health result", () => {
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 0,
+      unregistered: 0,
+      unknown: 1,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+      allowNoCoverage: true,
+    }),
+    2,
+  );
+});
+
 test("maps unexpected CLI failures to the inconclusive exit code", () => {
   assert.throws(
     () =>

@@ -110,7 +110,6 @@ export function googleRedirectProbeExitCode(input: {
   allowNoCoverage?: boolean;
 }): number {
   if (input.unregistered > 0) return 1;
-  if (input.expected === 0) return input.allowNoCoverage ? 0 : 2;
   if (
     input.unknown > 0 ||
     input.unprobeable > 0 ||
@@ -119,6 +118,7 @@ export function googleRedirectProbeExitCode(input: {
   ) {
     return 2;
   }
+  if (input.expected === 0) return input.allowNoCoverage ? 0 : 2;
   return 0;
 }
 
@@ -842,7 +842,7 @@ async function run(argv: string[]): Promise<number> {
                 options.paths?.includes(callbackPath),
               )
             : (health.callbackPaths ?? []);
-        return health.clientId
+        return health.status === "valid" && health.clientId
           ? mapWithLimit(callbackPaths, 3, async (callbackPath) => {
               const redirectUri = `https://${target.host}${callbackPath}`;
               return {
