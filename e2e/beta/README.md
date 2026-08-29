@@ -48,13 +48,13 @@ Analytics.
 
 ## Lanes
 
-| Lane       | Gates a promotion | Credentials          | Model spend               |
-| ---------- | ----------------- | -------------------- | ------------------------- |
-| `public`   | yes               | none                 | none                      |
-| `registry` | yes               | session              | none                      |
+| Lane       | Gates a promotion | Credentials          | Model spend                                         |
+| ---------- | ----------------- | -------------------- | --------------------------------------------------- |
+| `public`   | yes               | none                 | none                                                |
+| `registry` | yes               | session              | none                                                |
 | `chat`     | yes               | session + OpenAI key | ~1 luna turn per chat app; Slides adds one A2A turn |
-| `journeys` | yes               | session              | none                      |
-| `advisory` | no                | none                 | none                      |
+| `journeys` | yes               | session              | none                                                |
+| `advisory` | no                | none                 | none                                                |
 
 `public` is the one that always runs and needs nothing set up. It already
 covers the most-reported failures, because most of them are visible before a

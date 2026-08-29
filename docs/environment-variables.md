@@ -284,7 +284,7 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETA_E2E_APPS`                  | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                              |
 | `BETA_E2E_AUTHED`                | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                         |
-| `BETA_E2E_CLUSTER`               | Authenticated cluster selected by the workflow (`registry`, `chat`, or `journeys`); internal CI wiring, not a user credential.                         |
+| `BETA_E2E_CLUSTER`               | Authenticated cluster selected by the workflow (`registry`, `chat`, or `journeys`); internal CI wiring, not a user credential.                          |
 | `BETA_E2E_GREP`                  | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.         |
 | `BETA_E2E_REPORT_SLOT`           | Names this invocation's report directory. The workflow sets one per lane so three sequential runs do not overwrite each other's results.                |
 | `BETA_E2E_EMAIL`                 | The identity every authenticated spec asserts it is running as. Setup fails if the resolved session is anyone else.                                     |
