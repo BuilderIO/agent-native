@@ -2488,6 +2488,12 @@ export function TiptapComposer({
       : null;
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;
+  const draftScopeGenerationRef = useRef(0);
+  const renderedDraftKeyRef = useRef(draftKey);
+  if (renderedDraftKeyRef.current !== draftKey) {
+    renderedDraftKeyRef.current = draftKey;
+    draftScopeGenerationRef.current += 1;
+  }
   const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelScheduledDraftPersist = useCallback(() => {
@@ -3371,6 +3377,11 @@ export function TiptapComposer({
 
       draftEditorRef.current = ed;
       flushComposerDraft();
+      const submittingDraftKey = draftKeyRef.current;
+      const submittingDraftGeneration = draftScopeGenerationRef.current;
+      const isCurrentDraftScope = () =>
+        draftKeyRef.current === submittingDraftKey &&
+        draftScopeGenerationRef.current === submittingDraftGeneration;
       const { text, references } = syncComposerState();
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
@@ -3435,6 +3446,7 @@ export function TiptapComposer({
         }
       }
       if (!isComposerEditorUsable(ed)) return;
+      if (!isCurrentDraftScope()) return;
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -3493,6 +3505,7 @@ export function TiptapComposer({
           // available for recovery when a host rejects the submission.
           return;
         }
+        if (!isCurrentDraftScope()) return;
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
