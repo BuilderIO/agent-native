@@ -32,7 +32,6 @@ import {
 } from "./CodeAgentsHub.js";
 import {
   initialMultiFrontierRunAutoContinue,
-  locksMultiFrontierMode,
   providerOperationFailureNotice,
   readNewerMultiFrontierSnapshot,
 } from "./multi-frontier-renderer-state.js";
@@ -96,13 +95,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(persistedDefault).toEqual({ autoContinueAfterAgreement: true });
   });
 
-  it("keeps the collaboration mode selected until a run is terminal", () => {
-    expect(locksMultiFrontierMode({ phase: "implementing" })).toBe(true);
-    expect(locksMultiFrontierMode({ phase: "paused" })).toBe(true);
-    expect(locksMultiFrontierMode({ phase: "completed" })).toBe(false);
-    expect(locksMultiFrontierMode({ phase: "failed" })).toBe(false);
-  });
-
   it("reports provider-operation failures without surfacing raw provider errors", () => {
     expect(
       providerOperationFailureNotice("claude", "connect", "notice-1"),
@@ -123,7 +115,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
           permissionMode: "full-auto",
           subscriptions: {},
           busy: false,
-          modeLocked: false,
           autoContinueAfterAgreement: false,
           defaultAutoContinueAfterAgreement: false,
           onModeChange,
@@ -202,7 +193,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
           permissionMode: "full-auto",
           subscriptions: {},
           busy: false,
-          modeLocked: false,
           autoContinueAfterAgreement: false,
           defaultAutoContinueAfterAgreement: false,
           onModeChange,
@@ -545,6 +535,22 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).not.toContain(
       "(hasChatFirstActiveChat || terminalPreferences.enabled) &&\n        chatFirstSurfacePanel.open",
     );
+  });
+
+  it("keeps hidden Multi-Frontier state from restoring or locking the chat mode", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).not.toContain(
+      "newSessionExtension={multiFrontierExtension}",
+    );
+    expect(hubSource).not.toContain(
+      "openDetailRequest={multiFrontierOpenDetailRequest}",
+    );
+    expect(hubSource).not.toContain('snapshot.phase === "paused"');
+    expect(hubSource).not.toContain("locksMultiFrontierMode");
   });
 
   it("keeps full-page settings on the shared query and theme contracts", () => {

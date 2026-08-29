@@ -143,7 +143,6 @@ import DesktopTerminalSurface, {
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 import {
   initialMultiFrontierRunAutoContinue,
-  locksMultiFrontierMode,
   providerOperationFailureNotice,
   readNewerMultiFrontierSnapshot,
 } from "./multi-frontier-renderer-state.js";
@@ -938,11 +937,8 @@ export default function CodeAgentsHub({
   const [multiFrontierNotices, setMultiFrontierNotices] = useState<
     MultiFrontierNotice[]
   >([]);
-  const [multiFrontierOpenDetailRequest, setMultiFrontierOpenDetailRequest] =
-    useState<{ detailId: string; nonce: number }>();
   const multiFrontierSequence = useRef(-1);
   const multiFrontierSettingsHydrated = useRef(false);
-  const multiFrontierDetailNonce = useRef(0);
   const multiFrontierNoticeNonce = useRef(0);
   const multiFrontierActivationTracked = useRef(false);
   const multiFrontierLastPhaseTelemetry = useRef("");
@@ -951,7 +947,6 @@ export default function CodeAgentsHub({
   >({});
   const activeMultiFrontierCollaborationId =
     multiFrontierState?.collaborationId;
-  const multiFrontierModeLocked = locksMultiFrontierMode(multiFrontierState);
 
   const openChatFirstApp = useCallback(
     (
@@ -1837,31 +1832,11 @@ export default function CodeAgentsHub({
           if (!disposed) appendProviderOperationFailure(providerId, "load");
         });
     }
-    void api
-      .list()
-      .then((snapshots) => {
-        if (disposed) return;
-        const recovered = snapshots.find(
-          (snapshot) => snapshot.phase === "paused",
-        );
-        if (!recovered) return;
-        applyMultiFrontierSnapshot(recovered);
-        multiFrontierSettingsHydrated.current = true;
-        setMultiFrontierRunAutoContinue(
-          recovered.autoContinueAfterAgreement ?? false,
-        );
-        multiFrontierDetailNonce.current += 1;
-        setMultiFrontierOpenDetailRequest({
-          detailId: recovered.collaborationId,
-          nonce: multiFrontierDetailNonce.current,
-        });
-      })
-      .catch(() => undefined);
     return () => {
       disposed = true;
       unsubscribeProviderStatus();
     };
-  }, [appendProviderOperationFailure, applyMultiFrontierSnapshot, isActive]);
+  }, [appendProviderOperationFailure, isActive]);
 
   useEffect(() => {
     if (!isActive || !activeMultiFrontierCollaborationId) return;
@@ -2018,14 +1993,12 @@ export default function CodeAgentsHub({
             permissionMode={permissionMode}
             subscriptions={multiFrontierSubscriptions}
             busy={multiFrontierBusy}
-            modeLocked={multiFrontierModeLocked}
             autoContinueAfterAgreement={multiFrontierRunAutoContinue}
             defaultAutoContinueAfterAgreement={
               multiFrontierDefaultSettings.autoContinueAfterAgreement
             }
             onModeChange={(mode) => {
               if (mode === "multi-frontier") return;
-              if (multiFrontierModeLocked) return;
               setMultiFrontierMode(false);
               onPermissionModeChange(
                 mode === "plan" ? "read-only" : "full-auto",
@@ -2146,7 +2119,6 @@ export default function CodeAgentsHub({
       connectMultiFrontierSubscription,
       multiFrontierBusy,
       multiFrontierDefaultSettings.autoContinueAfterAgreement,
-      multiFrontierModeLocked,
       multiFrontierMode,
       multiFrontierNotices,
       multiFrontierRunAutoContinue,
@@ -3185,7 +3157,6 @@ export function MultiFrontierModeControl({
   permissionMode,
   subscriptions,
   busy,
-  modeLocked,
   autoContinueAfterAgreement,
   defaultAutoContinueAfterAgreement,
   onModeChange,
@@ -3198,7 +3169,6 @@ export function MultiFrontierModeControl({
   permissionMode: CodeAgentPermissionMode;
   subscriptions: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
   busy: boolean;
-  modeLocked: boolean;
   autoContinueAfterAgreement: boolean;
   defaultAutoContinueAfterAgreement: boolean;
   onModeChange: (mode: "plan" | "auto" | "multi-frontier") => void;
@@ -3214,11 +3184,7 @@ export function MultiFrontierModeControl({
       : "auto";
   return (
     <div className="code-agents-multi-frontier-control">
-      <Select
-        value={value}
-        disabled={busy || modeLocked}
-        onValueChange={onModeChange}
-      >
+      <Select value={value} disabled={busy} onValueChange={onModeChange}>
         <SelectTrigger
           className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"
