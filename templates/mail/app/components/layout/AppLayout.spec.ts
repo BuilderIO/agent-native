@@ -74,6 +74,14 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
   });
 
+  it("uses mailbox-wide counts for regular label tabs", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;",
+    );
+  });
+
   it("does not let loaded pages inflate server-backed label badges", () => {
     const source = appLayoutSource();
 
