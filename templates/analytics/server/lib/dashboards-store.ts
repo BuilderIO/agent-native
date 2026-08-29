@@ -866,8 +866,9 @@ export async function listDashboardSummaries(
     .where(where);
   const out: DashboardSummaryRecord[] = rows.map((row: any) => {
     const certification = parseDashboardCertification(row.certification);
+    const { certification: _rawCertification, ...summaryRow } = row;
     return {
-      ...row,
+      ...summaryRow,
       description: typeof row.description === "string" ? row.description : null,
       configName: typeof row.configName === "string" ? row.configName : null,
       catalogTemplateId:
@@ -1036,9 +1037,10 @@ export async function searchDashboardReferences(
         {
           ...row,
           description,
-          ...(certification.status === "valid"
-            ? { certification: certification.certification }
-            : {}),
+          certification:
+            certification.status === "valid"
+              ? certification.certification
+              : undefined,
         },
         query,
       );
