@@ -68,7 +68,7 @@ document.getElementById('f').onsubmit=async e=>{
 e.preventDefault();const b=document.getElementById('b'),err=document.getElementById('e');
 b.disabled=true;b.textContent='Signing in...';err.style.display='none';
 try{const r=await fetch(appPath('/_agent-native/auth/supabase-login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.getElementById('email').value,password:document.getElementById('password').value})});
-const d=await r.json();if(d.ok)window.location.href=appPath('/');else{err.textContent=d.error||'Sign in failed';err.style.display='block'}}
+const d=await r.json();if(d.ok)window.location.href=appPath('/home');else{err.textContent=d.error||'Sign in failed';err.style.display='block'}}
 catch{err.textContent='Network error';err.style.display='block'}
 finally{b.disabled=false;b.textContent='Sign in'}};
 </script></body></html>`;
@@ -102,6 +102,7 @@ async function getSessionEmailWithTimeout(
 export default (nitroApp: any) => {
   const authInit = createAuthPlugin({
     loginHtml: LOGIN_HTML,
+    workspaceAppPublicPaths: ["/"],
     // Resolve sessions from the framework's legacy session table, where
     // supabase-login stores them via addSession(). Providing a custom
     // getSession marks this template as BYOA — the framework will not

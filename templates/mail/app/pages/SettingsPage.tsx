@@ -47,6 +47,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AiFilterSection } from "@/components/settings/AiFilterSection";
 import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
 import { SnippetsSection } from "@/components/settings/SnippetsSection";
 import {
@@ -932,6 +933,7 @@ function AutomationsSection() {
     )?.value ||
     modelOptions[0]?.value ||
     "loading";
+  const automationRules = rules.filter((rule) => rule.kind !== "ai-filter");
 
   const handleModelChange = async (value: string) => {
     const [engine, model] = value.split("::");
@@ -1084,7 +1086,7 @@ function AutomationsSection() {
           ))}
 
         {/* Empty state */}
-        {!isLoading && rules.length === 0 && !showNewForm && (
+        {!isLoading && automationRules.length === 0 && !showNewForm && (
           <div className="rounded-lg border border-border/20 bg-card/50 py-12 text-center">
             <IconBolt className="h-8 w-8 text-muted-foreground/20 mx-auto mb-3" />
             <p className="text-[13px] text-muted-foreground/50 mb-1">
@@ -1097,7 +1099,7 @@ function AutomationsSection() {
         )}
 
         {/* Rule list */}
-        {rules.map((rule) => (
+        {automationRules.map((rule) => (
           <AutomationRow
             key={rule.id}
             rule={rule}
@@ -1622,6 +1624,15 @@ export function SettingsPage() {
         group: "automation",
         content: <AutomationsSection />,
         keywords: "automations rules triggers events labels model",
+      },
+      {
+        id: "ai-filter",
+        label: t("settings.aiFilter"),
+        icon: IconFilter,
+        group: "automation",
+        content: <AiFilterSection />,
+        keywords:
+          "ai filter spam auto label unwanted mail suggestions feedback",
       },
       {
         id: "gmail-filters",

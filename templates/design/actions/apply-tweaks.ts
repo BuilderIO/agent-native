@@ -8,6 +8,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { tweakSelectionsHash } from "../shared/resolve-tweaks.js";
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -58,8 +59,9 @@ export default defineAction({
         "Optimistic-concurrency hash of the persisted tweak selection map this full snapshot was based on.",
       ),
   }),
-  run: async ({ designId, selections, expectedSelectionsHash }) => {
+  run: async ({ designId, selections, expectedSelectionsHash }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const readSelections = (data: DesignDataRecord) =>
       data.tweakSelections &&

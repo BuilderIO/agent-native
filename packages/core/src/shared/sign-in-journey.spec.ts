@@ -221,7 +221,7 @@ describe("signInJourney", () => {
         legacyReturn,
       });
       expect(journey.resumeHref.startsWith("//")).toBe(false);
-      expect(journey.resumeHref).toBe("/");
+      expect(journey.resumeHref).toBe("/home");
     },
   );
 
@@ -243,7 +243,7 @@ describe("signInJourney", () => {
     ]) {
       const journey = signInJourney({ at });
       expect(journey.signInHref).toBeNull();
-      expect(journey.resumeHref).toBe("/");
+      expect(journey.resumeHref).toBe("/home");
     }
   });
 
@@ -252,7 +252,7 @@ describe("signInJourney", () => {
     // auth entry path, so the resume target was the login page itself.
     const journey = signInJourney({ at: "/myapp/login", basePath: "/myapp" });
     expect(journey.signInHref).toBeNull();
-    expect(journey.resumeHref).toBe("/myapp");
+    expect(journey.resumeHref).toBe("/myapp/home");
   });
 
   it("signInHref is null — not a fallback — when already at sign-in", () => {
@@ -279,7 +279,7 @@ describe("signInJourney", () => {
       at: SIGN_IN_ENTRY_PATH,
       continuation: "not-a-real-token-%%%",
     });
-    expect(journey.resumeHref).toBe("/");
+    expect(journey.resumeHref).toBe("/home");
   });
 
   it("preserves search params for login-form-at-this-URL routes", () => {
@@ -314,7 +314,7 @@ describe("signInJourneyInlineScript", () => {
       encodeContinuation: (p: string | null) => string;
       homeHref: () => string;
     };
-    expect(evaluated.homeHref()).toBe("/mail");
+    expect(evaluated.homeHref()).toBe("/mail/home");
     expect(evaluated.encodeContinuation("/mail/inbox")).toBe(
       encodeContinuation("/mail/inbox", "/mail"),
     );

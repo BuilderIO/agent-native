@@ -51,7 +51,7 @@ import {
 
 const primaryNav = [
   {
-    to: "/",
+    to: "/home",
     labelKey: "navigation.overview",
     icon: IconLayoutDashboard,
     end: true,
@@ -248,7 +248,7 @@ export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {
               const Icon = item.icon;
               const label = t(item.labelKey);
               const isActive = item.end
-                ? location.pathname === "/"
+                ? location.pathname === "/home"
                 : location.pathname.startsWith(item.to);
               return (
                 <CollapsibleTooltip

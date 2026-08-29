@@ -1837,6 +1837,12 @@ export const runAnalyticsMigrations = runMigrations(
       name: "analytics-dashboard-certification",
       sql: "ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS certification TEXT",
     },
+    {
+      version: 149,
+      name: "analytics-revision-chat-context",
+      sql: `ALTER TABLE dashboard_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT;
+ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
   ],
   { table: "analytics_migrations" },
 );

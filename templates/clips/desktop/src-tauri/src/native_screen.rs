@@ -3175,10 +3175,10 @@ fn take_prefetched_shareable_content(target_display_id: Option<u32>) -> Option<S
     Some(content)
 }
 
-/// Fire-and-forget warm-up called when the recorder popover opens: fetch the
-/// multi-second `SCShareableContent` snapshot now so a recording start within
-/// the TTL skips it. Best-effort — failures are logged and the start paths
-/// fall back to their own fetch, so this can never fail a recording.
+/// Fire-and-forget warm-up called during app startup: fetch the multi-second
+/// `SCShareableContent` snapshot now so a recording start within the TTL skips
+/// it. Best-effort — failures are logged and the start paths fall back to their
+/// own fetch, so this can never fail a recording.
 #[tauri::command]
 pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> {
     #[cfg(target_os = "macos")]

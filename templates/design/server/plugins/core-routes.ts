@@ -12,9 +12,9 @@ export default createCoreRoutesPlugin({
   resolveOpenPath: ({ view, params }) => {
     if (params.designId) return `/design/${params.designId}`;
     // `editor`/unknown with no id: there is no bare `/editor` route — send to
-    // the app root rather than 404 (the polled `navigate` command still
+    // the private app entry rather than 404 (the polled `navigate` command still
     // applies any record focus once the SPA is loaded).
-    if (view === "editor") return "/";
+    if (view === "editor") return "/home";
     return null;
   },
   allowUnauthenticatedOpen: ({ target }) => {

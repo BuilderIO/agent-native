@@ -24,7 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
+  { icon: IconPencil, labelKey: "navigation.designs", href: "/home" },
   { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
   {
     icon: IconComponents,
@@ -154,8 +154,8 @@ export function Sidebar() {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.href === "/"
-                ? location.pathname === "/" ||
+              item.href === "/home"
+                ? location.pathname === "/home" ||
                   location.pathname.startsWith("/design/")
                 : location.pathname.startsWith(item.href);
             const link = (

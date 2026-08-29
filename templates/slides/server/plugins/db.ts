@@ -321,6 +321,11 @@ WHERE principal_type = 'user'`,
   );
   ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS anchor TEXT`,
     },
+    {
+      version: 26,
+      name: "slides-deck-version-chat-context",
+      sql: `ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

@@ -1462,7 +1462,7 @@ export function DocumentSidebar({
       }
 
       if (activeDeleted) {
-        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
+        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/home", {
           replace: true,
           flushSync: true,
         });
