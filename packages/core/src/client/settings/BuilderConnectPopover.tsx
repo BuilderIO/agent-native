@@ -104,7 +104,7 @@ export function BuilderConnectPopover({
               <IconLoader2 size={14} className="animate-spin" />
             ) : null}
             {accountExists
-              ? t("auth.logIn")
+              ? t("agentChat.auth.logIn")
               : flow.connecting
                 ? t("agentChat.onboarding.builderActivating")
                 : t("agentChat.onboarding.builderCreateAndActivate")}

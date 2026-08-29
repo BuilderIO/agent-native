@@ -183,15 +183,18 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("shows one-click account consent in a popover and its loading state when enabled", () => {
-    const start = vi.fn();
-    mocks.useBuilderConnectFlow.mockReturnValue({
+    const flow = {
       hasFetchedStatus: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
-      connecting: true,
+      connecting: false,
       error: null,
-      start,
+      start: vi.fn(),
+    };
+    flow.start.mockImplementation(() => {
+      flow.connecting = true;
     });
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
 
     act(() => {
       root.render(
@@ -256,7 +259,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[role="status"][aria-busy="true"]'),
     ).toBeTruthy();
-    expect(start).toHaveBeenCalledOnce();
+    expect(flow.start).toHaveBeenCalledOnce();
   });
 
   it("uses the existing-account connection flow from the consent popover", () => {
@@ -265,7 +268,7 @@ describe("FirstRunOnboarding", () => {
       hasFetchedStatus: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
-      connecting: true,
+      connecting: false,
       error: null,
       start,
     });
