@@ -412,6 +412,19 @@ export function RecordingPill() {
     });
   }
 
+  async function openRecording(url: string) {
+    try {
+      if (hasTauri) {
+        await openExternal(url);
+      } else if (!window.open(url, "_blank")) {
+        return;
+      }
+      dismissCard();
+    } catch (err) {
+      console.warn("[record-pill] opening recording failed:", err);
+    }
+  }
+
   function handleUploadFinished(payload: NativeUploadFinished) {
     // A completion only means something to a card that is on screen. While
     // the pill is recording there is no card, and anything applied here would
@@ -471,6 +484,12 @@ export function RecordingPill() {
       safeListen("clips:toolbar-preparing", () => {
         toolbarDismissedRef.current = false;
         setToolbarVisible(true);
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-hidden", () => {
+        toolbarDismissedRef.current = true;
+        setToolbarVisible(false);
       }),
     );
     track(
@@ -914,11 +933,7 @@ export function RecordingPill() {
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (hasTauri) void openExternal(viewUrl).catch(() => {});
-                    else window.open(viewUrl, "_blank");
-                    dismissCard();
-                  }}
+                  onClick={() => void openRecording(viewUrl)}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >
                   Open

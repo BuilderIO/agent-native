@@ -6008,8 +6008,6 @@ function Setup({
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
   const [screenMemory, setScreenMemory] = useState(observedScreenMemory);
   const [rewindConsentOpen, setRewindConsentOpen] = useState(false);
-  const [rewindManageOpen, setRewindManageOpen] = useState(false);
-  const [rewindShowAdvanced, setRewindShowAdvanced] = useState(false);
   const screenMemoryRef = useRef(observedScreenMemory);
   const screenMemoryMutationRef = useRef(0);
   const screenMemoryMutationVersionRef = useRef(0);
@@ -7134,6 +7132,19 @@ function Setup({
     return (
       <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
         <SettingsGroup>
+          {/* A confirmation, so a dialog rather than a takeover: the user is
+              answering one question about the screen behind it, not moving to
+              a new place. What it remembers is chosen afterwards, in the row
+              below — asking before they have agreed puts the options in front
+              of the decision.
+
+              The copy names what is captured and what can leave, and nothing
+              else. Two claims are tempting and both are false: this buffer
+              holds screen *video* (hence the GB disk limit below), not app
+              and window notes; and it cannot promise "never leaves this Mac"
+              because the agent-handoff path uploads an approved range. A
+              consent screen is the one place a comforting simplification is
+              indistinguishable from a lie. */}
           <UiAlertDialog
             open={rewindConsentOpen}
             onOpenChange={setRewindConsentOpen}
@@ -7178,397 +7189,24 @@ function Setup({
             label="Rewind"
             description="Keeps a rolling record of your recent screen on this device"
             control={
-              <div className="flex items-center gap-2">
-                <SettingsPopover
-                  title="Rewind settings"
-                  open={rewindManageOpen}
-                  onOpenChange={setRewindManageOpen}
-                  className="w-[480px] max-w-[calc(100vw-24px)]"
-                  trigger={
-                    <SettingsActionButton
-                      aria-expanded={rewindManageOpen}
-                      aria-haspopup="dialog"
-                    >
-                      Manage
-                    </SettingsActionButton>
+              <SettingsSwitch
+                checked={rewindOn}
+                onCheckedChange={(next) => {
+                  // Turning it on starts continuously capturing the screen, so
+                  // it routes through consent rather than flipping silently.
+                  // Turning it off needs no confirmation — stopping is safe.
+                  if (next) {
+                    setRewindConsentOpen(true);
+                    return;
                   }
-                >
-                  <div className="grid max-h-[min(620px,calc(100vh-80px))] gap-3 overflow-y-auto pr-1">
-                    {rewindOn ? (
-                      <>
-                        <SettingsGroup label="Capture">
-                          <SettingsRow
-                            label="Remember"
-                            description="Choose what Rewind captures"
-                            control={
-                              <SettingsSelect
-                                ariaLabel="What Rewind remembers"
-                                value={screenMemory.captureMode ?? "visuals"}
-                                onValueChange={(value) => {
-                                  void setScreenMemoryConfig({
-                                    captureMode: value as RewindCaptureMode,
-                                  });
-                                }}
-                                disabled={
-                                  screenMemoryConfigBusy ||
-                                  captureControlsLocked
-                                }
-                                options={[
-                                  { value: "visuals", label: "Screen only" },
-                                  {
-                                    value: "visuals-audio",
-                                    label: "Screen + audio",
-                                  },
-                                ]}
-                              />
-                            }
-                          />
-                          <SettingsRow
-                            label="Time limit"
-                            description="Choose how long Rewind keeps your screen history"
-                            control={
-                              <SettingsSelect
-                                ariaLabel="Rewind time limit"
-                                placeholder={`${screenMemory.retentionHours} hours`}
-                                value={String(screenMemory.retentionHours)}
-                                onValueChange={(value) => {
-                                  void setScreenMemoryConfig({
-                                    retentionHours: Number(value),
-                                  });
-                                }}
-                                disabled={screenMemoryConfigBusy}
-                                options={[
-                                  { value: "8", label: "8 hours" },
-                                  { value: "24", label: "24 hours" },
-                                ]}
-                              />
-                            }
-                          />
-                          <SettingsRow
-                            label="Storage limit"
-                            description="Choose how much space Rewind can use on this device"
-                            control={
-                              <SettingsSelect
-                                ariaLabel="Rewind storage limit"
-                                placeholder={formatStorageBytes(
-                                  screenMemory.maxBytes,
-                                )}
-                                value={String(screenMemory.maxBytes)}
-                                onValueChange={(value) => {
-                                  void setScreenMemoryConfig({
-                                    maxBytes: Number(value),
-                                  });
-                                }}
-                                disabled={screenMemoryConfigBusy}
-                                options={[
-                                  {
-                                    value: String(5 * 1024 * 1024 * 1024),
-                                    label: "5 GB",
-                                  },
-                                  {
-                                    value: String(20 * 1024 * 1024 * 1024),
-                                    label: "20 GB",
-                                  },
-                                  {
-                                    value: String(50 * 1024 * 1024 * 1024),
-                                    label: "50 GB",
-                                  },
-                                ]}
-                              />
-                            }
-                          />
-                        </SettingsGroup>
-                        <SettingsActionButton
-                          emphasis="quiet"
-                          className="justify-self-start"
-                          aria-expanded={rewindShowAdvanced}
-                          onClick={() =>
-                            setRewindShowAdvanced((current) => !current)
-                          }
-                        >
-                          {rewindShowAdvanced
-                            ? "Hide advanced"
-                            : "Show advanced"}
-                        </SettingsActionButton>
-                        {rewindShowAdvanced ? (
-                          <>
-                            <SettingsGroup label="Privacy">
-                              <SettingsRow
-                                label="Excluded apps"
-                                description="Apps Rewind never captures"
-                                control={
-                                  <SettingsActionButton
-                                    onClick={() =>
-                                      void chooseExcludedApplications()
-                                    }
-                                    disabled={excludedAppsBusy}
-                                  >
-                                    Choose apps
-                                  </SettingsActionButton>
-                                }
-                              >
-                                {excludedAppGroups.length > 0 ? (
-                                  <div className="grid gap-1">
-                                    {excludedAppGroups.map((app) => (
-                                      <div
-                                        key={app.bundleIds.join(",")}
-                                        className="flex items-center justify-between gap-2"
-                                      >
-                                        <span className="truncate">
-                                          {app.name}
-                                        </span>
-                                        <SettingsActionButton
-                                          emphasis="quiet"
-                                          onClick={() =>
-                                            removeExcludedApplications(
-                                              app.bundleIds,
-                                            )
-                                          }
-                                        >
-                                          Remove
-                                        </SettingsActionButton>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </SettingsRow>
-                              <SettingsRow
-                                label="Review before sending"
-                                description="Approve each visual or audio range before an agent receives it"
-                                control={
-                                  <SettingsSwitch
-                                    checked={
-                                      screenMemory.reviewBeforeSending !== false
-                                    }
-                                    onCheckedChange={(next) => {
-                                      void setScreenMemoryConfig({
-                                        reviewBeforeSending: next,
-                                      });
-                                    }}
-                                    disabled={screenMemoryConfigBusy}
-                                    label="Review before sending"
-                                  />
-                                }
-                              />
-                              <SettingsRow
-                                label="Preview before sending"
-                                description="Open the range locally so you see exactly what is sent"
-                                control={
-                                  <SettingsSwitch
-                                    checked={
-                                      screenMemory.autoPreviewBeforeSending ===
-                                      true
-                                    }
-                                    onCheckedChange={(next) => {
-                                      void setScreenMemoryConfig({
-                                        autoPreviewBeforeSending: next,
-                                      });
-                                    }}
-                                    disabled={screenMemoryConfigBusy}
-                                    label="Preview before sending"
-                                  />
-                                }
-                              />
-                              <SettingsRow
-                                label="Keep agent Clips"
-                                description="Choose how long Clips made for agents stay in your library"
-                                control={
-                                  <SettingsSelect
-                                    ariaLabel="How long agent-created Clips are kept"
-                                    value={screenMemory.agentClipRetention}
-                                    onValueChange={(value) => {
-                                      void setScreenMemoryConfig({
-                                        agentClipRetention:
-                                          value as ScreenMemoryStatus["config"]["agentClipRetention"],
-                                      });
-                                    }}
-                                    disabled={screenMemoryConfigBusy}
-                                    options={[
-                                      {
-                                        value: "forever",
-                                        label: "Forever",
-                                      },
-                                      {
-                                        value: "24-hours",
-                                        label: "24 hours",
-                                      },
-                                      {
-                                        value: "7-days",
-                                        label: "7 days",
-                                      },
-                                      {
-                                        value: "30-days",
-                                        label: "30 days",
-                                      },
-                                    ]}
-                                  />
-                                }
-                              />
-                              <SettingsRow
-                                label="Agent activity"
-                                description="Each time an agent searched this device's memory, newest first"
-                              >
-                                {rewindEgressEvents.length === 0 ? (
-                                  <p>No agent has searched it yet.</p>
-                                ) : (
-                                  <div className="grid gap-1">
-                                    {rewindEgressEvents
-                                      .slice(0, 10)
-                                      .map((event) => (
-                                        <div
-                                          key={`${event.requestId}-${event.state}`}
-                                          className="flex items-center justify-between gap-2"
-                                        >
-                                          <span className="truncate">
-                                            {new Date(
-                                              event.occurredAt,
-                                            ).toLocaleString()}
-                                          </span>
-                                          <span className="shrink-0">
-                                            {event.state} ·{" "}
-                                            {`${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-                                )}
-                              </SettingsRow>
-                            </SettingsGroup>
-
-                            <SettingsGroup label="Agents">
-                              <SettingsRow
-                                label="Setup prompt"
-                                description="Paste it into an agent once to install Rewind's instructions"
-                                control={
-                                  <>
-                                    <SettingsActionButton
-                                      emphasis="quiet"
-                                      onClick={onOpenRewindDocs}
-                                    >
-                                      Learn more
-                                    </SettingsActionButton>
-                                    <SettingsActionButton
-                                      onClick={onCopyRewindAgentPrompt}
-                                    >
-                                      {rewindAgentPromptCopied
-                                        ? "Copied"
-                                        : "Copy"}
-                                    </SettingsActionButton>
-                                  </>
-                                }
-                              />
-                              <SettingsRow
-                                label="Connect an agent"
-                                description="Gives a local agent access to this device's Rewind memory"
-                                control={
-                                  <>
-                                    <SettingsActionButton
-                                      onClick={() =>
-                                        void installRewindAgentConnection(
-                                          "codex",
-                                        )
-                                      }
-                                      disabled={agentConnectionBusy !== null}
-                                    >
-                                      Codex
-                                    </SettingsActionButton>
-                                    <SettingsActionButton
-                                      onClick={() =>
-                                        void installRewindAgentConnection(
-                                          "claude-code",
-                                        )
-                                      }
-                                      disabled={agentConnectionBusy !== null}
-                                    >
-                                      Claude Code
-                                    </SettingsActionButton>
-                                  </>
-                                }
-                              >
-                                {agentConnectionMessage ? (
-                                  <p
-                                    className={
-                                      agentConnectionMessage.kind === "ok"
-                                        ? "text-xs text-success"
-                                        : "text-xs text-destructive"
-                                    }
-                                  >
-                                    {agentConnectionMessage.text}
-                                  </p>
-                                ) : null}
-                              </SettingsRow>
-                            </SettingsGroup>
-
-                            <SettingsGroup label="Storage">
-                              <SettingsRow
-                                label="Search memory"
-                                description="Find and replay a recent moment yourself"
-                                control={
-                                  <SettingsActionButton onClick={onOpenMemory}>
-                                    Search
-                                  </SettingsActionButton>
-                                }
-                              />
-                              <SettingsRow
-                                label="Save last 5 minutes"
-                                description="Exports recent memory as video files on this device. Nothing is uploaded."
-                                control={
-                                  <SettingsActionButton
-                                    onClick={() =>
-                                      void exportScreenMemoryRecent()
-                                    }
-                                    disabled={screenMemoryBusy}
-                                  >
-                                    Save
-                                  </SettingsActionButton>
-                                }
-                              />
-                              <SettingsRow
-                                label="On this device"
-                                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
-                                control={
-                                  <>
-                                    <SettingsActionButton
-                                      onClick={openScreenMemoryFolder}
-                                    >
-                                      Open folder
-                                    </SettingsActionButton>
-                                    <SettingsActionButton
-                                      emphasis="destructive"
-                                      onClick={() => void clearScreenMemory()}
-                                      disabled={screenMemoryBusy}
-                                    >
-                                      Delete all
-                                    </SettingsActionButton>
-                                  </>
-                                }
-                              />
-                            </SettingsGroup>
-                          </>
-                        ) : null}
-                      </>
-                    ) : (
-                      <SettingsGroup>
-                        <div className="p-3 text-sm text-muted-foreground">
-                          Turn on Rewind to manage what it remembers.
-                        </div>
-                      </SettingsGroup>
-                    )}
-                  </div>
-                </SettingsPopover>
-                <SettingsSwitch
-                  checked={rewindOn}
-                  onCheckedChange={(next) => {
-                    if (next) {
-                      setRewindConsentOpen(true);
-                      return;
-                    }
-                    void setScreenMemoryConfig({ enabled: false });
-                  }}
-                  disabled={screenMemoryConfigBusy || captureControlsLocked}
-                  label="Rewind"
-                />
-              </div>
+                  void setScreenMemoryConfig({ enabled: false });
+                }}
+                /* Rust rejects Rewind capture changes mid-Clip
+                   (config.rs `set_feature_config` guard); disabling here
+                   turns that hard error into a visible lock. */
+                disabled={screenMemoryConfigBusy || captureControlsLocked}
+                label="Rewind"
+              />
             }
           >
             {screenMemoryMessage ? (
@@ -7587,7 +7225,294 @@ function Setup({
               </p>
             ) : null}
           </SettingsRow>
+          {rewindOn ? (
+            <>
+              <SettingsRow
+                label="Remember"
+                description="Choose what Rewind captures"
+                control={
+                  <SettingsSelect
+                    ariaLabel="What Rewind remembers"
+                    value={screenMemory.captureMode ?? "visuals"}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({
+                        captureMode: value as RewindCaptureMode,
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy || captureControlsLocked}
+                    options={[
+                      { value: "visuals", label: "Screen only" },
+                      { value: "visuals-audio", label: "Screen + audio" },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Time limit"
+                description="Choose how long Rewind keeps your screen history"
+                control={
+                  <SettingsSelect
+                    ariaLabel="Rewind time limit"
+                    placeholder={`${screenMemory.retentionHours} hours`}
+                    value={String(screenMemory.retentionHours)}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({
+                        retentionHours: Number(value),
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    options={[
+                      { value: "8", label: "8 hours" },
+                      { value: "24", label: "24 hours" },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Storage limit"
+                description="Choose how much space Rewind can use on this device"
+                control={
+                  <SettingsSelect
+                    ariaLabel="Rewind storage limit"
+                    placeholder={formatStorageBytes(screenMemory.maxBytes)}
+                    value={String(screenMemory.maxBytes)}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({ maxBytes: Number(value) });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    options={[
+                      { value: String(5 * 1024 * 1024 * 1024), label: "5 GB" },
+                      {
+                        value: String(20 * 1024 * 1024 * 1024),
+                        label: "20 GB",
+                      },
+                      {
+                        value: String(50 * 1024 * 1024 * 1024),
+                        label: "50 GB",
+                      },
+                    ]}
+                  />
+                }
+              />
+            </>
+          ) : null}
         </SettingsGroup>
+
+        {rewindOn ? (
+          <>
+            <SettingsGroup label="Privacy">
+              <SettingsRow
+                label="Excluded apps"
+                description={"Apps Rewind never captures"}
+                control={
+                  <SettingsActionButton
+                    onClick={() => void chooseExcludedApplications()}
+                    disabled={excludedAppsBusy}
+                  >
+                    Choose apps
+                  </SettingsActionButton>
+                }
+              >
+                {excludedAppGroups.length > 0 ? (
+                  <div className="grid gap-1">
+                    {excludedAppGroups.map((app) => (
+                      <div
+                        key={app.bundleIds.join(",")}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">{app.name}</span>
+                        <SettingsActionButton
+                          emphasis="quiet"
+                          onClick={() =>
+                            removeExcludedApplications(app.bundleIds)
+                          }
+                        >
+                          Remove
+                        </SettingsActionButton>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </SettingsRow>
+              <SettingsRow
+                label="Review before sending"
+                description="Approve each visual or audio range before an agent receives it"
+                control={
+                  <SettingsSwitch
+                    checked={screenMemory.reviewBeforeSending !== false}
+                    onCheckedChange={(next) => {
+                      void setScreenMemoryConfig({
+                        reviewBeforeSending: next,
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    label="Review before sending"
+                  />
+                }
+              />
+              <SettingsRow
+                label="Preview before sending"
+                description="Open the range locally so you see exactly what is sent"
+                control={
+                  <SettingsSwitch
+                    checked={screenMemory.autoPreviewBeforeSending === true}
+                    onCheckedChange={(next) => {
+                      void setScreenMemoryConfig({
+                        autoPreviewBeforeSending: next,
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    label="Preview before sending"
+                  />
+                }
+              />
+              <SettingsRow
+                label="Keep agent Clips"
+                description="Choose how long Clips made for agents stay in your library"
+                control={
+                  <SettingsSelect
+                    ariaLabel="How long agent-created Clips are kept"
+                    value={screenMemory.agentClipRetention}
+                    onValueChange={(value) => {
+                      void setScreenMemoryConfig({
+                        agentClipRetention:
+                          value as ScreenMemoryStatus["config"]["agentClipRetention"],
+                      });
+                    }}
+                    disabled={screenMemoryConfigBusy}
+                    options={[
+                      { value: "forever", label: "Forever" },
+                      { value: "24-hours", label: "24 hours" },
+                      { value: "7-days", label: "7 days" },
+                      { value: "30-days", label: "30 days" },
+                    ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Agent activity"
+                description="Each time an agent searched this device's memory, newest first"
+              >
+                {rewindEgressEvents.length === 0 ? (
+                  <p>No agent has searched it yet.</p>
+                ) : (
+                  <div className="grid gap-1">
+                    {rewindEgressEvents.slice(0, 10).map((event) => (
+                      <div
+                        key={`${event.requestId}-${event.state}`}
+                        className="flex items-center justify-between gap-2"
+                      >
+                        <span className="truncate">
+                          {new Date(event.occurredAt).toLocaleString()}
+                        </span>
+                        <span className="shrink-0">
+                          {event.state} ·{" "}
+                          {`${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SettingsRow>
+            </SettingsGroup>
+
+            <SettingsGroup label="Agents">
+              <SettingsRow
+                label="Setup prompt"
+                description="Paste it into an agent once to install Rewind's instructions"
+                control={
+                  <>
+                    <SettingsActionButton
+                      emphasis="quiet"
+                      onClick={onOpenRewindDocs}
+                    >
+                      Learn more
+                    </SettingsActionButton>
+                    <SettingsActionButton onClick={onCopyRewindAgentPrompt}>
+                      {rewindAgentPromptCopied ? "Copied" : "Copy"}
+                    </SettingsActionButton>
+                  </>
+                }
+              />
+              <SettingsRow
+                label="Connect an agent"
+                description="Gives a local agent access to this device's Rewind memory"
+                control={
+                  <>
+                    <SettingsActionButton
+                      onClick={() => void installRewindAgentConnection("codex")}
+                      disabled={agentConnectionBusy !== null}
+                    >
+                      Codex
+                    </SettingsActionButton>
+                    <SettingsActionButton
+                      onClick={() =>
+                        void installRewindAgentConnection("claude-code")
+                      }
+                      disabled={agentConnectionBusy !== null}
+                    >
+                      Claude Code
+                    </SettingsActionButton>
+                  </>
+                }
+              >
+                {agentConnectionMessage ? (
+                  <p
+                    className={
+                      agentConnectionMessage.kind === "ok"
+                        ? "text-xs text-success"
+                        : "text-xs text-destructive"
+                    }
+                  >
+                    {agentConnectionMessage.text}
+                  </p>
+                ) : null}
+              </SettingsRow>
+            </SettingsGroup>
+
+            <SettingsGroup label="Storage">
+              <SettingsRow
+                label="Search memory"
+                description="Find and replay a recent moment yourself"
+                control={
+                  <SettingsActionButton onClick={onOpenMemory}>
+                    Search
+                  </SettingsActionButton>
+                }
+              />
+              <SettingsRow
+                label="Save last 5 minutes"
+                description="Exports recent memory as video files on this device. Nothing is uploaded."
+                control={
+                  <SettingsActionButton
+                    onClick={() => void exportScreenMemoryRecent()}
+                    disabled={screenMemoryBusy}
+                  >
+                    Save
+                  </SettingsActionButton>
+                }
+              />
+              <SettingsRow
+                label="On this device"
+                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
+                control={
+                  <>
+                    <SettingsActionButton onClick={openScreenMemoryFolder}>
+                      Open folder
+                    </SettingsActionButton>
+                    <SettingsActionButton
+                      emphasis="destructive"
+                      onClick={() => void clearScreenMemory()}
+                      disabled={screenMemoryBusy}
+                    >
+                      Delete all
+                    </SettingsActionButton>
+                  </>
+                }
+              />
+            </SettingsGroup>
+          </>
+        ) : null}
       </div>
     );
   }

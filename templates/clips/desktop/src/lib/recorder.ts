@@ -2467,6 +2467,7 @@ async function runRecordingCountdown(
     console.log(`[rewind-latency] countdown completion cause=${cause}`);
   } catch (err) {
     if (isCountdownCancelledError(err)) {
+      await emit("clips:toolbar-hidden").catch(() => {});
       await invoke("hide_recording_chrome").catch(() => {});
       throw err;
     }
