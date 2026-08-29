@@ -23,7 +23,6 @@ import {
   IconFolderPlus,
   IconPlayerRecord,
   IconAppWindow,
-  IconX,
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -38,10 +37,7 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  CaptureInstallButton,
-  CaptureInstallInlineLink,
-} from "@/components/capture-install-options";
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import { ImportMenu } from "@/components/import-menu";
 import {
   AlertDialog,
@@ -123,7 +119,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     spaceId?: string;
   }>();
 
-  const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
+  const { shouldShowSidebarLink } = useDesktopPromo();
   usePrefetchVideoStorageStatus();
 
   const { org, canManageOrg } = useOrgRole();
@@ -733,41 +729,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </header>
           )}
           <InvitationBanner />
-          {shouldShowPromo && (
-            <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-2.5 text-sm">
-              <IconAppWindow className="h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <span className="font-medium">
-                  {t("navigation.desktopTitle")}
-                </span>{" "}
-                <span className="text-muted-foreground">
-                  {t("navigation.desktopBody")}
-                </span>
-              </div>
-              <CaptureInstallButton
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-              >
-                Download
-              </CaptureInstallButton>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={dismiss}
-                  >
-                    <IconX className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("clipsFinalRaw.alreadyHaveIt")}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          )}
           <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
             <PageHeaderSlotProvider
               slot={headerSlot}
