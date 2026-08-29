@@ -889,8 +889,6 @@ function extractSessionTokenFromSetCookies(
 function extractSessionTokenFromAuthResponse(
   response: Response,
 ): string | undefined {
-  // Prefer set-auth-token: it is the session table token. The session_token
-  // cookie is a signed/percent-encoded value and is not the DB row.
   const bearer = response.headers.get("set-auth-token")?.trim();
   if (bearer) return bearer;
   const cookie = extractSessionTokenFromSetCookies(response);
@@ -1152,7 +1150,7 @@ async function emailFromVerificationResponseSession(
 ): Promise<string | null> {
   const sessionToken = extractSessionTokenFromAuthResponse(response);
   if (!sessionToken) return null;
-  return emailFromBetterAuthSessionToken(sessionToken);
+  return (await resolveBetterAuthSessionToken(sessionToken))?.email ?? null;
 }
 
 function decodeSessionCookieValue(value: string): string {
@@ -1205,8 +1203,8 @@ function decodeCookieHeader(raw: string): string {
 /**
  * Better Auth's getSession reads `headers.get("cookie")`. h3's `event.headers`
  * is not always a WHATWG Headers with Cookie populated — getHeader() is.
- * Chrome also sends the percent-encoded Set-Cookie value; decode it so the
- * signed session token matches the session table row.
+ * Chrome may resend a percent-encoded cookie value; decode it before asking
+ * Better Auth to verify the signature.
  */
 function betterAuthRequestHeaders(event: H3Event): Headers {
   const headers = new Headers();
@@ -1217,60 +1215,20 @@ function betterAuthRequestHeaders(event: H3Event): Headers {
   return headers;
 }
 
-function expirePoisonedMagicLinkCookies(event: H3Event): string[] {
-  const https = isHttpsRequest(event);
-  const names = new Set([
-    COOKIE_NAME,
-    betterAuthSessionCookieName(event),
-    `${BETTER_AUTH_COOKIE_PREFIX}.session_token`,
-    `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token`,
-  ]);
-  return [...names].map((name) => {
-    const parts = [`${name}=`, "Path=/", "Max-Age=0", "SameSite=Lax"];
-    if (https) parts.push("Secure");
-    return parts.join("; ");
-  });
-}
-
-function frameworkSessionCookieHeader(event: H3Event, token: string): string {
-  const attrs = crossSiteCookieAttrs(event);
-  const parts = [
-    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
-    "Path=/",
-    `Max-Age=${sessionMaxAge}`,
-    "HttpOnly",
-    attrs.sameSite === "none" ? "SameSite=None" : "SameSite=Lax",
-  ];
-  if (attrs.secure) parts.push("Secure");
-  if (attrs.partitioned) parts.push("Partitioned");
-  const domain = getCookieDomain();
-  if (domain) parts.push(`Domain=${domain}`);
-  return parts.join("; ");
-}
-
-function withMagicLinkVerifyCookies(
-  event: H3Event,
-  response: Response,
-  token: string,
-): Response {
-  const staged =
-    event.res?.headers?.getSetCookie?.() ??
-    (event.res?.headers && typeof event.res.headers.get === "function"
-      ? getSetCookieHeaders(event.res.headers)
-      : []);
+// h3 skips merging event.res cookies onto non-2xx Responses, so a 302
+// would otherwise drop the framework session cookie we just staged.
+function mergeStagedCookies(event: H3Event, response: Response): Response {
+  const staged = event.res?.headers?.getSetCookie?.() ?? [];
+  if (staged.length === 0) return response;
   const headers = new Headers();
   for (const [key, value] of response.headers.entries()) {
     if (key.toLowerCase() === "set-cookie") continue;
     headers.append(key, value);
   }
-  for (const cookie of expirePoisonedMagicLinkCookies(event)) {
-    headers.append("set-cookie", cookie);
-  }
   for (const cookie of getSetCookieHeaders(response.headers)) {
     headers.append("set-cookie", cookie);
   }
   for (const cookie of staged) headers.append("set-cookie", cookie);
-  headers.append("set-cookie", frameworkSessionCookieHeader(event, token));
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -1281,25 +1239,18 @@ function withMagicLinkVerifyCookies(
 async function persistMagicLinkLegacySession(
   event: H3Event,
   response: Response,
-): Promise<string | null> {
+): Promise<void> {
   const rawToken = extractSessionTokenFromAuthResponse(response);
-  if (!rawToken) return null;
+  if (!rawToken) return;
   const resolved = await resolveBetterAuthSessionToken(rawToken);
   const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
+  setFrameworkSessionCookie(event, token);
+  if (!resolved) return;
   try {
-    setFrameworkSessionCookie(event, token);
-  } catch {
-    // Some hosted event shapes do not expose getSetCookie; the verify
-    // response still gets the framework cookie from withMagicLinkVerifyCookies.
+    await addSession(resolved.token, resolved.email);
+  } catch (error) {
+    console.error("[auth] failed to persist magic-link session", error);
   }
-  if (resolved) {
-    try {
-      await addSession(resolved.token, resolved.email);
-    } catch (error) {
-      console.error("[auth] failed to persist magic-link session", error);
-    }
-  }
-  return token;
 }
 
 /**
@@ -4282,11 +4233,6 @@ export function redirectWithStagedCookies(
   return new Response("", { status, headers });
 }
 
-function betterAuthSessionCookieName(event: H3Event): string {
-  const name = `${BETTER_AUTH_COOKIE_PREFIX}.session_token`;
-  return isHttpsRequest(event) ? `__Secure-${name}` : name;
-}
-
 function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
@@ -5488,13 +5434,10 @@ async function mountBetterAuthRoutes(
           response,
           magicLinkPreConsume,
         );
-        const verifiedSessionToken = extractSessionTokenFromAuthResponse(
-          response as Response,
-        );
         if (
           (response as Response).status >= 200 &&
           (response as Response).status < 400 &&
-          verifiedSessionToken
+          extractSessionTokenFromAuthResponse(response as Response)
         ) {
           // Existing users do not run Better Auth's user-create hook when
           // magic-link verification flips emailVerified, so reconcile their
@@ -5503,15 +5446,8 @@ async function mountBetterAuthRoutes(
             authRequest,
             response as Response,
           );
-          const persistedToken = await persistMagicLinkLegacySession(
-            event,
-            response as Response,
-          );
-          response = withMagicLinkVerifyCookies(
-            event,
-            response as Response,
-            persistedToken ?? verifiedSessionToken,
-          );
+          await persistMagicLinkLegacySession(event, response as Response);
+          response = mergeStagedCookies(event, response as Response);
         }
       }
 
