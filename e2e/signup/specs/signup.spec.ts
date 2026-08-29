@@ -70,8 +70,6 @@ function assertBetterAuthSession(
 
 const targets = selectedSignupTargets();
 
-test.describe.configure({ mode: "serial" });
-
 for (const target of targets) {
   test(`${target.environment} ${target.app} completes email signup without a refresh`, async ({
     page,

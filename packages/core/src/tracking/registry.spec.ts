@@ -99,6 +99,8 @@ describe("tracking registry", () => {
     track("client_event", undefined, { userId: email });
     track("property_event", { userEmail: email });
     identify(email, { email });
+    identify("auth-user-qa", { email });
+    identify("auth-user-qa", { userEmail: email });
 
     expect(events).toEqual([]);
     expect(identified).toEqual([]);

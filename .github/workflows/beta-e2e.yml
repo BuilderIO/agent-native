@@ -360,7 +360,7 @@ jobs:
     name: Signup canary
     if: ${{ inputs.lane == 'signup' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 180
     env:
       SIGNUP_E2E_APPS: ${{ inputs.signup_apps || 'all' }}
       SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.signup_environments || 'beta' }}

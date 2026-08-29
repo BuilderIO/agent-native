@@ -152,7 +152,7 @@ export function identify(
   userId: string,
   traits?: Record<string, unknown>,
 ): void {
-  if (isQaTestEmail(userId)) return;
+  if (isTrackingSuppressed(userId, traits)) return;
   for (const provider of getRegistry().values()) {
     if (!provider.identify) continue;
     try {
