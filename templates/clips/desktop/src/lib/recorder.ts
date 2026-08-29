@@ -2454,6 +2454,9 @@ async function runRecordingCountdown(
   let countdownGeneration: number;
   try {
     countdownGeneration = await invoke<number>("show_countdown");
+    // The countdown is a focused full-screen window. Re-show the disabled pill
+    // after it appears so it remains above that overlay while the count runs.
+    await invoke("toolbar_set_visible", { visible: true }).catch(() => {});
   } catch (err) {
     console.error("[clips-recorder] show_countdown failed:", err);
     countdown.cleanup();
@@ -2464,6 +2467,7 @@ async function runRecordingCountdown(
     console.log(`[rewind-latency] countdown completion cause=${cause}`);
   } catch (err) {
     if (isCountdownCancelledError(err)) {
+      await emit("clips:toolbar-hidden").catch(() => {});
       await invoke("hide_recording_chrome").catch(() => {});
       throw err;
     }
