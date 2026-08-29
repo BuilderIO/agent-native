@@ -3,6 +3,9 @@ applications:
   - appRoot: templates/calendar
     frontend:
       buildPath: /
+      env:
+        variables:
+          AMPLIFY_MONOREPO_APP_ROOT: templates/calendar
       phases:
         preBuild:
           commands:

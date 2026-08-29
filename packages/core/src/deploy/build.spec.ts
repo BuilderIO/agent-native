@@ -98,6 +98,7 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
     expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("awsAmplify")).toBe(true);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
@@ -129,6 +130,7 @@ describe("isAwsAmplifyPreset", () => {
   it("accepts Nitro's standard name and alias", () => {
     expect(isAwsAmplifyPreset("aws_amplify")).toBe(true);
     expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
     expect(isAwsAmplifyPreset("node")).toBe(false);
   });
 });

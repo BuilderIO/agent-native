@@ -44,7 +44,11 @@ The Nitro build produces the Amplify SSR deployment contract:
 For a monorepo, run the build from the repository root and point the artifact
 base directory at the app's output. For example, a calendar app under
 `templates/calendar` uses `NITRO_PRESET=aws_amplify pnpm --filter calendar build`
-and `templates/calendar/.amplify-hosting`.
+and `templates/calendar/.amplify-hosting`. The matching Amplify environment
+variable is `AMPLIFY_MONOREPO_APP_ROOT=templates/calendar`.
+
+The framework sets Nitro's `awsAmplify.runtime` to `nodejs24.x`, matching the
+Node 24 build phase and the repository's server runtime requirements.
 
 ## Configure the app
 

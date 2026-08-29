@@ -109,7 +109,11 @@ export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare-module",
 ] as const;
 
-export const AWS_AMPLIFY_PRESETS = ["aws_amplify", "aws-amplify"] as const;
+export const AWS_AMPLIFY_PRESETS = [
+  "aws_amplify",
+  "aws-amplify",
+  "awsAmplify",
+] as const;
 
 export function isAwsAmplifyPreset(targetPreset: string): boolean {
   return (AWS_AMPLIFY_PRESETS as readonly string[]).includes(targetPreset);
@@ -5466,6 +5470,9 @@ export default bundle;
     rootDir: cwd,
     dev: false,
     preset,
+    ...(isAwsAmplifyPreset(preset)
+      ? { awsAmplify: { runtime: "nodejs24.x" } }
+      : {}),
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
