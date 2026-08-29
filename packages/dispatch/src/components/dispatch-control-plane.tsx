@@ -6,6 +6,7 @@ import {
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { IconChevronDown, IconClockHour4, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
@@ -68,6 +69,10 @@ function SectionHeader({
 
 function CommandPanel() {
   const t = useT();
+  const { org } = useOrgRole();
+  const draftScope = org?.orgId?.trim()
+    ? `dispatch:overview:${org.orgId}`
+    : "dispatch:overview";
   const {
     availableModels,
     isLoading: modelListLoading,
@@ -122,7 +127,7 @@ function CommandPanel() {
         </div>
         <PromptComposer
           availableModels={availableModels}
-          draftScope="dispatch:overview"
+          draftScope={draftScope}
           modelListLoading={modelListLoading}
           placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
             defaultValue: "Ask Dispatch anything...",

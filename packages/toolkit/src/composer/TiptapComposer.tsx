@@ -24,6 +24,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useImperativeHandle,
   useMemo,
@@ -2487,13 +2488,23 @@ export function TiptapComposer({
       ? getComposerDraftKey(draftScope)
       : null;
   const draftKeyRef = useRef(draftKey);
-  draftKeyRef.current = draftKey;
   const draftScopeGenerationRef = useRef(0);
-  const renderedDraftKeyRef = useRef(draftKey);
-  if (renderedDraftKeyRef.current !== draftKey) {
-    renderedDraftKeyRef.current = draftKey;
-    draftScopeGenerationRef.current += 1;
-  }
+  const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
+  const addAttachmentForCurrentScope = useCallback(
+    async (file: File) => {
+      const scopeGeneration = draftScopeGenerationRef.current;
+      await attachmentCleanupRef.current;
+      if (draftScopeGenerationRef.current !== scopeGeneration) return;
+      return composerRuntime.addAttachment(file);
+    },
+    [composerRuntime],
+  );
+  useLayoutEffect(() => {
+    if (draftKeyRef.current !== draftKey) {
+      draftKeyRef.current = draftKey;
+      draftScopeGenerationRef.current += 1;
+    }
+  }, [draftKey]);
   const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelScheduledDraftPersist = useCallback(() => {
@@ -2589,7 +2600,7 @@ export function TiptapComposer({
           }
 
           void Promise.all(
-            attachments.map((file) => composerRuntime.addAttachment(file)),
+            attachments.map((file) => addAttachmentForCurrentScope(file)),
           ).catch((error) => {
             const msg =
               error instanceof Error
@@ -2612,17 +2623,17 @@ export function TiptapComposer({
         // which cuts off mid-stream on large files and triggers a spin.
         if (shouldConvertClipboardToAttachment(paste)) {
           event.preventDefault();
-          void composerRuntime
-            .addAttachment(createPastedAttachmentFile(paste))
-            .catch((error) => {
-              const msg =
-                error instanceof Error
-                  ? error.message
-                  : t("agentChat.composer.pastedTextError", {
-                      defaultValue: "Could not attach the pasted text.",
-                    });
-              onAttachmentErrorRef.current?.(msg);
-            });
+          void addAttachmentForCurrentScope(
+            createPastedAttachmentFile(paste),
+          ).catch((error) => {
+            const msg =
+              error instanceof Error
+                ? error.message
+                : t("agentChat.composer.pastedTextError", {
+                    defaultValue: "Could not attach the pasted text.",
+                  });
+            onAttachmentErrorRef.current?.(msg);
+          });
           return true;
         }
 
@@ -2634,7 +2645,7 @@ export function TiptapComposer({
         // add the same file a second time.
         return handleComposerFileDrop({
           event: event as DragEvent,
-          addAttachment: (file) => composerRuntime.addAttachment(file),
+          addAttachment: addAttachmentForCurrentScope,
           onError: (error) => {
             const msg =
               error instanceof Error
@@ -3156,6 +3167,8 @@ export function TiptapComposer({
     onLiveUpdate: handleLiveUpdate,
     contextPack: buildVoiceContextPack,
   });
+  const voiceCancelRef = useRef(voice.cancel);
+  voiceCancelRef.current = voice.cancel;
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
@@ -3716,6 +3729,9 @@ export function TiptapComposer({
     const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
     previousDraftKeyRef.current = draftKey;
     if (draftKeyChanged) {
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
+      voiceCancelRef.current();
       editor.commands.clearContent(false);
       initialTextKeyRef.current = undefined;
       setEditorHasText(false);
@@ -3724,11 +3740,17 @@ export function TiptapComposer({
       composerModeRef.current = null;
       lastComposerRuntimeSyncRef.current = null;
       composerRuntime.setText("");
-      void composerRuntime.clearAttachments().catch((error) => {
-        onAttachmentErrorRef.current?.(
-          error instanceof Error ? error.message : String(error),
-        );
-      });
+      const cleanupGeneration = draftScopeGenerationRef.current;
+      attachmentCleanupRef.current = composerRuntime
+        .clearAttachments()
+        .catch((error) => {
+          if (draftScopeGenerationRef.current === cleanupGeneration) {
+            console.error(
+              "Could not clear attachments while changing composer scope",
+              error,
+            );
+          }
+        });
       onTextChangeRef.current?.("");
     }
     const key = initialTextKey ?? initialText;
@@ -3908,6 +3930,7 @@ export function TiptapComposer({
         {attachButton ??
           (plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
+              addAttachment={addAttachmentForCurrentScope}
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
               terminalModeControl={terminalModeControl}

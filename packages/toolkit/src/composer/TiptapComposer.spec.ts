@@ -4,6 +4,7 @@ import {
   AssistantRuntimeProvider,
   useLocalRuntime,
   type ChatModelAdapter,
+  type AttachmentAdapter,
 } from "@assistant-ui/react";
 import { Editor } from "@tiptap/core";
 import React, { act } from "react";
@@ -424,6 +425,97 @@ describe("createTiptapComposerExtensions", () => {
 
     expect(runs).toHaveLength(2);
     expect(runs[1]?.at(-1)?.content).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  it("waits for old attachment cleanup before accepting a new-scope upload", async () => {
+    let releaseCleanup!: () => void;
+    const cleanupDone = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const removeAttachment = vi.fn(() => cleanupDone);
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ currentScope }: { currentScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: currentScope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await harnessRuntime?.thread.composer.addAttachment(
+        new File(["old"], "same.txt", { type: "text/plain" }),
+      );
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["new"], "same.txt", { type: "text/plain" })],
+    });
+    await act(async () => {
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledTimes(1);
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+
+    await act(async () => {
+      releaseCleanup();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
   });
 
   it.each([
