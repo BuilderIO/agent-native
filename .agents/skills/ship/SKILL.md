@@ -41,6 +41,17 @@ below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
+## Merge policy
+
+The purpose of `/ship` is to land the PR. A branch being behind `origin/main`
+is observational only; it never triggers a merge, rebase, or maintenance
+commit. Check GitHub's live `mergeable` state before updating from `main`, and
+merge `origin/main` only when GitHub reports `CONFLICTING` or a local merge
+proves a real conflict. After conflict recovery, wait for the new checks and
+do not repeat the merge while the PR is conflict-free or checks are pending.
+Never enable GitHub auto-merge; use the explicit admin merge below once the
+gates pass.
+
 When a ship run also reviews the open PR queue, it may merge a non-draft PR
 authored by the exact Dependabot bot login when the `review-prs` Dependabot
 merge exception passes. That exception is limited to patch/minor,
