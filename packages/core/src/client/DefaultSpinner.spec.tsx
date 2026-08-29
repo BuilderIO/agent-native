@@ -99,4 +99,14 @@ describe("DefaultSpinner", () => {
       container.querySelector('[role="status"]')?.getAttribute("aria-label"),
     ).toBe("Mail is reloading");
   });
+
+  it("can fill a dynamic viewport container", () => {
+    act(() => {
+      root.render(<DefaultSpinner height="100%" />);
+    });
+
+    expect((container.firstElementChild as HTMLElement).style.height).toBe(
+      "100%",
+    );
+  });
 });

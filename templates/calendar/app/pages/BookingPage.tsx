@@ -266,11 +266,7 @@ export default function BookingPage() {
     availabilityLoading ||
     isRedirecting
   ) {
-    return (
-      <BookingPageShell>
-        <DefaultSpinner />
-      </BookingPageShell>
-    );
+    return <DefaultSpinner />;
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {

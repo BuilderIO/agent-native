@@ -1,5 +1,11 @@
 import { CubeLoader } from "@agent-native/toolkit/ui/cube-loader";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { LOADING_LABELS } from "../shared/loading-labels.js";
 
@@ -38,8 +44,10 @@ function getRandomLoadingLabelIndex(): number {
 
 export function DefaultSpinner({
   ariaLabel = "Loading",
+  height = "100vh",
 }: {
   ariaLabel?: string;
+  height?: CSSProperties["height"];
 }) {
   const [loadingLabelIndex, setLoadingLabelIndex] = useState(
     getInitialLoadingLabelIndex,
@@ -81,7 +89,7 @@ export function DefaultSpinner({
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        height: "100vh",
+        height,
         width: "100%",
       }}
     >

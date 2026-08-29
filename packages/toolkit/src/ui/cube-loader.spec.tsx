@@ -69,6 +69,20 @@ describe("CubeLoader", () => {
     expect(spinner).not.toContain("animate-spin");
   });
 
+  it("keeps icon-compatible color and title props meaningful", () => {
+    const spinner = renderToStaticMarkup(
+      createElement(Spinner, {
+        absoluteStrokeWidth: true,
+        stroke: "currentColor",
+        title: "Loading clip",
+      }),
+    );
+
+    expect(spinner).toContain('stroke="currentColor"');
+    expect(spinner).toContain('vector-effect="non-scaling-stroke"');
+    expect(spinner).toContain("<title>Loading clip</title>");
+  });
+
   it("anchors its cells to the page timeline when mounted again", () => {
     expect(renderToStaticMarkup(createElement(CubeLoader))).toContain(
       "calc(90ms - var(--an-cube-loader-phase, 0ms))",

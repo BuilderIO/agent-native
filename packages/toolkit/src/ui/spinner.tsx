@@ -1,18 +1,6 @@
-import { IconLoader2 } from "@tabler/icons-react";
-
 import { cn } from "../utils.js";
-import { CubeLoader } from "./cube-loader.js";
+import { CubeLoader, type CubeLoaderProps } from "./cube-loader.js";
 
-type SpinnerProps = React.ComponentProps<typeof IconLoader2> & {
-  absoluteStrokeWidth?: boolean;
-};
-
-export function Spinner({
-  className,
-  absoluteStrokeWidth: _absoluteStrokeWidth,
-  stroke: _stroke,
-  title: _title,
-  ...props
-}: SpinnerProps) {
+export function Spinner({ className, ...props }: CubeLoaderProps) {
   return <CubeLoader className={cn("size-4", className)} {...props} />;
 }

@@ -190,7 +190,7 @@ export default function EmbedRoute() {
     return (
       // guard:allow-raw-color — standalone embeds must match the black player backdrop
       <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-background/70 dark:text-foreground/70">
-        <DefaultSpinner />
+        <DefaultSpinner height="100%" />
       </div>
     );
   }
