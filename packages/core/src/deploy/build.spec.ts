@@ -91,12 +91,12 @@ import {
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+  it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
-    expect(nitroNoExternalsForPreset("aws_amplify")).toEqual([]);
-    expect(nitroNoExternalsForPreset("aws-amplify")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });

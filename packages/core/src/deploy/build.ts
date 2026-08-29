@@ -5195,19 +5195,20 @@ export function resolveNitroBundledYjsEntry(): string {
 }
 
 /**
- * Edge runtimes have no node_modules, while Node/serverless outputs receive the
- * small set above through the controlled post-build pass.
+ * Edge runtimes have no node_modules. Amplify uses a self-contained Nitro
+ * bundle to avoid its monorepo dependency-tracing pass; other Node/serverless
+ * outputs receive the small set above through the controlled post-build pass.
  */
 export function nitroNoExternalsForPreset(
   targetPreset: string,
 ): true | readonly string[] {
   return targetPreset.startsWith("cloudflare") ||
+    isAwsAmplifyPreset(targetPreset) ||
     targetPreset.startsWith("deno")
     ? true
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
         targetPreset === "aws-lambda" ||
-        isAwsAmplifyPreset(targetPreset) ||
         targetPreset === "node" ||
         targetPreset === "node-server"
       ? []
@@ -5464,9 +5465,9 @@ export default bundle;
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // Edge presets (cloudflare, deno) bundle all deps because node_modules are
-    // unavailable at runtime. Node and controlled serverless presets
-    // externalize Yjs above, then emit one full runtime module after Nitro has
-    // preserved every consumer's public imports.
+    // unavailable at runtime. Amplify also uses one self-contained bundle to
+    // avoid its monorepo dependency-tracing pass; other Node/serverless
+    // presets externalize Yjs above, then emit one portable runtime module.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
