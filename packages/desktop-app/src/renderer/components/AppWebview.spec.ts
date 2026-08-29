@@ -931,7 +931,7 @@ describe("AppWebview auth state", () => {
     );
     expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
     expect(buildGuestAuthStateProbeScript()).toContain(
-      "authenticated !== false",
+      "authenticated === true",
     );
     expect(
       resolveAppWebviewAuthStateFromProbe(
@@ -945,6 +945,33 @@ describe("AppWebview auth state", () => {
         "unauthenticated",
       ),
     ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { email: "user@example.com", status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: { email: "user@example.com" }, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: {}, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 200 }, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { ok: true, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
   });
 
   it("falls back only when the app does not expose the session endpoint", () => {
