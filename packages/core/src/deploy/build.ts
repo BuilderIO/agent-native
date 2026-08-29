@@ -5456,6 +5456,16 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...(isAwsAmplifyPreset(preset)
+          ? [
+              {
+                name: "agent-native-amplify-yjs-resolver",
+                resolveId(id: string) {
+                  return id === "yjs" ? resolveNitroBundledYjsEntry() : null;
+                },
+              },
+            ]
+          : []),
       ],
     },
     ...(providedPluginsNitroPlugin
