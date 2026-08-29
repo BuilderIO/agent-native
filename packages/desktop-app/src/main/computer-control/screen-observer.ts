@@ -22,6 +22,19 @@ interface DesktopCapturerLike {
   }): Promise<CaptureSource[]>;
 }
 
+function matchesSourceName(sourceName: string, requestedName: string): boolean {
+  const source = sourceName.trim().toLocaleLowerCase();
+  const requested = requestedName.trim().toLocaleLowerCase();
+  if (!source || !requested) return false;
+  return (
+    source === requested ||
+    source.startsWith(`${requested} - `) ||
+    source.endsWith(` - ${requested}`) ||
+    source.startsWith(`${requested} — `) ||
+    source.endsWith(` — ${requested}`)
+  );
+}
+
 export interface EphemeralFrameDescriptor {
   handle: string;
   taskId: string;
@@ -85,7 +98,9 @@ export class EphemeralScreenObserver {
     const source = requestedSourceId
       ? sources.find((candidate) => candidate.id === requestedSourceId)
       : requestedSourceName
-        ? sources.find((candidate) => candidate.name === requestedSourceName)
+        ? sources.find((candidate) =>
+            matchesSourceName(candidate.name, requestedSourceName),
+          )
         : (sources.find((candidate) => candidate.id.startsWith("screen:")) ??
           sources[0]);
     if (!source || source.thumbnail.isEmpty()) {

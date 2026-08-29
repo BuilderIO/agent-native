@@ -1154,11 +1154,12 @@ async function runElectronSmoke(): Promise<void> {
     });
 
     await installElectronAppCreationSmokeMock(electronApp);
-    const collapseRailButton = page.locator("[data-chat-first-rail-collapse]");
-    if (await collapseRailButton.count()) {
-      await collapseRailButton.evaluate((button) =>
-        (button as HTMLButtonElement).click(),
-      );
+    const expandRailButton = page.getByRole("button", {
+      name: "Expand rail",
+      exact: true,
+    });
+    if (await expandRailButton.count()) {
+      await expandRailButton.click();
       await page
         .locator(".code-agents-rail:not(.code-agents-rail--collapsed)")
         .waitFor({ state: "visible" });
