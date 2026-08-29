@@ -194,6 +194,7 @@ import {
   isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
+import { healUndecryptableJwks } from "./jwks-secret-rotation.js";
 import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
@@ -5320,6 +5321,29 @@ async function mountBetterAuthRoutes(
             response as Response,
           );
         }
+      }
+
+      // A rotated BETTER_AUTH_SECRET leaves the persisted JWKS key
+      // undecryptable, and Better Auth turns that into a 500 on any endpoint
+      // that signs a JWT (e.g. /token). The get-session hook heals itself via
+      // withJwksRotationRecovery; this backstop covers the endpoints that
+      // sign directly. healUndecryptableJwks verifies the key against the
+      // live secret before expiring anything, so a coincidental 500 is a
+      // no-op here. Magic-link verify is excluded: its one-time token is
+      // already consumed, so a replay can only produce a worse redirect.
+      if (
+        isResponse &&
+        (response as Response).status >= 500 &&
+        !isMagicLinkVerification &&
+        getMethod(event) === "GET" &&
+        (await healUndecryptableJwks())
+      ) {
+        response = await auth.handler(
+          new Request(requestForAuth.url, {
+            method: "GET",
+            headers: requestForAuth.headers,
+          }),
+        );
       }
 
       if (isResponse && (response as Response).status >= 400) {
