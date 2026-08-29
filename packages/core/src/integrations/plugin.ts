@@ -883,6 +883,24 @@ export function createIntegrationsPlugin(
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+    const createGoogleDocsPollerOptions = (event?: any) => {
+      const configuredBaseUrl = process.env.WEBHOOK_BASE_URL;
+      const baseUrl =
+        configuredBaseUrl || (event ? getBaseUrl(event) : undefined);
+      const webhookUrl = baseUrl
+        ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
+        : undefined;
+
+      return {
+        systemPrompt: baseSystemPrompt,
+        actions,
+        initialToolNames,
+        model: model ?? "",
+        apiKey: getApiKey(),
+        ownerEmail: "integration@google-docs",
+        webhookUrl,
+      };
+    };
 
     // Routes mounted under a platform's own name rather than reached through
     // the `/:platform/...` catch-all. The catch-all 404s a platform the
@@ -3423,6 +3441,9 @@ export function createIntegrationsPlugin(
             "default",
             session?.email,
           );
+          if (platform === "google-docs") {
+            void startGoogleDocsPoller(createGoogleDocsPollerOptions(event));
+          }
           return { ok: true, platform, enabled: true };
         }
 
@@ -3546,20 +3567,7 @@ export function createIntegrationsPlugin(
           // resolved. We pass it as a special option; the poller will attempt
           // to register a watch when the first request reveals the base URL,
           // or use the WEBHOOK_BASE_URL env var if set.
-          const baseUrl = process.env.WEBHOOK_BASE_URL;
-          const webhookUrl = baseUrl
-            ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
-            : undefined;
-
-          void startGoogleDocsPoller({
-            systemPrompt: baseSystemPrompt,
-            actions,
-            initialToolNames,
-            model: model ?? "",
-            apiKey: getApiKey(),
-            ownerEmail: "integration@google-docs",
-            webhookUrl,
-          });
+          void startGoogleDocsPoller(createGoogleDocsPollerOptions());
         }, 2000);
       }
     }

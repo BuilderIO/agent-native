@@ -22,6 +22,7 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const startGoogleDocsPollerMock = vi.hoisted(() => vi.fn());
 const stopGoogleDocsPollerMock = vi.hoisted(() => vi.fn(async () => {}));
 const handlePushNotificationMock = vi.hoisted(() => vi.fn());
 const verifyGoogleDocsPushNotificationMock = vi.hoisted(() =>
@@ -182,7 +183,7 @@ vi.mock("./integration-durable-dispatch.js", async () => {
 });
 
 vi.mock("./google-docs-poller.js", () => ({
-  startGoogleDocsPoller: vi.fn(),
+  startGoogleDocsPoller: startGoogleDocsPollerMock,
   stopGoogleDocsPoller: stopGoogleDocsPollerMock,
   handlePushNotification: handlePushNotificationMock,
   verifyGoogleDocsPushNotification: verifyGoogleDocsPushNotificationMock,
@@ -618,7 +619,7 @@ describe("integrations plugin routes", () => {
     expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
   });
 
-  it("stops the Google Docs poller when disabling the integration", async () => {
+  it("stops and restarts the Google Docs poller when toggling the integration", async () => {
     getSessionMock.mockResolvedValue({ email: "owner@example.test" });
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({
@@ -644,6 +645,26 @@ describe("integrations plugin routes", () => {
       "owner@example.test",
     );
     expect(stopGoogleDocsPollerMock).toHaveBeenCalledTimes(1);
+
+    const enableResult = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/google-docs/enable",
+      "POST",
+    );
+
+    expect(enableResult.status).toBe(200);
+    expect(enableResult.body).toEqual({
+      ok: true,
+      platform: "google-docs",
+      enabled: true,
+    });
+    expect(startGoogleDocsPollerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "integration@google-docs",
+        webhookUrl:
+          "https://app.test/_agent-native/integrations/google-docs/webhook",
+      }),
+    );
   });
 
   it("registers the Telegram webhook and returns the provider result", async () => {
