@@ -51,10 +51,17 @@ let cached: {
   expiresAt: number;
   activeCredentialsVersion: number;
 } | null = null;
+let managedCached: {
+  value: GoogleCredentialCheck;
+  expiresAt: number;
+} | null = null;
+let managedInFlight: Promise<GoogleCredentialCheck> | null = null;
 
 /** Test seam: drop the memoised result. */
 export function resetGoogleCredentialCheckCache(): void {
   cached = null;
+  managedCached = null;
+  managedInFlight = null;
 }
 
 async function probeGoogle(
@@ -170,7 +177,7 @@ export async function checkGoogleSignInCredential(options?: {
  * This is separate from Better Auth sign-in because a deploy may intentionally
  * use GOOGLE_SIGN_IN_* and GOOGLE_* as different clients.
  */
-export async function checkGoogleManagedCredential(): Promise<GoogleCredentialCheck> {
+async function checkGoogleManagedCredentialOnce(): Promise<GoogleCredentialCheck> {
   const checkedAt = Date.now();
   let credentials: [string, string] | null;
   try {
@@ -206,4 +213,26 @@ export async function checkGoogleManagedCredential(): Promise<GoogleCredentialCh
     credentialSource: "managed",
     checkedAt,
   };
+}
+
+export async function checkGoogleManagedCredential(): Promise<GoogleCredentialCheck> {
+  const at = Date.now();
+  if (managedCached && managedCached.expiresAt > at) {
+    return managedCached.value;
+  }
+  if (managedInFlight) return managedInFlight;
+
+  const inFlight = checkGoogleManagedCredentialOnce();
+  managedInFlight = inFlight;
+  try {
+    const value = await inFlight;
+    // Keep transient Google or credential-store failures retryable while
+    // protecting the public health route from repeated definitive probes.
+    if (value.status !== "unknown") {
+      managedCached = { value, expiresAt: at + DEFAULT_TTL_MS };
+    }
+    return value;
+  } finally {
+    if (managedInFlight === inFlight) managedInFlight = null;
+  }
 }

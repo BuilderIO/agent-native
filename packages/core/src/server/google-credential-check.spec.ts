@@ -232,4 +232,39 @@ describe("checkGoogleSignInCredential", () => {
     expect(sent).toContain("managed-secret");
     expect(sent).not.toContain("sign-in-secret");
   });
+
+  it("single-flights and caches definitive managed checks", async () => {
+    process.env.GOOGLE_CLIENT_ID = "managed-client";
+    process.env.GOOGLE_CLIENT_SECRET = "managed-secret";
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [first, second] = await Promise.all([
+      checkGoogleManagedCredential(),
+      checkGoogleManagedCredential(),
+    ]);
+    await checkGoogleManagedCredential();
+
+    expect(first.status).toBe("valid");
+    expect(second.status).toBe("valid");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache a transient managed check failure", async () => {
+    process.env.GOOGLE_CLIENT_ID = "managed-client";
+    process.env.GOOGLE_CLIENT_SECRET = "managed-secret";
+    const failing = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    vi.stubGlobal("fetch", failing);
+
+    const first = await checkGoogleManagedCredential();
+    const recovered = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", recovered);
+    const second = await checkGoogleManagedCredential();
+
+    expect(first.status).toBe("unknown");
+    expect(second.status).toBe("valid");
+    expect(recovered).toHaveBeenCalledTimes(1);
+  });
 });
