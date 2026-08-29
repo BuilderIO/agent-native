@@ -16,6 +16,7 @@ vi.mock("../app-store", () => ({
 }));
 
 import {
+  desktopTerminalMcpArgs,
   desktopTerminalInfo,
   resolveTargetUrl,
   shouldForwardRequestHeader,
@@ -23,6 +24,32 @@ import {
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
+  it("configures the desktop sidebar tool for supported CLI agents", () => {
+    const registration = {
+      url: "http://127.0.0.1:3456/mcp",
+      bearerToken: "a".repeat(43),
+    };
+
+    expect(
+      desktopTerminalMcpArgs(
+        "claude",
+        registration,
+        "/tmp/desktop config.json",
+      ),
+    ).toEqual(["--mcp-config", "/tmp/desktop config.json"]);
+    expect(
+      desktopTerminalMcpArgs("codex", registration, "/tmp/unused.json"),
+    ).toEqual([
+      "-c",
+      'mcp_servers.agent-native-desktop.url="http://127.0.0.1:3456/mcp"',
+      "-c",
+      `mcp_servers.agent-native-desktop.http_headers={"Authorization"="Bearer ${registration.bearerToken}"}`,
+    ]);
+    expect(
+      desktopTerminalMcpArgs("builder", registration, "/tmp/unused.json"),
+    ).toEqual([]);
+  });
+
   it("returns an authenticated desktop-owned terminal endpoint", () => {
     expect(desktopTerminalInfo(4567, "a token")).toEqual({
       available: true,
