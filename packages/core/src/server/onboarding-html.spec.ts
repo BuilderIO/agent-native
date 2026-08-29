@@ -229,6 +229,25 @@ describe("getOnboardingHtml", () => {
     expect(readAuthPageData(html).appBasePath).toBe("/starter");
   });
 
+  it("uses the Vite base for mounted auth assets and metadata", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/viteapp");
+    delete process.env.APP_BASE_PATH;
+
+    const html = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+      requestOrigin: "https://slides.agent-native.com",
+    });
+
+    expect(readAuthPageData(html).appBasePath).toBe("/viteapp");
+    expect(html).toContain('src="/viteapp/assets/auth-client.js"');
+    expect(html).toContain('src="/viteapp/agent-native-icon-dark.svg"');
+    expect(html).toContain('href="/viteapp/favicon.svg"');
+    expect(html).toContain('href="/viteapp/icon-180.svg"');
+    expect(html).toContain(
+      "https://slides.agent-native.com/viteapp/_agent-native/og-image.png",
+    );
+  });
+
   it("derives the workspace mount for request-specific and cached login HTML", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     delete process.env.APP_BASE_PATH;

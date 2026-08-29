@@ -1174,9 +1174,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const googleOnly = !!opts.googleOnly;
   const authMode = opts.authMode ?? "password";
   const simplifiedAuth = opts.initialPrompt === true;
-  const configuredAppBasePath = normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
   const workspaceRuntime = isWorkspaceRuntime();
@@ -1229,11 +1227,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           command: marketing.signupLocalModeNote.command.trim(),
         }
       : undefined;
-  const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
+  const brandMarkSrc = withAppBasePath(
+    "/agent-native-icon-dark.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
-      ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH)}`
-      : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+      ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
+      : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath),
   );
   const t = (key: keyof typeof EN_AUTH_COPY) => EN_AUTH_COPY[key];
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
@@ -2103,11 +2104,11 @@ ${embeddedAuthCss}
         createElement("link", {
           rel: "icon",
           type: "image/svg+xml",
-          href: withAppBasePath("/favicon.svg"),
+          href: withAppBasePath("/favicon.svg", appBasePath),
         }),
         createElement("link", {
           rel: "apple-touch-icon",
-          href: withAppBasePath("/icon-180.svg"),
+          href: withAppBasePath("/icon-180.svg", appBasePath),
         }),
         hasMarketing
           ? [

@@ -616,10 +616,17 @@ export function AuthPage(props: AuthPageProps) {
 
   const [runtimeAppBasePath, setRuntimeAppBasePath] =
     React.useState(appBasePath);
+  const [runtimeBasePathResolved, setRuntimeBasePathResolved] = React.useState(
+    Boolean(appBasePath || !workspaceRuntime),
+  );
 
   React.useEffect(() => {
-    if (appBasePath || !workspaceRuntime) return;
+    if (appBasePath || !workspaceRuntime) {
+      setRuntimeBasePathResolved(true);
+      return;
+    }
     setRuntimeAppBasePath(inferWorkspaceBasePath(window.location.pathname));
+    setRuntimeBasePathResolved(true);
   }, [appBasePath, workspaceRuntime]);
 
   const t = React.useCallback(
@@ -771,6 +778,7 @@ export function AuthPage(props: AuthPageProps) {
   }, [authMode, googleOnly, readPendingSignupEmail, setNotice, t]);
 
   React.useEffect(() => {
+    if (!runtimeBasePathResolved) return;
     const probe = async () => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         let retry = false;
@@ -797,7 +805,7 @@ export function AuthPage(props: AuthPageProps) {
       }
     };
     void probe();
-  }, [apiPath, redirectToSignedInApp]);
+  }, [apiPath, redirectToSignedInApp, runtimeBasePathResolved]);
 
   React.useEffect(() => {
     let anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
@@ -881,7 +889,7 @@ export function AuthPage(props: AuthPageProps) {
   );
 
   React.useEffect(() => {
-    if (!localDevAllowed) return;
+    if (!runtimeBasePathResolved || !localDevAllowed) return;
     let active = true;
     const loadAvailability = async () => {
       try {
@@ -914,7 +922,7 @@ export function AuthPage(props: AuthPageProps) {
     return () => {
       active = false;
     };
-  }, [apiPath, localDevAllowed]);
+  }, [apiPath, localDevAllowed, runtimeBasePathResolved]);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1497,7 +1505,13 @@ export function AuthPage(props: AuthPageProps) {
   );
 
   React.useEffect(() => {
-    if (googleOnly || verifiedReturnHandled.current) return;
+    if (
+      !runtimeBasePathResolved ||
+      googleOnly ||
+      verifiedReturnHandled.current
+    ) {
+      return;
+    }
     const params = new URLSearchParams(window.location.search);
     if (params.get("verified") !== "1") return;
     verifiedReturnHandled.current = true;
@@ -1506,7 +1520,7 @@ export function AuthPage(props: AuthPageProps) {
       text: t("emailVerifiedFinishing"),
     });
     void checkVerification(t("emailVerifiedSignIn"));
-  }, [checkVerification, googleOnly, setNotice, t]);
+  }, [checkVerification, googleOnly, runtimeBasePathResolved, setNotice, t]);
 
   React.useEffect(() => {
     if (view !== "verification") return;
