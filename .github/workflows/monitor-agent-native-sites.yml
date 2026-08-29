@@ -22,7 +22,7 @@ jobs:
   monitor:
     name: Probe production and beta hosts
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
@@ -30,8 +30,15 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 1
-          sparse-checkout: scripts/netlify-site-hosts.json
+          sparse-checkout: |
+            scripts/netlify-site-hosts.json
+            scripts/check-google-redirect-uris.ts
+            scripts/google-oauth-site-capabilities.json
           sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
 
       - name: Probe every public host
         id: probe
@@ -332,12 +339,26 @@ jobs:
               ...manifest.beta.map((host) => ({ environment: "beta", host })),
               ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
             ];
+            const googleCapabilities = JSON.parse(
+              fs.readFileSync("scripts/google-oauth-site-capabilities.json", "utf8"),
+            );
+            if (
+              !Array.isArray(googleCapabilities.notApplicable) ||
+              googleCapabilities.notApplicable.some((host) => typeof host !== "string")
+            ) {
+              throw new Error("google-oauth-site-capabilities.json has an invalid shape");
+            }
             // The public docs host intentionally has no Google sign-in
             // credential. Keep it in the availability manifest, but do not
-            // turn that expected state into an auth outage.
-            const googleCredentialExemptions = new Set([
-              "production/www.agent-native.com",
-            ]);
+            // turn that expected state into an auth outage. Derive all lane
+            // exemptions from the same applicability manifest as the callback probe.
+            const googleCredentialExemptions = new Set(
+              googleCapabilities.notApplicable.flatMap((host) =>
+                ["production", "beta", "workspace"].map(
+                  (environment) => `${environment}/${host.toLowerCase()}`,
+                ),
+              ),
+            );
             const credentialHosts = hosts.filter(({ environment, host }) => {
               const key = `${environment}/${host}`;
               if (googleCredentialExemptions.has(key)) {
@@ -503,6 +524,20 @@ jobs:
           });
           NODE
 
+      - name: Probe Google callback registration
+        # The credential probe above cannot see redirect_uri_mismatch because
+        # its deliberately invalid code is rejected before redirect handling.
+        # Check the fleet-wide root callback plus app-owned callbacks on the
+        # hosts that advertise them. During rollout, old deployments are logged
+        # as not verified instead of becoming a false incident; managed hosts
+        # still fail closed. The explicit five-minute budget leaves the
+        # expanded job time for incident paging.
+        if: always()
+        run: |
+          set -o pipefail
+          node --experimental-strip-types scripts/check-google-redirect-uris.ts \
+            --env all --budget-seconds 300 --allow-legacy-health | tee /tmp/agent-native-google-redirects.log
+
       - name: Page and open a rolling incident
         if: failure()
         shell: bash
@@ -512,11 +547,19 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
           GOOGLE_FAILING="$(grep -E '^(FAIL|INCONCLUSIVE)' /tmp/agent-native-google-credentials.log || true)"
+          REDIRECT_FAILING="$(grep -E '^(FAIL|UNKNOWN|UNPROBEABLE)' /tmp/agent-native-google-redirects.log || true)"
           if [ -n "$GOOGLE_FAILING" ]; then
             if [ -n "$FAILING" ]; then
               FAILING="$(printf '%s\n%s' "$FAILING" "$GOOGLE_FAILING")"
             else
               FAILING="$GOOGLE_FAILING"
+            fi
+          fi
+          if [ -n "$REDIRECT_FAILING" ]; then
+            if [ -n "$FAILING" ]; then
+              FAILING="$(printf '%s\n%s' "$FAILING" "$REDIRECT_FAILING")"
+            else
+              FAILING="$REDIRECT_FAILING"
             fi
           fi
           if [ -z "$FAILING" ]; then

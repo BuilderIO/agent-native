@@ -4,6 +4,11 @@ import { envKeys } from "../lib/env-config.js";
 
 export default createCoreRoutesPlugin({
   envKeys,
+  googleOAuthCallbackPaths: [
+    "/_agent-native/google/callback",
+    "/_agent-native/google-docs/callback",
+  ],
+  googleOAuthCredentialMode: "user",
   resolveOpenPath: ({ view, params }) => {
     if (params.deckId) {
       const slideNumber =

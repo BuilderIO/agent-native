@@ -517,7 +517,8 @@ export async function getAuthUrl(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
@@ -537,7 +538,8 @@ export async function exchangeCode(
   const uri =
     redirectUri ||
     (origin ? `${origin}/_agent-native/google/callback` : undefined);
-  const oauth2 = createOAuth2Client(clientId, clientSecret, uri ?? "");
+  if (!uri) throw new Error("Google OAuth redirect URI is required.");
+  const oauth2 = createOAuth2Client(clientId, clientSecret, uri);
   const tokens = await oauth2.getToken(code);
 
   // Get user email
