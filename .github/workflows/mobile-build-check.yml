@@ -51,6 +51,28 @@ jobs:
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo prebuild --platform android --no-install
 
+      # Persist the Gradle user home so dependencies and the build cache
+      # (org.gradle.caching is enabled by with-gradle-properties.ts) survive
+      # between runs instead of being downloaded and recompiled from scratch.
+      # Keyed after prebuild so the generated Gradle files feed the hash.
+      - name: Cache Gradle home
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('packages/mobile-app/android/**/*.gradle*', 'packages/mobile-app/android/**/gradle-wrapper.properties', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Cache Metro bundler output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/metro-cache
+          key: metro-android-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            metro-android-${{ runner.os }}-
+
       - name: Export Android production bundle
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo export --platform android --output-dir .expo-ci-export
@@ -77,6 +99,14 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Cache Metro bundler output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/metro-cache
+          key: metro-ios-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            metro-ios-${{ runner.os }}-
 
       - name: Export iOS production bundle
         working-directory: ${{ env.MOBILE_APP_PATH }}
