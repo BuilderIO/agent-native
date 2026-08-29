@@ -56,6 +56,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isAwsAmplifyPreset,
   isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
@@ -72,6 +73,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  stubBundledLocalOnlySqliteDriverForServerless,
   stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
@@ -90,10 +92,13 @@ import {
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+  it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("awsAmplify")).toBe(true);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
@@ -106,7 +111,7 @@ describe("nitroNoExternalsForPreset", () => {
 });
 
 describe("shouldBundleYjsRuntimeForPreset", () => {
-  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+  it("covers Node and serverless output but leaves self-contained edge presets to Nitro", () => {
     for (const preset of [
       "node",
       "node-server",
@@ -118,6 +123,15 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("isAwsAmplifyPreset", () => {
+  it("accepts Nitro's standard name and alias", () => {
+    expect(isAwsAmplifyPreset("aws_amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
+    expect(isAwsAmplifyPreset("node")).toBe(false);
   });
 });
 
@@ -3850,5 +3864,50 @@ describe("stubLocalOnlySqliteDriverForServerless", () => {
     expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
       /declares no version/,
     );
+  });
+});
+
+describe("stubBundledLocalOnlySqliteDriverForServerless", () => {
+  it("replaces Nitro's bundled SQLite chunk with a throwing stub", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const chunk = path.join(libsDir, "better-sqlite3+[...].mjs");
+      fs.writeFileSync(
+        chunk,
+        "const nativePath = __filename; export default class Real {};",
+      );
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(1);
+      const source = fs.readFileSync(chunk, "utf8");
+      expect(source).not.toContain("__filename");
+      expect(source).toContain("better-sqlite3 is not available");
+
+      const bundled = await import(
+        `${pathToFileURL(chunk).href}?t=${Date.now()}`
+      );
+      expect(bundled.t()).toBe(bundled.default);
+      expect(() => new (bundled.t())()).toThrow(
+        /not available in a serverless/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves unrelated Nitro library chunks alone", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const unrelated = path.join(libsDir, "some-package.mjs");
+      fs.writeFileSync(unrelated, "export default 1;\n");
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(0);
+      expect(fs.readFileSync(unrelated, "utf8")).toBe("export default 1;\n");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
