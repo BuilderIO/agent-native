@@ -17,6 +17,8 @@ import type { BrowserContext } from "@playwright/test";
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
+const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
+const OPENAI_E2E_MODEL = "gpt-5.6-luna";
 const OPENAI_VALIDATION_TIMEOUT_MS = 15_000;
 
 export type KeySource = "dedicated" | "shared";
@@ -93,14 +95,47 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
     );
   }
 
-  if (response.ok) return;
-  if (response.status === 401 || response.status === 403) {
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        `OpenAI rejected the selected credential (HTTP ${response.status}).`,
+      );
+    }
     throw new Error(
-      `OpenAI rejected the selected credential (HTTP ${response.status}).`,
+      `OpenAI credential validation was inconclusive (HTTP ${response.status}).`,
+    );
+  }
+
+  let execution: Response;
+  try {
+    execution = await fetch(OPENAI_RESPONSES_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OPENAI_E2E_MODEL,
+        input: "Reply with OK.",
+        max_output_tokens: 16,
+        store: false,
+      }),
+      signal: AbortSignal.timeout(OPENAI_VALIDATION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not validate the selected OpenAI credential for ${OPENAI_E2E_MODEL}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (execution.ok) return;
+  if (execution.status === 401 || execution.status === 403) {
+    throw new Error(
+      `OpenAI rejected the selected credential for ${OPENAI_E2E_MODEL} (HTTP ${execution.status}).`,
     );
   }
   throw new Error(
-    `OpenAI credential validation was inconclusive (HTTP ${response.status}).`,
+    `OpenAI could not validate the selected credential for ${OPENAI_E2E_MODEL} (HTTP ${execution.status}).`,
   );
 }
 
