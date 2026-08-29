@@ -33,6 +33,7 @@ describe("provider env var maps", () => {
     expect(PROVIDER_ENV_PLACEHOLDERS.ANTHROPIC_API_KEY).toBe("sk-ant-...");
     expect(PROVIDER_ENV_PLACEHOLDERS.OPENAI_API_KEY).toBe("sk-...");
     expect(PROVIDER_ENV_PLACEHOLDERS.OPENROUTER_API_KEY).toBe("sk-or-...");
+    expect(PROVIDER_ENV_PLACEHOLDERS.ORCAROUTER_API_KEY).toBe("sk-orca-...");
 
     // Provider names must NOT be valid keys — only env vars are.
     expect(PROVIDER_ENV_PLACEHOLDERS.anthropic).toBeUndefined();

@@ -192,6 +192,7 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "OPENAI_BASE_URL",
   "OLLAMA_BASE_URL",
   "OPENROUTER_API_KEY",
+  "ORCAROUTER_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   // OAuth client ids identify the deployment; user identity remains in scoped tokens.

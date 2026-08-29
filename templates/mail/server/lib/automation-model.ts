@@ -18,6 +18,7 @@ const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   { engine: DEFAULT_AUTOMATION_ENGINE, model: DEFAULT_AUTOMATION_MODEL },
   { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
   { engine: "ai-sdk:openrouter", model: "openai/gpt-5.6-luna" },
+  { engine: "ai-sdk:orcarouter", model: "orcarouter/auto" },
 ];
 
 function isUnavailableEngineError(error: unknown): boolean {

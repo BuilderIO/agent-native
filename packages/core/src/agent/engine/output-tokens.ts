@@ -18,6 +18,9 @@ export const DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 8192;
 export const DEFAULT_BUILDER_MAX_OUTPUT_TOKENS = 8192;
+// OrcaRouter is an OpenAI-compatible gateway like OpenRouter, so it shares the
+// same raised ceiling rather than the generic ai-sdk floor.
+export const DEFAULT_ORCAROUTER_MAX_OUTPUT_TOKENS = 8192;
 
 // ---------------------------------------------------------------------------
 // Main interactive chat path
@@ -192,6 +195,9 @@ export function defaultMaxOutputTokensForEngine(
   }
   if (engineName === "ai-sdk:openrouter") {
     return DEFAULT_OPENROUTER_MAX_OUTPUT_TOKENS;
+  }
+  if (engineName === "ai-sdk:orcarouter") {
+    return DEFAULT_ORCAROUTER_MAX_OUTPUT_TOKENS;
   }
   if (engineName.startsWith("ai-sdk:")) {
     return DEFAULT_AI_SDK_MAX_OUTPUT_TOKENS;

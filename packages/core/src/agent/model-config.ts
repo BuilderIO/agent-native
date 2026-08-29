@@ -57,6 +57,13 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "google/gemini-2.5-flash": 1_048_576,
   "z-ai/glm-5.2": 1_048_576,
 
+  // ── OrcaRouter model IDs ──────────────────────────────────────────────────
+  // OrcaRouter's own composite models; provider/model IDs (e.g.
+  // `anthropic/claude-sonnet-5`) share the OpenRouter-style table above.
+  "orcarouter/fusion": 1_000_000,
+  "orcarouter/fusion-mini": 1_000_000,
+  "orcarouter/fusion-flash": 200_000,
+
   // ── AI-SDK native OpenAI IDs ──────────────────────────────────────────────
   "gpt-5.6-sol": 1_050_000,
   "gpt-5.6-terra": 1_050_000,
@@ -304,6 +311,25 @@ export const AGENT_MODEL_CONFIG = {
         "anthropic/claude-opus-4.8",
         "anthropic/claude-fable-5",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)
+        "google/gemini-2.5-flash",
+        "z-ai/glm-5.2",
+      ],
+    },
+    orcarouter: {
+      // `orcarouter/auto` adaptively routes each request to the best model,
+      // which is the entry point most users want from a gateway.
+      defaultModel: "orcarouter/auto",
+      supportedModels: [
+        "orcarouter/auto",
+        "orcarouter/fusion",
+        "orcarouter/fusion-flash",
+        "orcarouter/fusion-mini",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-sol",
+        OPENROUTER_CLAUDE_SONNET_MODEL_ID,
+        "anthropic/claude-opus-4.8",
+        "anthropic/claude-fable-5",
         "google/gemini-2.5-flash",
         "z-ai/glm-5.2",
       ],

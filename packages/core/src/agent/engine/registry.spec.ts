@@ -587,6 +587,15 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
+    it("preserves arbitrary OrcaRouter model ids", async () => {
+      const { resolveEnginePreservesCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEnginePreservesCustomModels({ name: "ai-sdk:orcarouter" }),
+      ).resolves.toBe(true);
+    });
+
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {

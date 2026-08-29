@@ -395,7 +395,11 @@ export function resolveDelegatedRunModel(
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
-  if (entry.name === "ai-sdk:ollama" || entry.name === "ai-sdk:openrouter") {
+  if (
+    entry.name === "ai-sdk:ollama" ||
+    entry.name === "ai-sdk:openrouter" ||
+    entry.name === "ai-sdk:orcarouter"
+  ) {
     return true;
   }
   if (entry.name !== "ai-sdk:openai") return false;
