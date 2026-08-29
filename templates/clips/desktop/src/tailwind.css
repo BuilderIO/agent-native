@@ -27,7 +27,7 @@
   background-image: linear-gradient(
     100deg,
     transparent 30%,
-    hsl(var(--ui-foreground) / 0.12) 50%,
+    hsl(var(--ui-foreground) / 0.072) 50%,
     transparent 70%
   );
   background-position: 150% 0;

@@ -63,6 +63,7 @@ const ptBR = {
     dialogLabel: "Pesquisar documentação",
     placeholder: "Pesquisar documentação...",
     empty: "Digite para pesquisar em toda a documentação",
+    toggleChatSidebar: "Alternar barra lateral do chat",
     loadError: "A busca não pôde ser carregada. Tente novamente.",
     retry: "Tentar novamente",
     noResults: 'Nenhum resultado para "{{query}}"',

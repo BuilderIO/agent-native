@@ -63,6 +63,7 @@ const deDE = {
     dialogLabel: "Dokumentation durchsuchen",
     placeholder: "Dokumentation durchsuchen...",
     empty: "Tippe, um die gesamte Dokumentation zu durchsuchen",
+    toggleChatSidebar: "Chat-Seitenleiste umschalten",
     loadError: "Die Suche konnte nicht geladen werden. Erneut versuchen.",
     retry: "Erneut versuchen",
     noResults: 'Keine Ergebnisse für "{{query}}"',
