@@ -44,9 +44,12 @@ function runScript({
       replace(value: string): void;
     };
   };
-  const fetch = async () => {
+  const fetch = async (_input: unknown, init?: { redirect?: string }) => {
     fetchCount += 1;
     if (fetchCount > 1) {
+      if (homeStatus === 302 && init?.redirect === "manual") {
+        return { ok: false, status: 0, type: "opaqueredirect" } as Response;
+      }
       const status = homeFollowedStatus ?? homeStatus;
       return { ok: status >= 200 && status < 400, status } as Response;
     }
