@@ -3,9 +3,19 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const saveUploadedReferenceFileMock = vi.hoisted(() => vi.fn());
+const readBoundedResponseBytesMock = vi.hoisted(() => vi.fn());
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../handlers/uploads.js", () => ({
   saveUploadedReferenceFile: saveUploadedReferenceFileMock,
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: ssrfSafeFetchMock,
+}));
+
+vi.mock("@agent-native/core/ingestion", () => ({
+  readBoundedResponseBytes: readBoundedResponseBytesMock,
 }));
 
 import {
@@ -97,6 +107,8 @@ describe("buildSlidesDeckGenerationContext", () => {
 describe("prepareSlidesChatAttachments", () => {
   beforeEach(() => {
     saveUploadedReferenceFileMock.mockReset();
+    readBoundedResponseBytesMock.mockReset();
+    ssrfSafeFetchMock.mockReset();
   });
 
   it("keeps raw image data when storage returns an embeddable URL", async () => {
@@ -287,12 +299,66 @@ describe("prepareSlidesChatAttachments", () => {
     expect(result?.message).toContain(
       "Attachments are reference context by default",
     );
+    expect(result?.message).toContain("explicit whole-deck replacement");
+    expect(result?.message).not.toContain(
+      "when the user wants the visible deck improved",
+    );
     expect(result?.attachments?.[0]?.data).toBe(
       "data:application/pdf;base64,JVBERi0x",
     );
     expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
       "data/uploads/user/source.pdf",
     );
+  });
+
+  it("persists url-only document attachments before exposing an import path", async () => {
+    const url = "https://cdn.example.com/source.pdf";
+    const response = new Response("pdf");
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+    ssrfSafeFetchMock.mockResolvedValue(response);
+    readBoundedResponseBytesMock.mockResolvedValue(bytes);
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "slides-upload:v1:source",
+      originalName: "source.pdf",
+      filename: "stored.pdf",
+      type: "application/pdf",
+      size: bytes.byteLength,
+    });
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "import this into the current deck",
+      attachments: [
+        {
+          type: "file",
+          name: "source.pdf",
+          contentType: "application/pdf",
+          url,
+        },
+      ],
+    });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      url,
+      { signal: expect.any(AbortSignal) },
+      { httpsOnly: true, maxRedirects: 3 },
+    );
+    expect(readBoundedResponseBytesMock).toHaveBeenCalledWith(
+      response,
+      50 * 1024 * 1024,
+    );
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledWith({
+      email: "adam@builder.io",
+      originalName: "source.pdf",
+      data: Buffer.from(bytes),
+      type: "application/pdf",
+    });
+    expect(result?.message).toContain("path: slides-upload:v1:source");
+    expect(result?.message).not.toContain(url);
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "slides-upload:v1:source",
+    );
+    expect(result?.attachments?.[0]?.url).toBeUndefined();
   });
 
   it("surfaces an already-hosted, url-only image instead of silently dropping it", async () => {

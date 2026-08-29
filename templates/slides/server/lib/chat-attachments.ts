@@ -1,5 +1,7 @@
 import path from "path";
 
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
 import {
   getRequestRunContext,
   type AgentChatAttachment,
@@ -134,6 +136,29 @@ function decodeDataUrl(data: string | undefined): {
   };
 }
 
+async function downloadHostedReferenceFile(url: string): Promise<{
+  bytes: Buffer;
+  contentType?: string;
+}> {
+  const response = await ssrfSafeFetch(
+    url,
+    { signal: AbortSignal.timeout(30_000) },
+    { httpsOnly: true, maxRedirects: 3 },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Remote attachment download failed (HTTP ${response.status})`,
+    );
+  }
+  const bytes = await readBoundedResponseBytes(response, MAX_CHAT_UPLOAD_BYTES);
+  return {
+    bytes: Buffer.from(bytes),
+    contentType:
+      response.headers.get("content-type")?.split(";", 1)[0]?.trim() ||
+      undefined,
+  };
+}
+
 function attachmentDataUrl(attachment: AgentChatAttachment): string | null {
   if (typeof attachment.data !== "string") return null;
   if (
@@ -190,12 +215,42 @@ export async function prepareSlidesChatAttachments(args: {
       typeof attachment.url === "string"
     ) {
       if (isSlidesReferenceFileExtension(ext)) {
-        uploaded.push({
-          originalName: attachment.name,
-          path: attachment.url,
-          url: attachment.url,
-          type: attachment.contentType || "application/octet-stream",
-        });
+        if (isVisualAttachment(attachment)) {
+          uploaded.push({
+            originalName: attachment.name,
+            path: attachment.url,
+            url: attachment.url,
+            type: attachment.contentType || "application/octet-stream",
+          });
+        } else {
+          try {
+            const downloaded = await downloadHostedReferenceFile(
+              attachment.url,
+            );
+            const saved = await saveUploadedReferenceFile({
+              email: args.ownerEmail,
+              originalName: attachment.name,
+              data: downloaded.bytes,
+              type:
+                attachment.contentType ||
+                downloaded.contentType ||
+                "application/octet-stream",
+            });
+            uploaded.push(saved);
+            nextAttachments[index] = stripForwardedAttachmentData(
+              attachment,
+              saved,
+            );
+          } catch (error) {
+            failed.push({
+              name: attachment.name,
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : "download or upload failed",
+            });
+          }
+        }
       }
       continue;
     }
@@ -271,7 +326,7 @@ export async function prepareSlidesChatAttachments(args: {
           '- Attachments are reference context by default. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call `view-screen` when the deckId is not already known, then call `import-file` with `{ filePath: "<path>", format: "pdf" or "pptx", deckId: "<deckId>", importIntoDeck: true }`. Verify the result reports `imported: true` and a positive `slideCount`; do not use extraction-only mode or recreate the imported pages with `add-slide`.',
           "- An attachment alone never imports. Use `import-pptx` with `deckId` only for an explicit whole-deck replacement because it replaces all slides.",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
-          '- PPTX files: when the user wants the visible deck improved, call `import-pptx --filePath "<path>" --deckId <deckId>` first, then use one patch-deck call with requireAllSourceSlides=true and one content patch per imported slide for a deck-wide restyle. Use update-slide only for a targeted one-slide edit. Do not rebuild the source deck with add-slide.',
+          '- PPTX files: for an explicit whole-deck replacement, call `import-pptx --filePath "<path>" --deckId <deckId>` because it replaces all slides. For deck-wide improvement or append/import requests, use `import-file` with `format: "pptx"`, `deckId`, and `importIntoDeck: true`, then patch the imported slides. Use `update-slide` only for a targeted one-slide edit. Do not rebuild the source deck with add-slide.',
           '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating editable slides. For a visual PDF that the user wants preserved, beautified, or restyled from its original layout, pass `--importIntoDeck true` first: a PDF exported from this app restores its original editable slides, and any other PDF is rebuilt into positioned text boxes and images. Keep what the import produced and style around it rather than retyping it; source text is persisted in slide notes for inspection.',
           '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig` to start Builder design-system indexing. Do not create a local design system directly from the upload.',
           "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
@@ -327,6 +382,8 @@ function stripForwardedAttachmentData(
   (next as any).slidesUploadPath = saved.path;
   if (saved.url) {
     (next as any).url = saved.url;
+  } else if (attachment.url && !isVisualAttachment(attachment)) {
+    delete next.url;
   }
   return next;
 }
