@@ -13,6 +13,8 @@ describe("desktop chat-first shell", () => {
     expect(appSource).toContain("<CodeAgentsHub");
     expect(appSource).toContain("<DesktopIdentityGate");
     expect(appSource).toContain('appName="Agent-Native Desktop"');
+    expect(appSource).not.toContain("desktopIdentityGateDismissed");
+    expect(appSource).not.toContain("onDesktopIdentitySyncFailure");
     expect(appSource).toContain(".getStatus()");
     expect(appSource).toContain("key={settingsTab}");
     expect(appSource).toContain("initialTab={settingsTab}");

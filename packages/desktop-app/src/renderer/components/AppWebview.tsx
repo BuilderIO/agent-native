@@ -113,6 +113,14 @@ export function resolveAppWebviewAuthState(
 
 export function buildGuestAuthStateProbeScript(): string {
   return `(() => {
+    if (window.location.protocol !== "http:" && window.location.protocol !== "https:") {
+      return {
+        authenticated: null,
+        invalidJson: false,
+        status: 0,
+        url: window.location.href,
+      };
+    }
     const frameworkPath = "/_agent-native/auth/session";
     const config = window.__AGENT_NATIVE_CONFIG__;
     const normalizeBasePath = (value) => {
@@ -243,6 +251,7 @@ async function readAppWebviewAuthState(
     currentUrl = webview.src || "";
   }
   const fallbackState = resolveAppWebviewAuthState(currentUrl || undefined);
+  if (fallbackState === "unknown") return "unknown";
   try {
     const result = await webview.executeJavaScript(
       buildGuestAuthStateProbeScript(),
@@ -298,20 +307,6 @@ export function shouldUseDesktopIdentityGate(input: {
   return input.eligible && input.active && input.enabled !== false;
 }
 
-export function shouldShowDesktopIdentityRecovery(input: {
-  eligible: boolean;
-  active: boolean;
-  showDesktopIdentityGate: boolean;
-  status: DesktopIdentityStatus | "checking";
-}): boolean {
-  return (
-    !input.showDesktopIdentityGate &&
-    input.eligible &&
-    input.active &&
-    input.status === "failed"
-  );
-}
-
 export function shouldSuppressDesktopSignInPrompt(
   app: Pick<AppDefinition, "id">,
   appConfig: Pick<
@@ -326,7 +321,7 @@ export function shouldSuppressDesktopSignInPrompt(
 export function isDesktopIdentityGateUnauthenticated(
   status: DesktopIdentityStatus | "checking" | undefined,
 ): boolean {
-  return status === "sign-in-required" || status === "failed";
+  return status === "sign-in-required";
 }
 
 export function isDesktopIdentityAuthenticated(
@@ -360,6 +355,7 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   return (
     input.eligible &&
     input.enabled !== false &&
+    input.status !== "failed" &&
     (!input.sessionReady || input.status !== "signed-in")
   );
 }
@@ -812,14 +808,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         active: isActive,
         enabled: desktopIdentityEnabled,
       });
-    const desktopIdentitySurfaceActive =
-      desktopIdentityGateActive ||
-      shouldShowDesktopIdentityRecovery({
-        eligible: desktopIdentityGateEligible,
-        active: isActive,
-        showDesktopIdentityGate,
-        status: desktopIdentityStatus,
-      });
+    const desktopIdentitySurfaceActive = desktopIdentityGateActive;
     const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
     const repairDesktopIdentitySession = useCallback(() => {
       if (
@@ -1553,14 +1542,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!wv) return;
       let currentUrl = "";
       try {
-        currentUrl = wv.getURL() || "";
+        currentUrl = wv.getURL() || wv.src || "";
       } catch {
         currentUrl = "";
       }
       onAuthStateChangeRef.current?.("unknown");
       const sequence = ++authProbeSequenceRef.current;
       let active = true;
-      if (!currentUrl) {
+      if (!currentUrl || resolveAppWebviewAuthState(currentUrl) === "unknown") {
         return () => {
           active = false;
         };
