@@ -1782,9 +1782,8 @@ export function DocumentSidebar({
       data-sidebar-brand-toggle
     >
       <AgentNativeIcon
-        size={28}
         aria-hidden="true"
-        className="h-4 w-7 shrink-0 text-black dark:text-white"
+        className="h-3.5 w-6 shrink-0 text-foreground"
       />
       {!isCollapsed && (
         <span className="text-base font-semibold tracking-tight">Content</span>
