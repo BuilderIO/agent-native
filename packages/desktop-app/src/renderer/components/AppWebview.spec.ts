@@ -250,6 +250,48 @@ describe("Desktop identity activation", () => {
     }
   });
 
+  it("focuses an active webview for an explicit app-open request", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-calendar",
+      name: "Calendar",
+      icon: "calendar",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://calendar.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const props = {
+      app,
+      appConfig,
+      isActive: true,
+      theme: "dark" as const,
+    };
+
+    act(() => {
+      root.render(React.createElement(AppWebview, props));
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    const focus = vi.fn();
+    Object.defineProperty(webview!, "focus", {
+      configurable: true,
+      value: focus,
+    });
+
+    act(() => {
+      root.render(React.createElement(AppWebview, { ...props, focusNonce: 1 }));
+    });
+
+    expect(focus).toHaveBeenCalledOnce();
+  });
+
   it("reveals a loaded tab without reloading it after switching away", async () => {
     root = createRoot(container);
     const app = {
