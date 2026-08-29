@@ -22,9 +22,19 @@ const HOST_CONCURRENCY = 12;
 const MAX_HEALTH_BYTES = 64 * 1024;
 const CALLBACK_PATHS = {
   root: "/_agent-native/google/callback",
-  google_drive: "/_agent-native/connections/oauth/google_drive/callback",
+  // This callback is owned by the Slides template, not the framework fleet.
   google_docs: "/_agent-native/google-docs/callback",
 } as const;
+const OPTIONAL_CALLBACK_PATHS = {
+  // Kept as an explicit audit target for deployments that still expose the
+  // legacy provider path; current Google workspace flows use the root relay.
+  google_drive: "/_agent-native/connections/oauth/google_drive/callback",
+} as const;
+const ALL_CALLBACK_PATHS = { ...CALLBACK_PATHS, ...OPTIONAL_CALLBACK_PATHS };
+const SCOPED_CALLBACK_PATHS = new Set([
+  CALLBACK_PATHS.google_docs,
+  ...Object.values(OPTIONAL_CALLBACK_PATHS),
+]);
 const HEALTH_STATUSES = [
   "valid",
   "invalid",
@@ -148,23 +158,34 @@ function parsePaths(value: string): string[] {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const callbackPath = CALLBACK_PATHS[entry as keyof typeof CALLBACK_PATHS];
+      const callbackPath =
+        ALL_CALLBACK_PATHS[entry as keyof typeof ALL_CALLBACK_PATHS];
       if (callbackPath) return callbackPath;
       if (entry.startsWith("/_agent-native/") && entry.endsWith("/callback")) {
         return entry;
       }
       throw new Error(
-        `Unknown callback path ${entry}. Use ${Object.keys(CALLBACK_PATHS).join(",")} or an /_agent-native/*/callback path.`,
+        `Unknown callback path ${entry}. Use ${Object.keys(ALL_CALLBACK_PATHS).join(",")} or an /_agent-native/*/callback path.`,
       );
     });
   if (paths.length === 0) throw new Error("--paths requires at least one path");
   return [...new Set(paths)];
 }
 
+export function callbackPathsForHost(host: string, paths: string[]): string[] {
+  const normalizedHost = host.toLowerCase();
+  const isSlidesHost =
+    normalizedHost === "slides.agent-native.com" ||
+    normalizedHost.endsWith(".slides.agent-native.com");
+  return paths.filter(
+    (callbackPath) => !SCOPED_CALLBACK_PATHS.has(callbackPath) || isSlidesHost,
+  );
+}
+
 function parseOptions(argv: string[]): Options | null {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
-      "Usage: pnpm check:google-redirect-uris -- [--env production|beta|workspace|all] [--host HOST] [--paths root,google_drive,google_docs] [--skip HOST,...] [--budget-seconds N]",
+      "Usage: pnpm check:google-redirect-uris -- [--env production|beta|workspace|all] [--host HOST] [--paths root,google_docs] [--skip HOST,...] [--budget-seconds N]",
     );
     return null;
   }
@@ -544,8 +565,9 @@ async function run(argv: string[]): Promise<number> {
       }
       const hostDeadline = Math.min(runDeadline, Date.now() + HOST_TIMEOUT_MS);
       const health = await healthOf(target.host, hostDeadline);
+      const callbackPaths = callbackPathsForHost(target.host, options.paths);
       const results = health.clientId
-        ? await mapWithLimit(options.paths, 3, async (callbackPath) => {
+        ? await mapWithLimit(callbackPaths, 3, async (callbackPath) => {
             const redirectUri = `https://${target.host}${callbackPath}`;
             return {
               callbackPath,

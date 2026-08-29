@@ -16,6 +16,7 @@ import {
   isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
+  workspaceProviderOAuthFlowInvalidReason,
   mergeWorkspaceOAuthValues,
   oauthFlowFailure,
   resolveWorkspaceProviderIdentity,
@@ -181,6 +182,15 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthFlowValid({ ...valid, now: 2_001 })).toBe(
       false,
     );
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({ ...valid, now: 2_001 }),
+    ).toBe("flow expired");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        state: { ...state, flowId: undefined },
+      }),
+    ).toBe("state is missing, malformed, or has an invalid signature");
   });
 
   it("preserves the provider in signed callback state", () => {

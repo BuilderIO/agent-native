@@ -834,7 +834,7 @@ jobs:
           steps.target.outputs.source_template != 'macros'
         env:
           HOST: ${{ steps.target.outputs.host }}
-        run: pnpm check:google-redirect-uris -- --host "$HOST" --paths root
+        run: pnpm check:google-redirect-uris -- --host "$HOST" --paths root,google_docs
 
       - name: Roll back after Google callback verification failure
         if: ${{ failure() && steps.google_redirect.outcome == 'failure' }}

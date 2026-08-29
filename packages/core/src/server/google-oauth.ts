@@ -674,8 +674,9 @@ export function encodeOAuthState(
 
 /**
  * Decode and verify OAuth state from the callback's state query parameter.
- * Rejects forged or tampered state by checking the HMAC signature.
- * Falls back to the provided URI if decoding or verification fails.
+ * A fallback-shaped payload is returned when state is missing, malformed, or
+ * fails HMAC verification. That payload is untrusted; callers must validate
+ * the fields their flow requires before exchanging a code or redirecting.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,

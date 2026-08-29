@@ -527,14 +527,14 @@ jobs:
       - name: Probe Google callback registration
         # The credential probe above cannot see redirect_uri_mismatch because
         # its deliberately invalid code is rejected before redirect handling.
-        # Keep this root-only check in the recurring monitor so Console drift
-        # is caught even when no application deploy has occurred. The explicit
-        # five-minute budget leaves the expanded job time for incident paging.
+        # Check the fleet-wide root callback plus app-owned callbacks on the
+        # hosts that actually own them. The explicit five-minute budget leaves
+        # the expanded job time for incident paging.
         if: always()
         run: |
           set -o pipefail
           node --experimental-strip-types scripts/check-google-redirect-uris.ts \
-            --env all --paths root --budget-seconds 300 | tee /tmp/agent-native-google-redirects.log
+            --env all --budget-seconds 300 | tee /tmp/agent-native-google-redirects.log
 
       - name: Page and open a rolling incident
         if: failure()

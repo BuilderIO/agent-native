@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  callbackPathsForHost,
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
 } from "./check-google-redirect-uris.ts";
@@ -9,6 +10,30 @@ import {
 const redirectUri =
   "https://calendar.agent-native.com/_agent-native/google/callback";
 const jsonHeaders = { "content-type": "application/json" };
+const googleDocsCallback = "/_agent-native/google-docs/callback";
+
+test("scopes the Slides-owned callback to Slides hosts", () => {
+  assert.deepEqual(
+    callbackPathsForHost("calendar.agent-native.com", [
+      "/_agent-native/google/callback",
+      "/_agent-native/connections/oauth/google_drive/callback",
+      googleDocsCallback,
+    ]),
+    ["/_agent-native/google/callback"],
+  );
+  assert.deepEqual(
+    callbackPathsForHost("beta.slides.agent-native.com", [
+      "/_agent-native/google/callback",
+      "/_agent-native/connections/oauth/google_drive/callback",
+      googleDocsCallback,
+    ]),
+    [
+      "/_agent-native/google/callback",
+      "/_agent-native/connections/oauth/google_drive/callback",
+      googleDocsCallback,
+    ],
+  );
+});
 
 test("classifies Google's sign-in redirect as registered", () => {
   const response = new Response(null, {

@@ -244,6 +244,10 @@ describe("Calendar Google auth-url handler", () => {
       "owner@example.com",
       "org-123",
     );
+    expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
+      expect.anything(),
+      "/_agent-native/google/callback",
+    );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
     });

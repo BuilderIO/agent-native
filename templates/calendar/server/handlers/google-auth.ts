@@ -238,7 +238,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
     const method = getMethod(event);
-    const redirectUri = resolveOAuthRedirectUri(event);
+    const redirectUri = resolveOAuthRedirectUri(
+      event,
+      "/_agent-native/google/callback",
+    );
     if (!redirectUri) {
       setResponseStatus(event, 400);
       return {

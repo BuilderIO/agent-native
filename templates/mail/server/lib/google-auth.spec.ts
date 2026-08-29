@@ -956,6 +956,11 @@ describe("gmailBatchModifyByAccount", () => {
       );
 
       expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(createOAuth2Client).toHaveBeenCalledWith(
+        "client-id",
+        "client-secret",
+        "",
+      );
       expect(googleFetch).toHaveBeenCalledWith(
         expect.stringContaining("messages/batchModify"),
         "refreshed-access-token",

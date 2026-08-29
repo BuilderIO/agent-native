@@ -54,6 +54,7 @@
     "qa:template-routes": "tsx scripts/qa-template-route-matrix.ts",
     "qa:sign-in": "tsx scripts/qa-sign-in-matrix-smoke.ts",
     "actions:audit": "node scripts/audit-template-actions.mjs",
+    "audit:prod-env-coverage": "tsx scripts/audit-prod-env-coverage.ts",
     "test:mcp:e2e": "tsx scripts/e2e-mcp-test.ts",
     "lint": "pnpm fmt:check && pnpm oxlint && pnpm typecheck",
     "oxlint": "oxlint --config .oxlintrc.json .",
