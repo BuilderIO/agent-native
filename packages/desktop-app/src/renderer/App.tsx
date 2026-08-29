@@ -74,6 +74,7 @@ export default function App() {
     appId: string;
     path?: string;
     nonce: number;
+    focusNonce?: number;
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
@@ -327,10 +328,12 @@ export default function App() {
       }
 
       const path = safeDesktopOpenPath(request.path);
+      const nonce = Date.now();
       setChatFirstAppOpenRequest({
         appId,
-        nonce: Date.now(),
+        nonce,
         ...(path ? { path } : {}),
+        ...("requestId" in request ? { focusNonce: nonce } : {}),
       });
       setShowSettings(false);
       setShowAddApp(false);

@@ -409,6 +409,8 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Changes when a desktop shortcut explicitly opens this app. */
+  focusNonce?: number;
   /**
    * Set when the host hides this guest while it is still the active tab, e.g.
    * behind a full-surface overlay. An Electron guest never observes CSS
@@ -696,6 +698,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app,
       appConfig,
       isActive,
+      focusNonce,
       surfaceHidden = false,
       showDesktopIdentityGate = true,
       theme,
@@ -1684,7 +1687,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     ]);
 
     // Auto-focus the webview when it becomes active so keyboard events
-    // (e.g. Tab to cycle mail filters) go to the app, not the shell.
+    // (e.g. Tab to cycle mail filters) go to the app, not the shell. The
+    // explicit nonce also handles shortcuts that reopen the active app.
     useEffect(() => {
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
@@ -1692,12 +1696,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // Focus once after the slot becomes visible. Repeated focus calls
           // trigger focus-aware data refreshes in embedded apps.
           const frame = requestAnimationFrame(() => {
-            if (document.activeElement !== wv) wv.focus();
+            if (focusNonce !== undefined || document.activeElement !== wv) {
+              wv.focus();
+            }
           });
           return () => cancelAnimationFrame(frame);
         }
       }
-    }, [isActive, app.placeholder, error]);
+    }, [isActive, app.placeholder, error, focusNonce]);
 
     useEffect(() => {
       reportActiveWebview();
