@@ -645,13 +645,10 @@ export function RecordingPill() {
     if (!hasTauri) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let unlisten: (() => void) | null = null;
+    let lastDraggedPosition: { x: number; y: number } | null = null;
 
     function saveDraggedPosition() {
       if (!userDragActiveRef.current) return;
-      if (modeRef.current !== "recording") {
-        userDragActiveRef.current = false;
-        return;
-      }
       const saveGeneration = userDragGenerationRef.current;
       const saveChange = userDragChangeRef.current;
       const remainingGuardMs = animatingUntilRef.current - Date.now();
@@ -659,23 +656,20 @@ export function RecordingPill() {
         timer = setTimeout(saveDraggedPosition, remainingGuardMs + 1);
         return;
       }
-      void getCurrentWindow()
-        .outerPosition()
-        .then((pos) =>
-          safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
-        )
-        .finally(() => {
-          if (
-            userDragGenerationRef.current === saveGeneration &&
-            userDragChangeRef.current === saveChange
-          ) {
-            userDragActiveRef.current = false;
-          }
-        });
+      const position = lastDraggedPosition;
+      if (!position) return;
+      void safeInvoke("toolbar_save_position", position).finally(() => {
+        if (
+          userDragGenerationRef.current === saveGeneration &&
+          userDragChangeRef.current === saveChange
+        ) {
+          userDragActiveRef.current = false;
+        }
+      });
     }
 
     void getCurrentWindow()
-      .onMoved(() => {
+      .onMoved(({ payload }) => {
         if (!userDragArmedRef.current && !userDragActiveRef.current) return;
         if (userDragArmedRef.current) {
           userDragArmedRef.current = false;
@@ -686,6 +680,7 @@ export function RecordingPill() {
           }
         }
         if (!userDragActiveRef.current) return;
+        lastDraggedPosition = payload;
         userDragChangeRef.current += 1;
         if (timer) clearTimeout(timer);
         timer = setTimeout(saveDraggedPosition, 600);
