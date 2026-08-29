@@ -12,6 +12,10 @@ import { isStaleRecordingUpload } from "@/lib/recording-status";
 
 import { RecordingCard } from "./recording-card";
 
+const recordingBackupMock = vi.hoisted(() => ({
+  changeListener: undefined as (() => void) | undefined,
+}));
+
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: vi.fn(() => true),
 }));
@@ -84,6 +88,12 @@ vi.mock("@/lib/recording-status", () => ({
 
 vi.mock("@/lib/recording-backup", () => ({
   hasRecordingBackup: vi.fn(() => Promise.resolve(false)),
+  subscribeToRecordingBackupChanges: vi.fn(
+    (_recordingId: string, listener: () => void) => {
+      recordingBackupMock.changeListener = listener;
+      return vi.fn();
+    },
+  ),
 }));
 
 vi.mock("@/lib/storage-failures", () => ({
@@ -122,6 +132,7 @@ describe("RecordingCard behavior", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    recordingBackupMock.changeListener = undefined;
     vi.mocked(useFeatureFlag).mockReturnValue(true);
     vi.mocked(isStaleRecordingUpload).mockReturnValue(false);
     vi.mocked(hasRecordingBackup).mockResolvedValue(false);
@@ -178,6 +189,43 @@ describe("RecordingCard behavior", () => {
 
     expect(container.textContent).toContain("clipsFinalRaw.retry");
     expect(hasRecordingBackup).toHaveBeenCalledWith(recording.id);
+  });
+
+  it("offers retry when a local backup finishes after the card mounts", async () => {
+    vi.mocked(hasRecordingBackup)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={onRetry}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      "clipsFinalRaw.retryUnavailableHere",
+    );
+    expect(container.textContent).not.toContain("clipsFinalRaw.retrying");
+
+    await act(async () => {
+      recordingBackupMock.changeListener?.();
+      await Promise.resolve();
+    });
+
+    expect(hasRecordingBackup).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("clipsFinalRaw.retry");
+    expect(container.textContent).not.toContain(
+      "clipsFinalRaw.retryUnavailableHere",
+    );
   });
 
   it("does not offer retry when the resumable retry rollout is disabled", async () => {

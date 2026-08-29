@@ -38,6 +38,35 @@ export interface RecordingBackupChunk {
   createdAt: string;
 }
 
+type RecordingBackupChangeListener = () => void;
+
+const backupChangeListeners = new Map<
+  string,
+  Set<RecordingBackupChangeListener>
+>();
+
+function notifyRecordingBackupChange(recordingId: string): void {
+  for (const listener of backupChangeListeners.get(recordingId) ?? []) {
+    listener();
+  }
+}
+
+export function subscribeToRecordingBackupChanges(
+  recordingId: string,
+  listener: RecordingBackupChangeListener,
+): () => void {
+  const listeners =
+    backupChangeListeners.get(recordingId) ??
+    new Set<RecordingBackupChangeListener>();
+  listeners.add(listener);
+  backupChangeListeners.set(recordingId, listeners);
+
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) backupChangeListeners.delete(recordingId);
+  };
+}
+
 export function recordingBackupAvailable(): boolean {
   return typeof indexedDB !== "undefined";
 }
@@ -95,6 +124,7 @@ export async function putRecordingBackupMeta(
   } finally {
     db.close();
   }
+  notifyRecordingBackupChange(meta.recordingId);
 }
 
 export async function getRecordingBackupMeta(
@@ -171,6 +201,7 @@ export async function deleteRecordingBackup(
   } finally {
     db.close();
   }
+  notifyRecordingBackupChange(recordingId);
 }
 
 export function isCompleteRecordingBackup(

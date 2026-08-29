@@ -39,7 +39,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
-import { hasRecordingBackup } from "@/lib/recording-backup";
+import {
+  hasRecordingBackup,
+  subscribeToRecordingBackupChanges,
+} from "@/lib/recording-backup";
 import {
   isAtRiskRecordingUpload,
   isStaleRecordingUpload,
@@ -161,11 +164,19 @@ export function RecordingCard({
       return;
     }
     let cancelled = false;
-    void hasRecordingBackup(recording.id).then((found) => {
-      if (!cancelled) setHasBackup(found);
-    });
+    const checkForBackup = () => {
+      void hasRecordingBackup(recording.id).then((found) => {
+        if (!cancelled) setHasBackup(found);
+      });
+    };
+    const unsubscribe = subscribeToRecordingBackupChanges(
+      recording.id,
+      checkForBackup,
+    );
+    checkForBackup();
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [canRetry, recording.id]);
 
