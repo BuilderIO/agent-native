@@ -9,7 +9,6 @@ files:
   - out/**
   - "!node_modules/**"
   - node_modules/node-pty/**
-  - "!node_modules/node-pty/build/**"
   - "!src/**"
   - "!shared/**"
   - "!electron.vite.config.*"
@@ -34,6 +33,8 @@ protocols:
       - agentnative
 
 mac:
+  files:
+    - "!node_modules/node-pty/build/**"
   extraResources:
     - from: native/bin/agent-native-computer-helper
       to: native/agent-native-computer-helper
@@ -64,6 +65,8 @@ dmg:
   artifactName: ${productName}-${arch}.${ext}
 
 win:
+  files:
+    - "!node_modules/node-pty/build/**"
   icon: build/icon.png
   target:
     - target: nsis
