@@ -984,11 +984,12 @@ async function run(argv: string[]): Promise<number> {
     skippedRequired: skippedRequired.length,
     allowNoCoverage:
       managedHosts === 0 &&
-      rows.every(
-        (row) =>
-          row.signInHealth.status === "not_applicable" &&
-          row.managedHealth.status === "not_applicable",
-      ),
+      (options.allowLegacyHealth ||
+        rows.every(
+          (row) =>
+            row.signInHealth.status === "not_applicable" &&
+            row.managedHealth.status === "not_applicable",
+        )),
   });
 }
 

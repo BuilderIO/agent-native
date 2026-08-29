@@ -152,6 +152,21 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
   );
 });
 
+test("allows explicitly enabled legacy health with no redirect coverage", () => {
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 0,
+      unregistered: 0,
+      unknown: 0,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+      allowNoCoverage: true,
+    }),
+    0,
+  );
+});
+
 test("maps unexpected CLI failures to the inconclusive exit code", () => {
   assert.throws(
     () =>
