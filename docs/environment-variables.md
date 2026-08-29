@@ -296,6 +296,20 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_MODEL`                 | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                       |
 | `BETA_E2E_ENGINE`                | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                         |
 
+### Signup agent review
+
+Read by the scheduled `Signup agent review` workflow and
+`e2e/signup/agent-specs/`. This lane walks the real signup flow and asks a model
+to judge the screenshots, so it spends tokens; it is advisory and never gates a
+merge or pages on-call. It reuses `MAILOSAUR_*` and `SIGNUP_E2E_*` from the
+deterministic signup canary.
+
+| Variable              | Purpose                                                                                                                     |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`   | Key used to judge the captured signup journey. Absent, the lane fails loudly rather than reporting a flow with no findings. |
+| `SIGNUP_AGENT_APPS`   | Comma-separated app ids, or `all`, to review. Unset reviews one app per UTC day so the fleet rotates instead of paying daily for every app. |
+| `SIGNUP_AGENT_MODEL`  | Overrides the review model. Defaults to `claude-sonnet-5`.                                                                  |
+
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
 `ROLLBACK_SHA`, `ASSERTIONS`, and `RECAP_*`. They are workflow plumbing, not

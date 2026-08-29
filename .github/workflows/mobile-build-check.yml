@@ -91,9 +91,20 @@ jobs:
         working-directory: ${{ env.MOBILE_APP_PATH }}
         run: pnpm exec expo export --platform android --output-dir .expo-ci-export
 
+      # Every native module resolves `reactNativeArchitectures` as a project
+      # property and defaults to all four ABIs, so an unqualified build compiles
+      # armeabi-v7a/x86/x86_64/arm64-v8a of every .so and then merges, strips
+      # and packages all of them. `:app:packageDebug` is the disk peak of that
+      # sequence, and it is where this job intermittently died on both main and
+      # PR branches. One ABI still proves the Java/Kotlin, JS bundle, native
+      # compile and packaging path this gate exists to check; EAS release builds
+      # are unaffected because they do not run this workflow.
+      # `--stacktrace` because Gradle otherwise reports only "a failure occurred
+      # while executing ..." and discards the cause, which is what made the
+      # earlier failures undiagnosable.
       - name: Compile Android debug APK
         working-directory: ${{ env.MOBILE_APP_PATH }}/android
-        run: ./gradlew :app:assembleDebug --no-daemon
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace -PreactNativeArchitectures=arm64-v8a
 
   ios:
     # Expo SDK 57.0.6 does not currently compile reliably with the Xcode 26.x
