@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   isLocalDatabase: vi.fn(() => false),
   getAppConfig: vi.fn(() => ({
-    migration: { runningReleaseMigrations: false },
+    migration: { deployContext: undefined as string | undefined },
   })),
   runMigrations: vi.fn(() => vi.fn(async () => {})),
   runBetterAuthMigrations: vi.fn(async () => {}),
@@ -150,7 +150,7 @@ describe("runFrameworkReleaseMigrations", () => {
   // never existed on the database the deployed functions use.
   it("fails a production release migration that resolved to a local database", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { runningReleaseMigrations: true },
+      migration: { deployContext: "production" },
     });
     mocks.isLocalDatabase.mockReturnValue(true);
 
@@ -161,9 +161,11 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
 
-  it("allows a local database when this is not a production release migration", async () => {
+  // The beta lane runs release migrations under a branch-deploy context against
+  // masked site secrets; its databases are migrated by their production twin.
+  it("allows a local database on a beta branch-deploy build", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { runningReleaseMigrations: false },
+      migration: { deployContext: "branch-deploy" },
     });
     mocks.isLocalDatabase.mockReturnValue(true);
 
@@ -173,7 +175,7 @@ describe("runFrameworkReleaseMigrations", () => {
 
   it("allows a production release migration against a remote database", async () => {
     mocks.getAppConfig.mockReturnValue({
-      migration: { runningReleaseMigrations: true },
+      migration: { deployContext: "production" },
     });
     mocks.isLocalDatabase.mockReturnValue(false);
 

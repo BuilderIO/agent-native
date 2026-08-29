@@ -51,12 +51,14 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
  * served 500s on every write because its `jwks`/`user` tables were never
  * created on the database its functions actually use.
  *
- * `migration.runningReleaseMigrations` (env `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS`)
- * is set by exactly one caller, the production deploy workflow, so this can
- * never trip a test or a local run.
+ * Scoped to `CONTEXT=production` on purpose. The beta lane deliberately builds
+ * with `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1` under a branch-deploy context
+ * against masked site secrets, and its databases are migrated by their
+ * production twin — so keying off that flag would fail every beta deploy while
+ * never guarding the production one this exists for.
  */
 function assertReleaseMigrationTargetsRemoteDatabase(): void {
-  if (!getAppConfig().migration.runningReleaseMigrations) return;
+  if (getAppConfig().migration.deployContext !== "production") return;
   if (!isLocalDatabase()) return;
   throw new Error(
     "Release migrations resolved to a local database. DATABASE_URL is unset " +
