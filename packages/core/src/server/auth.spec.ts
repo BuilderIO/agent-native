@@ -1414,6 +1414,12 @@ describe("server/auth", () => {
       expect(setCookie).toContain(
         `${SESSION_HINT_COOKIE}=; Max-Age=0; Domain=.example.com`,
       );
+      expect(setCookie).toContain(
+        `${SESSION_HINT_COOKIE}=; Max-Age=0; Path=/; Secure; Partitioned; SameSite=None`,
+      );
+      expect(setCookie).toContain(
+        `${SESSION_HINT_COOKIE}=; Max-Age=0; Domain=.example.com; Path=/; Secure; Partitioned; SameSite=None`,
+      );
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
@@ -3038,6 +3044,75 @@ describe("server/auth", () => {
       expect(handoff).toBeLessThan(html.indexOf("</head>"));
       expect(handoff).toBeLessThan(html.indexOf("<body>"));
       expect(getSession).not.toHaveBeenCalled();
+    });
+
+    it("keeps the cached root auth document independent of request host", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><HTML><HEAD><title>QA login</title></HEAD><BODY>QA login</BODY></HTML>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const first = await guard(
+        createMockEvent({
+          path: "/",
+          headers: { host: "first.example", "x-forwarded-proto": "https" },
+        }),
+      );
+      const second = await guard(
+        createMockEvent({
+          path: "/",
+          headers: { host: "second.example", "x-forwarded-proto": "https" },
+        }),
+      );
+
+      const firstHtml = await (first as Response).text();
+      const secondHtml = await (second as Response).text();
+      expect(firstHtml).toBe(secondHtml);
+      const handoff = firstHtml.indexOf("data-agent-native-auth-redirect");
+      expect(handoff).toBeGreaterThan(firstHtml.indexOf("<HEAD>"));
+      expect(handoff).toBeLessThan(firstHtml.indexOf("</HEAD>"));
+      expect(firstHtml).not.toContain("first.example");
+      expect(firstHtml).not.toContain("second.example");
+    });
+
+    it("normalizes fragment login HTML before adding the root handoff", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml: '<form id="qa-login">QA login</form>',
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      expect(result).toBeInstanceOf(Response);
+      const html = await (result as Response).text();
+      const handoff = html.indexOf("data-agent-native-auth-redirect");
+      expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
+      expect(handoff).toBeLessThan(html.indexOf("</head>"));
+      expect(handoff).toBeLessThan(html.indexOf("<body>"));
+      expect(html).toContain('<form id="qa-login">QA login</form>');
     });
 
     it("promotes omitted verification for explicitly trusted BYOA providers", async () => {

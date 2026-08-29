@@ -569,18 +569,26 @@ async function enrichLegacySessionIdentity(
   };
 }
 
-function deleteCookieFromEveryScope(event: H3Event, name: string): void {
+function deleteCookieFromEveryScope(
+  event: H3Event,
+  name: string,
+  attributes: Parameters<typeof deleteCookie>[2] = {},
+): void {
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
-  deleteCookie(event, name, { path: "/" });
+  deleteCookie(event, name, { ...attributes, path: "/" });
   for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
-    deleteCookie(event, name, { path: "/", domain });
+    deleteCookie(event, name, { ...attributes, path: "/", domain });
   }
 }
 
 export function clearFrameworkSessionHintCookies(event: H3Event): void {
   for (const name of frameworkSessionCookieNamesToClear()) {
-    deleteCookieFromEveryScope(event, frameworkSessionHintCookieName(name));
+    deleteCookieFromEveryScope(
+      event,
+      frameworkSessionHintCookieName(name),
+      crossSiteCookieAttrs(event),
+    );
   }
 }
 
@@ -2954,16 +2962,22 @@ function desktopMagicLinkLandingPage(
   });
 }
 
-function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
-  const headCloseIdx = loginHtml.indexOf("</head>");
-  if (headCloseIdx === -1) return loginHtml;
+function injectLoginSocialImageMeta(
+  loginHtml: string,
+  event?: H3Event,
+): string {
+  const headCloseMatch = /<\/head\s*>/i.exec(loginHtml);
+  if (!headCloseMatch || headCloseMatch.index === undefined) return loginHtml;
+  const headCloseIdx = headCloseMatch.index;
 
   const hasAnySocialImage =
     LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
     LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
   const imageUrl = escapeHtmlAttr(
     withAgentNativeSocialImageCacheBuster(
-      getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+      event
+        ? getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH)
+        : `${getAppBasePath()}${AGENT_NATIVE_SOCIAL_IMAGE_PATH}`,
     ),
   );
   const tags: string[] = [];
@@ -3003,19 +3017,52 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
 }
 
 function injectHeadScript(html: string, script: string): string {
-  const headCloseIdx = html.indexOf("</head>");
-  if (headCloseIdx === -1) return html;
-  return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
+  const headCloseMatch = /<\/head\s*>/i.exec(html);
+  if (headCloseMatch?.index !== undefined) {
+    return (
+      html.slice(0, headCloseMatch.index) +
+      script +
+      html.slice(headCloseMatch.index)
+    );
+  }
+
+  const headOpenMatch = /<head\b[^>]*>/i.exec(html);
+  if (headOpenMatch?.index !== undefined) {
+    const headEnd = headOpenMatch.index + headOpenMatch[0].length;
+    return html.slice(0, headEnd) + script + html.slice(headEnd);
+  }
+
+  const bodyOpenMatch = /<body\b[^>]*>/i.exec(html);
+  if (bodyOpenMatch?.index !== undefined) {
+    return (
+      html.slice(0, bodyOpenMatch.index) +
+      `<head>${script}</head>` +
+      html.slice(bodyOpenMatch.index)
+    );
+  }
+
+  const htmlOpenMatch = /<html\b[^>]*>/i.exec(html);
+  if (htmlOpenMatch?.index !== undefined) {
+    const htmlEnd = htmlOpenMatch.index + htmlOpenMatch[0].length;
+    return (
+      html.slice(0, htmlEnd) + `<head>${script}</head>` + html.slice(htmlEnd)
+    );
+  }
+
+  return `<!doctype html><html><head>${script}</head><body>${html}</body></html>`;
 }
 
 function loginHtmlResponse(
   loginHtml: string,
   event: H3Event,
-  options: { includeRootAuthRedirect?: boolean } = {},
+  options: {
+    includeRootAuthRedirect?: boolean;
+    requestIndependent?: boolean;
+  } = {},
 ): Response {
   let html = injectLoginSocialImageMeta(
     injectBetaOptOutPersistence(loginHtml),
-    event,
+    options.requestIndependent ? undefined : event,
   );
   if (options.includeRootAuthRedirect) {
     html = injectHeadScript(
@@ -3064,7 +3111,6 @@ function createAuthGuardFn(
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
-    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
@@ -3320,10 +3366,13 @@ function createAuthGuardFn(
     // request session, so the cached root document stays identical for every
     // visitor; the head handoff handles existing sessions in the browser.
     if (config.rootAuth && p === "/" && isHtmlDocumentRequest(event, p)) {
-      return loginHtmlResponse(loginHtml, event, {
+      return loginHtmlResponse(config.loginHtml, event, {
         includeRootAuthRedirect: true,
+        requestIndependent: true,
       });
     }
+
+    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query. The clean
