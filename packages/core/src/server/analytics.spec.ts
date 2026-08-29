@@ -175,17 +175,18 @@ describe("wrapWithAnalytics", () => {
 });
 
 describe("injectAnalyticsIntoHtml", () => {
-  it("omits analytics injection for synthetic traffic", () => {
+  it("keeps analytics injection invariant for synthetic traffic", () => {
     process.env.GA_MEASUREMENT_ID = "G-UNITTEST123";
     process.env.GTM_CONTAINER_ID = "GTM-AUTH123";
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_test";
 
     const source = "<html><head></head><body>synthetic</body></html>";
-    const html = runWithRequestContext({ isSyntheticTraffic: true }, () =>
+    const normal = injectAnalyticsIntoHtml(source);
+    const synthetic = runWithRequestContext({ isSyntheticTraffic: true }, () =>
       injectAnalyticsIntoHtml(source),
     );
 
-    expect(html).toBe(source);
+    expect(synthetic).toBe(normal);
   });
 
   it("injects first-party analytics config for public auth events", () => {
