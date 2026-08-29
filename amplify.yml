@@ -7,7 +7,7 @@ applications:
         preBuild:
           commands:
             - nvm use 24 && node --version
-            - corepack enable && npx --yes nypm install
+            - corepack enable && pnpm install --filter 'calendar...' --frozen-lockfile
         build:
           commands:
             - NITRO_PRESET=aws_amplify pnpm --filter calendar build
