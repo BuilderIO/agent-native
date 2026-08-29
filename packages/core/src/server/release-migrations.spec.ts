@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  isLocalDatabase: vi.fn(() => false),
+  getAppConfig: vi.fn(() => ({
+    migration: { runningReleaseMigrations: false },
+  })),
   runMigrations: vi.fn(() => vi.fn(async () => {})),
   runBetterAuthMigrations: vi.fn(async () => {}),
   runAutomationRunMigrations: vi.fn(async () => {}),
@@ -39,6 +43,12 @@ vi.mock("../agent/observational-memory/migrations.js", () => ({
 vi.mock("../agent/tool-approval-migrations.js", () => ({
   AGENT_TOOL_APPROVAL_MIGRATIONS: mocks.agentToolApprovalMigrations,
   AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE: "_agent_tool_approval_migrations",
+}));
+vi.mock("../app-config/index.js", () => ({
+  getAppConfig: mocks.getAppConfig,
+}));
+vi.mock("../db/client.js", () => ({
+  isLocalDatabase: mocks.isLocalDatabase,
 }));
 vi.mock("../db/migrations.js", () => ({
   runMigrations: mocks.runMigrations,
@@ -133,5 +143,41 @@ describe("runFrameworkReleaseMigrations", () => {
         "_usage_alert_migrations",
       ]),
     );
+  });
+
+  // CRM published green for weeks while its release migrations were applied to
+  // a throwaway SQLite file in the build container, so its `jwks`/`user` tables
+  // never existed on the database the deployed functions use.
+  it("fails a production release migration that resolved to a local database", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { runningReleaseMigrations: true },
+    });
+    mocks.isLocalDatabase.mockReturnValue(true);
+
+    await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow(
+      /resolved to a local database/,
+    );
+    expect(mocks.runFrameworkSchemaEnsures).not.toHaveBeenCalled();
+    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+  });
+
+  it("allows a local database when this is not a production release migration", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { runningReleaseMigrations: false },
+    });
+    mocks.isLocalDatabase.mockReturnValue(true);
+
+    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
+    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
+  });
+
+  it("allows a production release migration against a remote database", async () => {
+    mocks.getAppConfig.mockReturnValue({
+      migration: { runningReleaseMigrations: true },
+    });
+    mocks.isLocalDatabase.mockReturnValue(false);
+
+    await expect(runFrameworkReleaseMigrations(null)).resolves.toBeUndefined();
+    expect(mocks.runBetterAuthMigrations).toHaveBeenCalled();
   });
 });
