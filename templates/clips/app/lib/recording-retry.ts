@@ -47,11 +47,49 @@ export async function retryRecordingUploadFromBackup(
     );
   }
 
+  const attemptId = crypto.randomUUID();
+  const resumeUrl = `${appBasePath()}/api/uploads/${recordingId}/resume?attemptId=${encodeURIComponent(attemptId)}`;
+  const resumeRes = await fetch(resumeUrl, { method: "GET" });
+  if (!resumeRes.ok) {
+    // coercion-ok: response text only enriches an already-failing claim error.
+    const text = await resumeRes.text().catch(() => "");
+    throw new Error(
+      `Couldn't claim the upload retry (resume ${resumeRes.status}). ${
+        text || resumeRes.statusText
+      }`,
+    );
+  }
+  let resume: {
+    resumable?: unknown;
+    attemptId?: unknown;
+    uploadGenerationId?: unknown;
+  };
+  try {
+    resume = (await resumeRes.json()) as typeof resume;
+  } catch {
+    throw new Error("The upload retry claim returned an unreadable response.");
+  }
+  if (resume.resumable !== true || resume.attemptId !== attemptId) {
+    throw new Error("The upload retry could not claim this recording.");
+  }
+  const claimedGenerationId =
+    typeof resume.uploadGenerationId === "string" && resume.uploadGenerationId
+      ? resume.uploadGenerationId
+      : undefined;
+
   const resetUrl = `${appBasePath()}/api/uploads/${recordingId}/reset-chunks`;
   const resetRes = await fetch(resetUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mimeType: meta.mimeType }),
+    body: JSON.stringify({
+      requestStreaming: true,
+      mimeType: meta.mimeType,
+      attemptId,
+      useGenerationFence: true,
+      ...(claimedGenerationId
+        ? { uploadGenerationId: claimedGenerationId }
+        : {}),
+    }),
   });
   if (!resetRes.ok) {
     // coercion-ok: the request already failed; this only fills in the
@@ -63,15 +101,19 @@ export async function retryRecordingUploadFromBackup(
       }`,
     );
   }
-  // coercion-ok: a malformed 2xx body just means no generation id to carry
-  // forward — the chunk route accepts chunks with no uploadGenerationId too.
-  const reset = (await resetRes.json().catch(() => null)) as {
-    uploadGenerationId?: unknown;
-  } | null;
-  const uploadGenerationId =
-    typeof reset?.uploadGenerationId === "string" && reset.uploadGenerationId
-      ? reset.uploadGenerationId
-      : undefined;
+  let reset: { uploadGenerationId?: unknown };
+  try {
+    reset = (await resetRes.json()) as typeof reset;
+  } catch {
+    throw new Error("Upload retry setup returned an unreadable response.");
+  }
+  if (
+    typeof reset.uploadGenerationId !== "string" ||
+    !reset.uploadGenerationId
+  ) {
+    throw new Error("Upload retry setup returned no upload generation.");
+  }
+  const uploadGenerationId = reset.uploadGenerationId;
 
   const chunkBaseUrl = `${appBasePath()}/api/uploads/${recordingId}/chunk`;
   const recordingBlob = new Blob(
@@ -88,6 +130,7 @@ export async function retryRecordingUploadFromBackup(
       total,
       isFinal,
       mimeType: meta.mimeType,
+      attemptId,
       uploadGenerationId,
       ...(isFinal
         ? {

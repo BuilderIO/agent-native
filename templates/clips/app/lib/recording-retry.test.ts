@@ -44,6 +44,20 @@ function backupChunk(index: number, contents: BlobPart) {
   };
 }
 
+function retryClaimResponse(url: string): Response {
+  const attemptId = new URL(url, "https://clips.local").searchParams.get(
+    "attemptId",
+  );
+  return new Response(
+    JSON.stringify({
+      resumable: true,
+      attemptId,
+      uploadGenerationId: "claimed-gen",
+    }),
+    { status: 200 },
+  );
+}
+
 describe("retryRecordingUploadFromBackup", () => {
   beforeEach(() => {
     vi.stubGlobal("window", {
@@ -78,14 +92,18 @@ describe("retryRecordingUploadFromBackup", () => {
       vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = input.toString();
         const body =
-          init?.body instanceof ArrayBuffer
-            ? new TextDecoder().decode(init.body)
-            : "";
+          typeof init?.body === "string"
+            ? init.body
+            : init?.body instanceof ArrayBuffer
+              ? new TextDecoder().decode(init.body)
+              : "";
         requests.push({ url, body });
+        if (url.includes("/resume?")) return retryClaimResponse(url);
         if (url.endsWith("/reset-chunks")) {
-          return new Response(JSON.stringify({ uploadGenerationId: "gen-1" }), {
-            status: 200,
-          });
+          return new Response(
+            JSON.stringify({ uploadGenerationId: "reset-gen" }),
+            { status: 200 },
+          );
         }
         const isFinal = url.includes("isFinal=1");
         return new Response(
@@ -97,12 +115,26 @@ describe("retryRecordingUploadFromBackup", () => {
 
     const result = await retryRecordingUploadFromBackup("rec-1");
 
-    expect(requests[0]?.url).toContain("/reset-chunks");
-    expect(requests).toHaveLength(2);
-    expect(requests[1]?.url).toContain("index=0");
-    expect(requests[1]?.url).toContain("uploadGenerationId=gen-1");
-    expect(requests[1]?.url).toContain("isFinal=1");
-    expect(requests[1]?.body).toBe("ab");
+    expect(requests).toHaveLength(3);
+    expect(requests[0]?.url).toContain("/resume?attemptId=");
+    const attemptId = new URL(
+      requests[0]!.url,
+      "https://clips.local",
+    ).searchParams.get("attemptId");
+    expect(attemptId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
+    expect(requests[1]?.url).toContain("/reset-chunks");
+    expect(JSON.parse(requests[1]!.body)).toEqual({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      attemptId,
+      useGenerationFence: true,
+      uploadGenerationId: "claimed-gen",
+    });
+    expect(requests[2]?.url).toContain("index=0");
+    expect(requests[2]?.url).toContain(`attemptId=${attemptId}`);
+    expect(requests[2]?.url).toContain("uploadGenerationId=reset-gen");
+    expect(requests[2]?.url).toContain("isFinal=1");
+    expect(requests[2]?.body).toBe("ab");
     expect(result).toEqual({ status: "ready", videoUrl: "u" });
     expect(deleteRecordingBackup).toHaveBeenCalledWith("rec-1");
   });
@@ -120,8 +152,12 @@ describe("retryRecordingUploadFromBackup", () => {
       "fetch",
       vi.fn(async (input: string | URL) => {
         const url = input.toString();
+        if (url.includes("/resume?")) return retryClaimResponse(url);
         if (url.endsWith("/reset-chunks")) {
-          return new Response(JSON.stringify({}), { status: 200 });
+          return new Response(
+            JSON.stringify({ uploadGenerationId: "reset-gen" }),
+            { status: 200 },
+          );
         }
         return new Response(JSON.stringify({ status: "processing" }), {
           status: 202,
@@ -184,8 +220,12 @@ describe("retryRecordingUploadFromBackup", () => {
       "fetch",
       vi.fn(async (input: string | URL, init?: RequestInit) => {
         const url = input.toString();
+        if (url.includes("/resume?")) return retryClaimResponse(url);
         if (url.endsWith("/reset-chunks")) {
-          return new Response(JSON.stringify({}), { status: 200 });
+          return new Response(
+            JSON.stringify({ uploadGenerationId: "reset-gen" }),
+            { status: 200 },
+          );
         }
         const body = init?.body;
         chunkRequests.push({
@@ -208,6 +248,52 @@ describe("retryRecordingUploadFromBackup", () => {
     expect(chunkRequests[1]?.url).toContain("isFinal=1");
   });
 
+  it("does not reset when another retry owns the claim", async () => {
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue({
+      ...meta,
+      bytes: 1,
+      chunkCount: 1,
+    });
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+    ]);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ reason: "retry_already_active" }), {
+          status: 409,
+          statusText: "Conflict",
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(retryRecordingUploadFromBackup("rec-1")).rejects.toThrow(
+      /resume 409/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not upload chunks when reset returns no generation", async () => {
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue({
+      ...meta,
+      bytes: 1,
+      chunkCount: 1,
+    });
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+    ]);
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = input.toString();
+      if (url.includes("/resume?")) return retryClaimResponse(url);
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(retryRecordingUploadFromBackup("rec-1")).rejects.toThrow(
+      /no upload generation/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("throws with the server error when reset-chunks fails", async () => {
     vi.mocked(getRecordingBackupMeta).mockResolvedValue({
       ...meta,
@@ -219,13 +305,14 @@ describe("retryRecordingUploadFromBackup", () => {
     ]);
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response("still verifying", {
-            status: 409,
-            statusText: "Conflict",
-          }),
-      ),
+      vi.fn(async (input: string | URL) => {
+        const url = input.toString();
+        if (url.includes("/resume?")) return retryClaimResponse(url);
+        return new Response("still verifying", {
+          status: 409,
+          statusText: "Conflict",
+        });
+      }),
     );
 
     await expect(retryRecordingUploadFromBackup("rec-1")).rejects.toThrow(
