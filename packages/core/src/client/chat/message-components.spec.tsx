@@ -33,9 +33,11 @@ import {
   assistantMessageRunId,
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
+  assistantMessageHasCompletedSideEffect,
   ChatImageAttachmentPreview,
   MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
+  findMatchingAssistantChatHistoryVersion,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
 
@@ -86,6 +88,157 @@ describe("assistant request ID resolution", () => {
       }),
     ).toBe(true);
     expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
+
+describe("assistant chat history matching", () => {
+  it("requires a completed side effect and picks the earliest version in the turn", () => {
+    const versions = [
+      {
+        id: "later",
+        createdAt: "2026-08-29T10:01:00.000Z",
+        chatContext: { runId: "run-1" },
+      },
+      {
+        id: "first",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        chatContext: { runId: "run-1" },
+      },
+    ];
+    const message = {
+      id: "assistant-1",
+      createdAt: "2026-08-29T10:02:00.000Z",
+      turnStartedAt: "2026-08-29T09:59:00.000Z",
+      turnEndedAt: "2026-08-29T10:03:00.000Z",
+      runId: "run-1",
+      hasCompletedSideEffect: true,
+    };
+
+    expect(findMatchingAssistantChatHistoryVersion(versions, message)?.id).toBe(
+      "first",
+    );
+    expect(
+      findMatchingAssistantChatHistoryVersion(versions, {
+        ...message,
+        hasCompletedSideEffect: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("honors host editability and custom matching", () => {
+    const versions = [
+      {
+        id: "locked",
+        createdAt: "2026-08-29T10:00:00.000Z",
+        editable: false,
+      },
+      {
+        id: "selected",
+        createdAt: "2026-08-29T10:01:00.000Z",
+        chatContext: { turnId: "turn-1" },
+      },
+    ];
+
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        versions,
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          turnId: "turn-1",
+          hasCompletedSideEffect: true,
+        },
+        {
+          matchVersion: (version) => version.id === "selected",
+        },
+      )?.id,
+    ).toBe("selected");
+  });
+
+  it("rejects a checkpoint from a different scoped resource", () => {
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [{ id: "checkpoint", createdAt: "2026-08-29T10:00:00.000Z" }],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          hasCompletedSideEffect: true,
+          scope: { type: "deck", id: "other-deck" },
+        },
+        { scope: { type: "deck", id: "current-deck" } },
+      ),
+    ).toBeNull();
+  });
+
+  it("does not match a timestamp-only checkpoint or a different chat turn", () => {
+    const version = {
+      id: "checkpoint",
+      createdAt: "2026-08-29T10:00:00.000Z",
+      chatContext: { runId: "other-run" },
+    };
+    expect(
+      findMatchingAssistantChatHistoryVersion([version], {
+        id: "assistant-1",
+        createdAt: "2026-08-29T10:02:00.000Z",
+        turnStartedAt: "2026-08-29T09:59:00.000Z",
+        turnEndedAt: "2026-08-29T10:03:00.000Z",
+        hasCompletedSideEffect: true,
+      }),
+    ).toBeNull();
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [version],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          hasCompletedSideEffect: true,
+        },
+        { matchVersion: () => true },
+      ),
+    ).toBeNull();
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [
+          {
+            ...version,
+            chatContext: { runId: "run-1", turnId: "other-turn" },
+          },
+        ],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          turnId: "turn-1",
+          hasCompletedSideEffect: true,
+        },
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("assistantMessageHasCompletedSideEffect", () => {
+  it("only recognizes completed side-effect tool results", () => {
+    expect(
+      assistantMessageHasCompletedSideEffect({
+        content: [
+          { type: "tool-call", completedSideEffect: false },
+          { type: "tool-call", completedSideEffect: true },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCompletedSideEffect({
+        content: [{ type: "tool-call", completedSideEffect: false }],
+      }),
+    ).toBe(false);
+    expect(
+      assistantMessageHasCompletedSideEffect({
+        content: [
+          { type: "tool-call", completedSideEffect: true, isError: true },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 

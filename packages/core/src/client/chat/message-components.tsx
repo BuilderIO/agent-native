@@ -16,6 +16,7 @@ import {
   useMessagePartReasoning,
   useMessagePartRuntime,
   useAuiState,
+  useThread,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
 import {
@@ -68,6 +69,11 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -89,6 +95,7 @@ import {
   isToolCallActive,
   shadowedCallAgentToolCallIds,
 } from "../tool-display.js";
+import { actionErrorMessage } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
   MarkdownText,
@@ -336,6 +343,75 @@ export const CheckpointContext = React.createContext<{
   checkpointRunIds?: ReadonlySet<string>;
 } | null>(null);
 
+export type AssistantChatHistoryDate = string | number | Date;
+
+export interface AssistantChatHistoryContext {
+  threadId?: string;
+  runId?: string;
+  turnId?: string;
+}
+
+export interface AssistantChatHistoryVersion {
+  id: string;
+  createdAt: AssistantChatHistoryDate;
+  editable?: boolean;
+  chatContext?: AssistantChatHistoryContext;
+}
+
+export interface AssistantChatHistoryScope {
+  type: string;
+  id: string;
+}
+
+export interface AssistantChatHistoryMessage {
+  id: string;
+  createdAt: AssistantChatHistoryDate;
+  scope?: AssistantChatHistoryScope;
+  parentId?: string;
+  turnStartedAt?: AssistantChatHistoryDate;
+  turnEndedAt?: AssistantChatHistoryDate;
+  runId?: string;
+  turnId?: string;
+  hasCompletedSideEffect: boolean;
+}
+
+export interface AssistantChatHistoryConfig<
+  TListResult = unknown,
+  TVersion extends AssistantChatHistoryVersion = AssistantChatHistoryVersion,
+> {
+  list: {
+    action: string;
+    args?: Record<string, unknown>;
+    getVersions: (result: TListResult) => readonly TVersion[];
+  };
+  restore: {
+    action: string;
+    args: (version: TVersion) => Record<string, unknown>;
+  };
+  createVersion?: {
+    action: string;
+    args:
+      | Record<string, unknown>
+      | ((message: AssistantChatHistoryMessage) => Record<string, unknown>);
+  };
+  isEditable?: (version: TVersion) => boolean;
+  scope?: AssistantChatHistoryScope;
+  matchVersion?: (
+    version: TVersion,
+    message: AssistantChatHistoryMessage,
+  ) => boolean;
+}
+
+export interface AssistantChatHistoryContextValue {
+  findVersion: (
+    message: AssistantChatHistoryMessage,
+  ) => AssistantChatHistoryVersion | null;
+  restoreVersion: (version: AssistantChatHistoryVersion) => Promise<void>;
+}
+
+export const AssistantChatHistoryContext =
+  React.createContext<AssistantChatHistoryContextValue | null>(null);
+
 export const MessageActionsContext = React.createContext<{
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   onRetryRunError?: () => void;
@@ -356,6 +432,111 @@ export function isLocalDevelopmentHost(hostname: string): boolean {
     normalizedHostname === "::1" ||
     normalizedHostname === "[::1]"
   );
+}
+
+export function isAssistantChatHistoryVersion(
+  value: unknown,
+): value is AssistantChatHistoryVersion {
+  if (!value || typeof value !== "object") return false;
+  const version = value as {
+    id?: unknown;
+    createdAt?: unknown;
+  };
+  return (
+    typeof version.id === "string" &&
+    version.id.trim().length > 0 &&
+    coerceMessageDate(version.createdAt) !== null
+  );
+}
+
+function assistantMessageChatScope(
+  message: unknown,
+): AssistantChatHistoryScope | undefined {
+  const custom = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { chatScope?: unknown } }
+    | undefined;
+  const scope = custom?.custom?.chatScope;
+  if (!scope || typeof scope !== "object") return undefined;
+  const typed = scope as { type?: unknown; id?: unknown };
+  return typeof typed.type === "string" &&
+    typed.type.trim() &&
+    typeof typed.id === "string" &&
+    typed.id.trim()
+    ? { type: typed.type, id: typed.id }
+    : undefined;
+}
+
+export function assistantMessageHasCompletedSideEffect(
+  message: unknown,
+): boolean {
+  const content = (message as { content?: unknown } | undefined)?.content;
+  return (
+    Array.isArray(content) &&
+    content.some((part) => {
+      if (!part || typeof part !== "object") return false;
+      const toolPart = part as {
+        type?: unknown;
+        completedSideEffect?: unknown;
+        isError?: unknown;
+      };
+      return (
+        toolPart.type === "tool-call" &&
+        toolPart.completedSideEffect === true &&
+        toolPart.isError !== true
+      );
+    })
+  );
+}
+
+export function findMatchingAssistantChatHistoryVersion<
+  TVersion extends AssistantChatHistoryVersion,
+>(
+  versions: readonly TVersion[],
+  message: AssistantChatHistoryMessage,
+  options: Pick<
+    AssistantChatHistoryConfig<unknown, TVersion>,
+    "isEditable" | "matchVersion" | "scope"
+  > = {},
+): TVersion | null {
+  if (!message.hasCompletedSideEffect) return null;
+  if (
+    options.scope &&
+    (!message.scope ||
+      message.scope.type !== options.scope.type ||
+      message.scope.id !== options.scope.id)
+  ) {
+    return null;
+  }
+  let match: TVersion | null = null;
+  let matchTime = Number.POSITIVE_INFINITY;
+
+  for (const version of versions) {
+    if (!isAssistantChatHistoryVersion(version)) continue;
+    if (version.editable === false || options.isEditable?.(version) === false) {
+      continue;
+    }
+    const chatContext = version.chatContext;
+    const matchesChatTurn = Boolean(
+      chatContext &&
+      ((message.turnId && chatContext.turnId
+        ? chatContext.turnId === message.turnId
+        : false) ||
+        ((!message.turnId || !chatContext.turnId) &&
+          message.runId &&
+          chatContext.runId === message.runId)),
+    );
+    if (!matchesChatTurn) continue;
+    const versionTime = coerceMessageDate(version.createdAt)?.getTime();
+    if (versionTime == null) continue;
+    const matches = options.matchVersion
+      ? options.matchVersion(version, message)
+      : true;
+    if (!matches || versionTime >= matchTime) continue;
+    match = version;
+    matchTime = versionTime;
+  }
+
+  return match;
 }
 
 /**
@@ -862,6 +1043,130 @@ export function MessageActionsMenu({
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function AssistantChatHistoryRevertButton({
+  onRestore,
+  onRestored,
+}: {
+  onRestore: () => Promise<void>;
+  onRestored: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<"confirming" | "restoring" | "error">(
+    "confirming",
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && state === "restoring") return;
+      setOpen(nextOpen);
+      if (nextOpen) {
+        setState("confirming");
+        setError(null);
+      } else {
+        setError(null);
+      }
+    },
+    [state],
+  );
+
+  const handleRestore = useCallback(async () => {
+    setState("restoring");
+    setError(null);
+    try {
+      await onRestore();
+      setOpen(false);
+      onRestored();
+    } catch (restoreError) {
+      const status = (restoreError as { status?: unknown } | undefined)?.status;
+      const actionMessage = actionErrorMessage(restoreError);
+      setError(
+        actionMessage ||
+          (typeof status === "number" || typeof status === "string"
+            ? t("agentChat.message.restoreFailed", { status })
+            : t("agentChat.message.restoreRequestFailed")),
+      );
+      setState("error");
+    }
+  }, [onRestore, onRestored, t]);
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <TooltipProvider delayDuration={400}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("agentChat.message.revertHere")}
+                className={cn(
+                  "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground",
+                  messageFooterFadeClassName,
+                  open && "bg-accent text-foreground",
+                )}
+              >
+                <IconArrowBackUp className="h-3.5 w-3.5" />
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {t("agentChat.message.revertHere")}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <PopoverContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="w-56 rounded-lg border-border p-3 shadow-xl"
+      >
+        {state === "confirming" ? (
+          <div className="grid gap-2">
+            <p className="text-xs font-medium text-foreground">
+              {t("agentChat.message.restoreQuestion")}
+            </p>
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                {t("agentChat.common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRestore()}
+                className="rounded-md bg-destructive px-2 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+              >
+                {t("agentChat.message.revertHere")}
+              </button>
+            </div>
+          </div>
+        ) : state === "restoring" ? (
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <IconLoader2 className="h-3 w-3 animate-spin" />
+            {t("agentChat.message.restoring")}
+          </span>
+        ) : (
+          <div className="grid gap-2">
+            <p className="text-xs text-destructive">
+              {error ?? t("agentChat.message.restoreRequestFailed")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="justify-self-end rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {t("agentChat.common.dismiss")}
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1722,7 +2027,9 @@ export function AssistantMessage() {
     "idle" | "confirming" | "restoring" | "error"
   >("idle");
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [historyReverted, setHistoryReverted] = useState(false);
   const messageRuntime = useMessageRuntime();
+  const thread = useThread();
   const threadRuntime = useThreadRuntime();
   const chatRunning = React.useContext(ChatRunningContext);
   const activeRunId = React.useContext(ChatRunningRunIdContext);
@@ -1765,6 +2072,7 @@ export function AssistantMessage() {
   const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
     msg.content,
   );
+  const hasCompletedSideEffect = assistantMessageHasCompletedSideEffect(msg);
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
   const serverRunActive = React.useContext(ServerRunActiveContext);
   const messageRunError = getRunErrorMetadata(msg);
@@ -1848,6 +2156,58 @@ export function AssistantMessage() {
     }
     return "";
   }, [msg.parentId, threadRuntime]);
+  const historyMessage = React.useMemo<AssistantChatHistoryMessage>(() => {
+    let turnStartedAt = msg.createdAt;
+    let parentId = msg.parentId;
+    while (parentId) {
+      const parentMessage = threadRuntime.getMessageById(parentId).getState();
+      if (
+        parentMessage.role === "user" &&
+        !isHiddenUserMessage(parentMessage)
+      ) {
+        turnStartedAt = parentMessage.createdAt;
+        break;
+      }
+      if (parentMessage.parentId === parentId) break;
+      parentId = parentMessage.parentId;
+    }
+    const messageIndex = thread.messages.findIndex(
+      (message) => message.id === msg.id,
+    );
+    const nextUserMessage =
+      messageIndex < 0
+        ? undefined
+        : thread.messages
+            .slice(messageIndex + 1)
+            .find(
+              (message) =>
+                message.role === "user" && !isHiddenUserMessage(message),
+            );
+    return {
+      id: msg.id,
+      createdAt: msg.createdAt,
+      ...(assistantMessageChatScope(msg)
+        ? { scope: assistantMessageChatScope(msg) }
+        : {}),
+      ...(msg.parentId ? { parentId: msg.parentId } : {}),
+      turnStartedAt,
+      ...(nextUserMessage?.createdAt
+        ? { turnEndedAt: nextUserMessage.createdAt }
+        : {}),
+      ...(messageRunId ? { runId: messageRunId } : {}),
+      ...(messageTurnId ? { turnId: messageTurnId } : {}),
+      hasCompletedSideEffect,
+    };
+  }, [
+    hasCompletedSideEffect,
+    msg.createdAt,
+    msg.id,
+    msg.parentId,
+    messageRunId,
+    messageTurnId,
+    thread.messages,
+    threadRuntime,
+  ]);
   const isComplete =
     !shouldHoldCompletionFooter &&
     shouldShowAssistantMessageFooter({
@@ -1863,6 +2223,17 @@ export function AssistantMessage() {
       hasActiveTool,
       userStoppedRun: isUserStoppedRun,
     });
+  const historyContext = React.useContext(AssistantChatHistoryContext);
+  const historyVersion = React.useMemo(
+    () => historyContext?.findVersion(historyMessage) ?? null,
+    [historyContext, historyMessage],
+  );
+  const showHistoryRevert =
+    isComplete && !historyReverted && historyVersion !== null;
+  const handleHistoryRestore = useCallback(async () => {
+    if (!historyContext || !historyVersion) return;
+    await historyContext.restoreVersion(historyVersion);
+  }, [historyContext, historyVersion]);
   const cpCtx = React.useContext(CheckpointContext);
 
   useEffect(() => {
@@ -2135,6 +2506,12 @@ export function AssistantMessage() {
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-1">
+            {showHistoryRevert && (
+              <AssistantChatHistoryRevertButton
+                onRestore={handleHistoryRestore}
+                onRestored={() => setHistoryReverted(true)}
+              />
+            )}
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
