@@ -2779,6 +2779,9 @@ export function App({
     // otherwise arrive after the recorder's enabled event and strand the
     // toolbar at 0:00.
     emit("clips:toolbar-enabled", false).catch(() => {});
+    // Tell a reused pill to reappear in its disabled state for the next
+    // preparation/countdown after a restart.
+    emit("clips:toolbar-preparing").catch(() => {});
     return () => {
       cancelled = true;
       // In screen-only mode the bubble effect never runs, so its

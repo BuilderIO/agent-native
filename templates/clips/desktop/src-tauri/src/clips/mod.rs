@@ -1044,7 +1044,6 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
-        crate::util::show_without_activation(&existing);
         return Ok(());
     }
     #[allow(unused_mut)]

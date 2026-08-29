@@ -128,6 +128,7 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
   /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -158,6 +159,7 @@ export function RecordingPill() {
   const userDragMarkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const toolbarDismissedRef = useRef(false);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -368,10 +370,11 @@ export function RecordingPill() {
     if (intent === "restart") {
       setPendingAction("restart");
       setElapsed(0);
-      // Hide immediately — the restart teardown and fresh countdown follow,
-      // and recording controls must not sit on screen while no capture is
-      // live. The replacement session's `clips:toolbar-enabled` re-shows the
-      // pill at 0:00, reusing this window thanks to the finishing hold.
+      // Hide immediately — the restart teardown follows. The replacement
+      // session's `clips:toolbar-preparing` re-shows the disabled pill for its
+      // countdown, reusing this window when the finishing hold keeps it alive.
+      toolbarDismissedRef.current = true;
+      setToolbarVisible(false);
       setEnabled(false);
       void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
         void safeEmit("clips:recorder-restart");
@@ -391,6 +394,8 @@ export function RecordingPill() {
     setPendingAction("cancel");
     // Vanish now — feedback must not wait on the recorder's teardown. The
     // window close (or its 3s fallback) follows behind.
+    toolbarDismissedRef.current = true;
+    setToolbarVisible(false);
     setEnabled(false);
     void safeEmit("clips:recorder-cancel").then(() =>
       scheduleCloseFallback("cancel"),
@@ -463,9 +468,18 @@ export function RecordingPill() {
       ),
     );
     track(
+      safeListen("clips:toolbar-preparing", () => {
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+      }),
+    );
+    track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
         setEnabled(!!payload);
         setPendingAction(null);
+        if (payload && !toolbarDismissedRef.current) {
+          setToolbarVisible(true);
+        }
         if (fallbackTimerRef.current) {
           clearTimeout(fallbackTimerRef.current);
           fallbackTimerRef.current = null;
@@ -735,14 +749,14 @@ export function RecordingPill() {
   const visibleRef = useRef(false);
   useEffect(() => {
     if (!hasTauri) return;
-    const visible = true;
+    const visible = toolbarVisible;
     if (visibleRef.current === visible) return;
     visibleRef.current = visible;
     if (visible) syncWindowToContent();
     queueWindowOp(async () => {
       await invoke("toolbar_set_visible", { visible });
     });
-  }, [enabled, mode]);
+  }, [toolbarVisible]);
 
   // The pill is also the single writer of the menu bar's recording mode:
   // stop square + ticking timer exactly while capture is live, the app logo
