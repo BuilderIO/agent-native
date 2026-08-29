@@ -388,7 +388,9 @@ export function InboxPage() {
     !!activeLabel &&
     view === "inbox" &&
     mailLabelsInclude(triageLabels, activeLabel);
-  const clientSliceTab = isPinnedTab && !searchQuery;
+  const mailboxWideLabelTab =
+    view === "inbox" && !!activeLabel && !isInboxScopedAppLabel(activeLabel);
+  const clientSliceTab = isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
@@ -396,6 +398,7 @@ export function InboxPage() {
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
+  const emailView = mailboxWideLabelTab ? "all" : view;
   const {
     data: rawEmails,
     isLoading,
@@ -407,7 +410,7 @@ export function InboxPage() {
     fetchNextPage,
     isFetchingNextPage,
     isFetchNextPageError,
-  } = useEmails(view, searchQuery, effectiveLabel);
+  } = useEmails(emailView, searchQuery, effectiveLabel);
   const hasEmailData = rawEmails !== undefined;
   const emailListLoading =
     isLoading ||

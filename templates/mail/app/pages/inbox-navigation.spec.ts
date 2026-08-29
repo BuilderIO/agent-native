@@ -51,6 +51,18 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("loads legacy custom-label inbox links from the whole mailbox", () => {
+    const source = inboxSource();
+
+    expect(source).toContain("const mailboxWideLabelTab =");
+    expect(source).toContain(
+      'const emailView = mailboxWideLabelTab ? "all" : view;',
+    );
+    expect(source).toContain(
+      "useEmails(emailView, searchQuery, effectiveLabel)",
+    );
+  });
+
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
