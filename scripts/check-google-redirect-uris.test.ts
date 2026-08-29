@@ -89,6 +89,13 @@ test("does not treat separate client ids as a health-contract disagreement", () 
   assert.equal(
     healthContractDisagreement(managed, {
       ...signIn,
+      callbackPaths: [...(signIn.callbackPaths ?? [])].reverse(),
+    }),
+    null,
+  );
+  assert.equal(
+    healthContractDisagreement(managed, {
+      ...signIn,
       managedConnection: "not_applicable",
     }),
     "managed capability differs between health contracts",

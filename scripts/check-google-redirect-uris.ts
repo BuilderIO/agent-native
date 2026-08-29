@@ -700,15 +700,14 @@ async function mapWithLimit<T, R>(
   return results;
 }
 
-function sameStringArray(
-  left: string[] | null,
-  right: string[] | null,
-): boolean {
+function sameStringSet(left: string[] | null, right: string[] | null): boolean {
+  const sortedLeft = left ? [...left].sort() : null;
+  const sortedRight = right ? [...right].sort() : null;
   return (
-    left !== null &&
-    right !== null &&
-    left.length === right.length &&
-    left.every((value, index) => value === right[index])
+    sortedLeft !== null &&
+    sortedRight !== null &&
+    sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((value, index) => value === sortedRight[index])
   );
 }
 
@@ -726,7 +725,7 @@ export function healthContractDisagreement(
   if (
     managed.callbackPaths !== null &&
     signIn.callbackPaths !== null &&
-    !sameStringArray(managed.callbackPaths, signIn.callbackPaths)
+    !sameStringSet(managed.callbackPaths, signIn.callbackPaths)
   ) {
     return "callback paths differ between health contracts";
   }
@@ -829,6 +828,10 @@ async function run(argv: string[]): Promise<number> {
           "sign_in",
         ),
       ]);
+      const managedHealthIsLegacy =
+        options.allowLegacyHealth &&
+        managedHealth.status !== "not_applicable" &&
+        managedHealth.credentialSource !== "managed";
       const probeHealth = async (
         client: GoogleHealthClient,
         health: GoogleHealthResult,
@@ -856,7 +859,9 @@ async function run(argv: string[]): Promise<number> {
           : [];
       };
       const [managedResults, signInResults] = await Promise.all([
-        probeHealth("managed", managedHealth),
+        managedHealthIsLegacy
+          ? Promise.resolve([])
+          : probeHealth("managed", managedHealth),
         probeHealth("sign_in", signInHealth),
       ]);
       return {
