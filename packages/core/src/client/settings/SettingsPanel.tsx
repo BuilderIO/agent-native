@@ -100,6 +100,7 @@ import {
 } from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
+import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
@@ -518,22 +519,33 @@ function UseBuilderCard({
         {connectUrl || credentialSource !== "env" ? (
           <div className="flex items-center gap-2 mt-2.5">
             {connectUrl && (
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="ghost"
-                onClick={() =>
-                  builderFlow.start({ trackingSource, trackingFlow })
+              <BuilderConnectPopover
+                flow={builderFlow}
+                onConnect={(provisionAccount) =>
+                  builderFlow.start({
+                    trackingSource,
+                    trackingFlow,
+                    provisionAccount,
+                  })
                 }
-                disabled={builderFlow.connecting}
-                className={cn(pillButtonClass(isPage, "ghost"), "no-underline")}
               >
-                {builderFlow.connecting
-                  ? "Connecting..."
-                  : credentialSource === "env"
-                    ? "Connect account"
-                    : "Reconnect"}
-              </Button>
+                <Button
+                  type="button"
+                  intent="neutral"
+                  emphasis="ghost"
+                  disabled={builderFlow.connecting}
+                  className={cn(
+                    pillButtonClass(isPage, "ghost"),
+                    "no-underline",
+                  )}
+                >
+                  {builderFlow.connecting
+                    ? "Connecting..."
+                    : credentialSource === "env"
+                      ? "Connect account"
+                      : "Reconnect"}
+                </Button>
+              </BuilderConnectPopover>
             )}
             {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
           </div>
@@ -544,19 +556,29 @@ function UseBuilderCard({
 
   if (compact) {
     return (
-      <Button
-        type="button"
-        intent="primary"
-        emphasis="solid"
-        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-        disabled={builderFlow.connecting}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+      <BuilderConnectPopover
+        flow={builderFlow}
+        onConnect={(provisionAccount) =>
+          builderFlow.start({
+            trackingSource,
+            trackingFlow,
+            provisionAccount,
+          })
+        }
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-        {builderFlow.connecting ? (
-          <IconLoader2 size={14} className="animate-spin" />
-        ) : null}
-      </Button>
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          disabled={builderFlow.connecting}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+        >
+          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting ? (
+            <IconLoader2 size={14} className="animate-spin" />
+          ) : null}
+        </Button>
+      </BuilderConnectPopover>
     );
   }
 
@@ -609,22 +631,32 @@ function UseBuilderCard({
           )}
         </div>
       </div>
-      <Button
-        type="button"
-        intent="neutral"
-        emphasis="outline"
-        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-        disabled={builderFlow.connecting}
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
-          isPage ? "text-sm" : "text-[11px]",
-        )}
+      <BuilderConnectPopover
+        flow={builderFlow}
+        onConnect={(provisionAccount) =>
+          builderFlow.start({
+            trackingSource,
+            trackingFlow,
+            provisionAccount,
+          })
+        }
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
-        {builderFlow.connecting ? (
-          <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
-        ) : null}
-      </Button>
+        <Button
+          type="button"
+          intent="neutral"
+          emphasis="outline"
+          disabled={builderFlow.connecting}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
+            isPage ? "text-sm" : "text-[11px]",
+          )}
+        >
+          {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+          {builderFlow.connecting ? (
+            <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
+          ) : null}
+        </Button>
+      </BuilderConnectPopover>
     </div>
   );
 }
@@ -3051,6 +3083,7 @@ function SettingsPanelContent({
   const builderFlow = useBuilderConnectFlow({
     enabled: !builderConnectionOwnedExternally,
     popupUrl: connectUrl,
+    provisionAccount: true,
     trackingSource: "settings_panel_builder_card",
   });
 

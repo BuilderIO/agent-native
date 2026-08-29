@@ -53,6 +53,8 @@ const messages: AgentChatTranslation = {
     "مضمّنة مع أرصدة Builder.io المجانية النشطة",
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
   "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
+  "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
+  "onboarding.builderAccountExistsDescription": "سجّل الدخول لربطه.",
   "onboarding.builderActivationDescription":
     "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
   "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
