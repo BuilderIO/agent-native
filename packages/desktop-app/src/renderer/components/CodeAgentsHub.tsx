@@ -1450,11 +1450,15 @@ export default function CodeAgentsHub({
     setChatFirstBrowserSelection(null);
     setChatFirstNotice(null);
     const unsubscribeApp = subscribeChatFirstOpenApp(resolveChatFirstOpenApp);
+    const unsubscribeDesktopApp =
+      window.electronAPI?.desktopChat?.onOpenApp(resolveChatFirstOpenApp) ??
+      (() => undefined);
     const unsubscribeBrowser = subscribeChatFirstOpenBrowser(
       resolveChatFirstOpenBrowser,
     );
     return () => {
       unsubscribeApp();
+      unsubscribeDesktopApp();
       unsubscribeBrowser();
     };
   }, [
