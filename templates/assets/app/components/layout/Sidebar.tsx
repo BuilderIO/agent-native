@@ -39,7 +39,7 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
 const baseNavItems = [
-  { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
+  { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/home" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
   { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
 ];
@@ -148,7 +148,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
   );
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
-    (location.pathname === "/" ? null : activeThreadId);
+    (location.pathname === "/home" ? null : activeThreadId);
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
       visibleThreads.map((thread) => ({
@@ -188,7 +188,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
-      options?.isNew ? "/" : chatThreadPath(threadId),
+      options?.isNew ? "/home" : chatThreadPath(threadId),
     );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
@@ -304,7 +304,7 @@ export function Sidebar() {
   const navigate = useNavigate();
   const t = useT();
   const isCreateRoute =
-    location.pathname === "/" || location.pathname.startsWith("/chat/");
+    location.pathname === "/home" || location.pathname.startsWith("/chat/");
   const { data: auditAdmin } = useActionQuery("is-audit-admin", {}, {
     refetchInterval: 30_000,
   } as any) as { data: { allowed?: boolean } | undefined };
@@ -431,7 +431,7 @@ export function Sidebar() {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.href === "/"
+              item.href === "/home"
                 ? isCreateRoute
                 : item.href === "/library"
                   ? location.pathname === "/library" ||
@@ -449,7 +449,7 @@ export function Sidebar() {
                 to={item.href}
                 onClick={(event) => {
                   if (
-                    item.href === "/" &&
+                    item.href === "/home" &&
                     !event.metaKey &&
                     !event.ctrlKey &&
                     !event.shiftKey &&
@@ -457,8 +457,8 @@ export function Sidebar() {
                   ) {
                     event.preventDefault();
                     focusAgentChat();
-                    if (!isCreateRoute || location.pathname !== "/") {
-                      navigateWithAgentChatViewTransition(navigate, "/");
+                    if (!isCreateRoute || location.pathname !== "/home") {
+                      navigateWithAgentChatViewTransition(navigate, "/home");
                     }
                   }
                 }}
@@ -487,7 +487,7 @@ export function Sidebar() {
             return (
               <div key={item.href}>
                 {link}
-                {item.href === "/" ? (
+                {item.href === "/home" ? (
                   <AssetsChatsSection open={isCreateRoute} />
                 ) : null}
               </div>

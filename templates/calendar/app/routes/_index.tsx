@@ -1,4 +1,5 @@
-import CalendarView from "@/pages/CalendarView";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 const SEO_TITLE =
   "Calendar - Open Source AI scheduling and Google Calendar automation";
@@ -20,6 +21,14 @@ export function meta() {
   ];
 }
 
-export default function IndexRoute() {
-  return <CalendarView />;
+export default function MarketingHomeRoute() {
+  return (
+    <MarketingHome
+      appName="Calendar"
+      tagline={SEO_TITLE}
+      description={SEO_DESCRIPTION}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
+  );
 }

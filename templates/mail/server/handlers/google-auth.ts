@@ -188,7 +188,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       }
     }
     const requestedReturn =
-      typeof q.return === "string" ? safeReturnPath(q.return) : "/";
+      typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
     // Use the named-arg overload — the positional form smuggled `flowId`
     // into the `returnUrl` slot in earlier revisions, which broke desktop

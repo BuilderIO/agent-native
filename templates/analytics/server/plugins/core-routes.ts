@@ -14,9 +14,9 @@ export default createCoreRoutesPlugin({
     if (params.analysisId) return `/analyses/${params.analysisId}`;
     if (view === "analyses") return "/dashboards";
     // `adhoc`/unknown with no id: there is no bare `/dashboards` record route —
-    // send to the app root rather than 404 (the polled `navigate` command
+    // send to the private app home rather than 404 (the polled `navigate` command
     // still applies any record focus once the SPA is loaded).
-    if (view === "adhoc") return "/";
+    if (view === "adhoc") return "/home";
     return null;
   },
 });

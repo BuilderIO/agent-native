@@ -2,7 +2,7 @@
   "name": "Forms",
   "short_name": "Forms",
   "description": "Form builder",
-  "start_url": ".",
+  "start_url": "./home",
   "background_color": "#111111",
   "theme_color": "#06B6D4",
   "icons": [

@@ -12,8 +12,8 @@ export default createCoreRoutesPlugin({
   // the polled `navigate` command applies record focus.
   resolveOpenPath: ({ view, params }) => {
     if (params.documentId) return `/page/${params.documentId}`;
-    if (view === "editor") return "/";
-    if (view === "list") return "/";
+    if (view === "editor") return "/home";
+    if (view === "list") return "/home";
     return null;
   },
 });

@@ -215,6 +215,20 @@
       "import": "./dist/hooks/*.js",
       "default": "./dist/hooks/*.js"
     },
+    "./marketing": {
+      "types": "./dist/marketing/index.d.ts",
+      "browser": "./dist/marketing/index.js",
+      "development": "./dist/marketing/index.js",
+      "import": "./dist/marketing/index.js",
+      "default": "./dist/marketing/index.js"
+    },
+    "./marketing/*": {
+      "types": "./dist/marketing/*.d.ts",
+      "browser": "./dist/marketing/*.js",
+      "development": "./dist/marketing/*.js",
+      "import": "./dist/marketing/*.js",
+      "default": "./dist/marketing/*.js"
+    },
     "./onboarding": {
       "types": "./dist/onboarding/index.d.ts",
       "browser": "./dist/onboarding/index.js",

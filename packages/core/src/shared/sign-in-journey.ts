@@ -216,7 +216,7 @@ function createSignInJourneyRuntime(basePath: string) {
   }
 
   function homeHref(): string {
-    return base || "/";
+    return base + "/home";
   }
 
   function signInJourney(input: {

@@ -21,6 +21,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -161,11 +162,23 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <DbSyncSetup />
-        <AppContent />
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isMarketingPath}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        {isMarketingPath ? (
+          <Outlet />
+        ) : (
+          <>
+            <DbSyncSetup />
+            <AppContent />
+          </>
+        )}
       </AppProviders>
     </AppToolkitProvider>
   );

@@ -642,6 +642,28 @@ export default (event) =>
     expect(redirect.headers.get("location")).toBe("/docs/login");
   });
 
+  it("injects the auth handoff into the public root only", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const rootResponse = await worker.fetch(
+      new Request("https://app.test/"),
+      {},
+      {},
+    );
+    expect(await rootResponse.text()).toContain(
+      "data-agent-native-auth-redirect",
+    );
+
+    const appResponse = await worker.fetch(
+      new Request("https://app.test/home"),
+      {},
+      {},
+    );
+    expect(await appResponse.text()).not.toContain(
+      "data-agent-native-auth-redirect",
+    );
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
