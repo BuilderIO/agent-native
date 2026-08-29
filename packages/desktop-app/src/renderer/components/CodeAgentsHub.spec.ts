@@ -619,8 +619,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       shouldShowNativeDesktopIntegrations({
         appId: "dispatch",
         path: "/integrations",
+        appAuthState: "unknown",
       }),
     ).toBe(true);
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "authenticated",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "unauthenticated",
+      }),
+    ).toBe(false);
     expect(
       shouldShowNativeDesktopIntegrations({
         appId: "calendar",
