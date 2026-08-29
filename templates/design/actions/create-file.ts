@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
@@ -26,7 +27,7 @@ export default defineAction({
       .default("html")
       .describe("Type of file"),
   }),
-  run: async ({ designId, filename, content, fileType }) => {
+  run: async ({ designId, filename, content, fileType }, context) => {
     // Path traversal guard
     if (
       filename.includes("..") ||
@@ -37,6 +38,7 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
 

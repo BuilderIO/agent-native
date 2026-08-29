@@ -54,6 +54,10 @@ const messages: AgentChatTranslation = {
     "有効な Builder.io 無料クレジットに含まれるもの",
   "onboarding.builderCredits": "Builder.io 無料クレジットに含まれるもの",
   "onboarding.builderActivateTitle": "無料クレジットを有効化",
+  "onboarding.builderAccountExistsTitle":
+    "Builder.io アカウントをすでにお持ちです",
+  "onboarding.builderAccountExistsDescription":
+    "接続するにはログインしてください。",
   "onboarding.builderActivationDescription":
     "ワンクリックで Builder.io アカウントを自動的に作成します。",
   "onboarding.builderCreateAndActivate": "作成して有効化",

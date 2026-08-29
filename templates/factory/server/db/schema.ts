@@ -218,6 +218,7 @@ export const factoryGraphVersions = table(
     changeSummary: text("change_summary").notNull().default(""),
     createdAt: text("created_at").notNull().default(now()),
     createdBy: text("created_by").notNull(),
+    chatContext: text("chat_context"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
   },

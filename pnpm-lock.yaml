@@ -1269,6 +1269,9 @@ importers:
       electron-updater:
         specifier: ^6.8.3
         version: 6.8.9
+      node-pty:
+        specifier: ^1.1.0
+        version: 1.1.0
       react-router:
         specifier: ^8.3.0
         version: 8.3.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

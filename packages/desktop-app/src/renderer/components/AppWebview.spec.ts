@@ -27,7 +27,6 @@ import {
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
-  shouldShowDesktopIdentityRecovery,
   shouldUseDesktopIdentityGate,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
@@ -98,6 +97,14 @@ describe("Desktop identity lazy child synchronization", () => {
         status: "idle",
       }),
     ).toBe(false);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: false,
+        status: "failed",
+      }),
+    ).toBe(false);
   });
 
   it("keeps the chat handoff pending until child synchronization completes", () => {
@@ -134,41 +141,6 @@ describe("Desktop identity lazy child synchronization", () => {
         eligible: true,
         active: false,
         enabled: null,
-      }),
-    ).toBe(false);
-  });
-
-  it("shows child-local recovery when app session synchronization fails", () => {
-    expect(
-      shouldShowDesktopIdentityRecovery({
-        eligible: true,
-        active: true,
-        showDesktopIdentityGate: false,
-        status: "failed",
-      }),
-    ).toBe(true);
-    expect(
-      shouldShowDesktopIdentityRecovery({
-        eligible: true,
-        active: true,
-        showDesktopIdentityGate: false,
-        status: "sign-in-required",
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowDesktopIdentityRecovery({
-        eligible: true,
-        active: false,
-        showDesktopIdentityGate: false,
-        status: "failed",
-      }),
-    ).toBe(false);
-    expect(
-      shouldShowDesktopIdentityRecovery({
-        eligible: true,
-        active: true,
-        showDesktopIdentityGate: true,
-        status: "failed",
       }),
     ).toBe(false);
   });
@@ -1011,6 +983,9 @@ describe("AppWebview auth state", () => {
     expect(buildGuestAuthStateProbeScript()).toContain(
       "authenticated === true",
     );
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      'window.location.protocol !== "http:"',
+    );
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },
@@ -1092,7 +1067,7 @@ describe("AppWebview auth state", () => {
 
   it("reports only native sign-in gate states as unauthenticated", () => {
     expect(isDesktopIdentityGateUnauthenticated("sign-in-required")).toBe(true);
-    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("checking")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("signed-in")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("idle")).toBe(false);
@@ -1479,5 +1454,59 @@ describe("Recovering from a slow app load", () => {
 
     expect(container.textContent).not.toContain("Mail isn't loading");
     expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
+  });
+
+  it("loads the app URL instead of leaving an eligible app on about:blank after identity sync fails", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "failed"),
+          ensureAppSession: vi.fn(async () => false),
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+
+    root = createRoot(container);
+
+    const app: AppDefinition = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig: AppConfig = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      url: "https://mail.agent-native.com",
+      devPort: 3000,
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod",
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    expect(webview?.getAttribute("src")).toContain(
+      "https://mail.agent-native.com",
+    );
+    expect(webview?.getAttribute("src")).not.toBe("about:blank");
   });
 });

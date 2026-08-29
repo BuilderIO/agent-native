@@ -34,6 +34,7 @@ import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { useCreateMcpServer } from "../resources/use-mcp-servers.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
   fetchAgentEngineConfiguredState,
@@ -82,6 +83,7 @@ const coreComposerAdapters: Omit<ComposerRuntimeAdapters, "translate"> = {
   },
   builder: {
     useConnectFlow: useBuilderConnectFlow,
+    BuilderConnectPopover,
     tryDelegateBuildRequest: tryDelegateBuildRequestToBuilder,
     isTrustedBuilderMessage,
     isTrustedFrameMessage,

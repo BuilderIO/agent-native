@@ -15,6 +15,22 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("desktop passive-access regressions", () => {
+  it("reloads the packaged shell from its entry file after SPA route changes", () => {
+    const main = source("./index.ts");
+    const createWindow = between(
+      main,
+      "function createWindow(): BrowserWindow {",
+      "// ---------- DevTools: target the active app webview ----------",
+    );
+
+    expect(createWindow).toContain('win.webContents.on("will-navigate"');
+    expect(createWindow).toContain('"did-fail-load"');
+    expect(createWindow).toContain('protocol !== "file:"');
+    expect(createWindow).toContain("event.preventDefault();");
+    expect(createWindow).toContain("loadDesktopRenderer(win);");
+    expect(main).toContain("function desktopRendererEntryPath(): string");
+  });
+
   it("keeps remote status read-only", () => {
     // The Agent-Native Code IPC handlers live in ./ipc/code-agents.ts.
     const codeAgentsIpc = source("./ipc/code-agents.ts");
@@ -287,7 +303,7 @@ describe("desktop passive-access regressions", () => {
       "const requestedName = requestedDesktopAppName(prompt);",
     );
     expect(creation).toContain("requestedName ??");
-    expect(main).toContain("includeWorkspaceApps: !isDesktopAppCreation");
+    expect(main).toContain("includeWorkspaceApps: true");
   });
 
   it("only marks the local Codex provider configured after authentication", () => {

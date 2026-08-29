@@ -17,7 +17,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Settings section to open, such as drafting, automations, gmail-filters, aliases, tracking, slack, or team",
+        "Settings section to open, such as drafting, automations, ai-filter, gmail-filters, aliases, tracking, slack, or team",
       ),
     queuedDraftId: z
       .string()

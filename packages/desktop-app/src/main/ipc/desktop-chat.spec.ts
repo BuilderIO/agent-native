@@ -19,6 +19,7 @@ import {
   desktopTerminalInfo,
   resolveTargetUrl,
   shouldForwardRequestHeader,
+  shouldForwardResponseHeader,
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
@@ -71,5 +72,14 @@ describe("desktop chat relay target URLs", () => {
         new Set(["connection", "x-internal"]),
       ),
     ).toBe(false);
+  });
+
+  it("drops stale compression and length headers from proxied responses", () => {
+    expect(shouldForwardResponseHeader("content-encoding", "gzip")).toBe(false);
+    expect(shouldForwardResponseHeader("content-length", "123")).toBe(false);
+    expect(shouldForwardResponseHeader("transfer-encoding", "chunked")).toBe(
+      false,
+    );
+    expect(shouldForwardResponseHeader("cache-control", "no-store")).toBe(true);
   });
 });

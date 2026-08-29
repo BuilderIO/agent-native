@@ -518,6 +518,11 @@ const migrations = [
       await reconcileDefaultFactoryConfigRows();
     },
   },
+  {
+    version: 26,
+    name: "factory-graph-version-chat-context",
+    sql: "ALTER TABLE factory_graph_versions ADD COLUMN chat_context TEXT",
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

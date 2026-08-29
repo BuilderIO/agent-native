@@ -20,6 +20,7 @@ import {
   IconVolume,
 } from "@tabler/icons-react";
 import {
+  type ComponentType,
   type MouseEvent,
   useCallback,
   useEffect,
@@ -41,6 +42,10 @@ import {
   createRealtimeVoiceAudioLevelStore,
   type RealtimeVoiceAudioLevelStore,
 } from "./realtime-voice-audio-level.js";
+import type {
+  ComposerBuilderConnectFlow,
+  ComposerBuilderConnectPopoverProps,
+} from "./runtime-adapters.js";
 
 export type RealtimeVoiceModeState =
   | "connecting"
@@ -120,7 +125,9 @@ export interface RealtimeVoiceModeEntryProps {
   setupRequired?: boolean;
   openAiConfigured?: boolean;
   connectingBuilder?: boolean;
-  onConnectBuilder?: () => void;
+  onConnectBuilder?: (options?: { provisionAccount?: boolean }) => void;
+  builderConnectFlow?: ComposerBuilderConnectFlow;
+  builderConnectPopover?: ComponentType<ComposerBuilderConnectPopoverProps>;
   onUseOpenAiKey?: () => void;
   className?: string;
 }
@@ -146,6 +153,8 @@ export function RealtimeVoiceModeEntry({
   openAiConfigured = false,
   connectingBuilder = false,
   onConnectBuilder,
+  builderConnectFlow,
+  builderConnectPopover: BuilderConnectPopover,
   onUseOpenAiKey,
   className,
 }: RealtimeVoiceModeEntryProps) {
@@ -272,22 +281,49 @@ export function RealtimeVoiceModeEntry({
           >
             {setupRequired ? (
               <>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="w-full justify-start px-3"
-                  disabled={connectingBuilder}
-                  onClick={() =>
-                    choose("realtime", onConnectBuilder ?? onStartVoiceMode)
-                  }
-                >
-                  {connectingBuilder ? (
-                    <IconLoader2 className="animate-spin" />
-                  ) : (
-                    <IconPlugConnected aria-hidden="true" />
-                  )}
-                  {copy.connectBuilder}
-                </Button>
+                {BuilderConnectPopover && builderConnectFlow ? (
+                  <BuilderConnectPopover
+                    flow={builderConnectFlow}
+                    onConnect={(provisionAccount) =>
+                      choose("realtime", () =>
+                        onConnectBuilder
+                          ? onConnectBuilder({ provisionAccount })
+                          : onStartVoiceMode(),
+                      )
+                    }
+                  >
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full justify-start px-3"
+                      disabled={connectingBuilder}
+                    >
+                      {connectingBuilder ? (
+                        <IconLoader2 className="animate-spin" />
+                      ) : (
+                        <IconPlugConnected aria-hidden="true" />
+                      )}
+                      {copy.connectBuilder}
+                    </Button>
+                  </BuilderConnectPopover>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="w-full justify-start px-3"
+                    disabled={connectingBuilder}
+                    onClick={() =>
+                      choose("realtime", onConnectBuilder ?? onStartVoiceMode)
+                    }
+                  >
+                    {connectingBuilder ? (
+                      <IconLoader2 className="animate-spin" />
+                    ) : (
+                      <IconPlugConnected aria-hidden="true" />
+                    )}
+                    {copy.connectBuilder}
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="outline"

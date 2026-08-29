@@ -53,6 +53,8 @@ const messages: AgentChatTranslation = {
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
+  "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
+  "onboarding.builderAccountExistsDescription": "연결하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",

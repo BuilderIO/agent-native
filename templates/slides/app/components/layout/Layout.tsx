@@ -1,4 +1,9 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import {
+  AgentSidebar,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
@@ -89,6 +94,34 @@ export function Layout({ children }: LayoutProps) {
       contextKey: "slides-current-context",
     };
   }, [location.pathname, slidesSelection, t]);
+  const deckChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!deckScope) return undefined;
+    const deckId = deckScope.id;
+    return {
+      list: {
+        action: "list-deck-versions",
+        args: { deckId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-deck-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          deckId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [deckScope]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -136,6 +169,7 @@ export function Layout({ children }: LayoutProps) {
           t("agent.suggestionHero"),
         ]}
         scope={deckScope}
+        chatHistory={deckChatHistory}
         browserTabId={TAB_ID}
         agentPageHref="/settings/agent"
         suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}

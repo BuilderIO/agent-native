@@ -57,6 +57,10 @@ const messages: AgentChatTranslation = {
     "In aktiven Builder.io-Gratiscredits enthalten",
   "onboarding.builderCredits": "In Builder.io-Gratiscredits enthalten",
   "onboarding.builderActivateTitle": "Gratiscredits aktivieren",
+  "onboarding.builderAccountExistsTitle":
+    "Du hast bereits ein Builder.io-Konto",
+  "onboarding.builderAccountExistsDescription":
+    "Melde dich an, um es zu verbinden.",
   "onboarding.builderActivationDescription":
     "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
