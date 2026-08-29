@@ -662,8 +662,7 @@ jobs:
         id: previous
         if: >-
           inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template != '@agent-native/docs' &&
-          steps.target.outputs.source_template != 'macros'
+          steps.target.outputs.source_template != '@agent-native/docs'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -821,8 +820,9 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
           echo "Health check passed: ${url%/}/_agent-native/health"
 
-      # The active managed client is observable only from the live host, so this
-      # is a post-publish verification. If Google rejects the callback, the
+      # The active managed client and its capability are observable only from
+      # the live host, so this is a post-publish verification. If the declared
+      # managed callback is unregistered or the check is inconclusive, the
       # immediately following step restores the deploy captured above before
       # leaving the job failed. Draft deploy URLs are intentionally excluded
       # because they are not registered OAuth origins.
@@ -830,14 +830,13 @@ jobs:
         id: google_redirect
         if: >-
           inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template != '@agent-native/docs' &&
-          steps.target.outputs.source_template != 'macros'
+          steps.target.outputs.source_template != '@agent-native/docs'
         continue-on-error: true
         env:
           HOST: ${{ steps.target.outputs.host }}
         run: |
           set +e
-          pnpm check:google-redirect-uris -- --host "$HOST" --paths auto
+          node --experimental-strip-types scripts/check-google-redirect-uris.ts --host "$HOST" --paths auto
           status=$?
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
           exit "$status"
@@ -845,7 +844,7 @@ jobs:
       - name: Roll back after Google callback verification failure
         if: >-
           steps.google_redirect.outcome == 'failure' &&
-          steps.google_redirect.outputs.exit_code == '1'
+          steps.google_redirect.outputs.exit_code != '0'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}

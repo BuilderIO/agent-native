@@ -39,9 +39,10 @@ export interface GoogleCredentialCheck {
    * the provider; `preferred` means auth had not initialised yet and this fell
    * back to the preferred pair; `managed` is the deployment-level pair used by
    * the unauthenticated workspace OAuth health contract; `user` means the app
-   * intentionally resolves a user-scoped pair after sign-in.
+   * intentionally resolves a user-scoped pair after sign-in; `none` means the
+   * app declared that it does not expose deployment-level Google OAuth.
    */
-  credentialSource: "active" | "preferred" | "managed" | "user";
+  credentialSource: "active" | "preferred" | "managed" | "user" | "none";
   /** Google's `error` field, or the transport failure, when there was one. */
   reason: string | null;
   checkedAt: number;
