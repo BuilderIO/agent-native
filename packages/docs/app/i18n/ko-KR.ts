@@ -63,6 +63,7 @@ const koKR = {
     dialogLabel: "문서 검색",
     placeholder: "문서 검색...",
     empty: "입력해서 모든 문서를 검색하세요",
+    toggleChatSidebar: "채팅 사이드바 전환",
     loadError: "검색을 불러오지 못했습니다. 다시 시도해 주세요.",
     retry: "다시 시도",
     noResults: "“{{query}}”에 대한 결과가 없습니다",

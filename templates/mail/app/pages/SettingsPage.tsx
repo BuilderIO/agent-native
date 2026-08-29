@@ -90,6 +90,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { isMailFrameworkAutomation } from "@/lib/automation-visibility";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -732,6 +733,7 @@ function AutomationRow({
 interface FrameworkTrigger {
   id: string;
   name: string;
+  appId?: string;
   triggerType: string;
   event?: string;
   condition?: string;
@@ -752,12 +754,7 @@ function TriggersSubsection() {
       const res = await fetch(agentNativePath("/_agent-native/automations"));
       if (!res.ok) return [];
       const all: FrameworkTrigger[] = await res.json();
-      // Filter to mail domain triggers only (event-based)
-      return all.filter(
-        (t) =>
-          t.domain === "mail" ||
-          (t.triggerType === "event" && t.event && t.event.startsWith("mail.")),
-      );
+      return all.filter(isMailFrameworkAutomation);
     },
     staleTime: 30_000,
   });

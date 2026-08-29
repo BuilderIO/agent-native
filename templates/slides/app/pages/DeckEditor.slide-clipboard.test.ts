@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
@@ -13,6 +14,7 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
+  isSourceImportedDeck,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
   syncSlideContentSnapshots,
 } from "./DeckEditor";
@@ -85,6 +87,30 @@ describe("slide paste fallback", () => {
       }
     };
   }, [activeSlideId, id]);`);
+});
+});
+
+describe("source-imported deck structure", () => {
+  it("recognizes source-preserving import metadata", () => {
+    expect(
+      isSourceImportedDeck({
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pptx",
+          slides: [],
+        },
+      } as unknown as Deck),
+    ).toBe(true);
+  });
+
+  it("does not block ordinary or malformed deck metadata", () => {
+    expect(isSourceImportedDeck(null)).toBe(false);
+    expect(isSourceImportedDeck(undefined)).toBe(false);
+    expect(
+      isSourceImportedDeck({
+        sourceImport: { mode: "source-preserving", format: "pptx" },
+      } as unknown as Deck),
+    ).toBe(false);
   });
 });
 

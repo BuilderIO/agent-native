@@ -581,6 +581,33 @@ export function EventDetailPopover({
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
+  const detailsScrollRef = useRef<HTMLDivElement>(null);
+  const actionPendingRef = useRef(false);
+  const [actionPending, setActionPending] = useState(false);
+
+  const beginAction = useCallback(() => {
+    if (
+      actionPendingRef.current ||
+      updateEvent.isPending ||
+      connectZoom.isPending
+    ) {
+      return false;
+    }
+    actionPendingRef.current = true;
+    setActionPending(true);
+    return true;
+  }, [connectZoom.isPending, updateEvent.isPending]);
+
+  const endAction = useCallback(() => {
+    actionPendingRef.current = false;
+    setActionPending(false);
+  }, []);
+
+  const mutationPending =
+    actionPending ||
+    updateEvent.isPending ||
+    connectZoom.isPending ||
+    pendingVideoProvider !== null;
 
   useEffect(() => {
     setSelectedAccountEmail(event.accountEmail);
@@ -599,35 +626,52 @@ export function EventDetailPopover({
       ) {
         return;
       }
+      if (!beginAction()) return;
 
       setSelectedAccountEmail(targetAccountEmail);
       void (async () => {
-        const guestNotification = await promptGuestNotification({
-          event,
-          action: "update",
-        });
-        if (!guestNotification) {
-          setSelectedAccountEmail(event.accountEmail);
-          return;
-        }
-        updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            targetAccountEmail,
-            ...guestNotification,
-          },
-          {
-            onSuccess: () => toast.success(t("eventForm.eventUpdated")),
-            onError: () => {
-              setSelectedAccountEmail(event.accountEmail);
-              toast.error(t("eventForm.updateFailed"));
+        try {
+          const guestNotification = await promptGuestNotification({
+            event,
+            action: "update",
+          });
+          if (!guestNotification) {
+            setSelectedAccountEmail(event.accountEmail);
+            endAction();
+            return;
+          }
+          updateEvent.mutate(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              targetAccountEmail,
+              ...guestNotification,
             },
-          },
-        );
+            {
+              onSuccess: () => toast.success(t("eventForm.eventUpdated")),
+              onError: () => {
+                setSelectedAccountEmail(event.accountEmail);
+                toast.error(t("eventForm.updateFailed"));
+              },
+              onSettled: endAction,
+            },
+          );
+        } catch {
+          setSelectedAccountEmail(event.accountEmail);
+          endAction();
+        }
       })();
     },
-    [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent],
+    [
+      beginAction,
+      endAction,
+      event,
+      isDraft,
+      onDraftUpdate,
+      promptGuestNotification,
+      t,
+      updateEvent,
+    ],
   );
 
   // Sync editing state when the event changes (incl. live agent/other-user
@@ -722,6 +766,17 @@ export function EventDetailPopover({
       ? event.visibility
       : "default";
   const reminderValue = getReminderValue(event);
+
+  useEffect(() => {
+    if (!showMoreOptions) return;
+    const container = detailsScrollRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showMoreOptions]);
+
   // Save a field update
   const saveField = useCallback(
     (updates: EventUpdatePatch) => {
@@ -731,32 +786,50 @@ export function EventDetailPopover({
         onDraftUpdate?.(event.id, draftUpdates);
         return true;
       }
+      if (!beginAction()) return false;
       void (async () => {
-        const { scope: _scope, addAttendees, ...notificationUpdates } = updates;
-        const promptUpdates = addAttendees
-          ? {
-              ...notificationUpdates,
-              attendees: mergeAttendeesForPrompt(event.attendees, addAttendees),
-            }
-          : notificationUpdates;
-        const shouldChooseGuestScope =
-          isRecurringEvent &&
-          ("attendees" in updates || "addAttendees" in updates);
-        const guestNotification = await promptGuestNotification({
-          event,
-          action: "update",
-          updates: promptUpdates,
-          recurrenceScope: shouldChooseGuestScope
-            ? { enabled: true, defaultScope: "single" }
-            : undefined,
-        });
-        if (!guestNotification) return;
-        updateEvent.mutate({
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        });
+        try {
+          const {
+            scope: _scope,
+            addAttendees,
+            ...notificationUpdates
+          } = updates;
+          const promptUpdates = addAttendees
+            ? {
+                ...notificationUpdates,
+                attendees: mergeAttendeesForPrompt(
+                  event.attendees,
+                  addAttendees,
+                ),
+              }
+            : notificationUpdates;
+          const shouldChooseGuestScope =
+            isRecurringEvent &&
+            ("attendees" in updates || "addAttendees" in updates);
+          const guestNotification = await promptGuestNotification({
+            event,
+            action: "update",
+            updates: promptUpdates,
+            recurrenceScope: shouldChooseGuestScope
+              ? { enabled: true, defaultScope: "single" }
+              : undefined,
+          });
+          if (!guestNotification) {
+            endAction();
+            return;
+          }
+          updateEvent.mutate(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            { onSettled: endAction },
+          );
+        } catch {
+          endAction();
+        }
       })();
       return true;
     },
@@ -764,6 +837,8 @@ export function EventDetailPopover({
       event,
       isDraft,
       isRecurringEvent,
+      beginAction,
+      endAction,
       onDraftUpdate,
       promptGuestNotification,
       updateEvent,
@@ -826,33 +901,52 @@ export function EventDetailPopover({
       onDraftUpdate?.(event.id, { addGoogleMeet: true, addZoom: false });
       return;
     }
+    if (!beginAction()) return;
     setPendingVideoProvider("meet");
     void (async () => {
-      const updates = { addGoogleMeet: true };
-      const guestNotification = await promptGuestNotification({
-        event,
-        action: "update",
-        updates,
-      });
-      if (!guestNotification) {
+      try {
+        const updates = { addGoogleMeet: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast(t("eventForm.googleMeetAdded")),
+            onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
+            onSettled: () => {
+              setPendingVideoProvider(null);
+              endAction();
+            },
+          },
+        );
+      } catch {
         setPendingVideoProvider(null);
-        return;
+        endAction();
       }
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
-        {
-          onSuccess: () => toast(t("eventForm.googleMeetAdded")),
-          onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
     })();
-  }, [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent]);
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
 
   const addZoomToConnectedEvent = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -862,38 +956,57 @@ export function EventDetailPopover({
       return;
     }
 
+    if (!beginAction()) return;
     setPendingVideoProvider("zoom");
     void (async () => {
-      const updates = { addZoom: true };
-      const guestNotification = await promptGuestNotification({
-        event,
-        action: "update",
-        updates,
-      });
-      if (!guestNotification) {
+      try {
+        const updates = { addZoom: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast(t("eventForm.zoomAdded")),
+            onError: (error) =>
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : t("eventForm.zoomAddFailed"),
+              ),
+            onSettled: () => {
+              setPendingVideoProvider(null);
+              endAction();
+            },
+          },
+        );
+      } catch {
         setPendingVideoProvider(null);
-        return;
+        endAction();
       }
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
-        {
-          onSuccess: () => toast(t("eventForm.zoomAdded")),
-          onError: (error) =>
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : t("eventForm.zoomAddFailed"),
-            ),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
     })();
-  }, [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent]);
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
 
   useEffect(() => {
     if (
@@ -928,6 +1041,7 @@ export function EventDetailPopover({
       toast.error(t("eventForm.zoomNotConfiguredDeployment"));
       return;
     }
+    if (!beginAction()) return;
 
     setZoomAfterConnectEventId(event.id);
     setStoredZoomAfterConnectEventId(event.id);
@@ -942,10 +1056,13 @@ export function EventDetailPopover({
             : t("eventForm.zoomConnectFailed"),
         );
       },
+      onSettled: endAction,
     });
   }, [
     addZoomToConnectedEvent,
+    beginAction,
     connectZoom,
+    endAction,
     event,
     t,
     updateEvent,
@@ -1016,11 +1133,13 @@ export function EventDetailPopover({
         onDraftUpdate?.(event.id, draftUpdate);
         return;
       }
+      if (!beginAction()) return;
       updateEvent.mutate(update, {
         onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        onSettled: endAction,
       });
     },
-    [event, isDraft, onDraftUpdate, t, updateEvent],
+    [beginAction, endAction, event, isDraft, onDraftUpdate, t, updateEvent],
   );
 
   const saveTimeValues = useCallback(
@@ -1573,6 +1692,7 @@ export function EventDetailPopover({
                       className="size-7 text-muted-foreground hover:text-foreground"
                       aria-label={t("eventForm.eventOptions")}
                       aria-expanded={showMoreOptions}
+                      aria-controls={`event-more-options-${event.id}`}
                       onClick={() => setShowMoreOptions((current) => !current)}
                     >
                       <IconDots className="size-4" />
@@ -1612,7 +1732,7 @@ export function EventDetailPopover({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto">
+          <div ref={detailsScrollRef} className="flex-1 overflow-y-auto">
             <div className="px-4 pt-4 pb-1">
               {/* Title — always editable */}
               {isEditingTitle && !isWorkingLocation ? (
@@ -1680,7 +1800,7 @@ export function EventDetailPopover({
                     isDraft ? event.accountEmail : selectedAccountEmail
                   }
                   onAccountChange={handleAccountChange}
-                  disabled={updateEvent.isPending}
+                  disabled={mutationPending}
                 />
               )}
 
@@ -1694,7 +1814,7 @@ export function EventDetailPopover({
                         id={`working-location-all-day-${event.id}`}
                         checked={event.allDay}
                         onCheckedChange={handleWorkingLocationAllDayChange}
-                        disabled={updateEvent.isPending}
+                        disabled={mutationPending}
                       />
                       <Label
                         htmlFor={`working-location-all-day-${event.id}`}
@@ -1823,6 +1943,7 @@ export function EventDetailPopover({
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1.5 px-2 text-xs"
+                    disabled={mutationPending}
                     onClick={() => setFindTimeOpen(true)}
                   >
                     <IconCalendarTime className="h-3.5 w-3.5" />
@@ -1859,7 +1980,7 @@ export function EventDetailPopover({
                   isRecurring={isRecurringEvent}
                   isDraft={isDraft}
                   readOnly={isOverlay}
-                  disabled={updateEvent.isPending}
+                  disabled={mutationPending}
                   onSave={handleSaveWorkingLocation}
                 />
               )}
@@ -2037,7 +2158,7 @@ export function EventDetailPopover({
                             variant="outline"
                             size="sm"
                             className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                            disabled={updateEvent.isPending}
+                            disabled={mutationPending}
                             onClick={handleAddGoogleMeet}
                           >
                             <IconVideo className="h-3.5 w-3.5" />
@@ -2048,9 +2169,7 @@ export function EventDetailPopover({
                             variant="outline"
                             size="sm"
                             className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                            disabled={
-                              updateEvent.isPending || connectZoom.isPending
-                            }
+                            disabled={mutationPending}
                             onClick={handleAddZoom}
                           >
                             <IconBrandZoom className="h-3.5 w-3.5" />
@@ -2120,6 +2239,7 @@ export function EventDetailPopover({
                         <Button
                           size="sm"
                           className="h-6 text-xs"
+                          disabled={mutationPending}
                           onClick={handleSaveAttachments}
                         >
                           {t("eventForm.save")}
@@ -2373,6 +2493,7 @@ export function EventDetailPopover({
                       <Button
                         size="sm"
                         className="h-6 text-xs"
+                        disabled={mutationPending}
                         onClick={handleSaveReminders}
                       >
                         {t("eventForm.save")}
@@ -2402,7 +2523,10 @@ export function EventDetailPopover({
                 showMoreOptions ? (
                   <>
                     <div className="mx-4 my-2 border-t border-border/50" />
-                    <div className="px-4 py-1.5">
+                    <div
+                      id={`event-more-options-${event.id}`}
+                      className="px-4 py-1.5"
+                    >
                       <div className="grid grid-cols-3 gap-2">
                         <div className="space-y-1">
                           <span className="text-[10px] text-muted-foreground">
@@ -2415,7 +2539,7 @@ export function EventDetailPopover({
                                 value as AvailabilityValue,
                               )
                             }
-                            disabled={updateEvent.isPending}
+                            disabled={mutationPending}
                           >
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
@@ -2439,7 +2563,7 @@ export function EventDetailPopover({
                             onValueChange={(value) =>
                               handleVisibilityChange(value as VisibilityValue)
                             }
-                            disabled={updateEvent.isPending}
+                            disabled={mutationPending}
                           >
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
@@ -2466,7 +2590,7 @@ export function EventDetailPopover({
                             onValueChange={(value) =>
                               handleReminderChange(value as ReminderValue)
                             }
-                            disabled={updateEvent.isPending}
+                            disabled={mutationPending}
                           >
                             <SelectTrigger className="h-8 text-xs">
                               <SelectValue />
@@ -2542,6 +2666,7 @@ export function EventDetailPopover({
                 variant="ghost"
                 size="sm"
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
+                disabled={mutationPending}
                 onClick={() => {
                   if (isDraft) onDraftDiscard?.(event.id);
                   else onDelete(event.id);

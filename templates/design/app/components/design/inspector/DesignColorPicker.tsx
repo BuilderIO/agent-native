@@ -231,6 +231,8 @@ export interface DesignColorPickerProps {
   /** Notified when a shader fill is applied/tuned (descriptor + CSS fallback). */
   onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
   labels?: Partial<DesignColorPickerLabels>;
+  /** Allow Design history chords while the picker owns focus in its portal. */
+  allowDesignHistoryHotkeys?: boolean;
   disabled?: boolean;
   className?: string;
 }
@@ -558,6 +560,7 @@ export function DesignColorPicker({
   glslShaderContext,
   onShaderChange,
   labels,
+  allowDesignHistoryHotkeys = false,
   disabled = false,
   className,
 }: DesignColorPickerProps) {
@@ -1201,6 +1204,9 @@ export function DesignColorPicker({
           align="start"
           sideOffset={8}
           className="z-[10000] w-[252px] p-0 shadow-xl"
+          data-design-history-hotkeys={
+            allowDesignHistoryHotkeys ? "true" : undefined
+          }
           // Keep the picker open when the style change triggered by a paint-type
           // switch causes the canvas to re-project the element. Without this,
           // Radix treats the resulting focus shift as an "interact outside" event
