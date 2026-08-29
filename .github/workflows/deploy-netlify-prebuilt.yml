@@ -915,12 +915,11 @@ jobs:
 
       - name: Fail after Google callback verification
         if: ${{ steps.google_redirect.outcome == 'failure' }}
-        env:
-          PROBE_EXIT_CODE: ${{ steps.google_redirect.outputs.exit_code }}
         run: |
           set -euo pipefail
-          echo "::error::Google OAuth callback verification failed (exit code ${PROBE_EXIT_CODE:-2})."
-          exit "${PROBE_EXIT_CODE:-2}"
+          probe_exit_code="${{ steps.google_redirect.outputs.exit_code }}"
+          echo "::error::Google OAuth callback verification failed (exit code ${probe_exit_code:-2})."
+          exit "${probe_exit_code:-2}"
 
       # An unknown URL must still be storable. When it is not, every dead link
       # and crawler miss re-invokes the render function, and Netlify runs one
