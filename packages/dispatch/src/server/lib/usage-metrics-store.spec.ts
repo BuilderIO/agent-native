@@ -283,6 +283,15 @@ describe("listDispatchUsageMetrics", () => {
         owner: "owner@example.test",
         visibility: "org",
       },
+      {
+        id: "support",
+        name: "Support",
+        path: "/support",
+        status: "ready",
+        isDispatch: false,
+        owner: "other@example.test",
+        visibility: "org",
+      },
     ]);
     mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
       if (sql.includes("SELECT role FROM org_members")) {
@@ -343,6 +352,7 @@ describe("listDispatchUsageMetrics", () => {
       monthlyByUser: [],
       availableUsers: [],
     });
+    expect(metrics.totals.workspaceApps).toBe(2);
     expect(metrics.appAccess[0]).toMatchObject({
       id: "orders",
       ownerEmail: "owner@example.test",

@@ -1160,7 +1160,7 @@ export async function listDispatchUsageMetrics(input: {
       activeUsers: numberField(totals, "active_users"),
       chatThreads: chatThreadTotals.threads,
       chatMessages: chatThreadTotals.messages,
-      workspaceApps: appRows.filter((app) => !app.isDispatch).length,
+      workspaceApps: apps.filter((app) => !app.isDispatch).length,
     },
     byApp,
     byUser:

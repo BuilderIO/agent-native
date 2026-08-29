@@ -829,8 +829,10 @@ function AppAdoptionPanel({
                       {action.label}
                     </span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {formatNumber(action.calls)} actions ·{" "}
-                      {formatNumber(action.activeUsers)} users
+                      {formatNumber(action.calls)}{" "}
+                      {t("dispatch.pages.trackedActions")} ·{" "}
+                      {formatNumber(action.activeUsers)}{" "}
+                      {t("dispatch.pages.activeUsers")}
                     </span>
                   </div>
                 ))}
