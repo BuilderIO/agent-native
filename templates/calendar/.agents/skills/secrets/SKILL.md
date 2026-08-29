@@ -37,23 +37,28 @@ action or startup bootstrap just to write a credential for one organization.
 | --- | --- | --- |
 | `invalid_grant` from a deliberately fake code | Google accepted the client pair and rejected only the code | Do not rotate credentials; check flow state and callback registration |
 | `invalid_client` | Google rejected the client id/secret pair | Verify the exact pair and deployment source before rotating |
-| `redirect_uri_mismatch` | The client, host, callback path, and Google registration disagree | Compare that exact tuple in Google Cloud Console and rebuild build-time config |
+| `redirect_uri_mismatch` | The client, host, callback path, and Google registration disagree | Compare that exact tuple in Google Cloud Console; publish a new deploy if site-scoped or build-time configuration changes |
 
-Do not reason about this from memory. Verify registration with the probe, which
-asks Google directly whether each host's live `(client_id, redirect_uri)` pair
-is registered:
+Do not reason about this from memory. The probe checks both contracts: the
+unqualified `/health/google` endpoint reports the sign-in contract, while
+`/health/google?client=managed` reports deployment-level managed OAuth. It asks
+Google directly whether each live `(client_id, redirect_uri)` pair is
+registered:
 
 ```bash
 pnpm check:google-redirect-uris -- --env all
 ```
 
-That probe reads the **managed** contract only. Sign-in and managed connect
-resolve credentials through different functions: `resolveGoogleSignInCredentials`
-reads `GOOGLE_SIGN_IN_*`, `resolveProviderClientCredentials` reads
-`GOOGLE_CLIENT_*`, and they land on different Google clients on some hosts, so
-a clean probe says nothing about sign-in. This is why per-host verification of
-one flow has repeatedly "confirmed" a fix that changed nothing. Read both
-contracts before changing anything:
+The sign-in health path calls `checkGoogleSignInCredential()`, which prefers
+the active Better Auth pair and otherwise uses `resolveGoogleSignInCredentials()`
+from `packages/core/src/server/google-oauth-credentials.ts`. Managed health
+calls `checkGoogleManagedCredential()`, which resolves
+`["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]` through `resolveSecretPair()` in
+`packages/core/src/server/credential-provider.ts`. App provider handlers use
+`resolveGoogleProviderCredentialCandidatesWithReader()` with `resolveSecret`
+under request context. These are separate flows and can intentionally land on
+different Google clients, so a clean result for one says nothing about the
+other. Read both contracts before changing anything:
 
 ```bash
 curl -s https://HOST/_agent-native/health/google | jq '{clientId,mismatchedPairs,credentialSource}'
@@ -65,9 +70,13 @@ divergence to understand, not damage to undo. Never repair it by rotating a
 secret: writing a fresh value into whichever namespace the failing flow does
 not read verifies clean and changes nothing. Do not collapse the namespaces
 without first confirming which flow uses which client; separate sign-in and
-managed clients on one host can be deliberate. When a credential genuinely
-must change, deployment environment is build-time: the site must be rebuilt
-before the new value is live.
+managed clients on one host can be deliberate. For prebuilt Netlify deploys,
+uploaded Functions read site-scoped secrets at runtime, and the health route
+resolves them per request. The build may receive masked placeholder values.
+After changing a site-scoped env var, publish a new deploy before verifying
+live behavior. Call it a rebuild when the changed value is baked into build
+output or static assets; a runtime-only secret does not need to be baked into
+the bundle.
 
 ## Credential Modeling Preflight
 
