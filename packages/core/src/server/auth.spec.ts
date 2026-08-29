@@ -1390,7 +1390,7 @@ describe("server/auth", () => {
         describeDbError: (error: unknown) => String(error),
       }));
 
-      const { autoMountAuth } = await import("./auth.js");
+      const { autoMountAuth, SESSION_HINT_COOKIE } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -1411,6 +1411,9 @@ describe("server/auth", () => {
         "agent-native-first-run=; Max-Age=0; Domain=.example.com",
       );
       expect(setCookie).toContain("_auth_disabled_opt_out=1");
+      expect(setCookie).toContain(
+        `${SESSION_HINT_COOKIE}=; Max-Age=0; Domain=.example.com`,
+      );
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
@@ -3005,6 +3008,38 @@ describe("server/auth", () => {
       }
     });
 
+    it("serves the public home with the same cached auth document and head handoff", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const getSession = vi.fn(async () => null);
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession,
+        loginHtml:
+          "<!doctype html><html><head><title>QA login</title></head><body>QA login</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/" }));
+
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
+      expectLoginHtmlCacheHeaders(response);
+      const html = await response.text();
+      const handoff = html.indexOf("data-agent-native-auth-redirect");
+      expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
+      expect(handoff).toBeLessThan(html.indexOf("</head>"));
+      expect(handoff).toBeLessThan(html.indexOf("<body>"));
+      expect(getSession).not.toHaveBeenCalled();
+    });
+
     it("promotes omitted verification for explicitly trusted BYOA providers", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -3170,7 +3205,7 @@ describe("server/auth", () => {
 
       const result = await guard(
         createMockEvent({
-          path: "/",
+          path: "/home",
           headers: { host: "dispatch.agent-native.com" },
         }),
       );
@@ -4070,7 +4105,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
 
-      const { autoMountAuth } = await import("./auth.js");
+      const { autoMountAuth, SESSION_HINT_COOKIE } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
 
@@ -4103,6 +4138,9 @@ describe("server/auth", () => {
       });
       expect(event.res.headers.get("set-cookie")).toContain(
         "session-token-abc",
+      );
+      expect(event.res.headers.get("set-cookie")).toContain(
+        `${SESSION_HINT_COOKIE}=1`,
       );
     });
 

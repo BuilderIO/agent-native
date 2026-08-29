@@ -650,9 +650,11 @@ export default (event) =>
       {},
       {},
     );
-    expect(await rootResponse.text()).toContain(
-      "data-agent-native-auth-redirect",
-    );
+    const rootHtml = await rootResponse.text();
+    const handoff = rootHtml.indexOf("data-agent-native-auth-redirect");
+    expect(handoff).toBeGreaterThan(rootHtml.indexOf("<head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("</head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("<body>"));
 
     const appResponse = await worker.fetch(
       new Request("https://app.test/home"),

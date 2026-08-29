@@ -40,6 +40,10 @@ import {
 } from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
+import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "./cookie-namespace.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
@@ -427,7 +431,13 @@ async function rewriteMountedResponse(
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
-      pathname === "/" ? getSsrAuthRedirectScript() : null,
+      pathname === "/"
+        ? getSsrAuthRedirectScript(
+            frameworkSessionHintCookieName(
+              resolveAuthCookieNamespace().frameworkCookieName,
+            ),
+          )
+        : null,
     ]
       .filter(Boolean)
       .join("") || null;
