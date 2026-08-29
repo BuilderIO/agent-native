@@ -1899,28 +1899,6 @@ function SqlDashboardPageContent({
         {dashboardId && (
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
-        {dashboardId && dashboardUpdatedAt && canCertify && !archivedAt ? (
-          <Button
-            size="sm"
-            variant={dashboardCertified ? "secondary" : "outline"}
-            onClick={() => void handleCertify()}
-            disabled={certificationPending}
-            aria-label={t(
-              dashboardCertified
-                ? "sqlDashboard.certifiedForAi"
-                : "sqlDashboard.certifyForAi",
-            )}
-          >
-            <IconShieldCheck className="mr-1 h-4 w-4" />
-            <span className="hidden sm:inline">
-              {t(
-                dashboardCertified
-                  ? "sqlDashboard.certifiedForAi"
-                  : "sqlDashboard.certifyForAi",
-              )}
-            </span>
-          </Button>
-        ) : null}
         {dashboardId ? (
           <ShareButton
             resourceType="dashboard"
@@ -2058,6 +2036,23 @@ function SqlDashboardPageContent({
                   <IconHistory className="mr-2 h-3.5 w-3.5" />
                   {t("dashboard.historyTitle")}
                 </DropdownMenuItem>
+                {dashboardUpdatedAt && canCertify && !archivedAt ? (
+                  <DropdownMenuItem
+                    disabled={dashboardCertified || certificationPending}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDashboardActionsOpen(false);
+                      void handleCertify();
+                    }}
+                  >
+                    <IconShieldCheck className="mr-2 h-3.5 w-3.5" />
+                    {t(
+                      dashboardCertified
+                        ? "sqlDashboard.certifiedForAi"
+                        : "sqlDashboard.certifyForAi",
+                    )}
+                  </DropdownMenuItem>
+                ) : null}
               </>
             ) : null}
             {canArchive && !archivedAt ? (
