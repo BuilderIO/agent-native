@@ -73,6 +73,27 @@ export type GoogleHealthResult = {
   credentialSource: string | null;
 };
 
+export function googleRedirectProbeExitCode(input: {
+  expected: number;
+  unregistered: number;
+  unknown: number;
+  unprobeable: number;
+  invalidCredentials: number;
+  skippedRequired: number;
+}): number {
+  if (input.expected === 0) return 2;
+  if (input.unregistered > 0) return 1;
+  if (
+    input.unknown > 0 ||
+    input.unprobeable > 0 ||
+    input.invalidCredentials > 0 ||
+    input.skippedRequired > 0
+  ) {
+    return 2;
+  }
+  return 0;
+}
+
 type Manifest = Record<string, string[]>;
 
 type Options = {
@@ -643,14 +664,14 @@ async function run(argv: string[]): Promise<number> {
   console.log(
     `\nSummary: hosts=${rows.length} paths=${options.paths.length} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
   );
-  if (expected === 0) return 2;
-  return unregistered ||
-    unknown ||
-    unprobeable ||
-    invalidCredentials ||
-    skippedRequired.length
-    ? 1
-    : 0;
+  return googleRedirectProbeExitCode({
+    expected,
+    unregistered,
+    unknown,
+    unprobeable,
+    invalidCredentials,
+    skippedRequired: skippedRequired.length,
+  });
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : undefined;

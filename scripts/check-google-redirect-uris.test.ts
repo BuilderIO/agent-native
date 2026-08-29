@@ -5,6 +5,7 @@ import {
   callbackPathsForHost,
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
+  googleRedirectProbeExitCode,
 } from "./check-google-redirect-uris.ts";
 
 const redirectUri =
@@ -32,6 +33,31 @@ test("scopes the Slides-owned callback to Slides hosts", () => {
       "/_agent-native/connections/oauth/google_drive/callback",
       googleDocsCallback,
     ],
+  );
+});
+
+test("separates definitive mismatches from inconclusive probe failures", () => {
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 1,
+      unregistered: 1,
+      unknown: 0,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+    }),
+    1,
+  );
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 1,
+      unregistered: 0,
+      unknown: 1,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+    }),
+    2,
   );
 });
 

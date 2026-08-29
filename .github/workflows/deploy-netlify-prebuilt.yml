@@ -832,12 +832,20 @@ jobs:
           inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
           steps.target.outputs.source_template != '@agent-native/docs' &&
           steps.target.outputs.source_template != 'macros'
+        continue-on-error: true
         env:
           HOST: ${{ steps.target.outputs.host }}
-        run: pnpm check:google-redirect-uris -- --host "$HOST" --paths root,google_docs
+        run: |
+          set +e
+          pnpm check:google-redirect-uris -- --host "$HOST" --paths root,google_docs
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Roll back after Google callback verification failure
-        if: ${{ failure() && steps.google_redirect.outcome == 'failure' }}
+        if: >-
+          steps.google_redirect.outcome == 'failure' &&
+          steps.google_redirect.outputs.exit_code == '1'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -904,6 +912,15 @@ jobs:
             process.exitCode = 1;
           });
           NODE
+
+      - name: Fail after Google callback verification
+        if: ${{ steps.google_redirect.outcome == 'failure' }}
+        env:
+          PROBE_EXIT_CODE: ${{ steps.google_redirect.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          echo "::error::Google OAuth callback verification failed (exit code ${PROBE_EXIT_CODE:-2})."
+          exit "${PROBE_EXIT_CODE:-2}"
 
       # An unknown URL must still be storable. When it is not, every dead link
       # and crawler miss re-invokes the render function, and Netlify runs one
