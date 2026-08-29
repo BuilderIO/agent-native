@@ -755,6 +755,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const hasLoadedGuestPageRef = useRef(false);
     const loadFailureRef = useRef(false);
+    const unresponsiveFailureRef = useRef(false);
     const rawUrl = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
       : withUrlParams(
@@ -1333,6 +1334,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (!IS_DEV || optimizeDepRecoveryRef.current) return;
         optimizeDepRecoveryRef.current = true;
         loadFailureRef.current = false;
+        unresponsiveFailureRef.current = false;
         setError(false);
         setTimeout(() => {
           try {
@@ -1458,12 +1460,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           recoverOutdatedOptimizeDep();
           return;
         }
+        unresponsiveFailureRef.current = false;
         reportGuestFailure({
           errorCode,
           errorDescription: description,
         });
       };
       const onCrashed = () => {
+        unresponsiveFailureRef.current = false;
         reportGuestFailure({
           errorDescription: "The app process ended unexpectedly.",
         });
@@ -1471,6 +1475,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const onProcessGone = (e: Event) => {
         const details = e as WebviewProcessGoneEvent;
         if (details.reason === "clean-exit") return;
+        unresponsiveFailureRef.current = false;
         reportGuestFailure({
           errorDescription: `The app process ended (${details.reason || "unknown reason"}).`,
         });
@@ -1480,6 +1485,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
         unresponsiveTimer = setTimeout(() => {
           unresponsiveTimer = undefined;
+          unresponsiveFailureRef.current = true;
           reportGuestFailure({
             errorDescription: "The app stopped responding.",
           });
@@ -1488,6 +1494,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const onResponsive = () => {
         if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
         unresponsiveTimer = undefined;
+        if (unresponsiveFailureRef.current) {
+          unresponsiveFailureRef.current = false;
+          loadFailureRef.current = false;
+          setError(false);
+          setSlowLoad(false);
+          return;
+        }
         if (!loadFailureRef.current) setSlowLoad(false);
       };
       const onConsoleMessage = (e: Event) => {
@@ -1681,6 +1694,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
       loadFailureRef.current = false;
+      unresponsiveFailureRef.current = false;
       setError(false);
 
       if (
@@ -1820,6 +1834,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     function handleRetry() {
       loadFailureRef.current = false;
+      unresponsiveFailureRef.current = false;
       setError(false);
       setIsLoading(true);
       setSlowLoad(false);

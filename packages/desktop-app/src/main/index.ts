@@ -9334,6 +9334,7 @@ const contentFilesWatcherRetryTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+const contentFilesWatcherUnavailable = new Set<string>();
 
 function stopContentFilesWatcher(folderId: string): void {
   const timer = contentFilesChangeTimers.get(folderId);
@@ -9342,6 +9343,7 @@ function stopContentFilesWatcher(folderId: string): void {
   const retryTimer = contentFilesWatcherRetryTimers.get(folderId);
   if (retryTimer) clearTimeout(retryTimer);
   contentFilesWatcherRetryTimers.delete(folderId);
+  contentFilesWatcherUnavailable.delete(folderId);
   contentFilesWatchers.get(folderId)?.close();
   contentFilesWatchers.delete(folderId);
 }
@@ -9411,6 +9413,7 @@ function watchContentFilesGrant(grant: ContentFilesGrant): void {
         }, 120),
       );
     });
+    const wasUnavailable = contentFilesWatcherUnavailable.delete(grant.id);
     watcher.on("error", () => {
       const missing = !resolveUsableContentFolder(grant.path);
       stopContentFilesWatcher(grant.id);
@@ -9419,17 +9422,24 @@ function watchContentFilesGrant(grant: ContentFilesGrant): void {
         emitContentFilesChange(grant.id, true);
         return;
       }
-      emitContentFilesChange(grant.id, missing);
+      if (!contentFilesWatcherUnavailable.has(grant.id)) {
+        contentFilesWatcherUnavailable.add(grant.id);
+        emitContentFilesChange(grant.id, missing);
+      }
       scheduleContentFilesWatcherRetry(grant);
     });
     contentFilesWatchers.set(grant.id, watcher);
+    if (wasUnavailable) emitContentFilesChange(grant.id, false, "attached");
   } catch {
     const missing = !resolveUsableContentFolder(grant.path);
     if (grant.kind === "temporary" && missing) {
       emitContentFilesChange(grant.id, true);
       return;
     }
-    emitContentFilesChange(grant.id, missing);
+    if (!contentFilesWatcherUnavailable.has(grant.id)) {
+      contentFilesWatcherUnavailable.add(grant.id);
+      emitContentFilesChange(grant.id, missing);
+    }
     scheduleContentFilesWatcherRetry(grant);
   }
 }
@@ -9784,8 +9794,11 @@ export function attachTemporaryContentFilesWorkingCopy(
   for (const folderIds of contentFilesChangeSubscribers.values()) {
     folderIds.add(id);
   }
+  const wasUnavailable = contentFilesWatcherUnavailable.has(id);
   watchContentFilesGrant(grant);
-  emitContentFilesChange(id, false, "attached");
+  if (!wasUnavailable && contentFilesWatchers.has(id)) {
+    emitContentFilesChange(id, false, "attached");
+  }
   return grant;
 }
 
