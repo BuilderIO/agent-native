@@ -6043,7 +6043,12 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }
-      return new Response(getResetPasswordHtml(), {
+      const requestPath =
+        (event as any).context?._mountedPathname ??
+        event.node?.req?.url ??
+        event.path ??
+        "/";
+      return new Response(getResetPasswordHtml(requestPath), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }),

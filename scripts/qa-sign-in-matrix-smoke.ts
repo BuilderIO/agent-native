@@ -194,8 +194,13 @@ async function startApp(basePath: string): Promise<RunningApp> {
   // previous base path answers `ping` perfectly well, and every assertion
   // below would then re-test the surface that already passed.
   const doc = await (await fetch(`${appUrl}${SIGN_IN_ENTRY_PATH}`)).text();
+  const authData = doc.match(
+    /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+  );
   assert.ok(
-    doc.includes(`var configured = ${JSON.stringify(basePath)};`),
+    authData &&
+      (JSON.parse(authData[1]!) as { appBasePath?: string }).appBasePath ===
+        basePath,
     `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
   );
   return { origin, basePath, appUrl, child, logs, viteReload };
