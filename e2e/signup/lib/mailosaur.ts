@@ -166,6 +166,7 @@ export function verificationLinkFor(
     try {
       const url = new URL(href, expectedOrigin);
       return url.protocol === "https:" && url.origin === expected.origin;
+      // coercion-ok: malformed candidate links are rejected before the required-link check.
     } catch {
       return false;
     }
