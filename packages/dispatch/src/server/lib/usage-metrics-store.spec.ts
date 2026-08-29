@@ -323,7 +323,7 @@ describe("listDispatchUsageMetrics", () => {
               created_at: now - 2 * 86_400_000,
               owner_email: "owner@example.test",
               app: "orders",
-              label: "create-order",
+              label: "customer:Acme-123",
               cost_cents_x100: 100,
             },
             {
@@ -383,20 +383,15 @@ describe("listDispatchUsageMetrics", () => {
     });
     expect(metrics.appAccess[0].actionMetrics).toEqual([
       {
-        key: "create-order",
-        label: "create-order",
-        calls: 1,
-        activeUsers: 1,
-        lastActiveAt: expect.any(Number),
-      },
-      {
-        key: "approve-order",
-        label: "approve-order",
-        calls: 1,
-        activeUsers: 1,
+        key: "other",
+        label: "other",
+        calls: 2,
+        activeUsers: 2,
         lastActiveAt: expect.any(Number),
       },
     ]);
+    expect(metrics.byLabel).toEqual([]);
+    expect(JSON.stringify(metrics)).not.toContain("Acme-123");
     expect(
       mocks.execute.mock.calls.some(([query]) =>
         String((query as { sql?: string }).sql).includes("LOWER(app) = ?"),
@@ -484,7 +479,7 @@ describe("listDispatchUsageMetrics", () => {
       weeklyActiveUsers: 2,
     });
     expect(metrics.appAccess[0].actionMetrics).toEqual([
-      expect.objectContaining({ key: "approve-order", calls: 1 }),
+      expect.objectContaining({ key: "other", calls: 1 }),
     ]);
   });
 
@@ -561,6 +556,7 @@ describe("listDispatchUsageMetrics", () => {
 
   it("redacts adoption metrics for apps the personal viewer does not own", async () => {
     const now = Date.now();
+    mocks.currentOrgId.mockReturnValue("org-a");
     mocks.currentOwnerEmail.mockReturnValue("member@example.test");
     mocks.getUsageSummary.mockResolvedValue(null);
     mocks.listWorkspaceApps.mockResolvedValue([
@@ -609,6 +605,14 @@ describe("listDispatchUsageMetrics", () => {
       lastActiveAt: null,
       actionMetrics: [],
     });
+    expect(
+      mocks.execute.mock.calls.some(([query]) => {
+        const sql = String((query as { sql?: string }).sql);
+        return (
+          sql.includes("ORDER BY created_at ASC") && sql.includes("org_id = ?")
+        );
+      }),
+    ).toBe(true);
   });
 
   it("returns monthly credits and workspace app creation rows from shared tables", async () => {

@@ -363,6 +363,26 @@ function appUsageKey(value: string | null | undefined): string {
   return raw || "unattributed";
 }
 
+type AppAdoptionActionKey = "chat" | "automation" | "custom-agent" | "other";
+
+function adoptionActionKey(value: string): AppAdoptionActionKey {
+  const label = value.trim().toLowerCase();
+  if (label === "chat") return "chat";
+  if (
+    label === "automation" ||
+    label === "manual-automation" ||
+    label.startsWith("automation:") ||
+    label.startsWith("manual-automation:") ||
+    label.startsWith("recurring-job:")
+  ) {
+    return "automation";
+  }
+  if (label === "custom-agent" || label.startsWith("custom-agent:")) {
+    return "custom-agent";
+  }
+  return "other";
+}
+
 function appOwner(app: WorkspaceAppSummary): string | null {
   const owner = app.owner?.trim();
   return owner || null;
@@ -474,6 +494,18 @@ function usageScope(
   };
 }
 
+function withOrgUsageScope(
+  scope: { where: string; args: unknown[] },
+  orgId: string | null,
+): { where: string; args: unknown[] } {
+  const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
+  const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
+  return {
+    where: `${scope.where} AND ${orgClause}`,
+    args: [...scope.args, ...orgArgs],
+  };
+}
+
 function threadScope(
   sinceMs: number,
   memberEmails: string[],
@@ -520,12 +552,10 @@ function appUsageScope(
   appId: string,
   orgId: string | null,
 ): { where: string; args: unknown[] } {
-  const scope = usageScope(sinceMs, memberEmails);
-  const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
-  const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
+  const scope = withOrgUsageScope(usageScope(sinceMs, memberEmails), orgId);
   return {
-    where: `${scope.where} AND ${orgClause} AND LOWER(app) = ?`,
-    args: [...scope.args, ...orgArgs, appUsageKey(appId)],
+    where: `${scope.where} AND LOWER(app) = ?`,
+    args: [...scope.args, appUsageKey(appId)],
   };
 }
 
@@ -733,9 +763,12 @@ export async function listDispatchUsageMetrics(input: {
   const adoptionUsage =
     viewScope === "app" && selectedApp
       ? appUsageScope(adoptionSinceMs, memberEmails, selectedApp.id, orgId)
-      : selectedUserEmail
-        ? ownerScope(adoptionSinceMs, selectedUserEmail)
-        : usageScope(adoptionSinceMs, memberEmails);
+      : withOrgUsageScope(
+          selectedUserEmail
+            ? ownerScope(adoptionSinceMs, selectedUserEmail)
+            : usageScope(adoptionSinceMs, memberEmails),
+          orgId,
+        );
   const threads = selectedUserEmail
     ? ownerThreadScope(sinceMs, selectedUserEmail)
     : threadScope(sinceMs, memberEmails);
@@ -778,12 +811,14 @@ export async function listDispatchUsageMetrics(input: {
     viewScope === "app"
       ? Promise.resolve([] as UsageMetricBucket[])
       : usageBuckets("owner_email", usage.where, usage.args, 50),
-    usageBuckets(
-      `COALESCE(NULLIF(label, ''), 'chat')`,
-      usage.where,
-      usage.args,
-      20,
-    ),
+    viewScope === "app"
+      ? Promise.resolve([] as UsageMetricBucket[])
+      : usageBuckets(
+          `COALESCE(NULLIF(label, ''), 'chat')`,
+          usage.where,
+          usage.args,
+          20,
+        ),
     usageBuckets(
       `COALESCE(NULLIF(model, ''), 'unknown')`,
       usage.where,
@@ -945,7 +980,7 @@ export async function listDispatchUsageMetrics(input: {
         appAdoption.lastActiveAt ?? 0,
         createdAt,
       );
-      const label = stringField(row, "label") || "chat";
+      const label = adoptionActionKey(stringField(row, "label") || "chat");
       const action = appAdoption.actions.get(label) ?? {
         calls: 0,
         users: new Set<string>(),
@@ -1108,7 +1143,7 @@ export async function listDispatchUsageMetrics(input: {
         ? [...visibleAdoption.actions.entries()]
             .map(([key, action]) => ({
               key,
-              label: labelForKey(key),
+              label: key,
               calls: action.calls,
               activeUsers: action.users.size,
               lastActiveAt: action.lastActiveAt,
