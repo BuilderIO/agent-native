@@ -318,18 +318,18 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           (async () => {
           const fs = require("node:fs");
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-build-pause",
           };
-          const request = (url, options = {}) => fetch(url, {
+          const request = (url, options = {}) => requestNetlifyApi(url, {
             ...options,
             headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
           });
 
           async function readJson(response, label) {
@@ -415,8 +415,9 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           (async () => {
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
@@ -444,10 +445,9 @@ jobs:
           if (!siteId) throw new Error("Netlify site id is required to unlock production.");
 
           const request = (url, options = {}) =>
-            fetch(url, {
+            requestNetlifyApi(url, {
               ...options,
               headers: { ...headers, ...(options.headers || {}) },
-              signal: AbortSignal.timeout(30_000),
             });
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           const ACTIVE_PRODUCTION_DEPLOY_STATES = [
@@ -668,15 +668,15 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           (async () => {
             const fs = require("node:fs");
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
             const siteId = process.env.NETLIFY_SITE_ID;
-            const response = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+            const response = await requestNetlifyApi(`https://api.netlify.com/api/v1/sites/${siteId}`, {
               headers: {
                 Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
               },
-              signal: AbortSignal.timeout(30_000),
             });
             const text = await response.text();
             const site = text ? JSON.parse(text) : null;
@@ -750,15 +750,15 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
           };
-          const request = (url) => fetch(url, {
-            headers,
-            signal: AbortSignal.timeout(30_000),
-          });
+          const request = (url) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, { headers }),
+            );
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
           async function readJson(response, label) {
@@ -852,16 +852,16 @@ jobs:
           PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           (async () => {
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
             const api = "https://api.netlify.com/api/v1";
             const headers = {
               Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             };
-            const request = (url, options = {}) => fetch(url, {
+            const request = (url, options = {}) => requestNetlifyApi(url, {
               ...options,
               headers: { ...headers, ...(options.headers || {}) },
-              signal: AbortSignal.timeout(30_000),
             });
             const readJson = async (response, label) => {
               const text = await response.text();
@@ -953,10 +953,11 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           (async () => {
-            const response = await fetch(`${api}/purge`, {
+            const response = await requestNetlifyApi(`${api}/purge`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
@@ -964,7 +965,6 @@ jobs:
                 "User-Agent": "agent-native-prebuilt-production-cache-purge",
               },
               body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
-              signal: AbortSignal.timeout(30_000),
             });
             const text = await response.text();
             let body = null;
@@ -991,16 +991,16 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-lock",
           };
-          const request = (url, options = {}) => fetch(url, {
+          const request = (url, options = {}) => requestNetlifyApi(url, {
             ...options,
             headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
           });
 
           async function readJson(response, label) {
@@ -1046,17 +1046,19 @@ jobs:
           cutoverHasGitConnectedBuild: ${{ steps.pause.outputs.has_git_connected_build }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-build-resume",
           };
-          const request = (url, options = {}) => fetch(url, {
-            ...options,
-            headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
-          });
+          const request = (url, options = {}) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, {
+                ...options,
+                headers: { ...headers, ...(options.headers || {}) },
+              }),
+            );
 
           async function readJson(response, label) {
             const text = await response.text();
@@ -1120,17 +1122,19 @@ jobs:
           cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-failure-cleanup",
           };
-          const request = (url, options = {}) => fetch(url, {
-            ...options,
-            headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
-          });
+          const request = (url, options = {}) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, {
+                ...options,
+                headers: { ...headers, ...(options.headers || {}) },
+              }),
+            );
 
           async function readJson(response, label) {
             const text = await response.text();
