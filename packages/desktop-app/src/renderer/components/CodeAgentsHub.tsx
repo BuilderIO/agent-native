@@ -15,7 +15,6 @@ import {
   type CodeAgentsNewSessionExtension,
 } from "@agent-native/code-agents-ui";
 import {
-  ChatFirstSurfacePanelToggle,
   chatFirstSurfaceTabId,
   closeChatFirstSessionWatch,
   emitChatFirstOpenApp,
@@ -136,6 +135,7 @@ import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
+import DesktopChatFirstSurfaceMenu from "./DesktopChatFirstSurfaceMenu.js";
 import DesktopIntegrationsPage from "./DesktopIntegrationsPage.js";
 import DesktopTerminalSurface, {
   type DesktopTerminalPromptRequest,
@@ -2863,10 +2863,15 @@ export default function CodeAgentsHub({
             !chatFirstAllAppsOpen &&
             !scheduledTasksOpen &&
             !chatFirstAppTakesMain ? (
-              <ChatFirstSurfacePanelToggle
-                open={chatFirstSurfacePanel.open}
-                onToggle={chatFirstSurfacePanel.toggle}
-                className="static"
+              <DesktopChatFirstSurfaceMenu
+                sidebarOpen={chatFirstSurfacePanel.open}
+                apps={chatFirstAppItems}
+                onToggleSidebar={chatFirstSurfacePanel.toggle}
+                onOpenApp={(app) =>
+                  openChatFirstApp(app.id, undefined, undefined, "side")
+                }
+                renderAppIcon={renderChatFirstAppIcon}
+                onNewCliTab={handleNewCliTab}
               />
             ) : undefined
           }
@@ -2913,7 +2918,13 @@ export default function CodeAgentsHub({
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
                 onNewUiTab={handleNewUiTab}
-                onOpenSidebar={() => setChatFirstSurfacePanelOpen(true)}
+                sidebarOpen={chatFirstSurfacePanel.open}
+                onToggleSidebar={chatFirstSurfacePanel.toggle}
+                apps={chatFirstAppItems}
+                onOpenApp={(app) =>
+                  openChatFirstApp(app.id, undefined, undefined, "side")
+                }
+                renderAppIcon={renderChatFirstAppIcon}
               />
             ) : undefined
           }
