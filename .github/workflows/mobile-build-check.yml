@@ -13,6 +13,20 @@ on:
       - "packages/shared-app-config/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/mobile-build-check.yml"
+  # Actions caches are branch-scoped: a cache written on a PR merge ref is only
+  # visible to that PR, so PR-only runs never warm each other. Running on push
+  # to main writes caches on the default branch, which every PR can read. This
+  # is the trusted cache-warming path that keeps new PRs from starting cold.
+  push:
+    branches: [main]
+    paths:
+      - "packages/mobile-app/**"
+      - "packages/core/**"
+      - "packages/toolkit/**"
+      - "packages/recap-cli/**"
+      - "packages/shared-app-config/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/mobile-build-check.yml"
   workflow_dispatch:
 
 concurrency:
