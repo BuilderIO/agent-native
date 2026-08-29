@@ -8,6 +8,8 @@ import {
   classifyGoogleHealthResponse,
   fetchWithRetry,
   googleRedirectProbeExitCode,
+  healthContractDisagreement,
+  isInconclusiveGoogleHealthStatus,
 } from "./check-google-redirect-uris.ts";
 
 const redirectUri =
@@ -48,6 +50,71 @@ test("reads callback ownership from the deployed health contract", () => {
   assert.equal(result.managedConnection, "required");
 });
 
+test("does not treat separate client ids as a health-contract disagreement", () => {
+  const managed = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "managed-client",
+        managedConnection: "required",
+        callbackPaths: ["/_agent-native/google/callback"],
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "managed-client",
+      managedConnection: "required",
+      callbackPaths: ["/_agent-native/google/callback"],
+    }),
+  );
+  const signIn = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "sign-in-client",
+        managedConnection: "required",
+        callbackPaths: ["/_agent-native/google/callback"],
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "sign-in-client",
+      managedConnection: "required",
+      callbackPaths: ["/_agent-native/google/callback"],
+    }),
+  );
+  assert.equal(healthContractDisagreement(managed, signIn), null);
+  assert.equal(
+    healthContractDisagreement(managed, {
+      ...signIn,
+      callbackPaths: [...(signIn.callbackPaths ?? [])].reverse(),
+    }),
+    null,
+  );
+  assert.equal(
+    healthContractDisagreement(managed, {
+      ...signIn,
+      managedConnection: "not_applicable",
+    }),
+    "managed capability differs between health contracts",
+  );
+});
+
+test("keeps an unknown health result inconclusive even with a client id", () => {
+  const result = classifyGoogleHealthResponse(
+    new Response(JSON.stringify({ status: "unknown", clientId: "client-id" }), {
+      status: 200,
+      headers: jsonHeaders,
+    }),
+    JSON.stringify({ status: "unknown", clientId: "client-id" }),
+  );
+  assert.equal(result.clientId, "client-id");
+  assert.equal(isInconclusiveGoogleHealthStatus(result.status), true);
+  assert.equal(isInconclusiveGoogleHealthStatus("valid"), false);
+});
+
 test("separates definitive mismatches from inconclusive probe failures", () => {
   assert.equal(
     googleRedirectProbeExitCode({
@@ -82,6 +149,36 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
       allowNoCoverage: true,
     }),
     0,
+  );
+});
+
+test("allows explicitly enabled legacy health with no redirect coverage", () => {
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 0,
+      unregistered: 0,
+      unknown: 0,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+      allowNoCoverage: true,
+    }),
+    0,
+  );
+});
+
+test("does not let legacy no coverage hide an inconclusive health result", () => {
+  assert.equal(
+    googleRedirectProbeExitCode({
+      expected: 0,
+      unregistered: 0,
+      unknown: 1,
+      unprobeable: 0,
+      invalidCredentials: 0,
+      skippedRequired: 0,
+      allowNoCoverage: true,
+    }),
+    2,
   );
 });
 
