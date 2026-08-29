@@ -2,6 +2,7 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
@@ -34,8 +35,55 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
 ];
 
+const DECK_EDIT_TOOLS = new Set([
+  "add-slide",
+  "create-deck",
+  "patch-deck",
+  "restore-deck-version",
+  "save-deck",
+  "update-deck-aspect-ratio",
+  "update-slide",
+]);
+
+function hasDeckEdit(run: { events: readonly unknown[] }): boolean {
+  return run.events.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = (entry as { event?: unknown }).event;
+    if (!event || typeof event !== "object") return false;
+    const record = event as Record<string, unknown>;
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      DECK_EDIT_TOOLS.has(record.tool)
+    );
+  });
+}
+
+async function autosaveDeckAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: { events: readonly unknown[] },
+): Promise<void> {
+  if (scope.type !== "deck" || !hasDeckEdit(run)) return;
+
+  const access = await assertAccess("deck", scope.id, "editor");
+  const deck = access.resource as {
+    id: string;
+    title: string;
+    data: string;
+    ownerEmail: string;
+  };
+  const { createDeckVersionSnapshot } = await import("../lib/deck-versions.js");
+  await createDeckVersionSnapshot(deck, {
+    force: true,
+    label: "Chat autosave",
+  });
+}
+
 export default createAgentChatPlugin({
   appId: "slides",
+  onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {

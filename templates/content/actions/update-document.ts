@@ -580,6 +580,7 @@ export default defineAction({
             .orderBy(desc(schema.documentVersions.createdAt))
             .limit(1);
           const shouldSnapshot =
+            isAgentCaller ||
             clearsNonEmptyContent ||
             !latestVersion ||
             Date.now() - new Date(latestVersion.createdAt).getTime() >

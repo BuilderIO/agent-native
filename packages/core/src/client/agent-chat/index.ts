@@ -161,6 +161,12 @@ export {
   type AssistantChatAdapterContext,
 } from "../AssistantChat.js";
 export {
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryMessage,
+  type AssistantChatHistoryVersion,
+} from "../chat/message-components.js";
+export {
   MultiTabAssistantChat,
   type MultiTabAssistantChatProps,
   type MultiTabAssistantChatHeaderProps,

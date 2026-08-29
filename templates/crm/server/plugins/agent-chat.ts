@@ -2,6 +2,8 @@ import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
+  getRequestOrgId,
+  getRequestUserEmail,
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
@@ -48,8 +50,45 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
 ];
 
+const CRM_DASHBOARD_EDIT_TOOLS = new Set([
+  "install-crm-pipeline-dashboard",
+  "restore-crm-dashboard-revision",
+  "save-crm-dashboard",
+]);
+
+function hasCrmDashboardEdit(run: { events: readonly unknown[] }): boolean {
+  return run.events.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = (entry as { event?: unknown }).event;
+    if (!event || typeof event !== "object") return false;
+    const record = event as Record<string, unknown>;
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      CRM_DASHBOARD_EDIT_TOOLS.has(record.tool)
+    );
+  });
+}
+
+async function autosaveCrmDashboardAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: { events: readonly unknown[] },
+): Promise<void> {
+  if (scope.type !== "crm-dashboard" || !hasCrmDashboardEdit(run)) return;
+  const userEmail = getRequestUserEmail();
+  if (!userEmail) return;
+  const { crmDashboardStore } = await import("../server/db/index.js");
+  await crmDashboardStore.createRevisionSnapshot(scope.id, {
+    userEmail,
+    orgId: getRequestOrgId() || undefined,
+  });
+}
+
 export default createAgentChatPlugin({
   appId: "crm",
+  onAgentTurnComplete: autosaveCrmDashboardAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,

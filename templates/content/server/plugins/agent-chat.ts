@@ -3,6 +3,8 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
@@ -21,8 +23,75 @@ const INJECTED_INITIAL_TOOL_NAMES = [
   "query-staged-dataset",
 ];
 
+const DOCUMENT_EDIT_TOOLS = new Set([
+  "create-document",
+  "delete-document",
+  "edit-document",
+  "restore-document-version",
+  "update-document",
+]);
+
+function hasDocumentEdit(run: { events: readonly unknown[] }): boolean {
+  return run.events.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = (entry as { event?: unknown }).event;
+    if (!event || typeof event !== "object") return false;
+    const record = event as Record<string, unknown>;
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      DOCUMENT_EDIT_TOOLS.has(record.tool)
+    );
+  });
+}
+
+async function autosaveDocumentAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: { events: readonly unknown[] },
+): Promise<void> {
+  if (scope.type !== "document" || !hasDocumentEdit(run)) return;
+
+  const access = await assertAccess("document", scope.id, "editor");
+  const document = access.resource as {
+    ownerEmail: string;
+    title: string;
+    content: string;
+  };
+  const { getDb, schema } = await import("../db/index.js");
+  const db = getDb();
+  const [latest] = await db
+    .select({
+      title: schema.documentVersions.title,
+      content: schema.documentVersions.content,
+    })
+    .from(schema.documentVersions)
+    .where(
+      and(
+        eq(schema.documentVersions.documentId, scope.id),
+        eq(schema.documentVersions.ownerEmail, document.ownerEmail),
+      ),
+    )
+    .orderBy(desc(schema.documentVersions.createdAt))
+    .limit(1);
+  if (latest?.title === document.title && latest.content === document.content) {
+    return;
+  }
+
+  await db.insert(schema.documentVersions).values({
+    id: crypto.randomUUID(),
+    ownerEmail: document.ownerEmail,
+    documentId: scope.id,
+    title: document.title,
+    content: document.content,
+    createdAt: new Date().toISOString(),
+  });
+}
+
 export default createAgentChatPlugin({
   appId: "content",
+  onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
   durableBackgroundRuns: true,
   a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
   actions: loadActionsFromStaticRegistry(actionsRegistry),

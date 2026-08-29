@@ -170,17 +170,20 @@ export default defineAction({
     }),
   },
   http: false,
-  run: async ({
-    deckId,
-    content,
-    slideId,
-    layout,
-    notes,
-    position,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) =>
+  run: async (
+    {
+      deckId,
+      content,
+      slideId,
+      layout,
+      notes,
+      position,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    ctx,
+  ) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
@@ -345,7 +348,14 @@ export default defineAction({
             data: row.data,
             ownerEmail: row.ownerEmail,
           },
-          { label: "Before adding slide", db: tx },
+          {
+            force:
+              ctx?.caller === "tool" ||
+              ctx?.caller === "mcp" ||
+              ctx?.caller === "a2a",
+            label: "Before adding slide",
+            db: tx,
+          },
         );
         const updateResult = await tx
           .update(schema.decks)

@@ -3192,6 +3192,8 @@ export interface AgentSidebarProps {
   newUiTabLabel?: string;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Optional host-owned resource history used for chat-side reverts. */
+  chatHistory?: AssistantChatProps["chatHistory"];
   /** Identity used to route host-scoped sidebar toggle events. */
   toggleScopeId?: string;
   /** Keep app-owned chat history isolated to the supplied scope. */
@@ -3266,6 +3268,7 @@ export function AgentSidebar({
   newCliTabLabel,
   newUiTabLabel,
   scope,
+  chatHistory,
   toggleScopeId,
   isolateHistoryByScope = false,
   showScopeBadge,
@@ -4096,6 +4099,7 @@ export function AgentSidebar({
             storageKey={storageKey}
             restoreActiveThread={restoreActiveThread}
             scope={scope}
+            chatHistory={chatHistory}
             isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}

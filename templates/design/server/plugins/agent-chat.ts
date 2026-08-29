@@ -50,8 +50,74 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
 ];
 
+const DESIGN_EDIT_TOOLS = new Set([
+  "add-breakpoint",
+  "add-localhost-screens",
+  "apply-a11y-fix",
+  "apply-component-prop-edit",
+  "apply-design-token-edit",
+  "apply-motion-edit",
+  "apply-shader-fill",
+  "apply-tweaks",
+  "apply-visual-edit",
+  "create-file",
+  "delete-file",
+  "edit-design",
+  "generate-design",
+  "hydrate-figma-paste-images",
+  "insert-asset",
+  "insert-design-native-asset",
+  "remove-breakpoint",
+  "remove-motion-timeline",
+  "rename-screen",
+  "restore-design-version",
+  "set-active-breakpoint",
+  "update-design",
+  "update-file",
+]);
+
+function hasDesignEdit(run: { events: readonly unknown[] }): boolean {
+  return run.events.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = (entry as { event?: unknown }).event;
+    if (!event || typeof event !== "object") return false;
+    const record = event as Record<string, unknown>;
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      DESIGN_EDIT_TOOLS.has(record.tool)
+    );
+  });
+}
+
+async function autosaveDesignAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "design" || !hasDesignEdit(run)) return;
+
+  const { createDesignVersionSnapshot } =
+    await import("../lib/design-versions.js");
+  await createDesignVersionSnapshot(scope.id, {
+    label: "Chat autosave",
+    chatContext: {
+      ...(run.threadId ? { threadId: run.threadId } : {}),
+      ...(run.runId ? { runId: run.runId } : {}),
+      ...(run.turnId ? { turnId: run.turnId } : {}),
+    },
+  });
+}
+
 export default createAgentChatPlugin({
   appId: "design",
+  onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   actions: guardRepromptActionRegistry(
     loadActionsFromStaticRegistry(actionsRegistry),
   ),

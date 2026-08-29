@@ -2,14 +2,17 @@ import {
   AgentSidebar,
   focusAgentChat,
   isAgentChatHomeHandoffActive,
+  isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -65,6 +68,51 @@ export function Layout({ children }: LayoutProps) {
     enabled: !isChatRoute,
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("chat");
+  const factoryId = useMemo(() => {
+    if (location.pathname !== "/factory") return undefined;
+    return (
+      new URLSearchParams(location.search).get("factoryId") ??
+      "product-feedback"
+    );
+  }, [location.pathname, location.search]);
+  const factoryChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!factoryId) return undefined;
+    return {
+      list: {
+        action: "list-factory-graph-versions",
+        args: { factoryId, limit: 50 },
+        getVersions: (result: unknown) => {
+          if (!result || typeof result !== "object") return [];
+          const versions = (result as { versions?: unknown }).versions;
+          if (!Array.isArray(versions)) return [];
+          return versions.flatMap((version, index) => {
+            if (!isAssistantChatHistoryVersion(version)) return [];
+            const previous = versions[index + 1];
+            if (!isAssistantChatHistoryVersion(previous)) return [];
+            return [
+              {
+                ...previous,
+                createdAt: version.createdAt,
+                editable: true,
+              },
+            ];
+          });
+        },
+      },
+      restore: {
+        action: "restore-factory-graph-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          factoryId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [factoryId]);
+  const factoryScope = factoryId
+    ? { type: "factory" as const, id: factoryId }
+    : undefined;
   useAgentChatHomeHandoffLinks({
     storageKey: "chat",
     isChatPath: (pathname) =>
@@ -178,6 +226,8 @@ export function Layout({ children }: LayoutProps) {
             chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="chat"
             browserTabId={TAB_ID}
+            scope={factoryScope}
+            chatHistory={factoryChatHistory}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.inspectEmptyState")}

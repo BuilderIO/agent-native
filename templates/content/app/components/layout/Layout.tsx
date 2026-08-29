@@ -1,4 +1,9 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import {
+  AgentSidebar,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
@@ -91,6 +96,34 @@ export function Layout({ children }: LayoutProps) {
         : null,
     [activeDocumentId],
   );
+  const documentChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!documentScope) return undefined;
+    const documentId = documentScope.id;
+    return {
+      list: {
+        action: "list-document-versions",
+        args: { documentId },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-document-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          documentId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [documentScope]);
   const isMobile = useIsMobile();
   const isNarrowDesktop = useIsNarrowDesktop();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -200,6 +233,7 @@ export function Layout({ children }: LayoutProps) {
             t("chat.suggestionNotion"),
           ]}
           scope={documentScope}
+          chatHistory={documentChatHistory}
           browserTabId={getBrowserTabId()}
           composerSlot={<CreativeContextComposerChip />}
         >

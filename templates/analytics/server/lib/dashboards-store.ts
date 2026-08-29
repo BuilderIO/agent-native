@@ -1383,6 +1383,19 @@ async function snapshotDashboardRevision(
   return id;
 }
 
+export async function createDashboardRevisionSnapshot(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<string | null> {
+  await assertAccess("dashboard", dashboardId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const dashboard = await getDashboard(dashboardId, ctx);
+  if (!dashboard) return null;
+  return snapshotDashboardRevision(getDb(), dashboard, ctx);
+}
+
 /**
  * Upsert a dashboard. On create, caller becomes owner and visibility defaults
  * to `private`; users explicitly promote useful dashboards to org/public via
@@ -2331,6 +2344,20 @@ async function snapshotAnalysisRevision(
     orgId: analysis.orgId,
   });
   await pruneAnalysisRevisions(db, analysis.id);
+}
+
+export async function createAnalysisRevisionSnapshot(
+  analysisId: string,
+  ctx: AccessCtx,
+): Promise<string | null> {
+  await assertAccess("analysis", analysisId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const analysis = await getAnalysis(analysisId, ctx);
+  if (!analysis) return null;
+  await snapshotAnalysisRevision(getDb(), analysis, ctx);
+  return analysisId;
 }
 
 /**

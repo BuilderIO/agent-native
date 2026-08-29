@@ -5,6 +5,10 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
@@ -45,6 +49,73 @@ const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // silence means the model transport or worker has wedged; recover the chunk
 // promptly instead of holding the dashboard composer for the 12-minute default.
 export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
+
+const DASHBOARD_EDIT_TOOLS = new Set([
+  "archive-dashboard",
+  "certify-dashboard",
+  "compose-dashboard",
+  "hide-dashboard",
+  "mutate-dashboard",
+  "rename-dashboard",
+  "reorder-dashboard-panels",
+  "restore-dashboard-revision",
+  "save-explorer-config",
+  "save-explorer-dashboard",
+  "save-sql-dashboard",
+  "set-dashboard-folder",
+  "update-dashboard",
+  "update-dashboard-demo",
+  "update-dashboard-summary",
+]);
+const ANALYSIS_EDIT_TOOLS = new Set([
+  "delete-analysis",
+  "hide-analysis",
+  "rename-analysis",
+  "restore-analysis-revision",
+  "save-analysis",
+]);
+
+function hasAnalyticsEdit(
+  run: { events: readonly unknown[] },
+  tools: ReadonlySet<string>,
+): boolean {
+  return run.events.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = (entry as { event?: unknown }).event;
+    if (!event || typeof event !== "object") return false;
+    const record = event as Record<string, unknown>;
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      tools.has(record.tool)
+    );
+  });
+}
+
+async function autosaveAnalyticsAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: { events: readonly unknown[] },
+): Promise<void> {
+  const email = getRequestUserEmail();
+  if (!email) return;
+  const ctx = { email, orgId: getRequestOrgId() || null };
+  if (
+    scope.type === "dashboard" &&
+    hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS)
+  ) {
+    const { createDashboardRevisionSnapshot } =
+      await import("../lib/dashboards-store");
+    await createDashboardRevisionSnapshot(scope.id, ctx);
+    return;
+  }
+  if (scope.type === "analysis" && hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS)) {
+    const { createAnalysisRevisionSnapshot } =
+      await import("../lib/dashboards-store");
+    await createAnalysisRevisionSnapshot(scope.id, ctx);
+  }
+}
 
 const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   app: "analytics",
@@ -950,6 +1021,7 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  onAgentTurnComplete: autosaveAnalyticsAfterAgentTurn,
   // Resource prompt hydration performs additive schema checks. Keep that
   // work out of production serverless cold starts; it is not needed for the
   // dashboard's domain prompt and can contend with the request's DB queries.

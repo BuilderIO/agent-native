@@ -13,6 +13,42 @@ import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
 
 const PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
+const PLAN_EDIT_TOOLS = new Set([
+  "convert-visual-plan-to-prototype",
+  "patch-visual-plan-source",
+  "restore-plan-version",
+  "update-visual-plan",
+]);
+
+function hasPlanEdit(run: { events: readonly unknown[] }): boolean {
+  return run.events.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const event = (entry as { event?: unknown }).event;
+    if (!event || typeof event !== "object") return false;
+    const record = event as Record<string, unknown>;
+    return (
+      record.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      PLAN_EDIT_TOOLS.has(record.tool)
+    );
+  });
+}
+
+async function autosavePlanAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: { events: readonly unknown[] },
+): Promise<void> {
+  if (scope.type !== "plan" || !hasPlanEdit(run)) return;
+  const { createPlanVersionSnapshot } = await import("../lib/plan-versions.js");
+  await createPlanVersionSnapshot(scope.id, {
+    force: true,
+    label: "Chat autosave",
+    createdBy: "agent",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Register plan event-bus events
 // ---------------------------------------------------------------------------
@@ -127,6 +163,7 @@ const INITIAL_TOOL_NAMES = [
 
 const planAgentChatOptions = {
   appId: "plan",
+  onAgentTurnComplete: autosavePlanAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   anonymousOwner: resolvePlanAnonymousOwner,

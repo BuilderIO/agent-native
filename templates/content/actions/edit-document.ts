@@ -325,6 +325,16 @@ export default defineAction({
     try {
       await db.transaction(async (tx: any) => {
         const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
+        if (isAgentCaller) {
+          await tx.insert(schema.documentVersions).values({
+            id: crypto.randomUUID(),
+            ownerEmail: existing.ownerEmail as string,
+            documentId: id,
+            title: existing.title,
+            content: existing.content ?? "",
+            createdAt: now,
+          });
+        }
         const mirrored = await tx
           .update(schema.documents)
           .set({

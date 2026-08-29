@@ -286,6 +286,17 @@ export function createDashboardStorage<
     return rows.map(revisionFromRow);
   }
 
+  async function createRevisionSnapshot(id: string, ctx: AccessContext) {
+    const dashboard = await get(id, ctx);
+    if (!dashboard) return null;
+    await assertAccess(options.resourceType, id, "editor", ctx);
+    const writer = requireWriter(ctx);
+    await options.getDb().transaction(async (tx: any) => {
+      await snapshot(tx, dashboard, writer);
+    });
+    return dashboard;
+  }
+
   async function restore(id: string, revisionId: string, ctx: AccessContext) {
     const existing = await get(id, ctx);
     if (!existing) return null;
@@ -329,5 +340,13 @@ export function createDashboardStorage<
     });
   }
 
-  return { get, list, write, listRevisions, restore, registerShareable };
+  return {
+    get,
+    list,
+    write,
+    listRevisions,
+    createRevisionSnapshot,
+    restore,
+    registerShareable,
+  };
 }

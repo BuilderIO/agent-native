@@ -88,6 +88,7 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import type { ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -113,6 +114,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
+  AgentChatScope,
   MentionItemMedia,
   MentionProvider,
 } from "../agent/types.js";
@@ -428,6 +430,43 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+function hasSuccessfulSideEffect(run: Pick<ActiveRun, "events">): boolean {
+  return run.events.some(
+    ({ event }) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+}
+
+export async function runPostAgentTurnAutosave(
+  callback: AgentChatPluginOptions["onAgentTurnComplete"] | undefined,
+  scope: AgentChatScope | null | undefined,
+  run: ActiveRun,
+): Promise<void> {
+  if (!callback || !scope || !hasSuccessfulSideEffect(run)) return;
+
+  try {
+    await callback(scope, run);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: run.runId,
+      tags: {
+        source: "agent-chat",
+        failureClass: "post-agent-turn-autosave",
+      },
+      extra: {
+        runId: run.runId,
+        threadId: run.threadId,
+        scopeType: scope.type,
+        scopeId: scope.id,
+      },
+    });
+    console.error("[agent-chat] post-agent-turn autosave failed:", error);
+  }
+}
 
 /**
  * The model this mount runs with, when the caller does not pass one per request.
@@ -2830,7 +2869,10 @@ export function createAgentChatPlugin(
 
       // Callback to persist agent response when run finishes (even if client disconnected).
       // Reconstructs the assistant message from buffered events and appends to thread_data.
-      const onRunComplete = async (run: any, threadId: string | undefined) => {
+      const onRunComplete = async (
+        run: ActiveRun,
+        threadId: string | undefined,
+      ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         if (!threadId) {
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
@@ -2917,10 +2959,22 @@ export function createAgentChatPlugin(
           );
         });
 
+        const chatScope = options?.onAgentTurnComplete
+          ? getRequestRunContext()?.chatScope
+          : undefined;
+
         // Keep SQL run completion gated only on durable thread data. Follow-up
         // hooks are useful, but they should never leave agent_runs stuck
         // "running" if an automation/checkpoint path stalls.
         void (async () => {
+          if (options?.onAgentTurnComplete) {
+            await runPostAgentTurnAutosave(
+              options.onAgentTurnComplete,
+              chatScope,
+              run,
+            );
+          }
+
           // Emit agent.turn.completed for automation triggers.
           //
           // SECURITY: include `owner` so the trigger dispatcher's tenant-scope
@@ -3808,7 +3862,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.runId = runId;
           }
         },
-        onRunComplete: async (run: any, threadId: string | undefined) => {
+        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
           await onRunComplete(run, threadId);
         },
@@ -3866,7 +3920,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.runId = runId;
                 }
               },
-              onRunComplete: async (run: any, threadId: string | undefined) => {
+              onRunComplete: async (
+                run: ActiveRun,
+                threadId: string | undefined,
+              ) => {
                 if (threadId) _runSendByThread.delete(threadId);
                 await onRunComplete(run, threadId);
               },
@@ -4124,7 +4181,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.runId = runId;
             }
           },
-          onRunComplete: async (run: any, threadId: string | undefined) => {
+          onRunComplete: async (
+            run: ActiveRun,
+            threadId: string | undefined,
+          ) => {
             if (threadId) _runSendByThread.delete(threadId);
             await onRunComplete(run, threadId);
           },

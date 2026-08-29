@@ -383,7 +383,7 @@ export default defineAction({
       .describe("Exact context item versions that influenced this slide edit."),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const {
       deckId,
       slideId,
@@ -646,7 +646,14 @@ export default defineAction({
               data: row.data ?? "",
               ownerEmail: row.ownerEmail ?? "",
             },
-            { label: "Before slide edit", db: tx },
+            {
+              force:
+                ctx?.caller === "tool" ||
+                ctx?.caller === "mcp" ||
+                ctx?.caller === "a2a",
+              label: "Before slide edit",
+              db: tx,
+            },
           );
           const updateResult = await tx
             .update(schema.decks)
