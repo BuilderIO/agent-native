@@ -106,6 +106,19 @@ describe("tracking registry", () => {
     expect(identified).toEqual([]);
   });
 
+  it("suppresses synthetic browser traffic before providers", async () => {
+    const events = captureEvents();
+    await runWithRequestContext(
+      { isSyntheticTraffic: true, userEmail: "alice@example.com" },
+      () => {
+        track("synthetic_event", { source: "beta-e2e" });
+        identify("alice@example.com");
+      },
+    );
+
+    expect(events).toEqual([]);
+  });
+
   it("keeps ordinary plus-addresses trackable", () => {
     const events = captureEvents();
     const email = "signup+experiment-123@example.com";

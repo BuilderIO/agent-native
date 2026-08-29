@@ -16,6 +16,8 @@ import type { BrowserContext } from "@playwright/test";
  */
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
+const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
+const OPENAI_VALIDATION_TIMEOUT_MS = 15_000;
 
 export type KeySource = "dedicated" | "shared";
 
@@ -59,6 +61,49 @@ export interface KeyInstallResult {
   body: string;
 }
 
+export function isConfirmedOpenAiKeyInstall(
+  result: Pick<KeyInstallResult, "status" | "body">,
+): boolean {
+  if (result.status < 200 || result.status >= 300) return false;
+  try {
+    const body = JSON.parse(result.body) as {
+      ok?: unknown;
+      key?: unknown;
+      scope?: unknown;
+    };
+    return (
+      body.ok === true && body.key === "OPENAI_API_KEY" && body.scope === "user"
+    );
+  } catch {
+    return false; // coercion-ok: malformed response is explicitly unconfirmed
+  }
+}
+
+/** Validate the exact credential once before installing it on any beta host. */
+export async function validateOpenAiKey(apiKey: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(OPENAI_MODELS_ENDPOINT, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(OPENAI_VALIDATION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not validate the selected OpenAI credential: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (response.ok) return;
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      `OpenAI rejected the selected credential (HTTP ${response.status}).`,
+    );
+  }
+  throw new Error(
+    `OpenAI credential validation was inconclusive (HTTP ${response.status}).`,
+  );
+}
+
 /**
  * POST the key from inside a loaded page on the target origin. Same-origin is
  * required: the framework rejects a cross-origin credential write.
@@ -93,7 +138,7 @@ export async function installOpenAiKey(
       [KEY_ROUTE, apiKey] as const,
     );
     return {
-      installed: result.status >= 200 && result.status < 300,
+      installed: isConfirmedOpenAiKeyInstall(result),
       status: result.status,
       body: result.body,
     };

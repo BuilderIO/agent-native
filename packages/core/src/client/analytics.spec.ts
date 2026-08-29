@@ -228,6 +228,30 @@ describe("browser analytics pageviews", () => {
     expect(getCookie()).toContain(`an_aid=${body.anonymousId}`);
   });
 
+  it("suppresses browser analytics for synthetic E2E traffic", async () => {
+    const { gtag } = installBrowser();
+    (
+      window as Window & {
+        __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: string;
+      }
+    ).__AGENT_NATIVE_SYNTHETIC_TRAFFIC__ = "beta-e2e";
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+
+    const { captureClientException, configureTracking, trackEvent } =
+      await freshAnalytics();
+    configureTracking({ errorCapture: true, sessionReplay: true });
+    trackEvent("synthetic_event", { value: "must-not-send" });
+    captureClientException(new Error("synthetic failure"));
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalled();
+    expect(amplitudeMock.init).not.toHaveBeenCalled();
+    expect(sentryMock.init).not.toHaveBeenCalled();
+  });
+
   it("uses the configured native client platform for every pageview", async () => {
     installBrowser("https://mail.agent-native.com/inbox");
     const { analyticsCalls } = installFetch();

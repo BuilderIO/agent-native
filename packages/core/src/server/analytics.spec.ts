@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { injectAnalyticsIntoHtml, wrapWithAnalytics } from "./analytics.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const previousGaMeasurementId = process.env.GA_MEASUREMENT_ID;
 const previousBakedGaMeasurementId =
@@ -174,6 +175,19 @@ describe("wrapWithAnalytics", () => {
 });
 
 describe("injectAnalyticsIntoHtml", () => {
+  it("omits analytics injection for synthetic traffic", () => {
+    process.env.GA_MEASUREMENT_ID = "G-UNITTEST123";
+    process.env.GTM_CONTAINER_ID = "GTM-AUTH123";
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_test";
+
+    const source = "<html><head></head><body>synthetic</body></html>";
+    const html = runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      injectAnalyticsIntoHtml(source),
+    );
+
+    expect(html).toBe(source);
+  });
+
   it("injects first-party analytics config for public auth events", () => {
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_auth_test";
     process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT =

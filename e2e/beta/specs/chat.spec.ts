@@ -13,7 +13,7 @@ import {
   sendPromptAndAwaitTurn,
   watchChatRequests,
 } from "../lib/chat";
-import { chatSites, originFor } from "../lib/fleet";
+import { authenticatedEntryPath, chatSites, originFor } from "../lib/fleet";
 
 /**
  * One real agent turn per chat-bearing app, on luna.
@@ -65,10 +65,13 @@ for (const site of sites) {
 
         // The sidebar is collapsed by default on some entry paths; asking for
         // it explicitly is what guarantees a composer to type into.
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          },
+        );
 
         await expect(
           page.locator(COMPOSER.input).first(),
@@ -141,10 +144,13 @@ for (const site of sites) {
       try {
         const page = await context.newPage();
         const chat = watchChatRequests(page);
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          },
+        );
         await expect(page.locator(COMPOSER.input).first()).toBeVisible({
           timeout: 60_000,
         });
@@ -178,10 +184,13 @@ for (const site of sites) {
       const context = await signedInContext(browser, site);
       try {
         const page = await context.newPage();
-        await page.goto(`${origin}/?agentSidebar=open`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
+        await page.goto(
+          `${origin}${authenticatedEntryPath(site)}?agentSidebar=open`,
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 45_000,
+          },
+        );
         const send = page.locator(COMPOSER.send).first();
         await expect(send).toBeVisible({ timeout: 60_000 });
 

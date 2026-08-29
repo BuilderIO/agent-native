@@ -7,7 +7,11 @@ import {
   selectedSites,
 } from "./lib/fleet";
 import { warm } from "./lib/http";
-import { installOpenAiKey, resolveOpenAiKey } from "./lib/provider-key";
+import {
+  installOpenAiKey,
+  resolveOpenAiKey,
+  validateOpenAiKey,
+} from "./lib/provider-key";
 import {
   authStatePath,
   bootstrapAppSession,
@@ -17,13 +21,21 @@ import {
   markAuthedLaneReady,
   missingCredentialsMessage,
 } from "./lib/session";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./lib/test-traffic";
+
+function providerKeyRequired(): boolean {
+  return process.env.BETA_E2E_CLUSTER?.trim().toLowerCase() === "chat";
+}
 
 /**
  * Prepare the run.
  *
  * Two jobs: warm every host so a cold start does not read as a failure, and —
  * when the authenticated lane is in play — establish one signed-in session per
- * app and install the dedicated OpenAI key against it.
+ * app and, for the chat cluster, install the dedicated OpenAI key against it.
  *
  * The authenticated lane either works or the run stops here. Degrading to an
  * anonymous session would leave every authed assertion passing against a
@@ -71,8 +83,9 @@ async function globalSetup(): Promise<void> {
   if (!hasSessionCredentials()) throw new Error(missingCredentialsMessage());
 
   const email = expectedEmail();
-  const resolvedKey = resolveOpenAiKey();
-  if (!resolvedKey) {
+  const needsProviderKey = providerKeyRequired();
+  const resolvedKey = needsProviderKey ? resolveOpenAiKey() : undefined;
+  if (needsProviderKey && !resolvedKey) {
     throw new Error(
       [
         "The authenticated lane was requested but no OpenAI credential was supplied.",
@@ -83,14 +96,16 @@ async function globalSetup(): Promise<void> {
       ].join("\n"),
     );
   }
-  const apiKey = resolvedKey.key;
-  if (resolvedKey.source === "shared") {
+  const apiKey = resolvedKey?.key;
+  if (resolvedKey?.source === "shared") {
     console.warn(
       "[beta-e2e] billing the SHARED OPENAI_API_KEY. This run's agent-turn spend is pooled with every other consumer of that key and cannot be attributed to the suite. Create BETA_E2E_OPENAI_API_KEY to separate it.",
     );
-  } else {
+  } else if (resolvedKey) {
     console.log("[beta-e2e] billing the dedicated BETA_E2E_OPENAI_API_KEY.");
   }
+
+  if (apiKey) await validateOpenAiKey(apiKey);
 
   const targets = authenticatableSites();
   if (targets.length === 0) {
@@ -120,15 +135,20 @@ async function globalSetup(): Promise<void> {
       try {
         const identity = await bootstrapAppSession(browser, site);
 
-        if (needsKey.has(site.id)) {
+        if (needsProviderKey && needsKey.has(site.id)) {
           const context = await browser.newContext({
             storageState: authStatePath(site.id),
+            extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
           });
+          await installBetaE2ETrafficMarker(context);
           try {
+            if (!apiKey) {
+              throw new Error("No validated OpenAI credential is available.");
+            }
             const install = await installOpenAiKey(context, origin, apiKey);
             if (!install.installed) {
               failures.push(
-                `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was rejected (HTTP ${install.status}: ${install.body}). Turns here would bill an unintended credential.`,
+                `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was rejected (HTTP ${install.status}). Turns here would bill an unintended credential.`,
               );
               continue;
             }
@@ -138,7 +158,7 @@ async function globalSetup(): Promise<void> {
         }
 
         console.log(
-          `[beta-e2e]   ${site.id}: session ok as ${identity.email}${needsKey.has(site.id) ? `, ${resolvedKey.source} OpenAI key installed` : ""}`,
+          `[beta-e2e]   ${site.id}: session ok as ${identity.email}${needsProviderKey && needsKey.has(site.id) ? `, ${resolvedKey?.source} OpenAI key installed` : ""}`,
         );
       } catch (error) {
         failures.push(
