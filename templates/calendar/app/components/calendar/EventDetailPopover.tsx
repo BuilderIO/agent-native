@@ -100,6 +100,15 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
+import {
+  eventPopoverDivider,
+  eventPopoverHeader,
+  eventPopoverHeaderButton,
+  eventPopoverHeaderTitle,
+  eventPopoverPrimaryAction,
+  eventPopoverShell,
+  eventPopoverWidth,
+} from "@/lib/event-popover-style";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   createEventDetailPopoverToken,
@@ -1633,6 +1642,17 @@ export function EventDetailPopover({
     return () => setEventDetailPopoverOpen(token, false);
   }, [popoverOpen]);
 
+  const repeatControl = canEditRecurrence ? (
+    <RepeatPicker
+      compact
+      preset={getRecurrencePreset(recurrenceRules)}
+      referenceDate={event.start}
+      recurrence={recurrenceRules}
+      onChange={handleSaveRecurrence}
+      onCustomChange={handleSaveCustomRecurrence}
+    />
+  ) : null;
+
   return (
     <Popover open={popoverOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild onClick={handleTriggerClick}>
@@ -1643,7 +1663,7 @@ export function EventDetailPopover({
         side={isMobile ? "bottom" : (popoverSide ?? "right")}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
+        className={`${eventPopoverShell} ${eventPopoverWidth}`}
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -1672,8 +1692,8 @@ export function EventDetailPopover({
       >
         <TooltipProvider>
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <div className={eventPopoverHeader}>
+            <div className={eventPopoverHeaderTitle}>
               <span>
                 {isWorkingLocation
                   ? t("eventForm.workingLocation")
@@ -1689,7 +1709,7 @@ export function EventDetailPopover({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-7 text-muted-foreground hover:text-foreground"
+                      className={eventPopoverHeaderButton}
                       aria-label={t("eventForm.eventOptions")}
                       aria-expanded={showMoreOptions}
                       aria-controls={`event-more-options-${event.id}`}
@@ -1709,10 +1729,10 @@ export function EventDetailPopover({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      className={eventPopoverHeaderButton}
                       onClick={handlePinToSidebar}
                     >
-                      <IconLayoutSidebarRight className="h-3.5 w-3.5" />
+                      <IconLayoutSidebarRight className="size-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
@@ -1723,17 +1743,17 @@ export function EventDetailPopover({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                className={eventPopoverHeaderButton}
                 onClick={() => handleOpenChange(false)}
               >
-                <IconX className="h-3.5 w-3.5" />
+                <IconX className="size-4" />
               </Button>
             </div>
           </div>
 
           {/* Content */}
           <div ref={detailsScrollRef} className="flex-1 overflow-y-auto">
-            <div className="px-4 pt-4 pb-1">
+            <div className="px-2 py-2">
               {/* Title — always editable */}
               {isEditingTitle && !isWorkingLocation ? (
                 <input
@@ -1777,11 +1797,11 @@ export function EventDetailPopover({
                     setIsEditingTitle(false);
                   }}
                   placeholder={t("eventForm.addTitle")}
-                  className="w-full text-lg font-semibold text-foreground leading-tight mb-4 bg-transparent border-none outline-none placeholder:text-muted-foreground/50 focus:ring-0"
+                  className="w-full rounded-md bg-muted/40 px-2 py-1.5 font-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:ring-0"
                 />
               ) : (
                 <h2
-                  className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-normal leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
+                  className={`rounded-md px-2 py-1.5 font-normal text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
                   onClick={() => {
                     if (isOverlay || isWorkingLocation) return;
                     setEditingTitle(getEditableEventTitle(event));
@@ -1792,6 +1812,8 @@ export function EventDetailPopover({
                 </h2>
               )}
             </div>
+
+            <div className={eventPopoverDivider} />
 
             <div className="px-4 space-y-1">
               {(isDraft || (!isOverlay && event.source === "google")) && (
@@ -1805,8 +1827,8 @@ export function EventDetailPopover({
               )}
 
               {/* Time, date, timezone, and repeat stay editable in place. */}
-              <div className="flex items-start gap-3 rounded-md py-1.5">
-                <IconClock className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="flex items-start gap-2 rounded-md py-1.5">
+                <IconClock className="mt-1 size-[18px] shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   {isWorkingLocation && (
                     <div className="mb-1 flex items-center gap-2">
@@ -1825,7 +1847,7 @@ export function EventDetailPopover({
                     </div>
                   )}
                   {event.allDay ? (
-                    <div className="flex flex-wrap items-center gap-1 text-sm">
+                    <div className="flex flex-wrap items-center gap-1">
                       {!isWorkingLocation && (
                         <span className="text-muted-foreground">
                           {t("eventForm.allDay")}
@@ -1850,6 +1872,7 @@ export function EventDetailPopover({
                           />
                         </>
                       )}
+                      <span className="ml-auto">{repeatControl}</span>
                     </div>
                   ) : (
                     <>
@@ -1887,11 +1910,11 @@ export function EventDetailPopover({
                             handleInlineTimeChange("endTime", value)
                           }
                         />
-                        <span className="text-xs text-muted-foreground/70">
+                        <span className="text-muted-foreground/70">
                           {formatDuration(event.start, event.end)}
                         </span>
                       </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1 text-sm">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
                         <DatePickerPopover
                           value={editDate}
                           label={t("eventForm.startDate")}
@@ -1911,7 +1934,8 @@ export function EventDetailPopover({
                             />
                           </>
                         )}
-                        <span className="ml-auto">
+                        <span className="ml-auto flex items-center gap-1">
+                          {repeatControl}
                           <TimezonePickerPopover
                             compact
                             value={editTimezone}
@@ -1925,28 +1949,18 @@ export function EventDetailPopover({
                 </div>
               </div>
 
-              {canEditRecurrence && (
-                <RepeatPicker
-                  preset={getRecurrencePreset(recurrenceRules)}
-                  referenceDate={event.start}
-                  recurrence={recurrenceRules}
-                  onChange={handleSaveRecurrence}
-                  onCustomChange={handleSaveCustomRecurrence}
-                />
-              )}
-
               {!event.allDay && !isOverlay && !isWorkingLocation && (
-                <div className="flex items-center gap-3 py-1">
-                  <div className="h-4 w-4 shrink-0" />
+                <div className="flex items-center gap-2 py-1">
+                  <div className="size-[18px] shrink-0" />
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    className="h-7 gap-1.5 px-2 text-xs"
+                    className="h-[30px] flex-1 justify-center gap-1.5 px-2 font-medium"
                     disabled={mutationPending}
                     onClick={() => setFindTimeOpen(true)}
                   >
-                    <IconCalendarTime className="h-3.5 w-3.5" />
+                    <IconCalendarTime className="size-4" />
                     {t("eventForm.findTime")}
                   </Button>
                 </div>
@@ -1989,7 +2003,7 @@ export function EventDetailPopover({
             {!isWorkingLocation && (
               <>
                 {/* Separator */}
-                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className={eventPopoverDivider} />
 
                 {/* Attendees — always shown */}
                 {event.attendees && event.attendees.length > 0 ? (
@@ -2003,8 +2017,8 @@ export function EventDetailPopover({
                 {/* Add guest input */}
                 {!isOverlay && (
                   <div className="px-4 py-1">
-                    <div className="flex items-center gap-3">
-                      <IconPlus className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    <div className="flex items-center gap-2">
+                      <IconPlus className="size-[18px] shrink-0 text-muted-foreground/40" />
                       <AttendeeAutocomplete
                         selectedEmails={(event.attendees || []).map(
                           (attendee) => attendee.email,
@@ -2023,20 +2037,18 @@ export function EventDetailPopover({
                 {/* Research Meeting button */}
                 {event.attendees && event.attendees.length > 0 && (
                   <>
-                    <div className="mx-4 my-2 border-t border-border/50" />
+                    <div className={eventPopoverDivider} />
                     <div className="px-4 py-1">
                       <ResearchMeetingButton event={event} />
                     </div>
                   </>
                 )}
 
-                <div className="mx-4 my-2 border-t border-border/50" />
-                <div className="px-4 py-1">
-                  <ExtensionSlot
-                    id="calendar.event-detail.bottom"
-                    context={buildEventDetailSlotContext(event)}
-                  />
-                </div>
+                <ExtensionSlot
+                  id="calendar.event-detail.bottom"
+                  context={buildEventDetailSlotContext(event)}
+                  className="my-2 border-t border-border/60 px-4 pt-2"
+                />
               </>
             )}
 
@@ -2044,21 +2056,21 @@ export function EventDetailPopover({
             {!isWorkingLocation &&
               (meetingLink ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
+                  <div className={eventPopoverDivider} />
                   <div className="px-4 py-1.5">
                     <a
                       href={meetingLink.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center w-full rounded-xl bg-[#4965E0] hover:bg-[#5A75F0] text-white font-semibold py-2 px-4 text-[15px] relative"
+                      className={`${eventPopoverPrimaryAction} relative bg-conference text-conference-foreground hover:bg-conference/90`}
                     >
-                      <IconVideo className="h-5 w-5 mr-2 opacity-80" />
+                      <IconVideo className="mr-2 size-4 opacity-80" />
                       <span>{getMeetingLabel(meetingLink.type, t)}</span>
-                      <span className="absolute right-4 hidden items-center gap-1 opacity-50 sm:flex">
-                        <kbd className="text-xs font-normal">
+                      <span className="absolute right-2 hidden items-center gap-1 opacity-70 sm:flex">
+                        <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
                           {shortcutModifierLabel()}
                         </kbd>
-                        <kbd className="inline-flex h-5 w-5 items-center justify-center rounded bg-white/20 text-[11px] font-medium">
+                        <kbd className="inline-flex size-4 items-center justify-center rounded bg-conference-foreground/20 text-[11px] font-medium">
                           J
                         </kbd>
                       </span>
@@ -2086,15 +2098,15 @@ export function EventDetailPopover({
                 </>
               ) : pendingConferenceProvider ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
+                  <div className={eventPopoverDivider} />
                   <div className="px-4 py-1.5">
-                    <div className="flex w-full items-center rounded-xl bg-[#4965E0] py-2 pl-4 pr-2 text-white">
+                    <div className="flex h-[30px] w-full items-center rounded-md bg-conference pl-2.5 pr-1 text-conference-foreground">
                       {pendingConferenceProvider === "zoom" ? (
-                        <IconBrandZoom className="mr-2 h-5 w-5 opacity-90" />
+                        <IconBrandZoom className="mr-2 size-4 opacity-90" />
                       ) : (
-                        <IconVideo className="mr-2 h-5 w-5 opacity-90" />
+                        <IconVideo className="mr-2 size-4 opacity-90" />
                       )}
-                      <span className="text-[15px] font-semibold">
+                      <span className="font-medium">
                         {pendingConferenceProvider === "zoom"
                           ? t("eventForm.zoom")
                           : t("eventForm.googleMeet")}
@@ -2107,7 +2119,7 @@ export function EventDetailPopover({
                             ? t("eventForm.zoom")
                             : t("eventForm.googleMeet")
                         }`}
-                        className="ml-auto rounded-md p-1 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+                        className="ml-auto rounded-md p-1 text-conference-foreground/70 transition-colors hover:bg-conference-foreground/15 hover:text-conference-foreground"
                       >
                         <IconX className="h-4 w-4" />
                       </button>
@@ -2127,7 +2139,7 @@ export function EventDetailPopover({
                     ) : editingField === "meetingLink" ? (
                       <div className="px-4 py-1.5">
                         <div className="flex items-center gap-2">
-                          <IconVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <IconVideo className="size-[18px] shrink-0 text-muted-foreground" />
                           <input
                             ref={meetingLinkRef}
                             value={editMeetingLink}
@@ -2146,7 +2158,7 @@ export function EventDetailPopover({
                             }}
                             onBlur={handleSaveMeetingLink}
                             placeholder={t("eventForm.pasteMeetingLink")}
-                            className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                            className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
                           />
                         </div>
                       </div>
@@ -2157,7 +2169,7 @@ export function EventDetailPopover({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs"
                             disabled={mutationPending}
                             onClick={handleAddGoogleMeet}
                           >
@@ -2168,7 +2180,7 @@ export function EventDetailPopover({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs"
                             disabled={mutationPending}
                             onClick={handleAddZoom}
                           >
@@ -2179,7 +2191,7 @@ export function EventDetailPopover({
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
+                            className="h-[30px] flex-1 justify-center gap-1.5 px-2 text-xs text-muted-foreground"
                             onClick={() => setEditingField("meetingLink")}
                           >
                             <IconPlus className="h-3.5 w-3.5" />
@@ -2191,7 +2203,7 @@ export function EventDetailPopover({
                   ) : (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 rounded-md px-4 py-1.5 text-left text-sm text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
+                      className="flex w-full items-center gap-2 rounded-md px-4 py-1.5 text-left text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
                       onClick={() => setShowConferencingOptions(true)}
                     >
                       <IconVideo className="h-4 w-4 shrink-0" />
@@ -2208,12 +2220,12 @@ export function EventDetailPopover({
                 editingField === "attachments" ||
                 (event.attachments?.length ?? 0) > 0) && (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
+                  <div className={eventPopoverDivider} />
                   {editingField === "attachments" ? (
                     <div className="px-4 py-1.5">
-                      <div className="mb-2 flex items-center gap-3">
-                        <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="text-sm font-medium text-foreground">
+                      <div className="mb-2 flex items-center gap-2">
+                        <IconPaperclip className="size-[18px] shrink-0 text-muted-foreground" />
+                        <span className="font-medium text-foreground">
                           {t("eventForm.attachments")}
                         </span>
                       </div>
@@ -2254,7 +2266,7 @@ export function EventDetailPopover({
                           href={att.fileUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted/50 group"
                         >
                           {att.iconLink ? (
                             <img
@@ -2263,7 +2275,7 @@ export function EventDetailPopover({
                               className="h-4 w-4 shrink-0"
                             />
                           ) : (
-                            <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <IconFileText className="size-[18px] shrink-0 text-muted-foreground" />
                           )}
                           <span className="truncate text-foreground">
                             {att.title}
@@ -2273,7 +2285,7 @@ export function EventDetailPopover({
                       ))}
                       <button
                         type="button"
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                         onClick={() => {
                           setEditAttachments(
                             attachmentsToDrafts(event.attachments),
@@ -2288,13 +2300,13 @@ export function EventDetailPopover({
                   ) : (
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
+                      className="flex w-full items-center gap-2 px-4 py-1.5 text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
                       onClick={() => {
                         setEditAttachments([attachmentsToDrafts(undefined)[0]]);
                         setEditingField("attachments");
                       }}
                     >
-                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+                      <IconPaperclip className="size-[18px] shrink-0 text-muted-foreground/40" />
                       {t("eventForm.addAttachment")}
                     </button>
                   )}
@@ -2304,10 +2316,10 @@ export function EventDetailPopover({
             {!isWorkingLocation && (
               <>
                 {/* Location — always shown, editable */}
-                <div className="mx-4 my-2 border-t border-border/50" />
+                <div className={eventPopoverDivider} />
                 {editingField === "location" ? (
-                  <div className="flex items-start gap-3 px-4 py-1.5">
-                    <IconMapPin className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex items-start gap-2 px-4 py-1.5">
+                    <IconMapPin className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
                     <input
                       ref={locationRef}
                       value={editLocation}
@@ -2326,18 +2338,18 @@ export function EventDetailPopover({
                       }}
                       onBlur={handleSaveLocation}
                       placeholder={t("eventForm.addLocation")}
-                      className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                      className="flex-1 bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
                     />
                   </div>
                 ) : event.location && !locationIsMeetingLink ? (
                   <div
-                    className={`flex items-start gap-3 px-4 py-1.5 ${!isOverlay ? "cursor-pointer hover:bg-muted/50 rounded-md" : ""}`}
+                    className={`flex items-start gap-2 px-4 py-1.5 ${!isOverlay ? "cursor-pointer hover:bg-muted/50 rounded-md" : ""}`}
                     onClick={() => {
                       if (isOverlay) return;
                       setEditingField("location");
                     }}
                   >
-                    <IconMapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <IconMapPin className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
                     {locationIsUrl ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -2345,7 +2357,7 @@ export function EventDetailPopover({
                             href={event.location}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sm text-primary hover:underline truncate block max-w-full"
+                            className="text-primary hover:underline truncate block max-w-full"
                             onClick={(e) => e.stopPropagation()}
                           >
                             {event.location}
@@ -2354,21 +2366,21 @@ export function EventDetailPopover({
                         <TooltipContent>{event.location}</TooltipContent>
                       </Tooltip>
                     ) : (
-                      <span className="text-sm text-muted-foreground">
+                      <span className="text-muted-foreground">
                         {event.location}
                       </span>
                     )}
                   </div>
                 ) : locationIsMeetingLink && meetingLink ? (
                   <>
-                    <div className="flex items-start gap-3 px-4 py-1.5 rounded-md">
-                      <IconVideo className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="flex items-start gap-2 px-4 py-1.5 rounded-md">
+                      <IconVideo className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
                         <a
                           href={meetingLink.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block max-w-full truncate text-sm text-primary hover:underline"
+                          className="block max-w-full truncate text-primary hover:underline"
                         >
                           {getMeetingLabel(meetingLink.type, t)}
                         </a>
@@ -2379,14 +2391,14 @@ export function EventDetailPopover({
                     </div>
                     {!isOverlay && (
                       <div
-                        className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
+                        className="flex items-center gap-2 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
                         onClick={() => {
                           setEditLocation(editableLocationValue);
                           setEditingField("location");
                         }}
                       >
-                        <IconMapPin className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                        <span className="text-sm text-muted-foreground/40">
+                        <IconMapPin className="size-[18px] shrink-0 text-muted-foreground/40" />
+                        <span className="text-muted-foreground/40">
                           {t("eventForm.addLocation")}
                         </span>
                       </div>
@@ -2394,7 +2406,7 @@ export function EventDetailPopover({
                   </>
                 ) : !isOverlay ? (
                   <div
-                    className="flex items-center gap-3 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
+                    className="flex items-center gap-2 px-4 py-1.5 cursor-pointer hover:bg-muted/50 rounded-md"
                     onClick={() => {
                       setEditLocation(
                         locationIsMeetingLink ? "" : editableLocationValue,
@@ -2402,8 +2414,8 @@ export function EventDetailPopover({
                       setEditingField("location");
                     }}
                   >
-                    <IconMapPin className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                    <span className="text-sm text-muted-foreground/40">
+                    <IconMapPin className="size-[18px] shrink-0 text-muted-foreground/40" />
+                    <span className="text-muted-foreground/40">
                       {t("eventForm.addLocation")}
                     </span>
                   </div>
@@ -2415,8 +2427,8 @@ export function EventDetailPopover({
             {!isWorkingLocation && (!isOverlay || event.description) && (
               <>
                 <div className="px-4 py-1.5">
-                  <div className="flex items-start gap-3">
-                    <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="flex items-start gap-2">
+                    <IconAlignLeft className="mt-1.5 size-[18px] shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       {isOverlay ? (
                         event.description ? (
@@ -2445,7 +2457,7 @@ export function EventDetailPopover({
                       ) : (
                         <button
                           type="button"
-                          className="rounded-md text-left text-sm text-muted-foreground/60 transition-colors hover:text-foreground"
+                          className="rounded-md text-left text-muted-foreground/60 transition-colors hover:text-foreground"
                           onClick={() => setEditingField("description")}
                         >
                           {t("eventForm.description")}
@@ -2461,11 +2473,11 @@ export function EventDetailPopover({
             {!isWorkingLocation &&
               (!isOverlay && editingField === "reminders" ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
+                  <div className={eventPopoverDivider} />
                   <div className="px-4 py-1.5">
-                    <div className="mb-2 flex items-center gap-3">
-                      <IconBell className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm font-medium text-foreground">
+                    <div className="mb-2 flex items-center gap-2">
+                      <IconBell className="size-[18px] shrink-0 text-muted-foreground" />
+                      <span className="font-medium text-foreground">
                         {t("eventForm.eventAlerts")}
                       </span>
                     </div>
@@ -2503,12 +2515,12 @@ export function EventDetailPopover({
                 </>
               ) : event.reminders && event.reminders.length > 0 ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
-                  <div className="flex items-start gap-3 px-4 py-1.5">
-                    <IconBell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-start gap-2 px-4 py-1.5">
+                    <IconBell className="mt-0.5 size-[18px] shrink-0 text-muted-foreground" />
                     <div className="space-y-0.5">
                       {event.reminders.map((r, i) => (
-                        <div key={i} className="text-sm text-muted-foreground">
+                        <div key={i} className="text-muted-foreground">
                           {formatReminderText(r.minutes)}
                         </div>
                       ))}
@@ -2522,14 +2534,14 @@ export function EventDetailPopover({
               (!isOverlay ? (
                 showMoreOptions ? (
                   <>
-                    <div className="mx-4 my-2 border-t border-border/50" />
+                    <div className={eventPopoverDivider} />
                     <div
                       id={`event-more-options-${event.id}`}
                       className="px-4 py-1.5"
                     >
                       <div className="grid grid-cols-3 gap-2">
                         <div className="space-y-1">
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {t("eventForm.showAs")}
                           </span>
                           <Select
@@ -2541,7 +2553,7 @@ export function EventDetailPopover({
                             }
                             disabled={mutationPending}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-[30px] text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2555,7 +2567,7 @@ export function EventDetailPopover({
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {t("eventForm.visibility")}
                           </span>
                           <Select
@@ -2565,7 +2577,7 @@ export function EventDetailPopover({
                             }
                             disabled={mutationPending}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-[30px] text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2582,7 +2594,7 @@ export function EventDetailPopover({
                           </Select>
                         </div>
                         <div className="space-y-1">
-                          <span className="text-[10px] text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {t("eventForm.alerts")}
                           </span>
                           <Select
@@ -2592,7 +2604,7 @@ export function EventDetailPopover({
                             }
                             disabled={mutationPending}
                           >
-                            <SelectTrigger className="h-8 text-xs">
+                            <SelectTrigger className="h-[30px] text-xs">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2621,8 +2633,8 @@ export function EventDetailPopover({
                 ) : null
               ) : event.status || event.visibility ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
-                  <div className="flex items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground">
+                  <div className={eventPopoverDivider} />
+                  <div className="flex items-center gap-2 px-4 py-1.5 text-muted-foreground">
                     <div className="h-4 w-4 shrink-0" />
                     <span>
                       {event.transparency === "transparent"
@@ -2639,14 +2651,14 @@ export function EventDetailPopover({
             {/* Overlay person badge */}
             {event.overlayEmail && (
               <>
-                <div className="mx-4 my-2 border-t border-border/50" />
-                <div className="flex items-center gap-3 px-4 py-1.5">
+                <div className={eventPopoverDivider} />
+                <div className="flex items-center gap-2 px-4 py-1.5">
                   <span
                     aria-hidden="true"
                     className="ml-1 size-2 shrink-0 rounded-full ring-1 ring-border"
                     style={{ backgroundColor: event.ownerColor }}
                   />
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-muted-foreground">
                     {t("eventForm.viewingOwnerCalendar", {
                       owner: ownerLabel,
                     })}
@@ -2665,7 +2677,7 @@ export function EventDetailPopover({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
+                className="h-[26px] text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                 disabled={mutationPending}
                 onClick={() => {
                   if (isDraft) onDraftDiscard?.(event.id);
@@ -2680,7 +2692,7 @@ export function EventDetailPopover({
                   asChild
                   variant="outline"
                   size="sm"
-                  className="ml-auto gap-1.5 text-xs"
+                  className="ml-auto h-[26px] gap-1.5"
                 >
                   <a
                     href={event.htmlLink}
@@ -2695,7 +2707,7 @@ export function EventDetailPopover({
               {isDraft && (
                 <Button
                   size="sm"
-                  className="ml-auto text-xs"
+                  className="ml-auto h-[26px]"
                   disabled={!isWorkingLocationDraftReadyToCreate(event)}
                   onClick={handleCreateDraft}
                 >
