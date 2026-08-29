@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { isDashboardCertified } from "../server/lib/dashboard-certification";
 import { certifyDashboardWithRetry } from "../server/lib/dashboards-store";
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections";
 
@@ -21,12 +22,18 @@ export default defineAction({
       email: admin.userEmail,
       orgId: admin.orgId,
     });
+    const certified = isDashboardCertified(
+      updated.certification,
+      updated.updatedAt,
+    );
     return {
       id: updated.id,
       updatedAt: updated.updatedAt,
       certification: updated.certification ?? null,
-      certified: Boolean(updated.certification),
-      message: `Dashboard "${updated.title}" certified for its current version.`,
+      certified,
+      message: certified
+        ? `Dashboard "${updated.title}" certified for its current version.`
+        : `Dashboard "${updated.title}" changed while it was being certified; its certification is stale.`,
     };
   },
 });

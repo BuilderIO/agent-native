@@ -61,4 +61,28 @@ describe("certify-dashboard action", () => {
       },
     });
   });
+
+  it("does not claim certification is current after a concurrent edit", async () => {
+    state.certify.mockResolvedValueOnce({
+      id: "dashboard-1",
+      kind: "sql",
+      title: "Revenue",
+      updatedAt: "v3",
+      config: { name: "Revenue" },
+      certification: {
+        status: "certified" as const,
+        certifiedAt: "2026-08-28T00:00:00.000Z",
+        certifiedBy: "admin@example.com",
+        certifiedForUpdatedAt: "v2",
+      },
+    });
+
+    const result = await (action as any).run({ id: "dashboard-1" });
+
+    expect(result).toMatchObject({
+      certified: false,
+      message:
+        'Dashboard "Revenue" changed while it was being certified; its certification is stale.',
+    });
+  });
 });
