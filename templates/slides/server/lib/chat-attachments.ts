@@ -11,11 +11,13 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import {
   isSlidesReferenceFileExtension,
   MAX_INLINE_IMAGE_BYTES,
+  MAX_REFERENCE_FILES,
   MAX_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
+const MAX_CHAT_UPLOAD_TOTAL_BYTES = MAX_REFERENCE_FILE_BYTES;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -136,7 +138,10 @@ function decodeDataUrl(data: string | undefined): {
   };
 }
 
-async function downloadHostedReferenceFile(url: string): Promise<{
+async function downloadHostedReferenceFile(
+  url: string,
+  maxBytes: number,
+): Promise<{
   bytes: Buffer;
   contentType?: string;
 }> {
@@ -146,11 +151,18 @@ async function downloadHostedReferenceFile(url: string): Promise<{
     { httpsOnly: true, maxRedirects: 3 },
   );
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     throw new Error(
       `Remote attachment download failed (HTTP ${response.status})`,
     );
   }
-  const bytes = await readBoundedResponseBytes(response, MAX_CHAT_UPLOAD_BYTES);
+  let bytes: Uint8Array;
+  try {
+    bytes = await readBoundedResponseBytes(response, maxBytes);
+  } catch (error) {
+    await response.body?.cancel().catch(() => {});
+    throw error;
+  }
   return {
     bytes: Buffer.from(bytes),
     contentType:
@@ -197,6 +209,8 @@ export async function prepareSlidesChatAttachments(args: {
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
   const nextAttachments = [...args.attachments];
+  let urlOnlyReferenceCount = 0;
+  let urlOnlyReferenceBytes = 0;
 
   for (let index = 0; index < args.attachments.length; index++) {
     const attachment = args.attachments[index];
@@ -215,6 +229,14 @@ export async function prepareSlidesChatAttachments(args: {
       typeof attachment.url === "string"
     ) {
       if (isSlidesReferenceFileExtension(ext)) {
+        urlOnlyReferenceCount++;
+        if (urlOnlyReferenceCount > MAX_REFERENCE_FILES) {
+          failed.push({
+            name: attachment.name,
+            reason: `too many URL-only reference attachments (max ${MAX_REFERENCE_FILES})`,
+          });
+          continue;
+        }
         if (isVisualAttachment(attachment)) {
           uploaded.push({
             originalName: attachment.name,
@@ -224,9 +246,23 @@ export async function prepareSlidesChatAttachments(args: {
           });
         } else {
           try {
+            const remainingBytes =
+              MAX_CHAT_UPLOAD_TOTAL_BYTES - urlOnlyReferenceBytes;
+            if (remainingBytes <= 0) {
+              throw new Error(
+                `URL-only reference attachments exceed the ${MAX_CHAT_UPLOAD_TOTAL_BYTES} byte aggregate download limit`,
+              );
+            }
             const downloaded = await downloadHostedReferenceFile(
               attachment.url,
+              Math.min(MAX_CHAT_UPLOAD_BYTES, remainingBytes),
             );
+            if (downloaded.bytes.length > remainingBytes) {
+              throw new Error(
+                `URL-only reference attachments exceed the ${MAX_CHAT_UPLOAD_TOTAL_BYTES} byte aggregate download limit`,
+              );
+            }
+            urlOnlyReferenceBytes += downloaded.bytes.length;
             const saved = await saveUploadedReferenceFile({
               email: args.ownerEmail,
               originalName: attachment.name,

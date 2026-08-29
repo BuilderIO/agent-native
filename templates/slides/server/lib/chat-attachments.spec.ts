@@ -19,6 +19,10 @@ vi.mock("@agent-native/core/ingestion", () => ({
 }));
 
 import {
+  MAX_REFERENCE_FILES,
+  MAX_REFERENCE_FILE_BYTES,
+} from "../../shared/upload-types";
+import {
   appendSlidesDeckGenerationContext,
   buildSlidesDeckGenerationContext,
   prepareSlidesChatAttachments,
@@ -359,6 +363,112 @@ describe("prepareSlidesChatAttachments", () => {
       "slides-upload:v1:source",
     );
     expect(result?.attachments?.[0]?.url).toBeUndefined();
+  });
+
+  it("bounds url-only attachment count and aggregate download bytes", async () => {
+    const response = new Response("pdf");
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31]);
+    ssrfSafeFetchMock.mockResolvedValue(response);
+    readBoundedResponseBytesMock.mockResolvedValue(bytes);
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "slides-upload:v1:source",
+      originalName: "source.pdf",
+      filename: "stored.pdf",
+      type: "application/pdf",
+      size: bytes.byteLength,
+    });
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "import these into the current deck",
+      attachments: Array.from(
+        { length: MAX_REFERENCE_FILES + 1 },
+        (_, index) => ({
+          type: "file",
+          name: `source-${index}.pdf`,
+          contentType: "application/pdf",
+          url: `https://cdn.example.com/source-${index}.pdf`,
+        }),
+      ),
+    });
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledTimes(MAX_REFERENCE_FILES);
+    expect(readBoundedResponseBytesMock).toHaveBeenNthCalledWith(
+      1,
+      response,
+      MAX_REFERENCE_FILE_BYTES,
+    );
+    expect(readBoundedResponseBytesMock).toHaveBeenNthCalledWith(
+      2,
+      response,
+      MAX_REFERENCE_FILE_BYTES - bytes.byteLength,
+    );
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(
+      MAX_REFERENCE_FILES,
+    );
+    expect(result?.message).toContain(
+      "too many URL-only reference attachments",
+    );
+  });
+
+  it("cancels a non-OK url-only document response", async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const response = {
+      ok: false,
+      status: 503,
+      body: { cancel },
+    } as unknown as Response;
+    ssrfSafeFetchMock.mockResolvedValue(response);
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "import this into the current deck",
+      attachments: [
+        {
+          type: "file",
+          name: "source.pdf",
+          contentType: "application/pdf",
+          url: "https://cdn.example.com/source.pdf",
+        },
+      ],
+    });
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(saveUploadedReferenceFileMock).not.toHaveBeenCalled();
+    expect(result?.message).toContain("Remote attachment download failed");
+  });
+
+  it("cancels a url-only document response when bounded reading fails", async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const response = {
+      ok: true,
+      status: 200,
+      body: { cancel },
+      headers: new Headers(),
+    } as unknown as Response;
+    ssrfSafeFetchMock.mockResolvedValue(response);
+    readBoundedResponseBytesMock.mockRejectedValue(
+      new Error("Remote artifact exceeds 52428800 bytes."),
+    );
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "import this into the current deck",
+      attachments: [
+        {
+          type: "file",
+          name: "source.pdf",
+          contentType: "application/pdf",
+          url: "https://cdn.example.com/source.pdf",
+        },
+      ],
+    });
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(saveUploadedReferenceFileMock).not.toHaveBeenCalled();
+    expect(result?.message).toContain(
+      "Remote artifact exceeds 52428800 bytes.",
+    );
   });
 
   it("surfaces an already-hosted, url-only image instead of silently dropping it", async () => {
