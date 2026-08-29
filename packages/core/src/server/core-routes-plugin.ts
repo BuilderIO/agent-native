@@ -3505,13 +3505,27 @@ export function createCoreRoutesPlugin(
           // PKCE proves the callback belongs to this flow before its pending
           // row is consumed. Persist first so a transient credential-store
           // failure does not strand an otherwise valid pending flow.
+          let callbackRole: string | null = null;
+          if (pending.role === "owner" || pending.role === "admin") {
+            // Re-check authority after the external OAuth round trip. A role
+            // captured at connect start must not authorize a later org write.
+            const currentOrg = await resolveBuilderOrgMutation(event, {
+              allowMemberInitiation: true,
+            });
+            if (
+              currentOrg.orgId === pending.orgId &&
+              (currentOrg.role === "owner" || currentOrg.role === "admin")
+            ) {
+              callbackRole = currentOrg.role;
+            }
+          }
           let credentialScope: "user" | "org" = "user";
           try {
             credentialScope = await saveBuilderOAuthCredentials({
               ownerEmail,
               orgId:
                 typeof pending.orgId === "string" ? pending.orgId : undefined,
-              role: typeof pending.role === "string" ? pending.role : null,
+              role: callbackRole,
               credentials,
             });
           } catch {

@@ -23,7 +23,9 @@ const credentialState = vi.hoisted(() => ({
 
 const oauthState = vi.hoisted(() => ({
   ownerEmail: undefined as string | undefined,
+  orgId: undefined as string | undefined,
   accessToken: null as string | null,
+  scope: undefined as "user" | "org" | undefined,
   stored: false,
   resolveAccess: vi.fn(),
   hasSession: vi.fn(),
@@ -81,6 +83,7 @@ vi.mock("../../server/builder-oauth.js", () => ({
 }));
 
 vi.mock("../../server/request-context.js", () => ({
+  getRequestOrgId: vi.fn(() => oauthState.orgId),
   getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
 }));
 
@@ -137,7 +140,9 @@ describe("createBuilderEngine", () => {
     credentialState.lane = "identity";
     credentialState.recordBuilderGatewayAuthFailure.mockClear();
     oauthState.ownerEmail = undefined;
+    oauthState.orgId = undefined;
     oauthState.accessToken = null;
+    oauthState.scope = undefined;
     oauthState.stored = false;
     oauthState.resolveAccess.mockReset().mockImplementation(async () =>
       oauthState.accessToken
@@ -145,6 +150,7 @@ describe("createBuilderEngine", () => {
             accessToken: oauthState.accessToken,
             ownerEmail: oauthState.ownerEmail,
             scopes: ["builder:ai:invoke"],
+            scope: oauthState.scope,
           }
         : null,
     );
@@ -871,6 +877,31 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).not.toHaveBeenCalled();
     expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+  });
+
+  it("marks the OAuth grant in the request organization", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.orgId = "org-request";
+    oauthState.scope = "org";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(oauthState.markReconnect).toHaveBeenCalledWith(
+      "person@example.com",
+      "org",
+      "org-request",
+    );
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {

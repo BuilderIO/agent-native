@@ -303,7 +303,9 @@ export async function markBuilderOAuthReconnectRequired(
 export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
+  requiredScope?: string,
 ): Promise<BuilderOAuthSession | null> {
+  let missingRequiredScope = false;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
     const stored = await getOAuthTokens(
       "mcp",
@@ -318,12 +320,20 @@ export async function getBuilderOAuthSession(
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);
     if (!credentials || !isBuilderCredential(credentials)) continue;
+    const scopes = scopesFrom(credentials);
+    if (requiredScope && !scopes.includes(requiredScope)) {
+      missingRequiredScope = true;
+      continue;
+    }
     return {
       accessToken,
       expiresAt: credentials.tokenExpiresAt,
-      scopes: scopesFrom(credentials),
+      scopes,
       scope: options.scope,
     };
+  }
+  if (requiredScope && missingRequiredScope) {
+    throw new Error(`Builder OAuth connection does not grant ${requiredScope}`);
   }
   return null;
 }
@@ -347,15 +357,8 @@ export async function getBuilderOAuthConnectionScope(
   ownerEmail: string,
   orgId?: string | null,
 ): Promise<BuilderOAuthScope | null> {
-  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
-    const stored = await getOAuthTokens(
-      "mcp",
-      options.key,
-      `${options.scope}:${options.scopeId}`,
-    );
-    if (stored !== null) return options.scope;
-  }
-  return null;
+  const session = await getBuilderOAuthSession(ownerEmail, orgId);
+  return session?.scope ?? null;
 }
 
 export async function resolveBuilderOAuthRequestAccess(input: {
@@ -363,13 +366,12 @@ export async function resolveBuilderOAuthRequestAccess(input: {
   requiredScope: string;
   orgId?: string | null;
 }): Promise<BuilderOAuthRequestAccess | null> {
-  const session = await getBuilderOAuthSession(input.ownerEmail, input.orgId);
+  const session = await getBuilderOAuthSession(
+    input.ownerEmail,
+    input.orgId,
+    input.requiredScope,
+  );
   if (!session) return null;
-  if (!session.scopes.includes(input.requiredScope)) {
-    throw new Error(
-      `Builder OAuth connection does not grant ${input.requiredScope}`,
-    );
-  }
   return { ...session, ownerEmail: input.ownerEmail.trim().toLowerCase() };
 }
 

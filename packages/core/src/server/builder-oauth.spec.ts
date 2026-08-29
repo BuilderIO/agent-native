@@ -40,6 +40,7 @@ import {
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
+  getBuilderOAuthConnectionScope,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
@@ -522,6 +523,44 @@ describe("Builder hosted user OAuth", () => {
         requiredScope: "builder:assets:write",
       }),
     ).rejects.toThrow("does not grant builder:assets:write");
+  });
+
+  it("falls back to an org grant when a personal grant lacks the requested scope", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
+    readMock.mockImplementation(async (options: { scope: "user" | "org" }) =>
+      options.scope === "user"
+        ? credentials()
+        : credentials({
+            tokens: {
+              access_token: "<ACCESS_TOKEN_EXAMPLE>",
+              scope: BUILDER_OAUTH_SCOPES.join(" "),
+              issuer: BUILDER_OAUTH_ISSUER,
+            },
+          }),
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: "builder:assets:write",
+      }),
+    ).resolves.toMatchObject({ scope: "org", scopes: BUILDER_OAUTH_SCOPES });
+  });
+
+  it("reports the usable org grant when personal custody needs reconnect", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
+    getRawTokensMock.mockResolvedValue({});
+    getAccessTokenMock.mockImplementation(
+      async (options: { scope: "user" | "org" }) =>
+        options.scope === "user" ? null : "<ACCESS_TOKEN_EXAMPLE>",
+    );
+    readMock.mockResolvedValue(credentials());
+
+    await expect(getBuilderOAuthConnectionScope(ownerEmail)).resolves.toBe(
+      "org",
+    );
   });
 
   // A stored credential with no `scope` claim predates both Builder always

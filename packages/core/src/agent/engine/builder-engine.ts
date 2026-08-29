@@ -31,7 +31,10 @@ import {
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
 } from "../../server/credential-provider.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   allowsSamplingParams,
@@ -638,8 +641,14 @@ async function recordAuthFailureForCurrentLane(opts: {
   }
   const ownerEmail = getRequestUserEmail();
   if (ownerEmail) {
-    if (opts.oauthScope) {
-      await markBuilderOAuthReconnectRequired(ownerEmail, opts.oauthScope);
+    if (opts.oauthScope === "org") {
+      await markBuilderOAuthReconnectRequired(
+        ownerEmail,
+        "org",
+        getRequestOrgId(),
+      );
+    } else if (opts.oauthScope === "user") {
+      await markBuilderOAuthReconnectRequired(ownerEmail, "user");
     } else {
       await markBuilderOAuthReconnectRequired(ownerEmail);
     }
