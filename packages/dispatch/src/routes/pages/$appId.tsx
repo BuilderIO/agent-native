@@ -1,6 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
@@ -22,7 +23,6 @@ import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Spinner } from "../../components/ui/spinner";
 import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
   navigateToWorkspaceApp,
@@ -161,11 +161,7 @@ export default function WorkspaceAppCatchAllRoute() {
     (isLoading && !app) ||
     (app && app.status !== "pending" && href && !navigationFailed)
   ) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <Spinner className="size-8" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
   return (
