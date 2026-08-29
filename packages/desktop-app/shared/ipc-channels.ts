@@ -318,6 +318,7 @@ export interface DesktopIdentityMagicLinkResult {
 export interface DesktopWorkspaceAppListResult {
   enabled: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
+  unavailable?: boolean;
 }
 
 export interface DesktopPrepareLocalCodeChangeRequest {

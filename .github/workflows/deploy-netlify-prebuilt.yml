@@ -98,6 +98,8 @@ on:
         required: true
       PLAN_DATABASE_URL:
         required: false
+      CLIPS_DATABASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -270,6 +272,18 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?PLAN_DATABASE_URL secret is required for prebuilt Plan deployments}"
           pnpm --filter plan migrate:production
+
+      - name: Run Clips release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'clips'
+        env:
+          DATABASE_URL: ${{ secrets.CLIPS_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?CLIPS_DATABASE_URL secret is required for prebuilt Clips deployments}"
+          pnpm --filter clips migrate:production
 
       - name: Verify deploy directories
         env:

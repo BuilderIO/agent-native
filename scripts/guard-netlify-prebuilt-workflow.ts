@@ -295,6 +295,9 @@ const parsedStepIndex = (name: string) =>
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedClipsMigrationIndex = parsedStepIndex(
+  "Run Clips release migrations",
+);
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -312,6 +315,20 @@ const parsedCleanupIndex = parsedStepIndex(
 );
 issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
 issues.push(...validateNetlifyApiRateLimitHandling(reusable));
+const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
+if (
+  parsedClipsMigrationIndex < 0 ||
+  typeof parsedClipsMigrationIf !== "string" ||
+  !parsedClipsMigrationIf.includes("inputs.target == 'production'") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !parsedClipsMigrationIf.includes("source_template == 'clips'") ||
+  !reusable.includes("CLIPS_DATABASE_URL")
+) {
+  issues.push(
+    `${reusablePath} must run Clips release migrations against CLIPS_DATABASE_URL before a production prebuilt deploy`,
+  );
+}
 if (
   parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||
