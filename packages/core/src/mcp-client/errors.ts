@@ -21,12 +21,11 @@ function stringifyError(error: unknown): string {
 function httpStatusFromError(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
   const record = error as Record<string, unknown>;
-  const nested = record.data;
-  const status =
-    record.status ??
-    (nested && typeof nested === "object"
-      ? (nested as Record<string, unknown>).status
-      : undefined);
+  const nested =
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : undefined;
+  const status = record.status ?? nested?.status ?? record.code ?? nested?.code;
   return typeof status === "number" && status >= 100 && status <= 599
     ? status
     : undefined;
