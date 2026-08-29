@@ -892,13 +892,10 @@ export function createIntegrationsPlugin(
       googleDocsPollerTransition = new Promise<void>((resolve) => {
         release = resolve;
       });
-      return previous.then(async () => {
-        try {
-          await operation();
-        } finally {
-          release();
-        }
-      });
+      return previous
+        .catch(() => undefined)
+        .then(operation)
+        .finally(release);
     };
     const createGoogleDocsPollerOptions = (event?: any) => {
       const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;

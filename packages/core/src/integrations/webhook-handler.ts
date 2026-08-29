@@ -1417,7 +1417,7 @@ async function processIncomingMessage(
           // fallback. A completed write must not be reported as though nothing
           // happened merely because the model ran out of time before its prose
           // summary. Read-only and unverified tool results do not qualify.
-          const baseUrl = getAppProductionUrl();
+          const baseUrl = getAppProductionUrl(undefined, { fallback: "" });
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const toolResults = collectToolResultSummaries(completedRun);
           const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(
