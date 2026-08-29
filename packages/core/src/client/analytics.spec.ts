@@ -440,6 +440,58 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("suppresses browser telemetry for QA signup identities", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+    };
+    const {
+      captureClientException,
+      configureTracking,
+      setTrackingIdentity,
+      trackAgentChatLifecycle,
+      trackEvent,
+    } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      sessionReplay: true,
+      errorCapture: false,
+    });
+    await tick();
+    analyticsCalls.length = 0;
+    gtag.mockClear();
+    amplitudeMock.track.mockClear();
+    sentryMock.setUser.mockClear();
+    sentryMock.captureException.mockClear();
+
+    setTrackingIdentity(
+      {
+        id: "auth-user-qa",
+        email: "signup+qa-test-bot-run-1@example.com",
+      },
+      "org_qa",
+    );
+    trackEvent("signup completed");
+    trackAgentChatLifecycle({ phase: "surface-mounted", surface: "signup" });
+    expect(
+      captureClientException(new Error("QA canary failure")),
+    ).toBeUndefined();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalled();
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+    expect(sentryMock.setUser).toHaveBeenLastCalledWith(null);
+    expect(sentryMock.captureException).not.toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+    expect(replayMock.emitSessionReplayAgentChatEvent).not.toHaveBeenCalled();
+  });
+
   it("tracks client-side URL changes once per URL", async () => {
     const { history } = installBrowser();
     const { analyticsCalls } = installFetch();
