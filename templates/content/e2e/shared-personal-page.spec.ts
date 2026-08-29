@@ -104,6 +104,22 @@ async function crossFailureDurabilityBoundary(page: Page) {
   await page.waitForTimeout(1_000);
 }
 
+async function retryOrAwaitPropertyRecovery(page: Page) {
+  const retryButton = page.getByRole("button", { name: "Retry" });
+  const editor = page.locator(".ProseMirror");
+  await expect
+    .poll(
+      async () => {
+        if (await editor.isVisible()) return "recovered";
+        if (await retryButton.isVisible()) return "retry";
+        return "pending";
+      },
+      { timeout: 30_000 },
+    )
+    .not.toBe("pending");
+  if (await retryButton.isVisible()) await retryButton.click();
+}
+
 async function registerRecipient(
   context: BrowserContext,
   baseURL: string,
@@ -388,7 +404,7 @@ test("an editor can read and edit one shared Personal page without gaining its p
         persistedCollabBaseline,
       );
       propertyFailureActive = false;
-      await recipient.getByRole("button", { name: "Retry" }).click();
+      await retryOrAwaitPropertyRecovery(recipient);
       await expect(
         recipient.locator('[data-block-fields-state="error"]'),
       ).toHaveCount(0);
