@@ -263,6 +263,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("moves the active app beside CLI tabs and restores it for UI tabs", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain('placement: enabled ? "side" : "main"');
+    expect(hubSource).toContain("onNewCliTab={handleNewCliTab}");
+    expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
+    expect(hubSource).toContain(
+      "chatEnabled={shouldUseDesktopAppChatShell(tab.path)}",
+    );
+    expect(hubSource).toContain(
+      'newTabMode={terminalPreferences.enabled ? "cli" : "ui"}',
+    );
+  });
+
   it("declares the app guest hidden while the integrations overlay covers it", () => {
     // The guest stays isActive while the wrapper is `invisible`, and an
     // Electron guest never observes CSS hiding — without this it keeps
@@ -812,7 +829,9 @@ describe("CodeAgentsHub desktop identity status", () => {
     expect(source).toContain("desktopIdentityStatusByTab");
     expect(source).toContain("handleDesktopIdentityStatusChange");
     expect(source).toContain("onDesktopIdentitySyncFailure");
-    expect(source).toContain('if (status === "failed")');
+    expect(source).toContain('surfaceApp.id === "dispatch"');
+    expect(source).toContain('app.id === "dispatch"');
+    expect(source).toContain('status === "failed"');
     expect(source).toContain("desktopIdentityStatusByTab,");
     expect(source).toContain("handleDesktopIdentityStatusChange,");
     expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");

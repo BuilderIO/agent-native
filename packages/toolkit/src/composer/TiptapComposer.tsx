@@ -48,6 +48,7 @@ import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionItemMedia } from "./MentionItemMedia.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import {
+  filterModelGroupsForAgent,
   isClaudeCodeAgentId,
   isLunaModel,
   resolvePreferredAgentModel,
@@ -1244,7 +1245,7 @@ function localizedReasoningEffortLabel(
  * Deduplicate models to only the latest version per family.
  * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
  */
-function latestModelsOnly(models: string[]): string[] {
+function latestModelsOnly(models: readonly string[]): string[] {
   const seen = new Set<string>();
   return models.filter((m) => {
     // Claude: family = tier (opus/sonnet/haiku)
@@ -1410,6 +1411,9 @@ function ModelSelector({
       (group) => group.engine === "codex-cli",
     );
     const groups = providerGroups.flatMap((group) => {
+      if (group.engine === "claude-cli") {
+        return isClaudeCodeAgent ? [group] : [];
+      }
       if (group.engine === "codex-cli") {
         return isCodexAgent && isOpenAiModelProviderGroup(group) ? [group] : [];
       }
@@ -1432,17 +1436,11 @@ function ModelSelector({
         : group.models.filter(isOpenAiModelId);
       return models.length > 0 ? [{ ...group, models }] : [];
     });
-    if (!isClaudeCodeAgent) return groups;
-    return groups
-      .map((group) => ({
-        ...group,
-        models: group.models.filter((candidate) => !isLunaModel(candidate)),
-      }))
-      .filter((group) => group.models.length > 0);
-  }, [isClaudeCodeAgent, isCodexAgent, providerGroups]);
+    return filterModelGroupsForAgent(selectedAgent, groups);
+  }, [isClaudeCodeAgent, isCodexAgent, providerGroups, selectedAgent]);
   const preferredAgentModel = useMemo(
-    () => resolvePreferredAgentModel(selectedAgent, providerGroups),
-    [providerGroups, selectedAgent],
+    () => resolvePreferredAgentModel(selectedAgent, modelProviderGroups),
+    [modelProviderGroups, selectedAgent],
   );
   useEffect(() => {
     if (!isClaudeCodeAgent || !isLunaModel(model) || !preferredAgentModel) {
@@ -1524,6 +1522,7 @@ function ModelSelector({
     (group) => group.configured,
   );
   const showBuilderAction =
+    !isClaudeCodeAgent &&
     !hasConfiguredCloudProviderReady &&
     (Boolean(onConnectProvider) ||
       (providerConnectStatusEnabled &&
@@ -1532,6 +1531,7 @@ function ModelSelector({
         !hasConfiguredBuilderModels &&
         !hasConnectedSubscription));
   const showAddKeysAction =
+    !isClaudeCodeAgent &&
     !hasConfiguredCloudProviderReady &&
     (hasUnconfiguredVisibleModels || showBuilderAction);
   const showProviderActions = showBuilderAction || showAddKeysAction;
@@ -1577,7 +1577,7 @@ function ModelSelector({
         >
           <span className="min-w-0 truncate">
             {selectedAgentOption?.icon ? (
-              <span className="me-1 inline-flex shrink-0 align-[-2px] text-muted-foreground">
+              <span className="me-1 inline-flex shrink-0 align-middle text-muted-foreground">
                 {selectedAgentOption.icon}
               </span>
             ) : null}

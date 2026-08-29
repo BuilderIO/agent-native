@@ -930,6 +930,9 @@ describe("AppWebview auth state", () => {
       "/_agent-native/auth/session",
     );
     expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "authenticated !== false",
+    );
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },

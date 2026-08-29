@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   desktopSettingsTabForSection,
-  shouldAnimateDesktopAppChatSidebar,
   shouldShowDesktopAppChatSidebar,
 } from "./DesktopAppChatShell.js";
 
@@ -19,32 +18,12 @@ describe("desktop app chat shell", () => {
     expect(desktopSettingsTabForSection("voice")).toBe("general");
   });
 
-  it("animates only the first active presentation of a cached app tab", () => {
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: false,
-        hasSwitchedAway: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: false,
-        chatSidebarWasOpenBeforeMount: true,
-      }),
-    ).toBe(false);
+  it("keeps cached app chat sidebars mounted without replaying entrance animation", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("animateDesktop={false}");
   });
 
   it("keeps the shell open state shared while new app chats start empty", () => {
@@ -58,6 +37,8 @@ describe("desktop app chat shell", () => {
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
     expect(source).toContain("toggleScopeId={toggleScopeId}");
+    expect(source).toContain("onNewCliTab={onNewCliTab}");
+    expect(source).toContain('newCliTabLabel="New CLI tab"');
     expect(source).toContain("restoreActiveThread={false}");
     expect(source).toContain("enabled={showChatSidebar}");
     expect(source).not.toContain(
@@ -113,7 +94,7 @@ describe("desktop app chat shell", () => {
         apiUrl: "https://dispatch.example/_agent-native/agent-chat",
         appAuthState: "unauthenticated",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldShowDesktopAppChatSidebar({
         apiUrl: "https://dispatch.example/_agent-native/agent-chat",

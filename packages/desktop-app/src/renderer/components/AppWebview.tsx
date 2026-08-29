@@ -174,7 +174,7 @@ export function buildGuestAuthStateProbeScript(): string {
       const hasSession = Boolean(
         record &&
           !Object.prototype.hasOwnProperty.call(record, "error") &&
-          (record.email || record.user || record.session),
+          record.authenticated !== false,
       );
       return {
         authenticated: hasSession,
