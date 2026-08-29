@@ -16,7 +16,7 @@ import {
 import {
   getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
-  listWorkspaceConnections,
+  listWorkspaceConnectionsForUser,
   summarizeWorkspaceConnectionProviderReadiness,
 } from "@agent-native/core/workspace-connections";
 import { dispatchActions } from "@agent-native/dispatch/actions";
@@ -146,7 +146,7 @@ export default defineAction({
       (provider) =>
         googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id),
     );
-    const allConnections = await listWorkspaceConnections({
+    const allConnections = await listWorkspaceConnectionsForUser({
       provider: args.provider,
       appId: args.appId,
       includeDisabled: args.includeDisabled,
@@ -160,10 +160,14 @@ export default defineAction({
       provider: args.provider,
       appId: args.appId,
     });
+    const visibleConnectionIds = new Set(
+      connections.map((connection) => connection.id),
+    );
     const explicitGrants = allExplicitGrants.filter(
       (grant) =>
-        googleOAuthConfigured ||
-        !isGoogleWorkspaceOAuthProvider(grant.provider),
+        visibleConnectionIds.has(grant.connectionId) &&
+        (googleOAuthConfigured ||
+          !isGoogleWorkspaceOAuthProvider(grant.provider)),
     );
     const grantApps = await listGrantApps();
     const legacyGrants = connections.flatMap<GrantSummary>((connection) => {
