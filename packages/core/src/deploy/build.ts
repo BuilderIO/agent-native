@@ -4002,7 +4002,6 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
     targetPreset === "netlify" ||
     targetPreset === "vercel" ||
     targetPreset === "aws-lambda" ||
-    isAwsAmplifyPreset(targetPreset) ||
     targetPreset === "node" ||
     targetPreset === "node-server"
   );
@@ -5448,7 +5447,6 @@ export default bundle;
       ...(preset === "netlify" ||
       preset === "vercel" ||
       preset === "aws-lambda" ||
-      isAwsAmplifyPreset(preset) ||
       preset === "node" ||
       preset === "node-server"
         ? { external: ["yjs"] }

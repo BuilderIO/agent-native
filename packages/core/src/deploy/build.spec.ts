@@ -109,14 +109,13 @@ describe("nitroNoExternalsForPreset", () => {
 });
 
 describe("shouldBundleYjsRuntimeForPreset", () => {
-  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+  it("covers Node and serverless output but leaves self-contained edge presets to Nitro", () => {
     for (const preset of [
       "node",
       "node-server",
       "netlify",
       "vercel",
       "aws-lambda",
-      "aws_amplify",
     ]) {
       expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
     }
