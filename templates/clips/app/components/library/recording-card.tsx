@@ -1,4 +1,6 @@
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDots,
@@ -101,6 +103,7 @@ export function RecordingCard({
 }: RecordingCardProps) {
   const t = useT();
   const formatters = useFormatters();
+  const uploadRetryEnabled = useFeatureFlag(UPLOAD_RETRY_RESUME_FLAG.key);
   const formatDate = (date: Date) => formatters.formatDate(date);
   const formatRelativeTime = (
     value: number,
@@ -146,7 +149,11 @@ export function RecordingCard({
     (recording.status === "failed" &&
       isRetryableUploadInterruption(recording.failureReason)) ||
     (recording.status === "uploading" && staleUpload);
-  const canRetry = Boolean(onRetry) && retryableStatus && !nativeUploadPaused;
+  const canRetry =
+    uploadRetryEnabled &&
+    Boolean(onRetry) &&
+    retryableStatus &&
+    !nativeUploadPaused;
 
   useEffect(() => {
     if (!canRetry) {

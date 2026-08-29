@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "@shared/upload-interruption";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,6 +11,10 @@ import { hasRecordingBackup } from "@/lib/recording-backup";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
 
 import { RecordingCard } from "./recording-card";
+
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: vi.fn(() => true),
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
@@ -117,6 +122,7 @@ describe("RecordingCard behavior", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(useFeatureFlag).mockReturnValue(true);
     vi.mocked(isStaleRecordingUpload).mockReturnValue(false);
     vi.mocked(hasRecordingBackup).mockResolvedValue(false);
     container = document.createElement("div");
@@ -172,6 +178,30 @@ describe("RecordingCard behavior", () => {
 
     expect(container.textContent).toContain("clipsFinalRaw.retry");
     expect(hasRecordingBackup).toHaveBeenCalledWith(recording.id);
+  });
+
+  it("does not offer retry when the resumable retry rollout is disabled", async () => {
+    vi.mocked(useFeatureFlag).mockReturnValue(false);
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={onRetry}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(useFeatureFlag).toHaveBeenCalledWith("uploadRetryResume");
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+    expect(hasRecordingBackup).not.toHaveBeenCalled();
   });
 
   it("does not offer retry for a stale processing upload", async () => {
