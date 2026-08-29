@@ -36,7 +36,7 @@ function optionalTimestamp(source: object, key: string) {
   const value = (source as Record<string, unknown>)[key];
   if (value == null) return null;
   if (value instanceof Date) return value.toISOString();
-  return String(value);
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
 }
 
 export default defineAction({

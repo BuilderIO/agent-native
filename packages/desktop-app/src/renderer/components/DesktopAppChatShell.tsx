@@ -76,6 +76,7 @@ export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
   children: ReactNode;
+  onOpenSettings?: (section?: string) => void;
   desktopIdentityUnauthenticated?: boolean;
   desktopIdentityAuthenticated?: boolean;
   desktopIdentityStatus?: DesktopIdentityStatus | "checking";
@@ -90,6 +91,34 @@ export interface DesktopAppChatShellProps {
 
 const DESKTOP_APP_CHAT_OPEN_STORAGE_KEY =
   "agent-native.desktop-app-chat.sidebar-open";
+
+export function desktopSettingsTabForSection(section?: string | null): string {
+  const normalized = section?.replace(/^#/, "").trim().toLowerCase() ?? "";
+  if (normalized === "terminal") return "terminal";
+  if (normalized === "llm" || normalized === "app-models") return "providers";
+  if (
+    normalized === "integrations" ||
+    normalized === "connections" ||
+    normalized.startsWith("secrets:") ||
+    normalized === "secrets" ||
+    normalized === "email" ||
+    normalized === "browser"
+  ) {
+    return "connections";
+  }
+  if (
+    normalized === "hosting" ||
+    normalized === "database" ||
+    normalized === "uploads" ||
+    normalized === "auth" ||
+    normalized === "demo-mode" ||
+    normalized === "workspace" ||
+    normalized === "workspace-settings"
+  ) {
+    return "workspace";
+  }
+  return "general";
+}
 
 function wasDesktopAppChatSidebarOpenBeforeMount(): boolean {
   if (typeof window === "undefined") return false;
@@ -145,6 +174,7 @@ export default function DesktopAppChatShell({
   appId,
   appName,
   children,
+  onOpenSettings,
   desktopIdentityUnauthenticated = false,
   desktopIdentityAuthenticated = false,
   desktopIdentityStatus,
@@ -198,7 +228,9 @@ export default function DesktopAppChatShell({
   useEffect(() => {
     let cancelled = false;
     setLocalAgentModelsLoading(true);
-    const listModels = window.electronAPI?.codeAgents?.listModels;
+    const listModels = window.electronAPI?.codeAgents
+      ? () => window.electronAPI!.codeAgents!.listModels()
+      : undefined;
     if (!listModels) {
       setLocalAgentModelsLoading(false);
       return () => undefined;
@@ -296,6 +328,12 @@ export default function DesktopAppChatShell({
       localAgentId ? createDesktopLocalAgentRuntime(localAgentId) : undefined,
     [localAgentId],
   );
+  const openDesktopSettings = useCallback(
+    (section?: string) =>
+      onOpenSettings?.(desktopSettingsTabForSection(section)),
+    [onOpenSettings],
+  );
+  const ignoreOpenSettings = useCallback(() => undefined, []);
 
   installDesktopChatFetchRelay();
 
@@ -304,7 +342,9 @@ export default function DesktopAppChatShell({
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
 
-    const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
+    const getApiUrl = window.electronAPI?.desktopChat
+      ? (id: string) => window.electronAPI!.desktopChat!.getApiUrl(id)
+      : undefined;
     if (!getApiUrl) return () => undefined;
 
     void getApiUrl(appId)
@@ -346,7 +386,15 @@ export default function DesktopAppChatShell({
         status: "starting",
         message: `Preparing ${appName} in a local workspace.`,
       });
-      const prepare = window.electronAPI?.appConfig?.prepareLocalCodeChange;
+      const prepare = window.electronAPI?.appConfig
+        ? (
+            input: Parameters<
+              NonNullable<
+                typeof window.electronAPI.appConfig.prepareLocalCodeChange
+              >
+            >[0],
+          ) => window.electronAPI!.appConfig!.prepareLocalCodeChange(input)
+        : undefined;
       if (!prepare) {
         setLocalCodeChange({
           status: "error",
@@ -402,7 +450,10 @@ export default function DesktopAppChatShell({
 
   useEffect(() => {
     if (localCodeChange.status === "idle") return;
-    const onRuntimeStatus = window.electronAPI?.appConfig?.onRuntimeStatus;
+    const onRuntimeStatus = window.electronAPI?.appConfig
+      ? (callback: (status: DesktopAppRuntimeStatus) => void) =>
+          window.electronAPI!.appConfig!.onRuntimeStatus(callback)
+      : undefined;
     if (!onRuntimeStatus) return;
     return onRuntimeStatus((status: DesktopAppRuntimeStatus) => {
       if (status.appId !== appId) return;
@@ -537,6 +588,13 @@ export default function DesktopAppChatShell({
                 contextKey: `desktop-app:${appId}`,
               }}
               toggleScopeId={toggleScopeId}
+              onOpenSettings={
+                isActive
+                  ? onOpenSettings
+                    ? openDesktopSettings
+                    : undefined
+                  : ignoreOpenSettings
+              }
               apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
               isolateHistoryByScope
               agentChatSurface="desktop"

@@ -268,9 +268,24 @@
   --wf-card: var(--plan-block, hsl(var(--card)));
   --wf-accent: var(--plan-muted-line, hsl(var(--border)));
   --wf-accent-soft: var(--plan-block, hsl(var(--card)));
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    hsl(var(--foreground) / 0.072) 50%,
+    transparent 70%
+  );
+  background-position: 150% 0;
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
 }
 .plan-html-frame[data-skeleton="true"] * {
   color: transparent !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-html-frame[data-skeleton="true"] {
+    animation: none;
+  }
 }
 
 /*

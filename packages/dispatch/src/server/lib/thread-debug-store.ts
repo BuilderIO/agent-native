@@ -194,7 +194,9 @@ function nullableNumberField(value: unknown): number | null {
 function safeJsonParse<T>(value: unknown, fallback: T): T {
   if (value == null || value === "") return fallback;
   try {
-    return JSON.parse(String(value)) as T;
+    return JSON.parse(
+      typeof value === "string" ? value : JSON.stringify(value),
+    ) as T;
   } catch {
     return fallback;
   }
@@ -598,9 +600,15 @@ function serializeRun(row: AgentRunRow, events: any[] = []) {
 }
 
 function parseRunEvent(row: Record<string, unknown>) {
-  const raw = String(row.event_data ?? "");
+  const raw =
+    typeof row.event_data === "string"
+      ? row.event_data
+      : JSON.stringify(row.event_data ?? "");
   return {
-    runId: String(row.run_id ?? ""),
+    runId:
+      typeof row.run_id === "string" || typeof row.run_id === "number"
+        ? String(row.run_id)
+        : "",
     seq: numberField(row.seq),
     event: safeJsonParse(raw, { type: "unparseable", raw }),
     rawEventData: raw,
@@ -649,7 +657,9 @@ function publicSource(source: ThreadDebugSourceConfig) {
 function parseTerminalEvent(value: unknown): Record<string, unknown> | null {
   if (value == null || value === "") return null;
   try {
-    const parsed = JSON.parse(String(value));
+    const parsed = JSON.parse(
+      typeof value === "string" ? value : JSON.stringify(value),
+    );
     return parsed && typeof parsed === "object"
       ? (parsed as Record<string, unknown>)
       : { type: "unparseable" };

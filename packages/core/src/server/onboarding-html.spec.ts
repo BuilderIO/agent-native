@@ -168,37 +168,49 @@ describe("getOnboardingHtml", () => {
     });
   });
 
-  describe("googleOnly login is env-independent (safe to CDN-cache)", () => {
-    it("renders a working Google button even when GOOGLE_CLIENT_ID/SECRET are absent at render time", () => {
-      // The login page is a public, CDN-cacheable shell that may be rendered in
-      // any context (build, an env-less cold start, a stale-while-revalidate
-      // refresh). A Google-only app must ALWAYS render a usable button and must
-      // never bake a "not configured" error into that cached HTML — otherwise a
-      // single bad render freezes the broken page for every visitor until the
-      // SWR window expires. A genuinely misconfigured server surfaces the error
-      // at click time via the auth API instead.
+  describe("googleOnly login follows deployment credentials", () => {
+    it("disables Google sign-in when the credential pair is absent", () => {
+      // A Google-only page must not send visitors into the desktop exchange
+      // flow when the server cannot mount a matching Google OAuth route.
       delete process.env.GOOGLE_CLIENT_ID;
       delete process.env.GOOGLE_CLIENT_SECRET;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
+
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).not.toContain('id="google-btn"');
+      expect(html).not.toContain("async function signInWithGoogle()");
+      expect(html).toContain('id="google-err"');
+      expect(html).toContain('class="google-error show"');
+      expect(html).toContain('data-i18n="googleNotConfigured"');
+      expect(html).toContain("Google sign-in is not available right now.");
+    });
+
+    it("disables Google sign-in when only one credential is present", () => {
+      delete process.env.GOOGLE_CLIENT_ID;
+      delete process.env.GOOGLE_CLIENT_SECRET;
+      delete process.env.GOOGLE_SIGN_IN_CLIENT_ID;
+      vi.stubEnv("GOOGLE_SIGN_IN_CLIENT_SECRET", "sign-in-secret-without-id");
+
+      const html = getOnboardingHtml({ googleOnly: true });
+
+      expect(html).not.toContain('id="google-btn"');
+      expect(html).toContain("Google sign-in is not available right now.");
+    });
+
+    it("renders Google sign-in when a complete credential pair is present", () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
 
       const html = getOnboardingHtml({ googleOnly: true });
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
-      expect(html).toContain('onclick="signInWithGoogle()"');
-      expect(html).not.toContain("google-preflight");
-      expect(html).not.toContain("Google sign-in is not configured");
-    });
-
-    it("the rendered HTML is byte-for-byte identical with and without Google env vars", () => {
-      delete process.env.GOOGLE_CLIENT_ID;
-      delete process.env.GOOGLE_CLIENT_SECRET;
-      const withoutEnv = getOnboardingHtml({ googleOnly: true });
-
-      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-      const withEnv = getOnboardingHtml({ googleOnly: true });
-
-      expect(withoutEnv).toBe(withEnv);
+      expect(html).toContain(
+        "surface: __anAuthView === 'login' ? 'login' : 'signup'",
+      );
+      expect(html).not.toContain('class="google-error show"');
     });
   });
 
@@ -308,6 +320,8 @@ describe("getOnboardingHtml", () => {
   });
 
   it("does not render a run-local CTA in the auth marketing panel", () => {
+    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
+    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
     const html = getOnboardingHtml({
       googleOnly: true,
       marketing: {
@@ -366,11 +380,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="m-email"');
     expect(html).toContain('id="magic-link-submit"');
     expect(html).toContain('class="magic-link-submit"');
-    expect(html).toContain(".magic-link-submit { display: none; }");
+    expect(html).toContain(".magic-link-submit { display: block; }");
     expect(html).toContain('id="magic-link-success"');
     expect(html).toContain('id="magic-link-success-email"');
     expect(html).toContain("function showMagicLinkSuccess(email)");
-    expect(html).toContain("button.classList.toggle('is-visible', isValid)");
+    expect(html).toContain("button.disabled = !isValid");
     expect(html).toContain(
       "googleButton.classList.toggle('magic-link-secondary', isValid)",
     );
@@ -396,6 +410,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
     );
+    expect(html).toContain("} else if (__AN_AUTH_MODE !== 'magic-link') {");
     expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm();");
     expect(html).toContain('class="tabs" id="auth-tabs"');
     expect(html).not.toContain('class="tabs" id="auth-tabs" hidden');
@@ -404,8 +419,56 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain("Create an account or sign in");
     expect(html).not.toContain("Email me a sign-in link");
+    expect(html).toContain("Continue with email");
     expect(html).toContain("magicLinkTitle");
     expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("does not let a remembered password tab override the magic-link entry view", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+    const start = html.indexOf("    var initial = __AN_AUTH_MODE");
+    const end = html.indexOf("    if (initial === 'magicLink')", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const resolveInitialView = new Function(
+      "__AN_AUTH_MODE",
+      "location",
+      "localStorage",
+      "TAB_STORAGE_KEY",
+      "__anVerificationRedirectError",
+      "__anIsVerifiedRedirectSuccess",
+      `${html.slice(start, end)} return initial;`,
+    ) as (
+      authMode: "magic-link" | "password",
+      location: { search: string; pathname: string },
+      localStorage: { getItem: (key: string) => string | null },
+      storageKey: string,
+      verificationError: () => string | null,
+      verifiedRedirect: () => boolean,
+    ) => string;
+
+    const storage = { getItem: () => "signup" };
+    expect(
+      resolveInitialView(
+        "magic-link",
+        { search: "", pathname: "/" },
+        storage,
+        "an.onboarding.tab",
+        () => null,
+        () => false,
+      ),
+    ).toBe("magicLink");
+    expect(
+      resolveInitialView(
+        "password",
+        { search: "", pathname: "/" },
+        storage,
+        "an.onboarding.tab",
+        () => null,
+        () => false,
+      ),
+    ).toBe("signup");
   });
 
   it("renders a quiet centered auth surface for an initial prompt", () => {
@@ -431,7 +494,7 @@ describe("getOnboardingHtml", () => {
 
     expect(html).toContain("欢迎");
     expect(html).toContain("创建账户或登录");
-    expect(html).toContain("继续");
+    expect(html).toContain("使用邮箱继续");
     expect(html).toContain("我们已向以下邮箱发送安全登录链接：");
     expect(html).toContain("改用密码");
     expect(html).toContain("我們已向以下電子郵件寄送安全登入連結：");
@@ -523,6 +586,8 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain("function __anSyncAnalyticsAnonymousId()");
     expect(html).toContain("localStorage.getItem('agent-native.anonymous_id')");
     expect(html).toContain("document.cookie = 'an_aid='");
+    expect(html).toContain("auth.signup_viewed");
+    expect(html).toContain("auth.signup_clicked");
   });
 
   it("omits hosted terms and privacy links on unhosted email signup", () => {

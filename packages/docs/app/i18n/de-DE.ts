@@ -63,6 +63,7 @@ const deDE = {
     dialogLabel: "Dokumentation durchsuchen",
     placeholder: "Dokumentation durchsuchen...",
     empty: "Tippe, um die gesamte Dokumentation zu durchsuchen",
+    toggleChatSidebar: "Chat-Seitenleiste umschalten",
     loadError: "Die Suche konnte nicht geladen werden. Erneut versuchen.",
     retry: "Erneut versuchen",
     noResults: 'Keine Ergebnisse für "{{query}}"',
@@ -440,7 +441,7 @@ const deDE = {
       bodyLine1:
         "Baue für KI-Agenten, ohne ein zweites Produkt für Nutzer zu bauen.",
       bodyLine2: "Bring dein eigenes LLM mit. Deploye überall.",
-      learnMore: "Mehr erfahren",
+      tryAnApp: "App ausprobieren",
     },
     install: {
       copyCommand: "Installationsbefehl kopieren",
@@ -502,7 +503,7 @@ const deDE = {
     },
     showcase: {
       title: "Was kannst du mit Agent-Native bauen?",
-      body: "Starte mit einem Chat, einem fokussierten internen Tool oder einem vollständigen kundenorientierten Produkt. Jede App gibt Nutzern eine UI und Agenten die Werkzeuge für dieselbe Arbeit.",
+      body: "Agentische Apps, die deine Arbeit verstehen, handeln und mit dir zusammenarbeiten. Baue deine eigene oder teste eine dieser Open-Source-Apps.",
       browseApps: "Apps durchsuchen",
       scrollLeft: "Apps nach links scrollen",
       scrollRight: "Apps nach rechts scrollen",
@@ -511,13 +512,6 @@ const deDE = {
       title: "Baue deine erste Agent-Native App",
       body: "Erstelle eine Anwendung für Nutzer und KI-Agenten. Bring dein eigenes LLM mit und deploye überall.",
     },
-    getStartedModal: {
-      title: "Loslegen",
-      close: "Schließen",
-      buildLocally: "App lokal bauen",
-      tryAnApp: "App ausprobieren",
-      buildInCloud: "In der Cloud bauen",
-    },
     footer: {
       tagline: "Das Framework für agentische Anwendungen.",
       framework: "Framework",
@@ -525,10 +519,19 @@ const deDE = {
       community: "Community",
       legal: "Rechtliches",
       docs: "Docs",
-      actions: "Actions",
+      download: "Herunterladen",
       apps: "Apps",
       privacyPolicy: "Datenschutzerklärung",
       saasTerms: "SaaS-Bedingungen",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Sie möchten nicht lokal entwickeln?",
+      exploreApp: "Erkunden Sie zuerst eine Live-App",
+      between: "oder",
+      joinWaitlist: "tragen Sie sich in die Warteliste ein",
+      end: "um stattdessen im Browser zu entwickeln.",
     },
   },
   templatesPage: {
@@ -558,7 +561,7 @@ const deDE = {
       "Starte mit dem Framework-Leitfaden oder baue online mit dem Cloud-Coding-Agenten von Builder.io.",
     readDocs: "Dokumentation lesen",
     buildOnline: "Online bauen",
-    popoverTitle: "Online mit Builder.io bauen",
+    popoverTitle: "Im Browser entwickeln",
     popoverBody:
       "Builder.io kann eine agent-native App in der Cloud starten und anpassen — inklusive Actions, Auth, SQL-Status und Agent-Chat. Trag dich für frühen Zugriff in die Warteliste ein.",
     emailLabel: "E-Mail",
@@ -589,7 +592,7 @@ const deDE = {
     clips: {
       replaces: "Ersetzt oder erweitert Loom, Granola und Wisprflow",
       description:
-        "Bildschirmaufzeichnungen mit Browser-Debug-Erfassung, kalendersynchronisierten Besprechungsnotizen und Fn-gehaltenem Sprachdiktat – alles transkribiert, zusammengefasst und durchsuchbar, mit einem Agenten, der alles bearbeiten kann.",
+        "Zeichnet Bildschirm, Meetings und Sprachnotizen auf, damit Agenten verstehen, was passiert ist, und handeln können.",
     },
     plan: {
       replaces: "Visueller Planmodus für Codex, Claude Code und Coding-Agenten",
@@ -599,27 +602,27 @@ const deDE = {
     design: {
       replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
       description:
-        "Agent-Native HTML-Prototyping-Studio. Erzeuge interaktive Alpine/Tailwind-Designs, vergleiche Varianten, verfeinere Live-Kontrollen und exportiere das Ergebnis.",
+        "Verwandelt Prompts in interaktive Designs, die Ihrem Designsystem folgen, während der Agent jeden Bildschirm mit Feedback verfeinert.",
     },
     content: {
       replaces: "Ersetzt oder erweitert Obsidian für MDX, Notion, Google Docs",
       description:
-        "Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian, generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke und verwenden Sie einen AI-Agenten zum Entwerfen, Umschreiben und Veröffentlichen.",
+        "Arbeitet mit Ihren Dokumenten, während ein Agent in Ihrem Stil schreibt, interaktive Inhalte erstellt und auf Ihrer Website veröffentlicht.",
     },
     slides: {
       replaces: "Ersetzt oder erweitert Google Slides, Pitch",
       description:
-        "Generieren Sie vollständige Präsentationen aus einer Eingabeaufforderung. Bearbeiten Sie visuell oder im Gespräch. AI Bildgenerierung, 8 Layouts und integrierter Präsentationsmodus.",
+        "Erstellt markengerechte, bearbeitbare Präsentationen aus Prompts oder vorhandenen Folien, die ein Agent erstellen, bearbeiten und verfeinern kann.",
     },
     analytics: {
       replaces: "Open-Source-Alternative zu Amplitude und FullStory",
       description:
-        "Verbinden Sie beliebige Datenquellen, fordern Sie beliebige Diagramme an und erstellen Sie wiederverwendbare Dashboards. Der Agent schreibt SQL, generiert Visualisierungen und entwickelt die App weiter.",
+        "Verbindet Ihre Daten, damit ein Agent Fragen in Alltagssprache beantwortet und die Ergebnisse in Diagramme und Dashboards verwandelt.",
     },
     mail: {
       replaces: "Ersetzt oder erweitert Superhuman, Gmail",
       description:
-        "E-Mail-Client im Superhuman-Stil mit Tastaturkürzeln, AI-Triage, Unterstützung für mehrere Konten und E-Mail-Automatisierungen. Besitzen Sie Ihren Posteingangs-Workflow.",
+        "Ein tastaturorientierter Posteingang, in dem ein Agent E-Mails priorisiert, Antworten entwirft, Threads zusammenfasst und nachfasst.",
     },
     forms: {
       replaces: "Ersetzt oder erweitert Typeform, Google Forms",
@@ -630,12 +633,12 @@ const deDE = {
       replaces:
         "Ersetzt oder erweitert DAMs, Marken-Asset-Bibliotheken und AI-Mediengeneratoren",
       description:
-        "Digitaler Asset-Manager für Uploads, Markenbibliotheken, durchsuchbare Referenzen und die Generierung von markenbezogenen Bildern/Videos, die andere Apps über A2A aufrufen oder als Auswahl einbetten können.",
+        "Bietet Agenten eine gemeinsame Bibliothek aus Markenrichtlinien, Bildern und Videos, um in Apps markengerechte Medien zu erstellen und auszuwählen.",
     },
     calendar: {
       replaces: "Ersetzt oder erweitert Google Calendar, Calendly",
       description:
-        "Vollständiger Kalender mit Google-Synchronisierung, Verfügbarkeitsverwaltung und einer öffentlichen Buchungsseite. Der Agent findet offene Slots, erstellt Events und verwaltet Ihren Zeitplan.",
+        "Führt Ihre Google-Kalender zusammen, damit ein Agent freie Zeiten findet, Termine plant oder verschiebt und Buchungen verwaltet.",
     },
     dispatch: {
       replaces: "Missionskontrolle für Ihre agentennativen Apps",
@@ -1630,7 +1633,7 @@ const deDE = {
   },
   downloadPage: {
     title: "Agent-Native herunterladen",
-    body: "Alle agent-native Apps in einer Desktop-Shell. Produktions-Apps sind integriert, mit Dev-Modus für lokale Entwicklung.",
+    body: "Probieren Sie agentische Apps für Meetings, Design, Präsentationen, Daten, Terminplanung, E-Mail und mehr aus – alles in einer Desktop-App.",
     openDesktop: "Agent-Native öffnen",
     downloadInstaller: "Installer herunterladen",
     downloadStarted: "Download gestartet",
@@ -1639,27 +1642,33 @@ const deDE = {
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
     retry: "Erneut versuchen",
     unavailable: "Installer für diese Plattform nicht verfügbar",
+    allPlatforms: "Alle Plattformen",
     stable: "Stabil",
     nightly: "Nightly",
-    switchToNightly: "Zu Nightly-Builds wechseln",
-    switchToStable: "Zu stabilen Builds wechseln",
-    runFromSource: "Oder aus dem Quellcode starten",
+    runFromSource: "Bauen Sie Ihr eigenes",
     runFromSourceBody:
-      "Noch kein Installer für Ihre Plattform, oder lieber die CLI? Erstellen Sie mit npm eine neue App und führen Sie sie lokal aus; funktioniert auf macOS, Windows und Linux.",
+      "Erstellen Sie eine Agent-Native-App über die Befehlszeile und führen Sie sie lokal unter macOS, Windows oder Linux aus.",
     platforms: {
       mac: {
         primary: "Für Apple Silicon herunterladen",
         alternative: "Intel-Mac",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Für Windows herunterladen",
         alternative: "ARM64",
+        gridPrimary: "x64-Installer",
+        gridAlternative: "Arm64-Installer",
         note: "Windows 10 oder neuer.",
       },
       linux: {
         primary: "Linux-Archiv herunterladen",
         appImage: "AppImage herunterladen",
         deb: ".deb herunterladen",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "Das Archiv funktioniert ohne FUSE. AppImage benötigt auf einigen Distributionen eventuell FUSE 2.",
       },
     },
@@ -2150,8 +2159,9 @@ const deDE = {
     dispatchDevelopers: "Entwicklerhandbuch",
     forms: "Formulare",
     formsOverview: "Überblick",
-    formsBuildingPublishing: "Erstellen und Veröffentlichen",
-    formsResponses: "Antworten und Erkenntnisse",
+    formsFeatures: "Funktionen",
+    formsAgent: "Mit dem Agent sprechen",
+    formsIntegrations: "Cross-App-Nutzung",
     docsComponents: "Docs Components",
     formsDevelopers: "Entwicklerhandbuch",
   },

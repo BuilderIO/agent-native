@@ -8,6 +8,12 @@ const previousBakedGaMeasurementId =
 const previousGtmContainerId = process.env.GTM_CONTAINER_ID;
 const previousBakedGtmContainerId =
   process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID;
+const previousAgentNativeAnalyticsPublicKey =
+  process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+const previousViteAgentNativeAnalyticsPublicKey =
+  process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+const previousAgentNativeAnalyticsEndpoint =
+  process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT;
 
 afterEach(() => {
   if (previousGaMeasurementId === undefined) {
@@ -31,6 +37,24 @@ afterEach(() => {
   } else {
     process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID =
       previousBakedGtmContainerId;
+  }
+  if (previousAgentNativeAnalyticsPublicKey === undefined) {
+    delete process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  } else {
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY =
+      previousAgentNativeAnalyticsPublicKey;
+  }
+  if (previousViteAgentNativeAnalyticsPublicKey === undefined) {
+    delete process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  } else {
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY =
+      previousViteAgentNativeAnalyticsPublicKey;
+  }
+  if (previousAgentNativeAnalyticsEndpoint === undefined) {
+    delete process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT;
+  } else {
+    process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT =
+      previousAgentNativeAnalyticsEndpoint;
   }
 });
 
@@ -150,6 +174,27 @@ describe("wrapWithAnalytics", () => {
 });
 
 describe("injectAnalyticsIntoHtml", () => {
+  it("injects first-party analytics config for public auth events", () => {
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_auth_test";
+    process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT =
+      "https://analytics.example.test/track";
+    delete process.env.GA_MEASUREMENT_ID;
+    delete process.env.GTM_CONTAINER_ID;
+
+    const html = injectAnalyticsIntoHtml(
+      "<html><head></head><body>signup</body></html>",
+    );
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_auth_test"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/track"',
+    );
+    expect(html.indexOf("data-agent-native-analytics-config")).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+  });
+
   it("injects the configured analytics scripts into auth HTML", () => {
     process.env.GA_MEASUREMENT_ID = "G-UNITTEST123";
     delete process.env.GTM_CONTAINER_ID;

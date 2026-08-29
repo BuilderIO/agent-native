@@ -99,6 +99,10 @@ export function readConfigEnvironment(
     AGENT_NATIVE_RELEASE_MIGRATIONS:
       process.env.AGENT_NATIVE_RELEASE_MIGRATIONS,
     AGENT_NATIVE_BETA_SCHEMA_OWNER: process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER,
+    AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY:
+      process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY,
+    AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT:
+      process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT,
   },
 ): Record<string, string | undefined> {
   const env = { ...process.env };

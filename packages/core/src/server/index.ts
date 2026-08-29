@@ -102,7 +102,10 @@ export {
   IDENTITY_SSO_SCOPE,
   IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
-export { hasGoogleAuthIdentity } from "./better-auth-instance.js";
+export {
+  ensureGoogleAuthIdentity,
+  hasGoogleAuthIdentity,
+} from "./better-auth-instance.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
   assertCurrentRequestUserIsOrgAdmin,
@@ -562,6 +565,7 @@ export {
   // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentials,
   resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
@@ -571,6 +575,7 @@ export {
   type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
+  canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
   resolveBuilderApiAuthorization,
 } from "./builder-api-auth.js";

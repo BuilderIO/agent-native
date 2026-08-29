@@ -1,3 +1,4 @@
+import { AgentNativeIcon } from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -91,7 +92,6 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
@@ -715,7 +715,7 @@ function SortableRow({
             onChange={(e) => setRenameValue(e.target.value)}
             onBlur={submitRename}
             onKeyDown={(e) => {
-              if (e.key === "Enter") submitRename();
+              if (e.key === "Enter") void submitRename();
               if (e.key === "Escape") {
                 setRenameValue(name);
                 setIsRenaming(false);
@@ -1776,7 +1776,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
-  const { views: activeDashboardViews = [] } = useDashboardViews(
+  const { views: activeDashboardViews } = useDashboardViews(
     activeDashboardId ?? undefined,
   );
   const allViewsMap = useMemo<Record<string, DashboardView[]>>(
@@ -1946,8 +1946,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     async (d: SidebarDashboard) => {
       if (d.source === "analysis") {
         await deleteAnalysisMut({ id: d.resourceId ?? d.id });
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
         return;
       }
       if (d.source === "static") {
@@ -1972,7 +1972,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey: activeKey });
+        void queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
@@ -2005,7 +2005,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey: activeKey });
+        void queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
@@ -2022,9 +2022,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
       if (d.source === "analysis") {
         await renameAnalysis({ id: d.resourceId ?? d.id, name: trimmed });
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({
           queryKey: ["analysis-detail", d.resourceId ?? d.id],
         });
         return;
@@ -2054,8 +2054,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         queryClient.removeQueries({
           queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
         });
-        queryClient.invalidateQueries({ queryKey });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({
           queryKey: ["sql-dashboards-palette", dashboardScope],
         });
       } catch (err) {
@@ -2075,8 +2075,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           resourceId: d.resourceId ?? d.id,
           visibility,
         } as any);
-        queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
-        queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-sidebar"] });
+        void queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
         toast.success(
           visibility === "org"
             ? t("sidebar.nameSharedWithOrg", { name: d.name })
@@ -2104,7 +2104,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           resourceId: d.id,
           visibility,
         } as any);
-        queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({ queryKey });
         toast.success(
           visibility === "org"
             ? t("sidebar.nameSharedWithOrg", { name: d.name })
@@ -2355,21 +2355,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               to="/"
               className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
             >
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
+              <AgentNativeIcon
                 aria-hidden="true"
-                width={35}
-                height={20}
-                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
+                className="h-[17px] w-[30px] shrink-0 text-sidebar-foreground"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}

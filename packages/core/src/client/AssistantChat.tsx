@@ -47,6 +47,7 @@ import React, {
   useImperativeHandle,
 } from "react";
 
+import type { AgentChatAttachment } from "../agent/types.js";
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import type { ThinkingDisplay } from "../shared/thinking-display.js";
@@ -107,13 +108,17 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
 } from "./chat/composer-draft.js";
-import { TextStreamingContext } from "./chat/markdown-renderer.js";
+import {
+  ExternalTextStreamingContext,
+  TextStreamingContext,
+} from "./chat/markdown-renderer.js";
 import {
   CheckpointContext,
   MessageActionsContext,
   assistantMessageRunId,
   UserMessage,
   AssistantMessage,
+  ExternalUserStoppedRunContext,
   SelectionAttachedPill,
   RunningActivityStatus,
   displayableUserMessageText,
@@ -138,6 +143,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  isBuilderReconnectRunError,
   runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
@@ -291,8 +297,11 @@ export type AgentRecoveryAction = "continue" | "retry";
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
+  attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
 }
 
 export function createUserMessageRunConfig(
@@ -309,6 +318,7 @@ export function createUserMessageRunConfig(
     effort?: ReasoningEffort;
   },
   turnId?: string,
+  usageLabel?: string,
 ) {
   const custom: {
     references?: Reference[];
@@ -320,6 +330,7 @@ export function createUserMessageRunConfig(
     engine?: string;
     effort?: ReasoningEffort;
     turnId?: string;
+    usageLabel?: string;
   } = {};
   if (modelSnapshot?.model) custom.model = modelSnapshot.model;
   if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
@@ -342,25 +353,32 @@ export function createUserMessageRunConfig(
   if (turnId) {
     custom.turnId = turnId;
   }
+  if (usageLabel) {
+    custom.usageLabel = usageLabel;
+  }
   const options: {
     runConfig?: { custom: typeof custom };
     metadata?: {
       custom: {
         agentNativeRecoveryAction?: AgentRecoveryAction;
         agentNativeHiddenUserMessage?: boolean;
+        agentNativeQueuedMessageId?: string;
       };
     };
   } = {};
   if (Object.keys(custom).length > 0) {
     options.runConfig = { custom };
   }
-  if (recoveryAction || hideUserMessage) {
+  if (recoveryAction || hideUserMessage || queuedMessageId) {
     options.metadata = {
       custom: {
         ...(recoveryAction
           ? { agentNativeRecoveryAction: recoveryAction }
           : {}),
         ...(hideUserMessage ? { agentNativeHiddenUserMessage: true } : {}),
+        ...(queuedMessageId
+          ? { agentNativeQueuedMessageId: queuedMessageId }
+          : {}),
       },
     };
   }
@@ -487,6 +505,19 @@ export function reconnectProgressTimedOut(args: {
 }): boolean {
   const threshold = args.thresholdMs ?? ACTIVE_RUN_STUCK_THRESHOLD_MS;
   return args.now - args.lastProgressAt >= threshold;
+}
+
+export function matchesUserStoppedRun(
+  stopped: { runId?: string; threadId?: string; turnId?: string } | null,
+  threadId?: string,
+  runId?: string,
+  turnId?: string,
+): boolean {
+  if (!stopped || stopped.threadId !== threadId) return false;
+  return Boolean(
+    (stopped.runId && runId && stopped.runId === runId) ||
+    (stopped.turnId && turnId && stopped.turnId === turnId),
+  );
 }
 
 function activeRunMatchesThread(
@@ -1768,6 +1799,8 @@ export function assistantChatAutoscrollStatusKey({
 type QueuedMessage = {
   id: string;
   text: string;
+  /** Already visible in the thread; start its run after the active turn ends. */
+  promoted?: boolean;
   images?: string[];
   attachments?: QueuedAttachment[];
   references?: Reference[];
@@ -1778,6 +1811,8 @@ type QueuedMessage = {
   approvedToolCalls?: string[];
   /** Preserve the logical turn when a hidden reconnect recovery is re-issued. */
   turnId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -1797,6 +1832,15 @@ export function hoistQueuedMessageToFront<T extends { id: string }>(
   const target = messages.find((message) => message.id === id);
   if (!target) return [...messages];
   return [target, ...messages.filter((message) => message.id !== id)];
+}
+
+export function promoteQueuedMessage<T extends { id: string }>(
+  messages: readonly T[],
+  id: string,
+): T[] {
+  return hoistQueuedMessageToFront(messages, id).map((message) =>
+    message.id === id ? { ...message, promoted: true } : message,
+  );
 }
 
 export function queuedMessageImageSources(
@@ -1993,7 +2037,8 @@ export interface AssistantChatProps {
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
   /**
-   * Called with the active composer's current plain text as it changes.
+   * Called with the active composer's current plain text when it initializes
+   * and as it changes.
    * Host apps can use this to render contextual, non-destructive affordances
    * beside the shared composer without replacing the composer stack.
    */
@@ -2113,6 +2158,10 @@ export interface AssistantChatProps {
   historyReloadKey?: string | number | null;
   /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
+  /** Keep stopped-response actions visible for an embedded host's stop action. */
+  externalUserStopped?: boolean;
+  /** Notify an embedded host when the shared composer stop control is used. */
+  onStop?: () => void | Promise<unknown>;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
    * built-in Approve and action-type policy. Code sessions pass their
@@ -2487,6 +2536,8 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     historyReloadKey,
     externalStreaming = false,
+    externalUserStopped = false,
+    onStop,
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
@@ -2550,12 +2601,18 @@ const AssistantChatInner = forwardRef<
   // (unsupported format, size cap, body-size rejection, drop errors).
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
-  const [composerText, setComposerText] = useState("");
   const composerDraftScope = tabId || threadId;
   const initialComposerText = useMemo(
     () => readAssistantChatComposerDraft(composerDraftScope),
     [composerDraftScope],
   );
+  const [composerText, setComposerText] = useState(initialComposerText ?? "");
+  useEffect(() => {
+    const restoredText = initialComposerText ?? "";
+    setComposerText(restoredText);
+    if (!isActiveComposer) return;
+    onComposerTextChange?.(restoredText);
+  }, [initialComposerText, isActiveComposer, onComposerTextChange]);
   const handleComposerTextChange = useCallback(
     (text: string) => {
       setComposerText(text);
@@ -2835,9 +2892,12 @@ const AssistantChatInner = forwardRef<
   >(null);
   const [dismissedProviderAuthErrorKey, setDismissedProviderAuthErrorKey] =
     useState<string | null>(null);
+  // Keep an intentional stop until the next explicit submission. The server
+  // may replay the terminal snapshot well after the client cancellation.
   const userStoppedRunRef = useRef<{
-    at: number;
     runId?: string;
+    threadId?: string;
+    turnId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
@@ -3246,7 +3306,7 @@ const AssistantChatInner = forwardRef<
   // instead of racing a second, separately-constructed AbortController.
   // Callers with no signal of their own keep the internal fallback timeout.
   const refreshThreadFromServer = useCallback(
-    async (signal?: AbortSignal): Promise<any | null> => {
+    async (signal?: AbortSignal): Promise<any> => {
       if (loadHistoryRepository) {
         try {
           const repo = await loadHistoryRepository();
@@ -3408,15 +3468,11 @@ const AssistantChatInner = forwardRef<
     };
   }, [cacheCurrentThreadSnapshot]);
 
-  const wasRecentlyStoppedRun = useCallback((runId?: string): boolean => {
-    const stopped = userStoppedRunRef.current;
-    return Boolean(
-      stopped &&
-      Date.now() - stopped.at < 10_000 &&
-      (!stopped.runId || !runId || stopped.runId === runId),
-    );
-  }, []);
-
+  const wasUserStoppedRun = useCallback(
+    (runId?: string, turnId?: string): boolean =>
+      matchesUserStoppedRun(userStoppedRunRef.current, threadId, runId, turnId),
+    [threadId],
+  );
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
       if (
@@ -3428,7 +3484,7 @@ const AssistantChatInner = forwardRef<
         return false;
       }
       const runId = String(runInfo.runId);
-      if (wasRecentlyStoppedRun(runId)) return false;
+      if (wasUserStoppedRun(runId, runInfo.turnId)) return false;
       if (reconnectRunIdRef.current === runId) return true;
       // SINGLE-READER OWNERSHIP: never start a second reader while the
       // adapter's own stream is live (or mid auto-continuation) for this
@@ -3920,14 +3976,7 @@ const AssistantChatInner = forwardRef<
       void streamReconnect();
       return true;
     },
-    [
-      apiUrl,
-      refreshThreadFromServer,
-      t,
-      tabId,
-      threadId,
-      wasRecentlyStoppedRun,
-    ],
+    [apiUrl, refreshThreadFromServer, t, tabId, threadId, wasUserStoppedRun],
   );
 
   const reconnectActiveRunForThread =
@@ -4029,7 +4078,7 @@ const AssistantChatInner = forwardRef<
 
     if (loadHistoryRepository) {
       let cancelled = false;
-      (async () => {
+      void (async () => {
         try {
           const repo = await loadHistoryRepository();
           if (cancelled) return;
@@ -4058,7 +4107,7 @@ const AssistantChatInner = forwardRef<
       setIsRestoring(false);
     } else if (threadId) {
       let cancelled = false;
-      (async () => {
+      void (async () => {
         let canReconnect = false;
         try {
           const res = await fetch(
@@ -4225,7 +4274,10 @@ const AssistantChatInner = forwardRef<
       forceStopped ||
       isReconnecting ||
       runErrorInfo ||
-      wasRecentlyStoppedRun()
+      wasUserStoppedRun(
+        activeChatRunId ?? undefined,
+        activeChatTurnId ?? undefined,
+      )
     ) {
       return;
     }
@@ -4247,7 +4299,7 @@ const AssistantChatInner = forwardRef<
     reconnectActiveRunForThread,
     runErrorInfo,
     threadId,
-    wasRecentlyStoppedRun,
+    wasUserStoppedRun,
   ]);
 
   // Generate a title when the first user message is sent
@@ -4360,7 +4412,7 @@ const AssistantChatInner = forwardRef<
     if (serialized === lastPersistedQueueRef.current) return;
     const queueVersion = queueMutationVersionRef.current;
     const timer = setTimeout(() => {
-      (async () => {
+      void (async () => {
         try {
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued${threadScopeQuery}`,
@@ -4548,9 +4600,7 @@ const AssistantChatInner = forwardRef<
       }
       const stopped = userStoppedRunRef.current;
       if (
-        stopped &&
-        Date.now() - stopped.at < 10_000 &&
-        (!stopped.runId || !detail.runId || stopped.runId === detail.runId)
+        matchesUserStoppedRun(stopped, threadId, detail.runId, detail.turnId)
       ) {
         return;
       }
@@ -4700,48 +4750,87 @@ const AssistantChatInner = forwardRef<
             return;
           }
 
+          const currentNext = queuedMessagesRef.current[0];
           if (
             queueStopVersionRef.current !== stopVersion ||
-            queuedMessagesRef.current[0]?.id !== next.id
+            !currentNext ||
+            currentNext.id !== next.id
           ) {
             return;
           }
 
-          // Keep the placeholder visible while waiting. Remove it only when the
-          // append is about to begin, so queue stalls don't look like the chat
-          // silently ate the next message.
-          applyLocalQueuedMessages((prev) =>
-            prev.filter((message) => message.id !== next.id),
-          );
-          removedForAppend = true;
+          if (currentNext.promoted) {
+            const promotedMessage = threadRuntime
+              .getState()
+              .messages.find(
+                (message) =>
+                  message.role === "user" &&
+                  message.metadata?.custom?.agentNativeQueuedMessageId ===
+                    currentNext.id,
+              );
+            if (!promotedMessage) return;
+            threadRuntime.startRun({
+              parentId: promotedMessage.id,
+              runConfig:
+                createUserMessageRunConfig(
+                  currentNext.references,
+                  currentNext.requestMode,
+                  currentNext.recoveryAction,
+                  currentNext.trackInRunsTray,
+                  currentNext.approvedToolCalls,
+                  currentNext.id,
+                  currentNext.hideUserMessage,
+                  {
+                    model: currentNext.model,
+                    engine: currentNext.engine,
+                    effort: currentNext.effort,
+                  },
+                  currentNext.turnId,
+                  currentNext.usageLabel,
+                ).runConfig ?? {},
+            });
+            applyLocalQueuedMessages((prev) =>
+              prev.filter((message) => message.id !== currentNext.id),
+            );
+          } else {
+            // Keep the placeholder visible while waiting. Remove it only when
+            // the append is about to begin, so queue stalls stay recoverable.
+            applyLocalQueuedMessages((prev) =>
+              prev.filter((message) => message.id !== currentNext.id),
+            );
+            removedForAppend = true;
 
-          const imageAttachments = createAgentImageAttachments(next.images);
-          const messageAttachments =
-            next.attachments && next.attachments.length > 0
-              ? next.attachments
-              : (imageAttachments ?? []);
-          appendThreadMessage({
-            role: "user",
-            content: [{ type: "text", text: next.text }],
-            ...(messageAttachments.length > 0
-              ? { attachments: messageAttachments }
-              : {}),
-            ...createUserMessageRunConfig(
-              next.references,
-              next.requestMode,
-              next.recoveryAction,
-              next.trackInRunsTray,
-              next.approvedToolCalls,
-              next.id,
-              next.hideUserMessage,
-              {
-                model: next.model,
-                engine: next.engine,
-                effort: next.effort,
-              },
-              next.turnId,
-            ),
-          } as Parameters<typeof threadRuntime.append>[0]);
+            const imageAttachments = createAgentImageAttachments(
+              currentNext.images,
+            );
+            const messageAttachments =
+              currentNext.attachments && currentNext.attachments.length > 0
+                ? currentNext.attachments
+                : (imageAttachments ?? []);
+            appendThreadMessage({
+              role: "user",
+              content: [{ type: "text", text: currentNext.text }],
+              ...(messageAttachments.length > 0
+                ? { attachments: messageAttachments }
+                : {}),
+              ...createUserMessageRunConfig(
+                currentNext.references,
+                currentNext.requestMode,
+                currentNext.recoveryAction,
+                currentNext.trackInRunsTray,
+                currentNext.approvedToolCalls,
+                currentNext.id,
+                currentNext.hideUserMessage,
+                {
+                  model: currentNext.model,
+                  engine: currentNext.engine,
+                  effort: currentNext.effort,
+                },
+                currentNext.turnId,
+                currentNext.usageLabel,
+              ),
+            } as Parameters<typeof threadRuntime.append>[0]);
+          }
           appended = true;
         } catch (err) {
           if (
@@ -5000,6 +5089,17 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery(null);
       clearAutoResume();
       resetRunningActivity();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: {
+              isRunning: false,
+              tabId: tabId || threadId,
+              reason: "stopped",
+            },
+          }),
+        );
+      }
       if (!options?.preserveQueuedMessages) {
         queueStopVersionRef.current += 1;
         dequeueInFlightRef.current = false;
@@ -5008,9 +5108,14 @@ const AssistantChatInner = forwardRef<
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
       const pendingTurn = threadId ? getPendingTurn(threadId) : null;
+      const turnIdToAbort =
+        pendingTurn?.turnId ??
+        reconnectTurnIdRef.current ??
+        (activeRun?.runId === runIdToAbort ? activeRun?.turnId : undefined);
       userStoppedRunRef.current = {
-        at: Date.now(),
+        ...(threadId ? { threadId } : {}),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+        ...(turnIdToAbort ? { turnId: turnIdToAbort } : {}),
       };
       trackStoppedRun(runIdToAbort);
       setRunErrorInfo(null);
@@ -5058,17 +5163,6 @@ const AssistantChatInner = forwardRef<
       settleVisibleInterruptedTools();
       markVisibleRunStopped();
       threadRuntime.cancelRun();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: {
-              isRunning: false,
-              tabId: tabId || threadId,
-              reason: "stopped",
-            },
-          }),
-        );
-      }
     },
     [
       apiUrl,
@@ -5088,19 +5182,77 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
-  // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
-  // front and abort the active run, letting auto-dequeue re-send it once the
-  // run clears. Plain Enter still queues — this is the only send-now gesture.
+  const handleComposerStop = useCallback(async () => {
+    let hostStopSucceeded = true;
+    if (onStop) {
+      try {
+        hostStopSucceeded = (await onStop()) !== false;
+      } catch {
+        hostStopSucceeded = false;
+      }
+    }
+    if (!hostStopSucceeded) return;
+    stopActiveRun({ preserveQueuedMessages: true });
+  }, [onStop, stopActiveRun]);
+
+  // The composer stop button uses the handler above; queued send-now keeps the
+  // active run alive and only promotes the selected message for later dequeue.
   const sendQueuedMessageNow = useCallback(
     (id: string) => {
-      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
-      stopActiveRunRef.current({ preserveQueuedMessages: true });
+      const message = queuedMessagesRef.current.find(
+        (candidate) => candidate.id === id,
+      );
+      if (!message || message.promoted) return;
+      try {
+        const imageAttachments = createAgentImageAttachments(message.images);
+        const messageAttachments =
+          message.attachments && message.attachments.length > 0
+            ? message.attachments
+            : (imageAttachments ?? []);
+        appendThreadMessage({
+          role: "user",
+          content: [{ type: "text", text: message.text }],
+          ...(messageAttachments.length > 0
+            ? { attachments: messageAttachments }
+            : {}),
+          ...createUserMessageRunConfig(
+            message.references,
+            message.requestMode,
+            message.recoveryAction,
+            message.trackInRunsTray,
+            message.approvedToolCalls,
+            message.id,
+            message.hideUserMessage,
+            {
+              model: message.model,
+              engine: message.engine,
+              effort: message.effort,
+            },
+            message.turnId,
+            message.usageLabel,
+          ),
+          startRun: false,
+        } as Parameters<typeof threadRuntime.append>[0]);
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "promote-queued-message",
+          },
+          extra: { threadId: threadId ?? null, queuedMessageId: id },
+        });
+        return;
+      }
+      applyLocalQueuedMessages((prev) => promoteQueuedMessage(prev, id));
     },
-    [applyLocalQueuedMessages],
+    [appendThreadMessage, applyLocalQueuedMessages, threadId, threadRuntime],
   );
 
   const visibleQueuedMessages = useMemo(
-    () => queuedMessages.filter((message) => !message.hideUserMessage),
+    () =>
+      queuedMessages.filter(
+        (message) => !message.hideUserMessage && !message.promoted,
+      ),
     [queuedMessages],
   );
 
@@ -5120,8 +5272,10 @@ const AssistantChatInner = forwardRef<
       submitMessageId?: string,
       approvedToolCalls?: string[],
       continuationTurnId?: string,
+      usageLabel?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      const stoppedRunAtSubmitStart = userStoppedRunRef.current;
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
       }
@@ -5132,7 +5286,6 @@ const AssistantChatInner = forwardRef<
       setDismissedRunErrorKey(null);
       setDismissedProviderAuthErrorKey(null);
       setComposerError(null);
-      userStoppedRunRef.current = null;
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
@@ -5300,6 +5453,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
             approvedToolCalls,
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(usageLabel ? { usageLabel } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5323,6 +5477,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
             approvedToolCalls,
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(usageLabel ? { usageLabel } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5345,6 +5500,7 @@ const AssistantChatInner = forwardRef<
               hideUserMessage,
               undefined,
               continuationTurnId,
+              usageLabel,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5363,6 +5519,11 @@ const AssistantChatInner = forwardRef<
       // hidden reconnect recovery turns must leave the user's viewport alone.
       if (!hideUserMessage) resumeFollowingRef.current();
       reportAgentChatSubmitResult(submitMessageId, true);
+      // A queued immediate submit can abort the previous run after it is
+      // accepted. Preserve that newer stop marker while clearing the old one.
+      if (userStoppedRunRef.current === stoppedRunAtSubmitStart) {
+        userStoppedRunRef.current = null;
+      }
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
@@ -5425,7 +5586,7 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery((current) =>
         current?.id === recovery.id ? null : current,
       );
-      addToQueue(
+      void addToQueue(
         recovery.message,
         undefined,
         undefined,
@@ -5454,11 +5615,11 @@ const AssistantChatInner = forwardRef<
         images?: string[],
         options?: AssistantChatSendOptions,
       ) {
-        addToQueue(
+        void addToQueue(
           text,
           images,
           undefined,
-          undefined,
+          options?.attachments,
           options?.requestMode,
           "queued",
           undefined,
@@ -5467,6 +5628,9 @@ const AssistantChatInner = forwardRef<
           false,
           false,
           options?.submitMessageId,
+          undefined,
+          undefined,
+          options?.usageLabel,
         );
       },
       prefillMessage(text: string) {
@@ -5496,7 +5660,7 @@ const AssistantChatInner = forwardRef<
         recoveryAction: AgentRecoveryAction,
         images?: string[],
       ) {
-        addToQueue(
+        void addToQueue(
           text,
           images,
           undefined,
@@ -5507,7 +5671,7 @@ const AssistantChatInner = forwardRef<
         );
       },
       queueMessage(text: string, images?: string[]) {
-        addToQueue(text, images);
+        void addToQueue(text, images);
       },
       isRunning() {
         return isRunning;
@@ -5648,7 +5812,7 @@ const AssistantChatInner = forwardRef<
   );
   const retryAfterRunError = useCallback(() => {
     setRunErrorInfo(null);
-    addToQueue(
+    void addToQueue(
       lastUserText
         ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
         : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
@@ -5694,19 +5858,9 @@ const AssistantChatInner = forwardRef<
   const visibleRunErrorKey = visibleRunError
     ? runErrorKey(visibleRunError)
     : null;
-  const shouldShowRunError =
-    !!visibleRunError &&
-    !showRunningInUI &&
-    visibleRunErrorKey !== dismissedRunErrorKey &&
-    !(
-      userStoppedRunRef.current &&
-      Date.now() - userStoppedRunRef.current.at < 10_000 &&
-      (!userStoppedRunRef.current.runId ||
-        !visibleRunError.runId ||
-        userStoppedRunRef.current.runId === visibleRunError.runId)
-    );
   const providerAuthErrorKey =
     visibleRunError &&
+    !isBuilderReconnectRunError(visibleRunError) &&
     isProviderAuthenticationError(
       [visibleRunError.message, visibleRunError.details]
         .filter(Boolean)
@@ -5718,17 +5872,34 @@ const AssistantChatInner = forwardRef<
   const showProviderAuthSetup =
     providerAuthErrorKey !== null &&
     providerAuthErrorKey !== dismissedProviderAuthErrorKey &&
-    !authError &&
-    (showRunningInUI || !shouldShowRunError);
+    !authError;
+  const shouldShowRunError =
+    !!visibleRunError &&
+    !showRunningInUI &&
+    visibleRunErrorKey !== dismissedRunErrorKey &&
+    !showProviderAuthSetup &&
+    !matchesUserStoppedRun(
+      userStoppedRunRef.current,
+      threadId,
+      visibleRunError.runId,
+      visibleRunError.turnId,
+    );
   const showMissingKeySetup =
     (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupDismiss = useCallback(() => {
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [providerAuthErrorKey]);
   const handleProviderSetupConnected = useCallback(() => {
     handleBuilderConnected();
     if (providerAuthErrorKey === null) return;
     setDismissedProviderAuthErrorKey(providerAuthErrorKey);
     setDismissedRunErrorKey(providerAuthErrorKey);
     setRunErrorInfo(null);
-  }, [handleBuilderConnected, providerAuthErrorKey]);
+    retryAfterRunError();
+  }, [handleBuilderConnected, providerAuthErrorKey, retryAfterRunError]);
   // The banner covers one run; every failed turn it does not cover keeps its own
   // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
@@ -6181,27 +6352,35 @@ const AssistantChatInner = forwardRef<
                                       resetKey={messageListResetKey}
                                     >
                                       <UserStoppedRunContext.Provider
-                                        value={wasRecentlyStoppedRun}
+                                        value={wasUserStoppedRun}
                                       >
-                                        <ThreadPrimitive.Messages
-                                          // Deliberately NOT keyed on part structure. Doing that
-                                          // remounted the whole transcript every time a tool call
-                                          // started or a placeholder id was rewritten — a flash and a
-                                          // lost scroll position in the middle of an answer. The
-                                          // error boundary above is the mechanism for assistant-ui's
-                                          // stale tap-resource errors: it catches them, clears, and
-                                          // retries, and its retry signature includes the reset key so
-                                          // a genuinely new structure always gets a fresh budget.
-                                          // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
-                                          // rename and splice through both the import and streaming
-                                          // paths and records that no such error occurs.
-                                          components={{
-                                            UserMessage:
-                                              AssistantChatUserMessageItem,
-                                            AssistantMessage:
-                                              AssistantChatAssistantMessageItem,
-                                          }}
-                                        />
+                                        <ExternalUserStoppedRunContext.Provider
+                                          value={externalUserStopped}
+                                        >
+                                          <ExternalTextStreamingContext.Provider
+                                            value={externalStreaming}
+                                          >
+                                            <ThreadPrimitive.Messages
+                                              // Deliberately NOT keyed on part structure. Doing that
+                                              // remounted the whole transcript every time a tool call
+                                              // started or a placeholder id was rewritten — a flash and a
+                                              // lost scroll position in the middle of an answer. The
+                                              // error boundary above is the mechanism for assistant-ui's
+                                              // stale tap-resource errors: it catches them, clears, and
+                                              // retries, and its retry signature includes the reset key so
+                                              // a genuinely new structure always gets a fresh budget.
+                                              // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                              // rename and splice through both the import and streaming
+                                              // paths and records that no such error occurs.
+                                              components={{
+                                                UserMessage:
+                                                  AssistantChatUserMessageItem,
+                                                AssistantMessage:
+                                                  AssistantChatAssistantMessageItem,
+                                              }}
+                                            />
+                                          </ExternalTextStreamingContext.Provider>
+                                        </ExternalUserStoppedRunContext.Provider>
                                       </UserStoppedRunContext.Provider>
                                     </AssistantMessageListErrorBoundary>
                                     {visibleLoopLimit && !showRunningInUI && (
@@ -6211,7 +6390,7 @@ const AssistantChatInner = forwardRef<
                                           onContinue={() => {
                                             setShowContinue(false);
                                             setLoopLimitInfo(null);
-                                            addToQueue(
+                                            void addToQueue(
                                               "Continue from where you left off.",
                                               undefined,
                                               undefined,
@@ -6230,7 +6409,7 @@ const AssistantChatInner = forwardRef<
                                           info={visibleRunError}
                                           onContinue={() => {
                                             setRunErrorInfo(null);
-                                            addToQueue(
+                                            void addToQueue(
                                               RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                                               undefined,
                                               undefined,
@@ -6330,9 +6509,7 @@ const AssistantChatInner = forwardRef<
                                                   </button>
                                                 </TooltipTrigger>
                                                 <TooltipContent>
-                                                  {t(
-                                                    "agentChat.queue.sendNowHint",
-                                                  )}
+                                                  {t("agentChat.queue.sendNow")}
                                                 </TooltipContent>
                                               </Tooltip>
                                             )}
@@ -6459,11 +6636,22 @@ const AssistantChatInner = forwardRef<
                             )}
                             {showMissingKeySetup ? (
                               <BuilderSetupCard
+                                key={providerAuthErrorKey ?? "missing-provider"}
                                 fullWidth
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
+                                onDismiss={
+                                  providerAuthErrorKey !== null
+                                    ? handleProviderSetupDismiss
+                                    : undefined
+                                }
                                 onConnected={handleProviderSetupConnected}
+                                onRetry={
+                                  providerAuthErrorKey !== null
+                                    ? retryAfterRunError
+                                    : undefined
+                                }
                               />
                             ) : null}
                             {/* Input area */}
@@ -6595,11 +6783,7 @@ const AssistantChatInner = forwardRef<
                                         <TooltipTrigger asChild>
                                           <button
                                             type="button"
-                                            onClick={() =>
-                                              stopActiveRun({
-                                                preserveQueuedMessages: true,
-                                              })
-                                            }
+                                            onClick={handleComposerStop}
                                             aria-label={t(
                                               "agentChat.composer.stopResponse",
                                             )}

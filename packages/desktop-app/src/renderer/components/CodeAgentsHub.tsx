@@ -664,6 +664,7 @@ interface CodeAgentsHubProps {
   ) => void;
   onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
   onChatFirstAppSelectionChange?: (appId?: string) => void;
+  onDesktopIdentitySyncFailure?: () => void;
 }
 
 type CodeAgentTranscriptSubscriptionBatch = {
@@ -699,6 +700,7 @@ export default function CodeAgentsHub({
   onLocalCodeChangeStarted,
   onChatFirstAppRemove,
   onChatFirstAppSelectionChange,
+  onDesktopIdentitySyncFailure,
 }: CodeAgentsHubProps) {
   const theme = useRendererTheme();
   useEffect(() => {
@@ -742,8 +744,9 @@ export default function CodeAgentsHub({
       setDesktopIdentityStatusByTab((current) =>
         updateDesktopIdentityStatusByTab(current, tabId, status),
       );
+      if (status === "failed") onDesktopIdentitySyncFailure?.();
     },
-    [],
+    [onDesktopIdentitySyncFailure],
   );
   const handleAppAuthStateChange = useCallback(
     (tabId: string, state: AppWebviewAuthState) => {
@@ -1407,8 +1410,12 @@ export default function CodeAgentsHub({
 
   useEffect(() => {
     if (window.electronAPI?.platform !== "darwin") return;
-    const setNativeTrafficLightsVisible =
-      window.electronAPI.windowControls?.setNativeTrafficLightsVisible;
+    const setNativeTrafficLightsVisible = window.electronAPI.windowControls
+      ? (visible: boolean) =>
+          window.electronAPI.windowControls!.setNativeTrafficLightsVisible(
+            visible,
+          )
+      : undefined;
     if (!setNativeTrafficLightsVisible) return;
     setNativeTrafficLightsVisible(!chatFirstRailCollapsed);
   }, [chatFirstRailCollapsed]);
@@ -2695,6 +2702,7 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                onOpenSettings={onOpenSettings}
                 desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
                   desktopIdentityStatus,
                 )}
@@ -2731,6 +2739,7 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      showDesktopIdentityGate={false}
                       surfaceHidden={!showNativeIntegrationsGuest}
                       refreshKey={refreshKey}
                       theme={theme}
@@ -2814,6 +2823,8 @@ export default function CodeAgentsHub({
       host,
       isActive,
       onLocalCodeChangeStarted,
+      onOpenSettings,
+      onDesktopIdentitySyncFailure,
       refreshKey,
       surfaceApps,
       terminalPreferences.agent,
@@ -3053,8 +3064,12 @@ export default function CodeAgentsHub({
                 app={toAppDefinition(app)}
                 appConfig={app}
                 isActive={isActive}
+                showDesktopIdentityGate={false}
                 theme={theme}
                 urlParams={urlParams}
+                onDesktopIdentityStatusChange={(status) => {
+                  if (status === "failed") onDesktopIdentitySyncFailure?.();
+                }}
                 // Shell key folded in: a lane change remounts every hosted
                 // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}

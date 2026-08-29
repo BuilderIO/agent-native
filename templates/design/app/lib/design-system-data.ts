@@ -59,6 +59,17 @@ export function shouldRefreshBuilderDesignSystem(
   );
 }
 
+export function isDesignSystemUsableForGeneration(data: string): boolean {
+  const parsed = parseDesignSystemData(data);
+  if (!parsed) return false;
+  if (parsed.source !== "builder") return true;
+  return (
+    parsed.builderStatus === "ready" ||
+    parsed.builderStatus === "complete" ||
+    parsed.builderStatus === "completed"
+  );
+}
+
 export function builderRefreshKey(system: {
   id: string;
   data: string;

@@ -51,9 +51,9 @@ export function useDashboardViews(dashboardId: string | undefined) {
       });
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey });
       // Also invalidate the sidebar views query
-      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+      void queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
     },
   });
 
@@ -67,8 +67,8 @@ export function useDashboardViews(dashboardId: string | undefined) {
       );
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
-      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
     },
   });
 
@@ -104,10 +104,10 @@ export function useDeleteDashboardView() {
       );
     },
     onSettled: (_data, _err, { dashboardId }) => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["dashboard-views", dashboardId],
       });
-      queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
+      void queryClient.invalidateQueries({ queryKey: ["all-dashboard-views"] });
     },
   });
 }

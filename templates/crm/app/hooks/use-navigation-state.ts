@@ -3,8 +3,10 @@ import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 import {
   crmNavigationPath,
+  parseCrmNavigationSelection,
   viewFromPath,
   type CrmNavigationTarget,
+  type CrmSettingsSection,
   type CrmView,
 } from "@/lib/navigation";
 import { TAB_ID } from "@/lib/tab-id";
@@ -15,7 +17,7 @@ export interface CrmNavigationState {
   recordId?: string;
   viewId?: string;
   query?: string;
-  settingsSection?: "intelligence";
+  settingsSection?: CrmSettingsSection;
   dashboardId?: string;
 }
 
@@ -29,7 +31,7 @@ export function useNavigationState() {
     getNavigationState: ({ pathname, search }) => {
       const params = new URLSearchParams(search);
       const recordMatch = pathname.match(/^\/records\/([^/?#]+)/);
-      const settingsMatch = pathname.match(/^\/settings\/([^/?#]+)/);
+      const parsed = parseCrmNavigationSelection(`${pathname}${search}`);
       return {
         view: viewFromPath(pathname),
         path: appPath(`${pathname}${search}`),
@@ -39,8 +41,7 @@ export function useNavigationState() {
         viewId: params.get("view") ?? undefined,
         dashboardId: params.get("id") ?? undefined,
         query: params.get("q") ?? undefined,
-        settingsSection:
-          settingsMatch?.[1] === "intelligence" ? "intelligence" : undefined,
+        settingsSection: parsed?.settingsSection,
       };
     },
     getCommandPath: (command) => crmNavigationPath(command),

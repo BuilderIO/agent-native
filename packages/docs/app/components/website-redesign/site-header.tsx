@@ -1,10 +1,8 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconBrandGithub,
   IconMenu2,
   IconMessage,
-  IconMessage2,
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
@@ -26,11 +24,6 @@ const SearchModal = lazy(() =>
 );
 
 const DISCORD_URL = "https://discord.gg/qm82StQ2NC";
-
-// Same form as the header this one replaced: dropping it would leave docs,
-// legal, and app routes with no in-site way to report a problem.
-const DOCS_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
 const GITHUB_REPO_URL = "https://github.com/BuilderIO/agent-native";
 
@@ -59,30 +52,17 @@ function AskAiIconButton() {
   );
 }
 
-function FeedbackIconButton({ align }: { align: "start" | "end" }) {
-  const t = useT();
-  const label = t("feedback.label");
-  return (
-    <FeedbackButton
-      url={DOCS_FEEDBACK_URL}
-      label={label}
-      placeholder={t("feedback.placeholder")}
-      align={align}
-      side="bottom"
-      trigger={
-        <IconButton dimBorder aria-label={label} title={label}>
-          <IconMessage2 size={18} stroke={1.5} />
-        </IconButton>
-      }
-    />
-  );
+interface GithubStarsButtonProps {
+  starCount: number | null;
+  className?: string;
 }
 
-function GithubStarsButton({ starCount }: { starCount: number | null }) {
+function GithubStarsButton({ starCount, className }: GithubStarsButtonProps) {
   return (
     <Button
       variant="secondary"
       dimBorder
+      className={className}
       href={GITHUB_REPO_URL}
       target="_blank"
       rel="noreferrer"
@@ -111,9 +91,9 @@ function SearchTrigger({
       type="button"
       onClick={onClick}
       aria-label={label}
-      // The 320px width is fixed on purpose: with `justify-between` it is what
+      // The fixed width is on purpose: with `justify-between` it is what
       // opens the gap between the label and the ⌘K hint.
-      className="inline-flex h-10 w-[320px] shrink-0 cursor-pointer items-center justify-between gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] bg-transparent px-[var(--spacing-3)] py-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
+      className="inline-flex h-10 w-[280px] shrink-0 cursor-pointer items-center justify-between gap-[var(--spacing-2)] rounded-[var(--b-radius)] border border-solid border-[var(--b-action-secondary-border-dim)] bg-[var(--b-bg-raised)] px-[var(--spacing-3)] py-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] text-[var(--b-text-secondary)] outline-none transition-[background,border-color] duration-150 ease-[ease] hover:bg-[var(--b-action-secondary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]"
     >
       <span className="inline-flex items-center gap-[var(--spacing-2)]">
         <IconSearch size={16} stroke={1.75} />
@@ -212,12 +192,11 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
           <div className="hidden items-stretch gap-3 lg:flex">
             <SearchTrigger onClick={openSearch} label={searchLabel} />
             <GithubStarsButton starCount={starCount} />
-            <FeedbackIconButton align="end" />
             <AskAiIconButton />
           </div>
 
           <div className="flex items-center gap-2 lg:hidden">
-            <IconButton onClick={openSearch} aria-label={searchLabel}>
+            <IconButton dimBorder onClick={openSearch} aria-label={searchLabel}>
               <IconSearch size={18} stroke={1.5} />
             </IconButton>
             <button
@@ -234,7 +213,10 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
       </div>
 
       {mobileOpen && (
-        <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-translucent)] px-[var(--spacing-10)] py-[var(--spacing-4)] backdrop-blur-[12px] lg:hidden">
+        // Opaque, not the header's translucent fill: this panel is a child of
+        // the blurred header, so its own backdrop-filter samples the header
+        // rather than the page and leaves the content behind it fully legible.
+        <div className="absolute top-full right-0 left-0 flex flex-col gap-[var(--spacing-3)] border-t border-solid border-[var(--b-border-default)] bg-[var(--b-bg-page)] px-[var(--spacing-10)] py-[var(--spacing-4)] lg:hidden">
           {navLinks.map((link) => (
             <NavLink
               key={link.label}
@@ -246,10 +228,9 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
             </NavLink>
           ))}
           <div className="mt-[var(--spacing-2)] flex items-center gap-[var(--spacing-3)]">
-            <GithubStarsButton starCount={starCount} />
-            <LanguagePicker />
-            <ThemeIconButton />
-            <FeedbackIconButton align="start" />
+            <GithubStarsButton starCount={starCount} className="h-10" />
+            <LanguagePicker dimBorder />
+            <ThemeIconButton dimBorder />
             <AskAiIconButton />
           </div>
         </div>

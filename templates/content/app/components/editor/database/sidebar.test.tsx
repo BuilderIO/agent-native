@@ -275,7 +275,7 @@ describe("DatabaseSidebarView", () => {
 
     expect(markup).not.toContain("Loading");
     expect(markup).not.toContain("animate-spin");
-    expect(markup).toContain("animate-pulse");
+    expect(markup).toContain("skeleton-shimmer");
   });
 
   it("renders compact router links for an ungrouped saved view", () => {

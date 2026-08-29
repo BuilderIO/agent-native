@@ -117,6 +117,8 @@ const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
  */
 const EXPECTED_CONTINUATION_REASONS = new Set(["run_timeout", "auto_continue"]);
 const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
+const HTTP_STATUS_OK = 200;
+
 const STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
 
@@ -153,6 +155,23 @@ function redactToolErrorMessage(value: string): string {
     )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
     .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+}
+
+/**
+ * Provider HTTP status of a failed model call, when the thrown error carries
+ * one. `EngineError` sets `statusCode`; provider SDK errors (Anthropic,
+ * OpenAI) use `status`. Anything else returns undefined rather than a guess —
+ * PostHog reads `$ai_http_status`, and a fabricated 500 on a transport drop is
+ * worse than no status at all.
+ */
+export function httpStatusFromError(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null) return undefined;
+  const candidate =
+    (err as { statusCode?: unknown }).statusCode ??
+    (err as { status?: unknown }).status;
+  return typeof candidate === "number" && Number.isInteger(candidate)
+    ? candidate
+    : undefined;
 }
 
 function emitLlmGenerationTrackingEvent(args: {
@@ -205,6 +224,14 @@ function emitLlmGenerationTrackingEvent(args: {
   firstTokenMs: number | undefined;
   status: "success" | "error";
   errorMessage: string | null;
+  /**
+   * Provider HTTP status for this model call. 200 on a call that streamed to
+   * completion; the reported status on one that failed. Undefined when the
+   * call failed without a status the engine could name — omitted from the
+   * event rather than sent as 200 or 500, either of which would make an
+   * unclassifiable transport failure look like a known one.
+   */
+  httpStatus?: number;
   toolCalls: number;
   successfulTools: number;
   failedTools: number;
@@ -327,6 +354,7 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_cache_creation_input_tokens: args.cacheWriteTokens,
     $ai_request_count: args.llmCallCount,
     $ai_stop_reason: args.stopReason,
+    $ai_http_status: args.httpStatus,
     $ai_total_cost_usd: costUsd,
     $ai_input: args.aiInput,
     $ai_output_choices: args.aiOutputChoices,
@@ -711,6 +739,10 @@ export async function instrumentAgentLoop(opts: {
   let errorMessage: string | null = null;
   let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   let terminalOutcome: AgentLoopOutcome | undefined;
+  // Provider HTTP status of the model call that ended the run, when the engine
+  // reported one. Stays undefined for a failure that never carried a status (a
+  // transport drop, an SDK throw) — an unknown status must not read as 200.
+  let errorHttpStatus: number | undefined;
   // The `auto_continue` boundary this run ended at, if any. A cut-off never
   // reaches the loop's outcome classification (`runAgentLoop` returns early at
   // the checkpoint), so without this the run reports no terminal state at all
@@ -1062,6 +1094,7 @@ export async function instrumentAgentLoop(opts: {
       classification?.errorMessage === undefined
         ? (err?.message ?? String(err))
         : classification.errorMessage;
+    errorHttpStatus = httpStatusFromError(err);
     const errorMetadata = classification?.metadata ?? null;
     runMetadata =
       runMetadata || errorMetadata
@@ -1196,7 +1229,7 @@ export async function instrumentAgentLoop(opts: {
               state: "failed",
               code: cutOffReason,
               retryable: true,
-              message: `Agent run was cut off before finishing (${cutOffReason}).`,
+              message: `Agent run was cut off before finishing (${String(cutOffReason)}).`,
             }
           : undefined);
 
@@ -1418,6 +1451,11 @@ export async function instrumentAgentLoop(opts: {
             firstTokenMs: generation.isFirst ? runFirstTokenMs : undefined,
             status: generationStatus,
             errorMessage: generationError,
+            // A generation that streamed to completion answered 200; only the
+            // call the run died in can claim the thrown error's status, and
+            // only when the engine reported one.
+            httpStatus:
+              generationStatus === "error" ? errorHttpStatus : HTTP_STATUS_OK,
             toolCalls: generation.toolSpans.length,
             successfulTools: generation.toolSpans.filter(
               (span) => span.status === "success",

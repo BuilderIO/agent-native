@@ -22,7 +22,9 @@ function propertyValueText(
     property.definition.type === "select" ||
     property.definition.type === "status"
   ) {
-    return optionName(String(value));
+    return optionName(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
   }
   if (property.definition.type === "checkbox") {
     return value ? "TRUE" : "FALSE";

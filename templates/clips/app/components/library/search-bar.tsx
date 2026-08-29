@@ -70,12 +70,18 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const routeRequestsFocus = hasSearchFocusRequest(searchParams);
 
-  const { data, isFetching } = useRecordingSearch(query);
+  const { data, isFetching } = useRecordingSearch(debouncedQuery);
   const results: SearchHit[] = data?.results ?? [];
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query), 200);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
 
   const focusSearchInput = useCallback(() => {
     inputRef.current?.focus();
@@ -125,7 +131,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
     }
     if (hit.matchPanel) params.set("panel", hit.matchPanel);
     const suffix = params.toString() ? `?${params.toString()}` : "";
-    navigate(`/r/${hit.id}${suffix}`);
+    void navigate(`/r/${hit.id}${suffix}`);
   }
 
   const showPopover = open && query.length >= 2;

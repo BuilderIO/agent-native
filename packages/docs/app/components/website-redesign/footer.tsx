@@ -1,10 +1,11 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconBrandDiscord, IconBrandGithub } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../docs-locale";
-import { ThemeIconButton } from "./ds/icon-button";
+import { controlSurfaceClassName, ThemeIconButton } from "./ds/icon-button";
 import { LanguagePicker } from "./ds/language-picker";
 import { Logo } from "./ds/logo";
 import { GridInner, PageSection } from "./page-grid";
@@ -34,11 +35,11 @@ function footerColumns(
     {
       title: t("homepage.footer.framework"),
       links: [
-        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
         {
-          label: t("homepage.footer.actions"),
-          href: localizedPath("/docs/actions-overview"),
+          label: t("homepage.footer.download"),
+          href: localizedPath("/download"),
         },
+        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
       ],
     },
     {
@@ -94,6 +95,11 @@ const SOCIAL_LINKS: Array<{
     icon: <IconBrandGithub size={20} stroke={1.5} />,
   },
 ];
+
+// Docs, legal, and app routes all render this footer, so it is the one
+// in-site way to report a problem now that the header no longer carries it.
+const DOCS_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
 const linkClassName =
   "font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)] text-[var(--b-text-secondary)] no-underline hover:text-[var(--b-text-primary)]";
@@ -163,21 +169,6 @@ export function Footer() {
       </div>
 
       <GridInner className="flex flex-wrap items-center justify-between gap-[var(--spacing-6)] px-[var(--spacing-20)] py-[var(--spacing-6)]">
-        <div className="flex items-center gap-4">
-          {SOCIAL_LINKS.map((social) => (
-            <a
-              key={social.label}
-              href={social.href}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={social.label}
-              className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
-            >
-              {social.icon}
-            </a>
-          ))}
-        </div>
-
         <div className="flex items-center gap-[var(--spacing-6)]">
           <span className="font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-2)] font-medium tracking-[0.04em] text-[var(--b-text-primary)]">
             {/* i18n-ignore: a year and the wordmark, nothing translatable */}©
@@ -187,10 +178,40 @@ export function Footer() {
             aria-hidden
             className="h-[13px] w-px bg-[var(--b-border-default)]"
           />
-          <div className="flex items-center gap-[var(--spacing-2)]">
-            <LanguagePicker openUpward />
-            <ThemeIconButton />
+          <div className="flex items-center gap-4">
+            {SOCIAL_LINKS.map((social) => (
+              <a
+                key={social.label}
+                href={social.href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={social.label}
+                className="flex text-[var(--b-text-primary)] opacity-80 hover:opacity-100"
+              >
+                {social.icon}
+              </a>
+            ))}
           </div>
+        </div>
+
+        <div className="flex items-center gap-[var(--spacing-2)]">
+          <FeedbackButton
+            url={DOCS_FEEDBACK_URL}
+            label={t("feedback.label")}
+            placeholder={t("feedback.placeholder")}
+            align="end"
+            side="top"
+            trigger={
+              <button
+                type="button"
+                className={`${controlSurfaceClassName} px-[var(--spacing-3)] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-2)]`}
+              >
+                {t("feedback.label")}
+              </button>
+            }
+          />
+          <LanguagePicker openUpward />
+          <ThemeIconButton />
         </div>
       </GridInner>
     </PageSection>

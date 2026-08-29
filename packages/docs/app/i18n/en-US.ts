@@ -80,6 +80,7 @@ const enUS = {
     dialogLabel: "Search documentation",
     placeholder: "Search documentation...",
     empty: "Type to search across all documentation",
+    toggleChatSidebar: "Toggle chat sidebar",
     loadError: "Search couldn't load. Try again.",
     retry: "Try again",
     noResults: 'No results found for "{{query}}"',
@@ -438,7 +439,7 @@ const enUS = {
       bodyLine1:
         "Build for AI agents without building a second product for users.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
-      learnMore: "Learn more",
+      tryAnApp: "Try an app",
     },
     install: {
       copyCommand: "Copy install command",
@@ -500,7 +501,7 @@ const enUS = {
     },
     showcase: {
       title: "What can you build with Agent-Native?",
-      body: "Start with chat, a focused internal tool, or a complete customer-facing product. Every app gives users a UI and agents the tools to do the same work.",
+      body: "Agentic apps that understand your work, take action, and collaborate with you. Build your own or try one of these open-source apps.",
       browseApps: "Browse apps",
       scrollLeft: "Scroll apps left",
       scrollRight: "Scroll apps right",
@@ -509,13 +510,6 @@ const enUS = {
       title: "Build your first Agent-Native app",
       body: "Create one application for users and AI agents. Bring your own LLM and deploy anywhere.",
     },
-    getStartedModal: {
-      title: "Get started",
-      close: "Close",
-      buildLocally: "Build an app locally",
-      tryAnApp: "Try an app",
-      buildInCloud: "Build in the cloud",
-    },
     footer: {
       tagline: "The agentic application framework.",
       framework: "Framework",
@@ -523,10 +517,19 @@ const enUS = {
       community: "Community",
       legal: "Legal",
       docs: "Docs",
-      actions: "Actions",
+      download: "Download",
       apps: "Apps",
       privacyPolicy: "Privacy Policy",
       saasTerms: "SaaS Terms",
+    },
+  },
+  gettingStarted: {
+    guideNote: {
+      prompt: "Not building locally?",
+      exploreApp: "Explore a live app",
+      between: "first, or",
+      joinWaitlist: "join the waitlist",
+      end: "to build in the browser instead.",
     },
   },
   templatesPage: {
@@ -554,7 +557,7 @@ const enUS = {
     description: "Use the framework guide or build online with Builder.io.",
     readDocs: "Read the docs",
     buildOnline: "Build online",
-    popoverTitle: "Join the waitlist",
+    popoverTitle: "Build in the browser",
     popoverBody:
       "Rapidly generate agent-native apps in the cloud. Join the waitlist for early access.",
     emailLabel: "Email",
@@ -583,7 +586,7 @@ const enUS = {
     clips: {
       replaces: "Screen clips for humans and agents",
       description:
-        "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
+        "Records your screen, meetings, and voice notes so agents can understand what happened and take action.",
     },
     plan: {
       replaces: "Visual plan mode for Codex, Claude Code, and coding agents",
@@ -593,27 +596,27 @@ const enUS = {
     design: {
       replaces: "Agent-Native Figma",
       description:
-        "Agent-Native HTML prototyping studio. Generate interactive Alpine/Tailwind designs, compare variants, refine live tweak controls, and export the result.",
+        "Turns prompts into interactive designs that follow your design system and improve with agent feedback.",
     },
     content: {
       replaces: "Agent-Native Notion/Obsidian",
       description:
-        "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom blocks, and use an AI agent to draft, rewrite, and publish.",
+        "Lets an agent work in your documents to draft in your voice, create interactive content, and publish to your site.",
     },
     slides: {
       replaces: "Agent-Native Google Slides",
       description:
-        "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
+        "Creates on-brand presentations from prompts or existing slides, which an agent can build, edit, and refine.",
     },
     analytics: {
       replaces: "Open-source alternative to Amplitude and FullStory",
       description:
-        "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
+        "Connects your data so an agent can answer questions in plain language and turn results into charts and dashboards.",
     },
     mail: {
       replaces: "Replaces or augments Superhuman, Gmail",
       description:
-        "Superhuman-style email client with keyboard shortcuts, AI triage, multi-account support, and email automations. Own your inbox workflow.",
+        "A keyboard-first inbox where an agent prioritizes mail, drafts replies, summarizes threads, and follows up.",
     },
     forms: {
       replaces: "Replaces or augments Typeform, Google Forms",
@@ -624,12 +627,12 @@ const enUS = {
       replaces:
         "Replaces or augments DAMs, brand asset libraries, and AI media generators",
       description:
-        "Digital asset manager for uploads, brand libraries, searchable references, and on-brand image/video generation that other apps can call through A2A or embed as a picker.",
+        "Gives agents shared brand guidelines, images and videos to create and choose on-brand media across apps.",
     },
     calendar: {
       replaces: "Replaces or augments Google Calendar, Calendly",
       description:
-        "Full calendar with Google sync, availability management, and a public booking page. The agent finds open slots, creates events, and manages your schedule.",
+        "Brings your Google Calendars together so an agent can find time, schedule or move events, and manage bookings.",
     },
     dispatch: {
       replaces: "Mission control for your agent-native apps",
@@ -1612,7 +1615,7 @@ const enUS = {
   },
   downloadPage: {
     title: "Download Agent-Native",
-    body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
+    body: "Try agentic apps for meetings, design, presentations, data, scheduling, email, and more, all in one desktop app.",
     openDesktop: "Open Agent-Native",
     downloadInstaller: "Download installer",
     downloadStarted: "Download started",
@@ -1621,27 +1624,33 @@ const enUS = {
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",
     unavailable: "Installer unavailable for this platform",
+    allPlatforms: "All platforms",
     stable: "Stable",
     nightly: "Nightly",
-    switchToNightly: "Switch to Nightly builds",
-    switchToStable: "Switch to stable builds",
-    runFromSource: "Or run from source",
+    runFromSource: "Build your own",
     runFromSourceBody:
-      "No installer for your platform yet, or prefer the CLI? Scaffold a new app with npm and run it locally — works on macOS, Windows, and Linux.",
+      "Create an Agent-Native app from the command line and run it locally on macOS, Windows, or Linux.",
     platforms: {
       mac: {
         primary: "Download for Apple Silicon",
         alternative: "Intel Mac",
+        gridPrimary: "Apple Silicon",
+        gridAlternative: "Intel",
       },
       windows: {
         primary: "Download for Windows",
         alternative: "ARM64",
+        gridPrimary: "x64 installer",
+        gridAlternative: "Arm64 installer",
         note: "Windows 10 or later.",
       },
       linux: {
         primary: "Download Linux archive",
         appImage: "Download AppImage",
         deb: "Download .deb",
+        gridPrimary: "x86_64",
+        gridAppImage: "Universal",
+        gridDeb: "Debian / Ubuntu",
         note: "The archive works without FUSE. AppImage may require FUSE 2 on some distributions.",
       },
     },
@@ -2130,8 +2139,9 @@ const enUS = {
     dispatchDevelopers: "Developer Guide",
     forms: "Forms",
     formsOverview: "Overview",
-    formsBuildingPublishing: "Building & Publishing",
-    formsResponses: "Responses & Insights",
+    formsFeatures: "Features",
+    formsAgent: "Talk to the Agent",
+    formsIntegrations: "Cross-App Use",
     formsDevelopers: "Developer Guide",
   },
 };

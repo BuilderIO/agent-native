@@ -4,12 +4,15 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -1045,6 +1048,12 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).toContain("Churning");
+    expect(html).toContain("__agentNativeLoadingLabelIndex");
+    expect(html).toContain("Math.random()");
+    expect(html).toContain("an-cube-pulse");
+    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
@@ -1087,6 +1096,91 @@ export default (event) =>
 
     expect(html).toContain("data-agent-native-sentry-config");
     expect(html).toContain("https://public@example/4511270423822336");
+  });
+
+  it("injects runtime Agent-Native Analytics config into generated worker SSR HTML", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_test"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/track"',
+    );
+  });
+
+  it("bakes build-time Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", "anpk_build");
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/build-track",
+    );
+
+    const source = generateWorkerEntry([], []);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_build"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/build-track"',
+    );
+  });
+
+  it("bakes code-defined Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const source = generateWorkerEntry([], [], [], [], null, [], "/", {
+      analytics: {
+        agentNativePublicKey: "anpk_config",
+        agentNativeEndpoint: "https://analytics.example.test/config-track",
+      },
+    });
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_config"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/config-track"',
+    );
+    expect(source).toContain(
+      "const configuredAnalytics = getAgentNativeAppConfig().analytics;",
+    );
   });
 
   it("normalizes explicit deployment environment in generated browser telemetry", async () => {

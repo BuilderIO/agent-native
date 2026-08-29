@@ -3,7 +3,12 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { FormField, FormIntegration } from "../../shared/types.js";
 
 const fetchMock = vi.hoisted(() => ({
-  requests: [] as Array<{ url: string; payload: any }>,
+  requests: [] as Array<{
+    url: string;
+    payload: any;
+    headers?: Record<string, string>;
+  }>,
+  results: [] as Array<{ ok: boolean; status?: number; error?: string }>,
 }));
 
 vi.mock("@agent-native/core/integrations", () => ({
@@ -13,21 +18,25 @@ vi.mock("@agent-native/core/integrations", () => ({
   deliverJsonWebhook: async ({
     url,
     payload,
+    headers,
   }: {
     url: string;
     payload: unknown;
+    headers?: Record<string, string>;
   }) => {
     fetchMock.requests.push({
       url,
       payload,
+      headers,
     });
-    return { ok: true, status: 200 };
+    return fetchMock.results.shift() ?? { ok: true, status: 200 };
   },
 }));
 
 import {
   buildGoogleSheetsPayload,
   buildSlackPayload,
+  deliverIntegrationDelivery,
   fireIntegrations,
 } from "./integrations.js";
 
@@ -71,6 +80,7 @@ function contextText(p: ReturnType<typeof buildSlackPayload>): string {
 describe("buildSlackPayload page context", () => {
   beforeEach(() => {
     fetchMock.requests.length = 0;
+    fetchMock.results.length = 0;
   });
 
   it("shows real submitter emails in the context line", () => {
@@ -79,6 +89,18 @@ describe("buildSlackPayload page context", () => {
     );
 
     expect(text).toContain("by *user@example.com*");
+  });
+
+  it("labels the chat run identifier as a request ID", () => {
+    const text = contextText(
+      buildSlackPayload(
+        payload({ chatSessionIds: ["thread-42"], activeRunId: "run-42" }),
+      ),
+    );
+
+    expect(text).toContain("Chat session: `thread-42`");
+    expect(text).toContain("Request ID: `run-42`");
+    expect(text).not.toContain("Run: `run-42`");
   });
 
   it("hides synthetic anonymous Agent-Native submitter emails", () => {
@@ -164,6 +186,38 @@ describe("buildSlackPayload page context", () => {
     expect(payloadByType.get("google-sheets").submitterEmail).toBe("");
     expect(payloadByType.get("webhook").submitterEmail).toBeNull();
   });
+
+  it("skips succeeded destinations while retrying failed and pending ones", async () => {
+    const changes: Array<[string, string]> = [];
+    const result = await fireIntegrations(
+      [integration("slack"), integration("discord"), integration("webhook")],
+      payload(),
+      {
+        deliveryStatus: {
+          "integration:slack": "succeeded",
+          "integration:discord": "failed",
+          "integration:webhook": "pending",
+        },
+        onStatusChange: (destination, status) => {
+          changes.push([destination, status]);
+        },
+      },
+    );
+
+    expect(fetchMock.requests.map((request) => request.url)).toEqual([
+      "https://example.com/discord",
+      "https://example.com/webhook",
+    ]);
+    expect(changes).toEqual([
+      ["integration:discord", "succeeded"],
+      ["integration:webhook", "succeeded"],
+    ]);
+    expect(result).toMatchObject({
+      "integration:slack": "succeeded",
+      "integration:discord": "succeeded",
+      "integration:webhook": "succeeded",
+    });
+  });
 });
 
 describe("buildGoogleSheetsPayload", () => {
@@ -187,6 +241,30 @@ describe("buildGoogleSheetsPayload", () => {
       responseId: "response-42",
       Answer: "one",
       "Answer (second)": "two",
+    });
+  });
+});
+
+describe("deliverIntegrationDelivery", () => {
+  beforeEach(() => {
+    fetchMock.requests.length = 0;
+    fetchMock.results.length = 0;
+  });
+
+  it("passes a stable idempotency key to retried webhook deliveries", async () => {
+    await deliverIntegrationDelivery(
+      {
+        id: "slack",
+        type: "slack",
+        name: "Slack",
+        url: "https://example.com/slack",
+        payload: { text: "feedback" },
+      },
+      "forms:response-1:integration:slack",
+    );
+
+    expect(fetchMock.requests[0]?.headers).toEqual({
+      "Idempotency-Key": "forms:response-1:integration:slack",
     });
   });
 });

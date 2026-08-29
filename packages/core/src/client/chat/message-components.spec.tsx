@@ -355,6 +355,34 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
+  it("shows controls for a response explicitly stopped with pending tool state", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows stopped controls while the active response is still settling", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: true,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasUnresolvedTool: true,
+        hasActiveTool: true,
+        userStoppedRun: true,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
@@ -778,7 +806,7 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
-  it("does not group the currently running assistant response", () => {
+  it("groups the currently running assistant response", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -787,10 +815,10 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: false,
         chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("does not group the running turn whose tool is still in flight", () => {
+  it("groups the running turn whose tool is still in flight", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -799,7 +827,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: true,
         chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("still shows the duration summary for a stalled turn that is not running", () => {
@@ -814,7 +842,7 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
-  it("does not collapse active delegated work into a duration summary", () => {
+  it("collapses active delegated work into a duration summary", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -824,7 +852,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasActiveTool: true,
         chatRunning: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("groups historical work with a dangling tool", () => {
@@ -1160,6 +1188,26 @@ describe("groupAssistantWorkParts", () => {
     ]);
     expect(groupAssistantWorkParts(parts[1], 1, parts, "hidden")).toEqual([
       "group-work",
+    ]);
+  });
+
+  it("collapses older tool calls while keeping the newest three visible", () => {
+    const parts = [
+      { type: "tool-call", toolName: "docs-search" },
+      { type: "tool-call", toolName: "framework-search" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+      { type: "tool-call", toolName: "read-file" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([
+      ["group-work", "group-ran-tools"],
+      ["group-work", "group-ran-tools"],
+      ["group-work"],
+      ["group-work"],
+      ["group-work"],
     ]);
   });
 });

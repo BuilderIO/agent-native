@@ -2,10 +2,14 @@
 
 import { readFileSync } from "node:fs";
 
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatSurface,
+  AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
   getAgentPanelShortcutHints,
@@ -14,7 +18,6 @@ import {
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
-  shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
   shouldHandleAgentSidebarToggle,
   shouldShowAgentPanelFullViewAction,
@@ -23,6 +26,7 @@ import {
   shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
+  settingsRouteHashForSection,
 } from "./AgentPanel.js";
 
 describe("resolveAgentPanelChatSurface", () => {
@@ -153,34 +157,199 @@ describe("AgentPanel header tab visibility", () => {
     );
   });
 
-  it("does not allow sidebar settings mode in page chat by default", () => {
-    expect(shouldAllowAgentChatSurfaceSettingsMode("page", undefined)).toBe(
-      false,
-    );
-    expect(shouldAllowAgentChatSurfaceSettingsMode("panel", undefined)).toBe(
-      true,
-    );
-    expect(shouldAllowAgentChatSurfaceSettingsMode("page", true)).toBe(true);
+  it("normalizes legacy and unknown modes back to chat", () => {
+    expect(normalizeAgentPanelModeForSurface("settings")).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("unknown")).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("resources")).toBe("resources");
+    expect(normalizeAgentPanelModeForSurface("resources", true)).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("cli", true)).toBe("chat");
   });
 
-  it("normalizes settings back to chat when settings mode is not allowed", () => {
-    expect(normalizeAgentPanelModeForSurface("settings", false)).toBe("chat");
-    expect(normalizeAgentPanelModeForSurface("settings", true)).toBe(
-      "settings",
+  it("preserves secret-specific hashes for canonical settings navigation", () => {
+    expect(settingsRouteHashForSection("secrets:FIGMA_ACCESS_TOKEN")).toBe(
+      "#secrets:FIGMA_ACCESS_TOKEN",
     );
-    expect(normalizeAgentPanelModeForSurface("resources", false)).toBe(
-      "resources",
+    expect(
+      settingsRouteHashForSection("secrets", "#secrets:OPENAI_API_KEY"),
+    ).toBe("#secrets:OPENAI_API_KEY");
+    expect(settingsRouteHashForSection("automations")).toBe(
+      "#agent:automations",
     );
+    expect(settingsRouteHashForSection("voice")).toBe("#voice");
+    for (const section of [
+      "llm",
+      "uploads",
+      "hosting",
+      "database",
+      "auth",
+      "demo-mode",
+      "limits",
+      "app-models",
+      "background",
+      "email",
+      "browser",
+      "usage",
+    ]) {
+      expect(settingsRouteHashForSection(section)).toBe(`#${section}`);
+    }
+    expect(settingsRouteHashForSection("a2a")).toBe("#agent:agents");
+  });
+});
+
+describe("AgentPanel settings navigation", () => {
+  it("routes settings requests to a host-owned settings surface", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const onOpenSettings = vi.fn();
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation, {
+              onOpenSettings,
+            }),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "voice" },
+          }),
+        );
+      });
+
+      expect(onOpenSettings).toHaveBeenCalledWith("voice");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 
-  it("normalizes every legacy sidebar mode back to chat on chat-only surfaces", () => {
-    expect(normalizeAgentPanelModeForSurface("resources", false, true)).toBe(
-      "chat",
-    );
-    expect(normalizeAgentPanelModeForSurface("cli", false, true)).toBe("chat");
-    expect(normalizeAgentPanelModeForSurface("settings", true, true)).toBe(
-      "chat",
-    );
+  it("routes a mounted settings request to an existing secret-specific hash", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let pathname = "";
+    let hash = "";
+
+    function LocationProbe() {
+      const location = useLocation();
+      pathname = location.pathname;
+      hash = location.hash;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/#secrets:OPENAI_API_KEY");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "secrets" },
+          }),
+        );
+      });
+
+      expect(pathname).toBe("/settings");
+      expect(hash).toBe("#secrets:OPENAI_API_KEY");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("preserves the app base path when opening settings", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    let pathname = "";
+
+    function LocationProbe() {
+      pathname = useLocation().pathname;
+      return null;
+    }
+
+    try {
+      act(() => {
+        window.history.replaceState(null, "", "/dispatch/_agent-native/poll");
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+            React.createElement(LocationProbe),
+          ),
+        );
+      });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "voice" },
+          }),
+        );
+      });
+
+      expect(pathname).toBe("/dispatch/settings");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("notifies mounted settings sections after browser navigation", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+    const popstate = vi.fn();
+    const hashchange = vi.fn();
+    window.addEventListener("popstate", popstate);
+    window.addEventListener("hashchange", hashchange);
+
+    try {
+      act(() => {
+        root.render(
+          React.createElement(
+            MemoryRouter,
+            { initialEntries: ["/"] },
+            React.createElement(AgentPanelSettingsNavigation),
+          ),
+        );
+      });
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "uploads" },
+          }),
+        );
+      });
+
+      expect(popstate).toHaveBeenCalledTimes(1);
+      expect(hashchange).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("popstate", popstate);
+      window.removeEventListener("hashchange", hashchange);
+      act(() => root.unmount());
+      container.remove();
+    }
   });
 });
 
@@ -190,11 +359,10 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
   });
 
-  it("shows the full-view action for resources and settings when a page href exists", () => {
+  it("shows the full-view action for resources when a page href exists", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "resources")).toBe(
       true,
     );
-    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
   });
 
   it("keeps the full Agent page reachable from chat-only sidebars", () => {
@@ -232,9 +400,6 @@ describe("AgentPanel mode and full-view visibility", () => {
   it("hides the full-view action for CLI or a missing page href", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
     expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
-      false,
-    );
-    expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
       false,
     );
   });
@@ -419,6 +584,18 @@ describe("AgentChatSurface chrome defaults", () => {
 
     expect(panel.props.showHeader).toBe(false);
     expect(panel.props.showTabBar).toBe(false);
+    expect(panel.props).not.toHaveProperty("allowSettingsMode");
+  });
+
+  it("keeps settings out of every chat surface", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("SettingsPanel");
+    expect(source).not.toContain("allowSettingsMode");
+    expect(source).not.toContain('mode === "settings"');
+    expect(source).toContain('pathname: appPath("/settings")');
   });
 
   it("mounts URL command sync for a full-page chat surface", () => {

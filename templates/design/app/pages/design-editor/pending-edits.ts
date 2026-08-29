@@ -164,6 +164,13 @@ export function mergePendingLiveNonStyleEdits(
   return merged;
 }
 
+export function mergePendingLiveNonStyleEdit(
+  edits: readonly PendingLiveNonStyleEdit[],
+  nextEdit: PendingLiveNonStyleEdit,
+): PendingLiveNonStyleEdit[] {
+  return mergePendingLiveNonStyleEdits([...edits, nextEdit]);
+}
+
 export function pendingLiveTextUndoRevertValue(
   currentEdits: readonly PendingLiveNonStyleEdit[],
   nextEdit: PendingLiveTextEdit,
@@ -505,6 +512,49 @@ export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveLayerStateUndoEntry
   | PendingLiveStructureUndoEntry;
+
+/** Coalesce consecutive same-target ticks so slider/keystroke streams stay O(1)
+ * per event. The first revert is kept so one undo still restores the pre-gesture value. */
+export function appendPendingVisualStyleUndoEntry(
+  stack: PendingVisualStyleUndoEntry[],
+  entry: PendingVisualStyleUndoEntry,
+): void {
+  const last = stack[stack.length - 1];
+  if (
+    last &&
+    pendingVisualStyleEditKey(last.edit) ===
+      pendingVisualStyleEditKey(entry.edit)
+  ) {
+    last.edit = {
+      ...entry.edit,
+      styles: { ...last.edit.styles, ...entry.edit.styles },
+      originalStyles: {
+        ...entry.edit.originalStyles,
+        ...last.edit.originalStyles,
+      },
+    };
+    last.revertStyles = { ...entry.revertStyles, ...last.revertStyles };
+    return;
+  }
+  stack.push(entry);
+}
+
+export function appendPendingLiveNonStyleUndoEntry(
+  stack: PendingLiveNonStyleUndoEntry[],
+  entry: PendingLiveNonStyleUndoEntry,
+): void {
+  const last = stack[stack.length - 1];
+  if (
+    last?.kind === "text" &&
+    entry.kind === "text" &&
+    pendingLiveEditSubjectKey(last.edit) ===
+      pendingLiveEditSubjectKey(entry.edit)
+  ) {
+    last.edit = entry.edit;
+    return;
+  }
+  stack.push(entry);
+}
 
 /**
  * Project-relative source files that must be read before this edit can be
@@ -1361,7 +1411,7 @@ function removeExactBreakpointDeclarations(
   const markerPattern =
     args.minWidthPx != null && args.maxWidthPx != null
       ? escapeRegExp(marker)
-      : `${escapeRegExp(marker)}::[^\"]+`;
+      : `${escapeRegExp(marker)}::[^"]+`;
   const styleRe = new RegExp(
     `<style\\b[^>]*\\b${EXACT_BREAKPOINT_ATTR}="${markerPattern}"[^>]*>.*?<\\/style>\\n?`,
     "gis",

@@ -176,7 +176,9 @@ describe("createTeamsProvider", () => {
       "https://graph.microsoft.com/v1.0/me/onlineMeetings",
     );
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body as string)),
+    ).toEqual({
       subject: booking.title,
       startDateTime: booking.startTime,
       endDateTime: booking.endTime,

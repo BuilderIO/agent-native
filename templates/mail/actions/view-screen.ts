@@ -94,10 +94,7 @@ async function fetchEmailList(
         ? await readSettings(ownerEmail)
         : undefined;
     const userPinnedLabels = settings?.pinnedLabels;
-    const pinnedLabels =
-      userPinnedLabels === undefined
-        ? resolvePinnedLabels([], googleConnected)
-        : resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const pinnedLabels = resolvePinnedLabels(userPinnedLabels, googleConnected);
     const hasNoteToSelf = pinnedLabels.includes("note-to-self");
     const clients = googleConnected ? await getClients(ownerEmail) : [];
     const connectedEmails = new Set(
@@ -208,7 +205,7 @@ async function fetchEmailList(
   }
 }
 
-async function fetchThreadMessages(threadId: string): Promise<any | null> {
+async function fetchThreadMessages(threadId: string): Promise<any> {
   try {
     const accounts = await getAccessTokens();
     if (accounts.length === 0) return null;

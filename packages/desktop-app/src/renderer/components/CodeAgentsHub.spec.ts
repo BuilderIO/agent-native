@@ -811,6 +811,8 @@ describe("CodeAgentsHub desktop identity status", () => {
 
     expect(source).toContain("desktopIdentityStatusByTab");
     expect(source).toContain("handleDesktopIdentityStatusChange");
+    expect(source).toContain("onDesktopIdentitySyncFailure");
+    expect(source).toContain('if (status === "failed")');
     expect(source).toContain("desktopIdentityStatusByTab,");
     expect(source).toContain("handleDesktopIdentityStatusChange,");
     expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");

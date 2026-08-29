@@ -102,6 +102,9 @@ vi.mock("@agent-native/core/client/navigation", () => ({
 }));
 
 vi.mock("@agent-native/core/client/ui", () => ({
+  AgentNativeIcon: (props: React.SVGProps<SVGSVGElement>) => (
+    <svg data-agent-native-icon {...props} />
+  ),
   FeedbackButton: () => <div>Feedback</div>,
 }));
 
@@ -595,10 +598,12 @@ describe("Dispatch NavContent", () => {
       '[data-agent-native="chat-history-list"]',
     );
     expect(historyList?.className).toContain("an-chat-history--rail");
-    expect(
-      container.querySelector('img[src="/agent-native-icon-light.svg"]')
-        ?.parentElement?.className,
-    ).not.toContain("border");
+    const sidebarLogo = container.querySelector(
+      "a[data-dispatch-logo] svg[data-agent-native-icon]",
+    );
+    expect(sidebarLogo?.className).toContain("text-foreground");
+    expect(sidebarLogo?.className).toContain("h-[17px]");
+    expect(sidebarLogo?.className).toContain("w-[30px]");
     expect(container.textContent).not.toContain("Workspace control plane");
 
     const threadButton = [...container.querySelectorAll("button")].find(

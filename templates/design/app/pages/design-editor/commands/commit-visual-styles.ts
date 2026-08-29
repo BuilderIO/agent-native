@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
+import { patchAuthoredInlineStyles } from "@/components/design/edit-panel/interaction-state-helpers";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -659,7 +660,7 @@ export function runCommitVisualStyles(
     // tracked in the global file-content stack so all screens share one order.
     if (ydoc && isSynced) {
       const ytext = ydoc.getText("content");
-      if (ytext.toString() !== resolvedNextContent) {
+      if (ytext.toJSON() !== resolvedNextContent) {
         if (!yjsHistoryAvailable) {
           // Untracked write (overview mode with a still-live
           // single-mode UndoManager, or history-suppressed replay) —
@@ -709,13 +710,12 @@ export function runCommitVisualStyles(
           classes: resolvedNode.classes,
         }
       : {};
+    const committed = Object.fromEntries(entries);
     return {
       ...prev,
       ...stablePatch,
-      computedStyles: {
-        ...prev.computedStyles,
-        ...Object.fromEntries(entries),
-      },
+      computedStyles: { ...prev.computedStyles, ...committed },
+      inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
     };
   });
 }

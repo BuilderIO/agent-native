@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getEmailReadiness, sendEmail } from "./email";
+import {
+  getDeploymentEmailReadiness,
+  getEmailReadiness,
+  sendEmail,
+} from "./email";
 
 describe("sendEmail", () => {
   afterEach(() => {
@@ -47,6 +51,25 @@ describe("sendEmail", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.categories).toContain("calendar.booking-confirmed::org::org-1");
+  });
+
+  it("disables click tracking for security-sensitive links", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: '<a href="https://design.agent-native.com/verify">Verify</a>',
+      disableClickTracking: true,
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.tracking_settings).toEqual({
+      click_tracking: { enable: false },
+    });
   });
 
   it("applies per-app sender branding on agent-native.com deployments", async () => {
@@ -402,6 +425,17 @@ describe("getEmailReadiness", () => {
     await expect(getEmailReadiness()).resolves.toEqual({
       status: "not-configured",
       provider: "dev",
+    });
+  });
+
+  it("derives auth readiness from deployment credentials only", () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <noreply@example.com>");
+
+    expect(getDeploymentEmailReadiness()).toEqual({
+      status: "ready",
+      provider: "resend",
     });
   });
 });

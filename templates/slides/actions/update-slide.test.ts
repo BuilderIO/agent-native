@@ -2,13 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
-let mockFitCheckResult:
-  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
-  | undefined;
 
 // Captured by the Drizzle `update().set()` mock so tests can assert on the
 // persisted deck JSON + bumped updatedAt.
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
+let updateRowsAffected = 1;
 
 let mockDeckRow: Record<string, unknown> | undefined;
 const mockGetGenerationCreativeContext = vi.fn(async () => null);
@@ -43,7 +41,7 @@ const mockDb = {
   update: () => ({
     set: (values: { data?: string; updatedAt?: string }) => {
       lastUpdateSet = values;
-      return { where: async () => ({ rowsAffected: 1 }) };
+      return { where: async () => ({ rowsAffected: updateRowsAffected }) };
     },
   }),
   transaction: async (callback: (tx: any) => Promise<unknown>) =>
@@ -59,12 +57,15 @@ vi.mock("../server/db/index.js", () => ({
       data: "decks.data",
       ownerEmail: "decks.ownerEmail",
       designSystemId: "decks.designSystemId",
+      updatedAt: "decks.updatedAt",
     },
   },
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => ({ and: args }),
   eq: (...args: unknown[]) => ({ eq: args }),
+  isNull: (...args: unknown[]) => ({ isNull: args }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -119,22 +120,18 @@ vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
 }));
 
-vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
-  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
-    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
-}));
-
+import { nextDeckRevision } from "./_deck-write";
 import action from "./update-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
   lastUpdateSet = undefined;
-  mockFitCheckResult = undefined;
+  updateRowsAffected = 1;
   mockDeckRow = {
     id: "deck-1",
     title: "Deck",
     ownerEmail: "owner@example.com",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     data: JSON.stringify({
       title: "Deck",
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -144,6 +141,13 @@ beforeEach(() => {
 });
 
 describe("update-slide", () => {
+  it("always advances a millisecond deck revision", () => {
+    const revision = "2026-01-01T00:00:00.000Z";
+    expect(nextDeckRevision(revision, new Date(revision))).toBe(
+      "2026-01-01T00:00:00.001Z",
+    );
+  });
+
   it("applies the edit, bumps deck updatedAt, persists, and notifies clients", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
@@ -231,6 +235,20 @@ describe("update-slide", () => {
     expect(deck.slides[0].content).toBe("<div>Fresh</div>");
   });
 
+  it("rejects an orphaned legacy replacement before reading or writing", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        replace: "Fresh",
+      }),
+    ).rejects.toThrow("Legacy --replace requires --find");
+
+    expect(mockAssertAccess).not.toHaveBeenCalled();
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
   it("rejects an empty legacy find before mutating the deck", async () => {
     await expect(
       action.run({
@@ -240,6 +258,284 @@ describe("update-slide", () => {
         replace: "Fresh",
       }),
     ).rejects.toThrow("find must not be empty");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects mixed edit modes before mutating the deck", async () => {
+    const mixedInputs = [
+      {
+        find: "Old",
+        replace: "New",
+        edits: [{ find: "Old", replace: "New" }],
+      },
+      {
+        find: "Old",
+        fullContent: "<div>Whole slide replacement</div>",
+      },
+    ];
+
+    for (const input of mixedInputs) {
+      await expect(
+        action.run({ deckId: "deck-1", slideId: "slide-1", ...input }),
+      ).rejects.toThrow("Use exactly one input mode");
+    }
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects style-only edits that change slide structure", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        edits: [{ find: "Headline", replace: "Changed", expectedMatches: 1 }],
+      }),
+    ).rejects.toThrow("Style-only slide edits must preserve");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("accepts style-only CSS edits without changing slide structure", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: [
+        {
+          find: "border: 1px solid blue",
+          replace: "border: 0",
+          expectedMatches: 1,
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide" style="padding: 80px;"><div style="border: 0; padding: 20px;"><h1>Headline</h1></div></div>',
+    );
+  });
+
+  it("does not add default slide padding during a style-only edit", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide"><div style="border: 1px solid blue;"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: [
+        {
+          find: "border: 1px solid blue",
+          replace: "border: 0",
+          expectedMatches: 1,
+        },
+      ],
+    });
+
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      '<div class="fmd-slide"><div style="border: 0;"><h1>Headline</h1></div></div>',
+    );
+  });
+
+  it("rejects style-only edits that change protected layout CSS", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue; padding: 20px;"><h1>Headline</h1></div></div>',
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        edits: [
+          {
+            find: "padding: 20px",
+            replace: "padding: 4px",
+            expectedMatches: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow("protected layout CSS");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("keeps protected stylesheet declarations attached to their selectors", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<style>.left { padding: 10px; } .right { padding: 20px; }</style><div class="left">Left</div><div class="right">Right</div>',
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        edits: [
+          {
+            find: ".left { padding: 10px; } .right { padding: 20px; }",
+            replace: ".left { padding: 20px; } .right { padding: 10px; }",
+            expectedMatches: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow("protected layout CSS");
+
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("rejects style-only edits that change layout custom properties", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="--card-padding: 20px; padding: var(--card-padding);"><h1>Headline</h1></div>',
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        styleOnly: true,
+        edits: [
+          {
+            find: "--card-padding: 20px",
+            replace: "--card-padding: 4px",
+            expectedMatches: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow("protected layout CSS");
+
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("preserves animations for style-only CSS edits", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content:
+            '<div class="fmd-slide" style="padding: 80px;"><div style="border: 1px solid blue;"><h1>Headline</h1></div></div>',
+          animations: [{ id: "reveal-1", elementPath: [0], type: "fade" }],
+        },
+      ],
+    });
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      styleOnly: true,
+      edits: [
+        {
+          find: "border: 1px solid blue",
+          replace: "border: 0",
+          expectedMatches: 1,
+        },
+      ],
+    });
+
+    expect(
+      JSON.parse(lastUpdateSet!.data as string).slides[0].animations,
+    ).toEqual([{ id: "reveal-1", elementPath: [0], type: "fade" }]);
+  });
+
+  it("rejects a stale deck revision instead of overwriting a concurrent write", async () => {
+    updateRowsAffected = 0;
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("changed while saving slide edit"),
+      statusCode: 409,
+    });
+
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
+  });
+
+  it("rejects newly introduced unresolved placeholder content", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div><h2>Right card content</h2></div>",
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [
+          {
+            find: "Right card content",
+            replace: "__RIGHT_CARD__",
+            expectedMatches: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow("unresolved placeholder content");
 
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
@@ -257,13 +553,16 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: true, applied: false });
+    // Nothing matched, so nothing was written — and that must reach the
+    // runner as a throw. A returned value is stamped `completedSideEffect`
+    // and replayed to a resumed run as work already done.
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
@@ -280,14 +579,14 @@ describe("update-slide", () => {
       ],
     });
 
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      format: true,
-      edits: [{ find: "Missing", replace: "Never written", required: false }],
-    })) as Record<string, unknown>;
-
-    expect(result).toMatchObject({ ok: true, applied: false });
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        format: true,
+        edits: [{ find: "Missing", replace: "Never written", required: false }],
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(
       JSON.parse(mockDeckRow!.data as string).slides[0].animations,
@@ -342,15 +641,16 @@ describe("update-slide", () => {
       ],
     })) as Record<string, unknown>;
 
-    // The required find/replace matched and the batch is reported applied,
-    // but the optional image insert never found its marker and silently
-    // no-opped -- a caller trusting only the aggregate `applied` boolean has
-    // no way to tell the image was never inserted.
-    expect(result).toMatchObject({ ok: true, applied: true });
+    // The required find/replace matched, but the optional image insert never
+    // found its marker. The aggregate `applied` boolean cannot express that,
+    // so the result flags it explicitly — otherwise the agent reports the
+    // image as inserted.
+    expect(result).toMatchObject({ ok: true, applied: true, partial: true });
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
 
     expect(result.editResults).toEqual(["replace:first", "insert-after:0"]);
+    expect(String(result.message)).toContain("insert-after:0");
   });
 
   it("does not write a partial edit list when a later edit fails", async () => {
@@ -524,110 +824,43 @@ describe("update-slide", () => {
     );
   });
 
-  it("returns ok:false without writing when the find text is missing", async () => {
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+  it("throws without writing when the find text is missing", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "this text does not exist in the slide",
+        replace: "x",
+      }),
+    ).rejects.toThrow("Nothing was written");
     expect(lastUpdateSet).toBeUndefined();
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  it("returns layoutOverflow + auto-fix message when the patched slide still overflows", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
+  it("returns a pending fit check keyed to the persisted slide revision", async () => {
     const result = (await action.run({
       deckId: "deck-1",
       slideId: "slide-1",
-      fullContent: "<div>Tightened but still tall</div>",
+      fullContent: "<div>Updated</div>",
     })) as Record<string, unknown>;
 
     expect(result).toMatchObject({
       ok: true,
       deckId: "deck-1",
       slideId: "slide-1",
-      layoutOverflow: {
-        verticalOverflow: 225,
-        contentHeight: 645,
-        viewportHeight: 420,
+      layoutFit: {
+        status: "pending",
+        slideId: "slide-1",
       },
     });
-    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
-  });
-
-  it("omits layoutOverflow when the patched slide fits", async () => {
-    mockFitCheckResult = {
-      status: "fits",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 380,
-        viewportHeight: 420,
-        verticalOverflow: 0,
-        measuredAt: Date.now(),
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
       },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>Now fits</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("omits layoutOverflow on fit-check timeout (no open editor)", async () => {
-    mockFitCheckResult = { status: "timeout" };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      fullContent: "<div>Headless</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.ok).toBe(true);
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("does not consult fit-check when text-to-find is not present (early bail)", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-1",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-1",
-      find: "this text does not exist in the slide",
-      replace: "x",
-    })) as Record<string, unknown>;
-
-    // When find is not found, the action returns ok: false BEFORE the
-    // fit-check. layoutOverflow must NOT appear.
-    expect(result.ok).toBe(false);
-    expect(result.layoutOverflow).toBeUndefined();
+    ).toMatchObject({
+      contentHash: result.contentHash,
+      layoutFitRevision: expect.any(String),
+    });
   });
 });

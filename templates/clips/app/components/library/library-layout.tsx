@@ -2,7 +2,6 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -12,7 +11,7 @@ import {
   OrgSwitcher,
   useOrgRole,
 } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconInbox,
@@ -372,21 +371,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             )}
             data-sidebar-brand-toggle
           >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
+            <AgentNativeIcon
               aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
             {!showCollapsedSidebar && (
               <span className="truncate text-sm font-semibold text-foreground">
@@ -699,7 +686,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               {(isMobile || !pageHasHeaderSearch) && <SearchBar />}
             </div>
 
-            <div className="shrink-0 space-y-2 px-3 py-2">
+            <div className="shrink-0 space-y-2 px-3 py-2 empty:hidden">
               <OrgSwitcher settingsPath="/settings/organization" />
               <DevDatabaseLink />
             </div>
@@ -854,9 +841,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         setDeleteSpaceId={setDeleteSpaceId}
         onMutationSuccess={(deletedSpaceId) => {
           if (deletedSpaceId && spaceId === deletedSpaceId) {
-            navigate("/spaces");
+            void navigate("/spaces");
           }
-          refetchSpaces?.();
+          void refetchSpaces?.();
         }}
       />
     </div>

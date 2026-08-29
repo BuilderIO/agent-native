@@ -278,7 +278,10 @@ function itemFilterCandidateValues(
     property.definition.type === "select" ||
     property.definition.type === "status"
   ) {
-    const id = String(property.value);
+    const id =
+      typeof property.value === "string"
+        ? property.value
+        : (JSON.stringify(property.value) ?? "");
     const optionName =
       property.definition.options.options?.find((option) => option.id === id)
         ?.name ?? id;
@@ -307,8 +310,15 @@ function propertyValueText(property: DocumentProperty | null | undefined) {
   ) {
     return (
       property.definition.options.options?.find(
-        (option) => option.id === String(property.value),
-      )?.name ?? String(property.value)
+        (option) =>
+          option.id ===
+          (typeof property.value === "string"
+            ? property.value
+            : (JSON.stringify(property.value) ?? "")),
+      )?.name ??
+      (typeof property.value === "string"
+        ? property.value
+        : (JSON.stringify(property.value) ?? ""))
     );
   }
   if (property.definition.type === "checkbox") {
@@ -346,14 +356,22 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
   const value =
     typeof property.value === "number"
       ? property.value
-      : Number(String(property.value).trim());
+      : Number(
+          (typeof property.value === "string"
+            ? property.value
+            : (JSON.stringify(property.value) ?? "")
+          ).trim(),
+        );
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
 function propertyDateValue(property: DocumentProperty | null | undefined) {
   if (!property || !property.value) return Number.NaN;
   const value = new Date(
-    documentPropertyDatePart(property.value, "start") || String(property.value),
+    documentPropertyDatePart(property.value, "start") ||
+      (typeof property.value === "string"
+        ? property.value
+        : (JSON.stringify(property.value) ?? "")),
   ).getTime();
   return Number.isFinite(value) ? value : Number.NaN;
 }

@@ -130,6 +130,7 @@ body {
   min-height: 0;
   height: auto;
   overflow: hidden;
+  position: relative;
 }
 
 /* ─── Windows/Linux custom window controls ───────────────────── */
@@ -404,21 +405,14 @@ body {
 
 .collapsed-mac-window-controls .win-btn--maximize {
   left: 50px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-7px) scale(0.86);
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
 }
 
 .collapsed-mac-window-controls:hover::before,
 .collapsed-mac-window-controls:focus-within::before {
   opacity: 1;
-}
-
-.collapsed-mac-window-controls:hover .win-btn--maximize,
-.collapsed-mac-window-controls:focus-within .win-btn--maximize {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
 }
 
 .platform-darwin

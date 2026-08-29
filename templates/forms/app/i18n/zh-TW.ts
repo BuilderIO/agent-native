@@ -189,6 +189,12 @@ const messages = {
       successMessage: "成功訊息",
       defaultSuccessMessage: "謝謝！你的回覆已紀錄。",
       redirectUrl: "重新導向 URL（可選）",
+      completionMode: "提交後",
+      completionMessage: "顯示訊息直到重新整理",
+      completionRedirect: "重新導向至 URL",
+      completionMessageThenRefresh: "顯示訊息後重新整理",
+      completionRefresh: "使用新表單重新整理",
+      completionRefreshSeconds: "在此時間後重新整理（秒）",
       anonymousResponses: "匿名回覆",
       anonymousResponsesDescription:
         "不保留 IP 位址、回覆者身分或來源中繼資料。",

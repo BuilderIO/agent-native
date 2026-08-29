@@ -47,7 +47,10 @@ async function copyText(text: string): Promise<boolean> {
 const CLASSES = [
   // The two properties have different durations, so this keeps the shorthand
   // verbatim rather than flattening both onto one `duration-*`.
-  "inline-flex cursor-pointer items-center gap-[var(--spacing-2)] rounded-[var(--b-radius)] px-[var(--spacing-3)] py-[9px] font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] leading-none text-[var(--b-text-secondary)] [transition:color_0.15s,background_0.2s_ease]",
+  // The command is one unbreakable token to a reader, so it scales with the
+  // viewport instead of wrapping mid-command: 2.6vw is the widest size that
+  // still fits inside the get-started dialog's padding at 390px.
+  "inline-flex cursor-pointer items-center gap-[var(--spacing-2)] rounded-[var(--b-radius)] px-[var(--spacing-3)] py-[9px] font-[family-name:var(--b-font-mono)] text-[length:min(var(--b-t-label-1),2.6vw)] leading-none whitespace-nowrap text-[var(--b-text-secondary)] [transition:color_0.15s,background_0.2s_ease]",
   "border border-transparent bg-origin-border [background-clip:padding-box,border-box]",
   "bg-[image:linear-gradient(var(--b-bg-inset),var(--b-bg-inset)),linear-gradient(140deg,var(--b-stroke-gradient-start),var(--b-stroke-gradient-end))]",
   "hover:bg-[image:linear-gradient(var(--b-bg-prominent),var(--b-bg-prominent)),linear-gradient(140deg,var(--b-stroke-gradient-start),var(--b-stroke-gradient-end))]",

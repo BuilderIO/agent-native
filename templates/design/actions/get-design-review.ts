@@ -112,7 +112,7 @@ function diffSnapshotNodes(
         entries.push({
           id: `modified:${key}`,
           kind: "modified" as VisualDiffChangeKind,
-          description: `File modified: ${key} (${baseBytes}B → ${compareBytes}B)`,
+          description: `File modified: ${key} (${JSON.stringify(baseBytes)}B → ${JSON.stringify(compareBytes)}B)`,
         });
       }
     }

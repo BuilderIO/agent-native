@@ -1216,7 +1216,7 @@ export default defineAction({
           allowOther: false,
           includeExplore: false,
           includeDecide: false,
-          submitOnSelect: true,
+          submitOnSelect: false,
           options: screens.map((screen, index) => {
             const otherScreens = screens
               .filter((other) => other.id !== screen.id)

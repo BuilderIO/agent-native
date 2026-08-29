@@ -93,7 +93,7 @@ interface NativeContextTool {
   annotations?: AgentNativeWebMcpToolAnnotations;
   execute: (
     input: Record<string, unknown>,
-    options: NativeContextToolExecuteOptions,
+    options?: NativeContextToolExecuteOptions,
   ) => string | Promise<string>;
 }
 
@@ -476,6 +476,70 @@ export interface AgentNativeWebMcpRegistration {
   stop(): void;
 }
 
+interface AgentNativeServerActionManifest {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+  readOnly?: boolean;
+}
+
+export function createAgentNativeServerActionWebMcpRegistration(options?: {
+  document?: Document;
+  fetch?: typeof fetch;
+}): AgentNativeWebMcpRegistration {
+  const fetchImpl =
+    options?.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  return createAgentNativeWebMcpRegistration({
+    document: options?.document,
+    maxToolCount: 1_000,
+    maxDescriptionChars: 10_000,
+    actions: async () => {
+      const response = await fetchImpl("/_agent-native/webmcp/manifest", {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Unable to load WebMCP actions (${response.status})`);
+      }
+      const manifest =
+        (await response.json()) as AgentNativeServerActionManifest[];
+      if (!Array.isArray(manifest)) {
+        throw new Error("WebMCP action manifest must be an array");
+      }
+      return manifest.map((action) => ({
+        name: action.name,
+        description: action.description,
+        ...(action.inputSchema ? { schema: action.inputSchema } : {}),
+        ...(action.readOnly ? { readOnly: true } : {}),
+        run: async (args, runtime) => {
+          const result = await fetchImpl(
+            `/_agent-native/webmcp/actions/${encodeURIComponent(action.name)}`,
+            {
+              method: "POST",
+              credentials: "same-origin",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(args),
+              ...(runtime.signal ? { signal: runtime.signal } : {}),
+            },
+          );
+          const body = await result.json();
+          if (!result.ok) {
+            throw new Error(
+              isRecord(body) && typeof body.error === "string"
+                ? body.error
+                : `WebMCP action failed (${result.status})`,
+            );
+          }
+          return body;
+        },
+      }));
+    },
+  });
+}
+
 function resolveActions(
   actions: AgentNativeClientActions,
 ): Promise<AgentNativeClientAction[]> {
@@ -522,7 +586,8 @@ function sensitiveAction(action: AgentNativeClientAction): boolean {
 function actionManifest(
   action: AgentNativeClientAction,
 ): AgentNativeWebMcpActionManifest {
-  const { run: _run, ...manifest } = action;
+  const manifest = { ...action };
+  delete (manifest as Partial<AgentNativeClientAction>).run;
   return manifest;
 }
 
@@ -536,6 +601,7 @@ function actionRuntime(
   options: AgentNativeWebMcpRegistrationOptions,
   context: AgentNativeHostContext,
   session: AgentNativeHostSession,
+  signal?: AbortSignal,
 ): AgentNativeClientActionRuntime {
   const origin = options.origin ?? "agent-native-webmcp";
   const runCommand = async (command: string, payload?: unknown) => {
@@ -551,6 +617,7 @@ function actionRuntime(
     );
   };
   return {
+    ...(signal ? { signal } : {}),
     origin,
     context,
     session,
@@ -682,7 +749,7 @@ export function createAgentNativeWebMcpRegistration(
                 : {}),
             },
             execute: async (input, executionOptions) => {
-              if (executionOptions.signal.aborted) {
+              if (executionOptions?.signal.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               validateBoundedJson(
@@ -736,9 +803,14 @@ export function createAgentNativeWebMcpRegistration(
               }
               const result = await action.run(
                 input,
-                actionRuntime(options, context, session),
+                actionRuntime(
+                  options,
+                  context,
+                  session,
+                  executionOptions?.signal,
+                ),
               );
-              if (executionOptions.signal.aborted) {
+              if (executionOptions?.signal.aborted) {
                 throw new Error(`WebMCP action "${action.name}" was aborted`);
               }
               return serializeWebMcpResult(

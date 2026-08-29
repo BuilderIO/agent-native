@@ -113,6 +113,7 @@ import {
   ChatRunningTurnIdContext,
   ChatRunDurationContext,
   ReasoningCell,
+  RanToolsSummary,
   useLocalizedWorkedDuration,
   WorkedForSummary,
   toolCallHasPendingApproval,
@@ -250,7 +251,8 @@ export function MessageTimestamp({
 
 export function SelectionAttachedPill() {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const [length, setLength] = useState<number | null>(null);
 
   useEffect(() => {
@@ -778,7 +780,7 @@ export function MessageActionsMenu({
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
-    actionsCtx?.onForkChat?.();
+    void actionsCtx?.onForkChat?.();
   }, [actionsCtx]);
 
   const handleRevert = useCallback(() => {
@@ -1305,6 +1307,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal,
   hasUnresolvedTool,
   hasActiveTool,
+  userStoppedRun,
 }: {
   isLast: boolean;
   chatRunning: boolean;
@@ -1316,6 +1319,7 @@ export function shouldShowAssistantMessageFooter({
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
   hasActiveTool?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
   const ownsActiveTurn =
@@ -1331,10 +1335,10 @@ export function shouldShowAssistantMessageFooter({
     messageRunId != null &&
     activeRunId === messageRunId;
   const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
-  if (chatRunning && ownsActiveRun) return false;
-  if (hasActiveTool) return false;
+  if (chatRunning && ownsActiveRun && !userStoppedRun) return false;
+  if (hasActiveTool && !userStoppedRun) return false;
   if (!isLast) return true;
-  if (hasUnresolvedTool) return false;
+  if (hasUnresolvedTool && !userStoppedRun) return false;
   return statusIsTerminal;
 }
 
@@ -1346,8 +1350,9 @@ export function shouldShowAssistantMessageFooter({
  */
 export const ServerRunActiveContext = React.createContext(false);
 export const UserStoppedRunContext = React.createContext<
-  (runId?: string) => boolean
+  (runId?: string, turnId?: string) => boolean
 >(() => false);
+export const ExternalUserStoppedRunContext = React.createContext(false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1419,14 +1424,15 @@ export function shouldShowAssistantWorkSummary({
   chatRunning: boolean;
 }): boolean {
   if (!hasCollapsibleWork) return false;
-  if (hasActiveTool) return false;
 
-  // An unresolved tool means "still working" only while the turn is actually
-  // running. On a stalled or interrupted turn it used to hide the summary
-  // forever, so the longest turns showed no "Worked for Xm Ys" at all.
-  if (hasUnresolvedTool) return !(isLast && chatRunning);
+  // Keep every work segment behind its disclosure while the current turn is
+  // streaming. Text parts still break the grouped-parts sequence, so a final
+  // response appears between separate work summaries instead of being buried
+  // with the tool calls that surround it.
+  if (isLast && chatRunning) return true;
+  if (hasActiveTool || hasUnresolvedTool) return true;
 
-  // Keep completed historical work wrapped while a later turn is running.
+  // Keep completed historical work grouped while a later turn is running.
   // Removing the wrapper exposes/remounts ReasoningCell and resets its
   // disclosure state to the default-open value on every new submission.
   return isComplete || !isLast;
@@ -1574,17 +1580,26 @@ export function groupAssistantWorkParts(
   index: number,
   parts: readonly AssistantWorkPart[],
   thinkingDisplay: ThinkingDisplay = DEFAULT_THINKING_DISPLAY,
-): ["group-work"] | null {
+): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  const toolSummary = getAssistantToolSummaryInfo(parts);
+  const isOlderToolWork =
+    toolSummary.startIndex >= 0 &&
+    index < toolSummary.startIndex &&
+    (isCollapsibleAssistantWorkPart(part, thinkingDisplay) ||
+      isCallAgentToolCallShadowed(parts, index));
+  const groupKey: ["group-work"] | ["group-work", "group-ran-tools"] =
+    isOlderToolWork ? ["group-work", "group-ran-tools"] : ["group-work"];
+
   if (isCallAgentToolCallShadowed(parts, index)) {
     const previousPart = parts[index - 1];
     const previousPartIsInWorkGroup =
       previousPart != null &&
       (isCollapsibleAssistantWorkPart(previousPart, thinkingDisplay) ||
         isCallAgentToolCallShadowed(parts, index - 1));
-    return previousPartIsInWorkGroup ? ["group-work"] : null;
+    return previousPartIsInWorkGroup ? groupKey : null;
   }
   if (isCollapsibleAssistantWorkPart(part, thinkingDisplay)) {
-    return ["group-work"];
+    return groupKey;
   }
   return null;
 }
@@ -1726,15 +1741,18 @@ export function AssistantMessage() {
   const messageRunId = assistantMessageRunId(msg);
   const messageTurnId = assistantMessageTurnId(msg);
   const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const externalUserStopped = React.useContext(ExternalUserStoppedRunContext);
   const isUserStoppedRun =
-    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
+    assistantMessageWasUserStopped(msg) ||
+    userStoppedRun(messageRunId, messageTurnId) ||
+    (externalUserStopped && isLast);
   const thinkingDisplay = useThinkingDisplay();
   const groupWorkParts = useCallback(
     (
       part: AssistantWorkPart,
       index: number,
       parts: readonly AssistantWorkPart[],
-    ): ["group-work"] | null =>
+    ): ["group-work"] | ["group-work", "group-ran-tools"] | null =>
       groupAssistantWorkParts(part, index, parts, thinkingDisplay),
     [thinkingDisplay],
   );
@@ -1784,7 +1802,10 @@ export function AssistantMessage() {
           ? t("agentChat.message.missingFinal")
           : null));
   const animateMissingFinalResponse = Boolean(
-    isLast && missingFinalResponseNoticeText && wasLiveRef.current,
+    !isUserStoppedRun &&
+    isLast &&
+    missingFinalResponseNoticeText &&
+    wasLiveRef.current,
   );
   const missingFinalResponseAnimationKey = animateMissingFinalResponse
     ? missingFinalResponseNoticeText
@@ -1840,6 +1861,7 @@ export function AssistantMessage() {
       statusIsTerminal,
       hasUnresolvedTool,
       hasActiveTool,
+      userStoppedRun: isUserStoppedRun,
     });
   const cpCtx = React.useContext(CheckpointContext);
 
@@ -1945,6 +1967,9 @@ export function AssistantMessage() {
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
+  const assistantToolSummary = getAssistantToolSummaryInfo(
+    Array.isArray(msgContent) ? msgContent : [],
+  );
   const hasCodeAgentTools =
     Array.isArray(msgContent) &&
     msgContent.some(
@@ -2014,6 +2039,7 @@ export function AssistantMessage() {
                         part.indices[0] ?? -1,
                         firstWorkPartIndex,
                       )}
+                      isRunning={isLast && chatRunning}
                       defaultOpen={hasCustomUi}
                       autoCollapse={animateCollapse && !hasCustomUi}
                     >
@@ -2021,6 +2047,15 @@ export function AssistantMessage() {
                     </WorkedForSummary>
                   );
                 }
+                case "group-ran-tools":
+                  return (
+                    <RanToolsSummary
+                      toolCount={assistantToolSummary.hiddenToolCount}
+                      motionKey={`assistant-${msg.id}`}
+                    >
+                      {children}
+                    </RanToolsSummary>
+                  );
                 case "text":
                   if (
                     isUserStoppedRun &&

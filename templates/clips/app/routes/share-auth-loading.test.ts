@@ -126,9 +126,8 @@ describe("authenticated recording route loading", () => {
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');
 
-    const publicControlsStart = shareRoute.indexOf(
-      '<div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1',
-    );
+    const publicControlsStart = shareRoute.indexOf("<RecordingViewsBadge");
+    expect(publicControlsStart).toBeGreaterThan(-1);
     const publicControls = shareRoute.slice(publicControlsStart);
     expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
       publicControls.indexOf("IconDotsVertical"),

@@ -106,6 +106,7 @@ import {
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -127,7 +128,14 @@ import {
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getSession, type AuthSession } from "./auth.js";
 import {
+  getBetterAuthInternalAdapter,
+  getBetterAuthSync,
+} from "./better-auth-instance.js";
+import {
   BUILDER_CONNECT_PARAM,
+  BUILDER_CONNECT_MODE_PARAM,
+  BUILDER_AGENT_NATIVE_PROVISION_MODE,
+  BUILDER_PROVISIONING_TOKEN_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
@@ -145,9 +153,11 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
   normalizeBuilderAgentContext,
+  provisionBuilderAccount,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderConnectCallbackState,
@@ -157,11 +167,14 @@ import {
   verifyBuilderRelayRequest,
   verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
+  signBuilderProvisioningToken,
+  verifyBuilderProvisioningToken,
   type BuilderConnectTrackingParams,
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
 import {
+  BUILDER_ASSETS_WRITE_SCOPE,
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
@@ -2273,12 +2286,30 @@ export function createCoreRoutesPlugin(
         const envStatus = getBuilderBrowserStatusForEvent(event);
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
-        const withConnectToken = <T extends { connectUrl: string }>(
+        const provisioningToken =
+          userEmail &&
+          ownerContext.session?.token &&
+          isBuilderAccountProvisioningEnabled()
+            ? signBuilderProvisioningToken(
+                userEmail,
+                ownerContext.session.token,
+              )
+            : undefined;
+        const withConnectToken = <
+          T extends {
+            connectUrl: string;
+            agentNativeProvisioningEnabled?: boolean;
+          },
+        >(
           status: T,
         ): T => {
           if (!userEmail) return status;
           return {
             ...status,
+            agentNativeProvisioningEnabled:
+              status.agentNativeProvisioningEnabled &&
+              Boolean(provisioningToken),
+            agentNativeProvisioningToken: provisioningToken,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
           };
         };
@@ -2697,6 +2728,122 @@ export function createCoreRoutesPlugin(
                 "Close this popup, refresh the app, and try Connect account again.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
+          }
+
+          const shouldProvisionAgentNativeAccount =
+            requestUrl.searchParams.get(BUILDER_CONNECT_MODE_PARAM) ===
+            BUILDER_AGENT_NATIVE_PROVISION_MODE;
+          if (shouldProvisionAgentNativeAccount) {
+            const failProvisioning = async (
+              status: number,
+              message: string,
+              reason: string,
+            ) => {
+              await putSetting(`builder-connect-error:${ownerEmail}`, {
+                message,
+                at: Date.now(),
+              }).catch(() => {});
+              await trackBuilderLifecycle(
+                event,
+                "builder connect failed",
+                ownerEmail,
+                {
+                  ...builderConnectTrackingProperties(connectTracking),
+                  reason,
+                  stage: "provision",
+                },
+              );
+              setResponseStatus(event, status);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "text/html; charset=utf-8",
+              );
+              return createBuilderBrowserCallbackErrorPage(message, {
+                parentOrigin: getBuilderBrowserOriginForEvent(event),
+              });
+            };
+
+            if (!isBuilderAccountProvisioningEnabled()) {
+              return failProvisioning(
+                503,
+                "Builder account activation is not available.",
+                "provision_not_configured",
+              );
+            }
+
+            if (
+              !ownerContext.session?.token ||
+              !verifyBuilderProvisioningToken(
+                requestUrl.searchParams.get(BUILDER_PROVISIONING_TOKEN_PARAM),
+                ownerEmail,
+                ownerContext.session.token,
+              )
+            ) {
+              return failProvisioning(
+                403,
+                "This activation link is expired. Close this popup and click Activate again.",
+                "provision_token_invalid",
+              );
+            }
+
+            if (ownerContext.session?.emailVerified !== true) {
+              return failProvisioning(
+                403,
+                "Verify your email before connecting Builder.",
+                "email_not_verified",
+              );
+            }
+
+            try {
+              const credentials = await provisionBuilderAccount({
+                email: ownerEmail,
+                name: ownerContext.session.name,
+              });
+              const { writeBuilderCredentials } =
+                await import("./credential-provider.js");
+              await writeBuilderCredentials(ownerEmail, credentials);
+              await Promise.all([
+                deleteSetting("builder-disconnected").catch(
+                  () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                ),
+                deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
+                  () => false, // coercion-ok: best-effort cleanup after successful provisioning
+                ),
+              ]);
+              await trackBuilderLifecycle(
+                event,
+                "builder connect succeeded",
+                ownerEmail,
+                {
+                  ...builderConnectTrackingProperties(connectTracking),
+                  stage: "provision",
+                  credential_scope: "user",
+                  account_provisioned: true,
+                },
+              );
+              const parentOrigin = getBuilderBrowserOriginForEvent(event);
+              setResponseHeader(event, "Cache-Control", "no-store");
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "text/html; charset=utf-8",
+              );
+              return createBuilderBrowserCallbackPage(
+                `${parentOrigin}${getAppBasePath() || "/"}`,
+                { parentOrigin },
+              );
+            } catch (error) {
+              console.error(
+                "[builder] Agent-Native account provisioning failed:",
+                error instanceof Error ? error.message : error,
+              );
+              return failProvisioning(
+                502,
+                "Couldn't create your Builder account. Try again or connect an existing account.",
+                "provision_failed",
+              );
+            }
           }
 
           // Clear any prior failure row from a previous attempt — otherwise
@@ -3943,16 +4090,20 @@ export function createCoreRoutesPlugin(
           const userEmail = session?.email;
           const resolveStatus = async () => {
             const active = await getActiveFileUploadProviderForRequest();
-            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+            let builderConfigured = false;
+            let builderUploadConfigured = false;
             try {
-              // Must match what provider selection asks, or this reports
-              // storage as unconfigured for an OAuth-only connection whose
-              // uploads actually work.
-              const { hasBuilderApiCredentialCustody } =
-                await import("./builder-api-auth.js");
+              const {
+                canAuthorizeBuilderApiRequest,
+                hasBuilderApiCredentialCustody,
+              } = await import("./builder-api-auth.js");
               builderConfigured = await hasBuilderApiCredentialCustody();
+              builderUploadConfigured = await canAuthorizeBuilderApiRequest(
+                BUILDER_ASSETS_WRITE_SCOPE,
+              );
             } catch {
-              // fall back to env check above
+              builderConfigured = false;
+              builderUploadConfigured = false;
             }
 
             const providers = await Promise.all(
@@ -3973,15 +4124,17 @@ export function createCoreRoutesPlugin(
             // builderConfigured so status reflects this specific request.
             const isBuilderEnvActive = active?.id === "builder";
             const configured = isBuilderEnvActive
-              ? builderConfigured
-              : !!active || builderConfigured;
+              ? builderUploadConfigured
+              : !!active || builderUploadConfigured;
             const activeProvider = isBuilderEnvActive
-              ? builderConfigured
+              ? builderUploadConfigured
                 ? { id: "builder", name: "Builder.io" }
                 : null
               : active
-                ? { id: active.id, name: active.name }
-                : builderConfigured
+                ? active.id === "builder" && !builderUploadConfigured
+                  ? null
+                  : { id: active.id, name: active.name }
+                : builderUploadConfigured
                   ? { id: "builder", name: "Builder.io" }
                   : null;
 
@@ -3990,6 +4143,9 @@ export function createCoreRoutesPlugin(
               activeProvider,
               providers,
               builderConfigured,
+              builderUploadConfigured,
+              builderReauthorizationRequired:
+                builderConfigured && !builderUploadConfigured,
             };
           };
 
@@ -4298,7 +4454,27 @@ export function createCoreRoutesPlugin(
             const data = await getSetting(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
-            return { image: (data as any)?.image ?? null };
+            const storedImage = (data as any)?.image;
+            if (typeof storedImage === "string" && storedImage.trim()) {
+              return { image: storedImage };
+            }
+            if (getBetterAuthSync()) {
+              const adapter = await getBetterAuthInternalAdapter().catch(
+                () => undefined,
+              );
+              const user = await adapter
+                ?.findUserByEmail(decodeURIComponent(emailParam), {
+                  includeAccounts: false,
+                })
+                // coercion-ok: an avatar miss must not turn a valid settings request into a 500.
+                .catch(() => null);
+              return {
+                image: isGoogleProfileImageUrl(user?.user.image)
+                  ? (user?.user.image ?? null)
+                  : null,
+              };
+            }
+            return { image: null };
           }
 
           if (method === "PUT") {

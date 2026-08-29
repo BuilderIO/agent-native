@@ -263,7 +263,7 @@ export async function createPtyWebSocketServer(
       console.error(`${logPrefix} Failed to spawn PTY:`, err);
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(
-          `\r\n\x1b[31m${logPrefix} Failed to spawn PTY: ${err}\x1b[0m\r\n`,
+          `\r\n\x1b[31m${logPrefix} Failed to spawn PTY: ${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n`,
         );
         ws.close();
       }
@@ -356,7 +356,7 @@ export async function createPtyWebSocketServer(
         `${logPrefix} WebSocket closed, killing PTY tree (pid: ${ptyProcess.pid})`,
       );
       activePtys.delete(ptyProcess);
-      killProcessTree(ptyProcess.pid, logPrefix);
+      void killProcessTree(ptyProcess.pid, logPrefix);
     });
   });
 
@@ -377,7 +377,7 @@ export async function createPtyWebSocketServer(
         port: actualPort,
         close: () => {
           for (const p of activePtys) {
-            killProcessTree(p.pid, logPrefix);
+            void killProcessTree(p.pid, logPrefix);
           }
           activePtys.clear();
           wss.close();

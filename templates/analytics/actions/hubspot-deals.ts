@@ -64,9 +64,14 @@ function enrichDeal(
   owners: Record<string, string>,
 ) {
   const properties: Record<string, unknown> = { ...deal.properties };
-  const stageId = String(properties.dealstage ?? "");
-  const pipelineId = String(properties.pipeline ?? "");
-  const ownerId = String(properties.hubspot_owner_id ?? "");
+  const stageId =
+    typeof properties.dealstage === "string" ? properties.dealstage : "";
+  const pipelineId =
+    typeof properties.pipeline === "string" ? properties.pipeline : "";
+  const ownerId =
+    typeof properties.hubspot_owner_id === "string"
+      ? properties.hubspot_owner_id
+      : "";
   const ownerName = ownerId ? owners[ownerId] : undefined;
   const stageName = lookups.stageLabels[stageId] ?? stageId;
   const pipelineName = lookups.pipelineLabels[pipelineId] ?? pipelineId;
@@ -499,14 +504,14 @@ export default defineAction({
     properties,
     owner,
     product,
-    productMatch = "token",
+    productMatch,
     pipeline,
-    closedStatus = "any",
+    closedStatus,
     closedDateFrom,
     closedDateTo,
     query,
-    limit = 25,
-    offset = 0,
+    limit,
+    offset,
     after,
   }) => {
     const trimmedQuery = query?.trim();
@@ -594,9 +599,10 @@ export default defineAction({
       .map((deal) => enrichDeal(deal, lookups, owners))
       .filter((deal) => {
         if (!ownerFilter) return true;
-        const ownerName = String(
-          deal.properties.owner_name ?? "",
-        ).toLowerCase();
+        const ownerName =
+          typeof deal.properties.owner_name === "string"
+            ? deal.properties.owner_name.toLowerCase()
+            : "";
         return ownerName === ownerFilter;
       })
       .filter((deal) => {

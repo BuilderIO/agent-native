@@ -10,7 +10,7 @@ import {
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import { DOCS_SLUG_REDIRECTS } from "../components/docs-slug-redirects";
@@ -19,9 +19,10 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = params.slug!;
-  if (isDocsLocale(slug)) {
+  const slugLocale = docsLocaleFromSegment(slug);
+  if (slugLocale) {
     throw withSsrHtmlContentType(
-      redirect(docsPathForSlug("getting-started", slug), 302),
+      redirect(docsPathForSlug("getting-started", slugLocale), 302),
     );
   }
 

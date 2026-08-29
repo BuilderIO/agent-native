@@ -13,8 +13,8 @@ void main() {
 // halftone dot grid. The falloff is applied to the tone *before* dot radius is
 // derived, which is what makes the dot sizes ring outward from the bright
 // centre instead of merely striping along the flow direction. Strictly
-// two-color (bg/fg, both read from brand tokens) so it is greyscale by
-// construction in both themes.
+// two-color (bg/fg, both read from brand tokens), so the field takes its hue
+// from whatever the theme sets --b-hero-shader-fg to.
 const fragmentShader = `
 precision highp float;
 
@@ -23,6 +23,10 @@ uniform vec2 iResolution;
 uniform vec3 uPointer;
 uniform vec3 uFgColor;
 uniform vec3 uBgColor;
+// How far the brightest dots push past uFgColor along the fg/bg contrast
+// direction. Theme-driven: dark mode can overshoot hard because it runs into
+// white, light mode runs into black and reads as a smudge if it does.
+uniform float uBrightness;
 
 #define S(a, b, t) smoothstep(a, b, t)
 
@@ -40,7 +44,6 @@ const float SPREAD = 1.2;
 const float DOT_DENSITY = 131.;
 const float DOT_SCALE = 1.35;
 const float GLOW = 1.;
-const float BRIGHTNESS = 3.;
 const float SEED = 56.;
 const float VIGNETTE = 1.7;
 // Exponent shaping the tonal distribution: >1 crushes the bright areas inward.
@@ -160,7 +163,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   // dots nearer the focus pull further than dim outer ones, which is what
   // creates the bright-center/dim-edge separation.
   vec3 lit = mix(uBgColor, uFgColor, value);
-  lit += (uFgColor - uBgColor) * value * tone * (BRIGHTNESS - 1.);
+  lit += (uFgColor - uBgColor) * value * tone * (uBrightness - 1.);
 
   fragColor = vec4(clamp(lit, 0., 1.), 1.);
 }
@@ -276,6 +279,7 @@ export function HeroShaderBackground({
     const uPointer = gl.getUniformLocation(program, "uPointer");
     const uFgColor = gl.getUniformLocation(program, "uFgColor");
     const uBgColor = gl.getUniformLocation(program, "uBgColor");
+    const uBrightness = gl.getUniformLocation(program, "uBrightness");
 
     const reducedMotionQuery =
       typeof window.matchMedia === "function"
@@ -304,13 +308,23 @@ export function HeroShaderBackground({
 
     function readFgColor(): [number, number, number] {
       const raw = getComputedStyle(container)
-        .getPropertyValue("--b-text-secondary")
+        .getPropertyValue("--b-hero-shader-fg")
         .trim();
       return hexToRgb01(raw || "#aeadac");
     }
 
+    function readBrightness(): number {
+      const raw = Number.parseFloat(
+        getComputedStyle(container)
+          .getPropertyValue("--b-hero-shader-brightness")
+          .trim(),
+      );
+      return Number.isFinite(raw) ? raw : 3;
+    }
+
     let bgColor = readBgColor();
     let fgColor = readFgColor();
+    let brightness = readBrightness();
 
     function easePointer(allowPointer: boolean) {
       if (!allowPointer) {
@@ -333,6 +347,7 @@ export function HeroShaderBackground({
       gl.uniform3f(uPointer, pointerX, pointerY, pointerStrength);
       gl.uniform3f(uFgColor, fgColor[0], fgColor[1], fgColor[2]);
       gl.uniform3f(uBgColor, bgColor[0], bgColor[1], bgColor[2]);
+      gl.uniform1f(uBrightness, brightness);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
@@ -351,6 +366,9 @@ export function HeroShaderBackground({
         pointerX = targetX = canvas.width * 0.5;
         pointerY = targetY = canvas.height * 0.5;
       }
+      // Under reduced motion there is no next frame to pick the new size up,
+      // so the buffer would stay blank until something else redraws.
+      if (reducedMotion) draw(20, false);
     }
 
     function handlePointerMove(event: PointerEvent | MouseEvent) {
@@ -372,7 +390,11 @@ export function HeroShaderBackground({
     }
 
     resize();
-    window.addEventListener("resize", resize);
+    // Observes the box, not the window: the hero's height comes from padding
+    // tokens and its own content, so it changes without the viewport changing
+    // and the buffer would otherwise keep the size it had on mount.
+    const sizeObserver = new ResizeObserver(resize);
+    sizeObserver.observe(container);
     window.addEventListener("pointermove", handlePointerMove, {
       passive: true,
     });
@@ -383,6 +405,7 @@ export function HeroShaderBackground({
     const observer = new MutationObserver(() => {
       bgColor = readBgColor();
       fgColor = readFgColor();
+      brightness = readBrightness();
       if (reducedMotion) draw(20, false);
     });
     observer.observe(document.documentElement, {
@@ -464,7 +487,7 @@ export function HeroShaderBackground({
       }
       observer.disconnect();
       visibilityObserver.disconnect();
-      window.removeEventListener("resize", resize);
+      sizeObserver.disconnect();
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("mousemove", handlePointerMove);
       document.removeEventListener("pointerleave", fadePointer);

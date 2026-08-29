@@ -1,5 +1,4 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
@@ -9,7 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import type {
   ContentDatabaseItem,
@@ -27,7 +26,7 @@ import {
   IconRestore,
   IconSearch,
   IconSettings,
-  IconStar,
+  IconPin,
   IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -1090,7 +1089,7 @@ export function DocumentSidebar({
             persistSelection: setStoredSpaceId,
             openFiles: (documentId) => {
               if (targetDocumentId === null) return;
-              navigate(`/page/${targetDocumentId ?? documentId}`, {
+              void navigate(`/page/${targetDocumentId ?? documentId}`, {
                 flushSync: true,
               });
             },
@@ -1236,7 +1235,7 @@ export function DocumentSidebar({
 
   const navigateToDocument = useCallback(
     (id: string) => {
-      navigate(`/page/${id}`, { flushSync: true });
+      void navigate(`/page/${id}`, { flushSync: true });
     },
     [navigate],
   );
@@ -1264,7 +1263,7 @@ export function DocumentSidebar({
             ["action", "get-document", { id: created.id }],
             created,
           );
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
           navigateToDocument(created.id);
@@ -1344,12 +1343,12 @@ export function DocumentSidebar({
         }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries(documentQueryFilter(nextId));
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries(documentQueryFilter(nextId));
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (rootFilesDatabaseId) {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
           });
         }
@@ -1359,7 +1358,7 @@ export function DocumentSidebar({
           id,
           previousDocuments !== undefined,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         queryClient.removeQueries(documentQueryFilter(id));
@@ -1369,7 +1368,7 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate(previousPath, {
+        void navigate(previousPath, {
           replace: true,
           flushSync: true,
         });
@@ -1463,7 +1462,7 @@ export function DocumentSidebar({
       }
 
       if (activeDeleted) {
-        navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
+        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/", {
           replace: true,
           flushSync: true,
         });
@@ -1477,7 +1476,7 @@ export function DocumentSidebar({
         } else {
           await deleteDocument.mutateAsync({ id });
         }
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
@@ -1487,11 +1486,11 @@ export function DocumentSidebar({
           previousDocumentQueries,
           deletedIds,
         );
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         if (activeDeleted) {
-          navigate(previousPath, {
+          void navigate(previousPath, {
             replace: true,
             flushSync: true,
           });
@@ -1608,10 +1607,10 @@ export function DocumentSidebar({
     async (documentId: string) => {
       try {
         await permanentlyDeleteDocument.mutateAsync({ id: documentId });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-trashed-content-databases"],
         });
         toast.success(t("sidebar.databasePermanentlyDeleted"));
@@ -1658,7 +1657,7 @@ export function DocumentSidebar({
   const handleRemoveLocalFiles = useCallback(async () => {
     try {
       const result = await removeLocalFileSource.mutateAsync({});
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
       setRemoveLocalFilesDialogOpen(false);
@@ -1782,21 +1781,9 @@ export function DocumentSidebar({
       )}
       data-sidebar-brand-toggle
     >
-      <img
-        src={appPath("/agent-native-icon-light.svg")}
-        alt=""
+      <AgentNativeIcon
         aria-hidden="true"
-        width={28}
-        height={16}
-        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-      />
-      <img
-        src={appPath("/agent-native-icon-dark.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+        className="h-3.5 w-6 shrink-0 text-foreground"
       />
       {!isCollapsed && (
         <span className="text-base font-semibold tracking-tight">Content</span>
@@ -2311,7 +2298,7 @@ export function DocumentSidebar({
                       onClick={() => toggleSection("favorites")}
                     >
                       <span className="relative size-3.5">
-                        <IconStar
+                        <IconPin
                           aria-hidden="true"
                           className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
                         />
@@ -2437,7 +2424,7 @@ export function DocumentSidebar({
         />
       </div>
 
-      <div className="shrink-0 px-3 py-2">
+      <div className="shrink-0 px-3 py-2 empty:hidden">
         <OrgSwitcher reserveSpace />
       </div>
 

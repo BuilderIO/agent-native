@@ -125,7 +125,10 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
-import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
+import {
+  DESKTOP_DEEP_LINK_PROTOCOL,
+  DESKTOP_RELEASE_CHANNEL,
+} from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -329,6 +332,7 @@ import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
+  releaseChannel: DESKTOP_RELEASE_CHANNEL,
   appDataPath: app.getPath("appData"),
   defaultUserDataPath: app.getPath("userData"),
   requestedUserDataPath: desktopRequestedUserDataPath(
@@ -763,7 +767,11 @@ function getInjectionTargetForAppId(
 
 function resolveDesktopIdentityApp(
   appId: string,
-  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
+  options?: {
+    forCleanup?: boolean;
+    allowDisabled?: boolean;
+    appConfigs?: AppConfig[];
+  },
 ): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
 
@@ -798,6 +806,7 @@ function resolveDesktopIdentityApp(
     if (canonical && !isCanonical) return null;
     if (
       !isDesktopIdentityAppConfigEligible(configured, {
+        allowDisabled: appId === "dispatch" && isCanonical,
         canonical: isCanonical,
       })
     ) {
@@ -863,6 +872,10 @@ function listDesktopIdentityApps(
       }),
     )
     .filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+function resolveDesktopIdentityAuthority(): DesktopIdentityApp | null {
+  return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });
 }
 
 function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
@@ -1225,7 +1238,7 @@ function reloadAllWebviews() {
 app.on("open-url", (event, url) => {
   event.preventDefault();
   if (app.isReady()) {
-    handleDeepLink(url);
+    void handleDeepLink(url);
   } else {
     pendingDeepLink = url;
   }
@@ -1340,7 +1353,7 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   }
   if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
-  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   return broker?.getStatus() ?? "idle";
 });
 
@@ -1348,7 +1361,7 @@ ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
-  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker.refreshStatus(resolveDesktopIdentityAuthority());
   return broker.isAvailable();
 });
 
@@ -1376,7 +1389,7 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
 
   const broker = ensureDesktopIdentityBroker();
   if (broker) {
-    await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker.refreshStatus(resolveDesktopIdentityAuthority());
     mainWindow?.webContents.send(
       IPC.IDENTITY_STATUS_CHANGED,
       broker.getStatus(),
@@ -1531,7 +1544,7 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
   // persisted Builder session would load production once before switching.
   if (isDesktopSsoEnabled()) {
     const broker = ensureDesktopIdentityBroker();
-    await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   }
   return resolveDesktopEnvironmentLaneState();
 });
@@ -1580,10 +1593,15 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
   const status = broker.getStatus();
+  if (status === "signed-in") {
+    const recovered = await broker.retryAppSessionFanout();
+    if (recovered) {
+      mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "signed-in");
+    }
+    return recovered;
+  }
   if (status !== "sign-in-required" && status !== "failed") return false;
-  const identityApp =
-    resolveDesktopIdentityApp(activeAppId) ??
-    resolveDesktopIdentityApp("dispatch");
+  const identityApp = resolveDesktopIdentityAuthority();
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
 });
@@ -1665,7 +1683,10 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
     // Parent Google verification runs in the isolated identity window so its
     // browser-bound OAuth state remains in the same cookie partition. Magic
     // links may still complete through the system browser exchange path.
-    resolveApp: resolveDesktopIdentityApp,
+    resolveApp: (appId) =>
+      resolveDesktopIdentityApp(appId, {
+        allowDisabled: appId === "dispatch",
+      }),
     listApps: () => listDesktopIdentityApps(),
     openExternal: (url) => openExternalUrl(url),
     createWindow: (options) => new BrowserWindow(options),
@@ -1764,10 +1785,10 @@ function createWindow(): BrowserWindow {
 
   // In dev, load from the Vite dev server; in prod, load built files
   if (IS_DEV && process.env["ELECTRON_RENDERER_URL"]) {
-    win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    void win.loadURL(process.env["ELECTRON_RENDERER_URL"]);
     // DevTools will be opened for the active webview via Cmd+Shift+I
   } else {
-    win.loadFile(path.join(__dirname, "../renderer/index.html"));
+    void win.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 
   mainWindow = win;
@@ -6334,7 +6355,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
     getCodeAgentGoal(getRecordString(currentRunRecord, "goalId")) ??
     CODE_AGENT_GOALS[0];
   if (goal.surfaceKind === "native") {
-    spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
+    void spawnCodeAgentRunner(input.runId, cwd, input.permissionMode);
   }
   return {
     ok: true,
@@ -6510,7 +6531,7 @@ async function controlDesktopCodeBackgroundAgentRun(
       source: "desktop",
       command: "resume",
     });
-    spawnCodeAgentRunner(input.runId, cwd);
+    void spawnCodeAgentRunner(input.runId, cwd);
     return {
       ok: true,
       runId: input.runId,
@@ -6958,7 +6979,7 @@ async function createCodeAgentRun(
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
     if (goal.surfaceKind === "native" && !worktreeRunQueued) {
-      spawnCodeAgentRunner(runId, cwd, permissionMode);
+      void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
     return {
@@ -12001,7 +12022,7 @@ function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
   });
   const cwd =
     getRecordString(runRecord, "cwd") ?? resolveCodeAgentsTerminalCwd({});
-  spawnCodeAgentRunner(runId, cwd, permissionMode);
+  void spawnCodeAgentRunner(runId, cwd, permissionMode);
   return {
     ok: true,
     run: readDesktopCodeAgentRun(runId) ?? undefined,
@@ -13015,7 +13036,7 @@ function openOAuthWindow(
     },
   });
 
-  oauthWin.loadURL(url);
+  void oauthWin.loadURL(url);
 
   // Allow nested popups inside the OAuth window. Builder's /cli-auth uses
   // Firebase, and Firebase signs the user into Google via `window.open()`.
@@ -13081,7 +13102,7 @@ function openOAuthWindow(
       }
       // Detect agentnative:// deep link — handle it and close the popup.
       if (parsed.protocol === `${DEEP_LINK_PROTOCOL}:`) {
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     } catch {
@@ -13099,7 +13120,7 @@ function openOAuthWindow(
     (event: Electron.Event, navUrl: string) => {
       if (navUrl.startsWith(`${DEEP_LINK_PROTOCOL}:`)) {
         event.preventDefault();
-        handleDeepLink(navUrl);
+        void handleDeepLink(navUrl);
         scheduleClose();
       }
     },
@@ -13852,7 +13873,7 @@ function configurePermissionHandlers(
   }
 }
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   if (isDesktopSsoEnabled()) {
     // Create the optional broker without blocking startup. The first eligible
     // app asks it to refresh status, which keeps a slow identity authority
@@ -13869,7 +13890,7 @@ app.whenReady().then(async () => {
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink);
+    void handleDeepLink(pendingDeepLink);
     pendingDeepLink = null;
   }
 

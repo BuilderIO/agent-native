@@ -3,11 +3,11 @@ import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 
-import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   hasCurrentSlideSelection,
@@ -18,6 +18,7 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
+import { GoogleDriveConnectionCta } from "../editor/GoogleDriveConnectionCta";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
@@ -51,16 +52,13 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
   const [editorSidebarOverride, setEditorSidebarOverride] =
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { decks, loading: decksLoading } = useDecks();
-  const isEmptyDecksState =
-    location.pathname === "/" && !decksLoading && decks.length === 0;
-
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -141,10 +139,18 @@ export function Layout({ children }: LayoutProps) {
         browserTabId={TAB_ID}
         agentPageHref="/settings/agent"
         suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
-        composerSlot={<CreativeContextComposerChip />}
+        onComposerTextChange={setComposerText}
+        composerSlot={
+          <>
+            <GoogleDriveConnectionCta
+              active={extractGoogleSlidesUrls(composerText).length > 0}
+            />
+            <CreativeContextComposerChip />
+          </>
+        }
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {!isEmptyDecksState && showAppSidebar && (
+          {showAppSidebar && (
             <>
               {sidebarOpen && (
                 <div
@@ -175,7 +181,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
-            {!isEmptyDecksState && !ownToolbar && (
+            {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
                 <button
                   onClick={() => setSidebarOpen(true)}
@@ -186,8 +192,8 @@ export function Layout({ children }: LayoutProps) {
                 </button>
               </div>
             )}
-            {!isEmptyDecksState && !ownToolbar && <Header />}
-            {!isEmptyDecksState && <InvitationBanner />}
+            {!ownToolbar && <Header />}
+            <InvitationBanner />
             <main
               className={cn(
                 "agent-native-app-main min-h-0 flex-1",

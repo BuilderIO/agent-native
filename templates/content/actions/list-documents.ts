@@ -53,6 +53,8 @@ function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
 export default defineAction({
   description:
     "List one bounded page of access-scoped document metadata ordered by position. Returns explicit pagination; follow nextOffset until hasMore is false. Does not return full document bodies; use get-document for one document's content.",
+  deferLoading: false,
+  mcpTool: true,
   schema: z.object({
     limit: z.coerce
       .number()
@@ -288,6 +290,9 @@ export default defineAction({
       }
     }
 
+    const visibleDocumentIds = new Set(
+      documents.map((document) => document.id),
+    );
     const mapped = documents.map((d) => {
       let accessRole: EffectiveRole = "viewer";
       const shareRole = shareRoleByDocumentId.get(d.id) ?? null;
@@ -308,7 +313,8 @@ export default defineAction({
 
       return {
         id: d.id,
-        parentId: d.parentId,
+        parentId:
+          d.parentId && visibleDocumentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
         contentPreview: contentPreview(d.contentSnippet),
@@ -336,7 +342,14 @@ export default defineAction({
             }
           : undefined,
         databaseMembership: databaseMembership
-          ? serializeDatabaseMembership(databaseMembership)
+          ? visibleDocumentIds.has(databaseMembership.database.documentId)
+            ? serializeDatabaseMembership(databaseMembership)
+            : {
+                databaseId: null,
+                databaseDocumentId: null,
+                databaseTitle: null,
+                position: null,
+              }
           : undefined,
         accessRole,
         canComment: canCommentRole(accessRole),

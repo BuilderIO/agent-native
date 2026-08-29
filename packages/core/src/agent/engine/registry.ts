@@ -95,6 +95,19 @@ export function registerAgentEngine(entry: AgentEngineEntry): void {
   _registry.set(entry.name, entry);
 }
 
+/**
+ * Remove a registered engine.
+ *
+ * Exists for `registerBuiltinEngines()`, which has to reconcile rather than
+ * only add: `agent.builtInEngines` can be set by a config plugin that loads
+ * after something already touched the registry, and leaving the unselected
+ * built-ins behind would mean the deployment silently keeps engines it opted
+ * out of.
+ */
+export function unregisterAgentEngine(name: string): void {
+  _registry.delete(name);
+}
+
 /** Get a registered engine entry by name, or undefined if not found */
 export function getAgentEngineEntry(
   name: string,
@@ -256,7 +269,7 @@ export interface NormalizeModelOptions {
    * The settings actions call `normalizeModelForEngine` with a static registry
    * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
    * is only set on the engine INSTANCE created with an OpenAI-compatible
-   * `baseUrl`. They resolve the capability with
+   * `baseUrl` or the OpenRouter provider. They resolve the capability with
    * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
    * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
    * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
@@ -379,7 +392,9 @@ export function resolveDelegatedRunModel(
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
-  if (entry.name === "ai-sdk:ollama") return true;
+  if (entry.name === "ai-sdk:ollama" || entry.name === "ai-sdk:openrouter") {
+    return true;
+  }
   if (entry.name !== "ai-sdk:openai") return false;
   try {
     return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));

@@ -112,10 +112,29 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain(".agent-loading-label");
+    expect(css).toContain("transition: width 220ms var(--ease-out-strong);");
     expect(css).toContain("background-clip: text;");
     expect(css).not.toContain(
       '.agent-tool-call[data-active-tail="true"]::after',
     );
+  });
+
+  it("uses a shared linear whole-surface shimmer for skeletons", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.skeleton-shimmer,[\s\S]*?background-image: linear-gradient\([\s\S]*?animation: skeleton-shimmer 1\.6s linear infinite;/s,
+    );
+    expect(css).toMatch(
+      /@keyframes skeleton-shimmer[\s\S]*?background-position: 150% 0;[\s\S]*?background-position: -50% 0;/s,
+    );
+    expect(css).toContain(
+      "hsl(var(--foreground, var(--ui-foreground)) / 0.072)",
+    );
+    expect(css).not.toContain("skeleton-pulse");
   });
 
   it("uses a surface-independent mask for the scrolled chat fade", () => {

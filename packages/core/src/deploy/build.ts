@@ -57,6 +57,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import { LOADING_LABELS } from "../shared/loading-labels.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
@@ -771,6 +772,10 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
 
 export interface GenerateWorkerEntryOptions {
   includeReactRouterSsr?: boolean;
+  analytics?: {
+    agentNativePublicKey?: string;
+    agentNativeEndpoint?: string;
+  };
 }
 
 interface ReactRouterAssetManifest {
@@ -991,6 +996,9 @@ ${["post", "put", "delete"]
   const pluginImports: string[] = [];
   const pluginCalls: string[] = [];
   const providedPluginStems = new Set<string>();
+  pluginImports.push(
+    `import { getAppConfig as getAgentNativeAppConfig } from "${EDGE_SERVER_ENTRYPOINT}";`,
+  );
 
   for (let i = 0; i < edgePlugins.length; i++) {
     const varName = `plugin_${i}`;
@@ -1013,13 +1021,13 @@ ${["post", "put", "delete"]
   for (let i = 0; i < edgeDefaultStems.length; i++) {
     const stem = edgeDefaultStems[i];
     providedPluginStems.add(stem);
-    const varName = `defaultPlugin_${i}`;
+    const varName = `defaultPlugin_${String(i)}`;
 
     const workspaceExportName = workspaceCore?.plugins?.[stem as never];
     if (workspaceCore && workspaceExportName) {
       // Workspace-core layer wins over the framework default.
       pluginImports.push(
-        `import { ${workspaceExportName} as ${varName} } from ${JSON.stringify(
+        `import { ${String(workspaceExportName)} as ${varName} } from ${JSON.stringify(
           `${workspaceCore.packageName}/server`,
         )};`,
       );
@@ -1058,6 +1066,17 @@ ${["post", "put", "delete"]
       `import { markDefaultPluginProvided as markGeneratedPluginProvided } from "${EDGE_SERVER_ENTRYPOINT}";`,
     );
   }
+
+  const builtAnalyticsPublicKey =
+    options.analytics?.agentNativePublicKey?.trim() ||
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY?.trim();
+  const builtAnalyticsEndpoint =
+    options.analytics?.agentNativeEndpoint?.trim() ||
+    process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT?.trim();
 
   return `
 // Auto-generated worker entry point for ${preset}
@@ -1313,6 +1332,42 @@ function getPostHogClientConfigScript() {
   );
 }
 
+function getAgentNativeAnalyticsClientConfigScript() {
+  const env = globalThis.process?.env || {};
+  const configuredAnalytics = getAgentNativeAppConfig().analytics;
+  const configuredEndpoint =
+    configuredAnalytics.agentNativeEndpoint ===
+    "https://analytics.agent-native.com/track"
+      ? undefined
+      : configuredAnalytics.agentNativeEndpoint;
+  const builtPublicKey = ${JSON.stringify(builtAnalyticsPublicKey)};
+  const builtEndpoint = ${JSON.stringify(builtAnalyticsEndpoint)};
+  const publicKey = firstNonEmpty(
+    configuredAnalytics.agentNativePublicKey,
+    env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+    builtPublicKey,
+  );
+  if (!publicKey) return null;
+  const endpoint =
+    firstNonEmpty(
+      configuredEndpoint,
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT,
+      builtEndpoint,
+    ) || "https://analytics.agent-native.com/track";
+  const config = {
+    agentNativeAnalyticsPublicKey: publicKey,
+    agentNativeAnalyticsEndpoint: endpoint,
+  };
+  return (
+    '<script data-agent-native-analytics-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1538,6 +1593,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
+      getAgentNativeAnalyticsClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
@@ -1893,6 +1949,45 @@ const EMPTY_REACT_ROUTER_TURBO_STREAM =
 const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
   '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
 
+const STATIC_SHELL_CUBE_DELAYS = [90, 180, 270, 0, 90, 180, 90, 180, 270];
+const STATIC_SHELL_LOADING_MARKUP = [
+  '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100%">',
+  '<div style="display:flex;align-items:center;gap:12px">',
+  '<svg aria-label="Loading" role="status" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="size-6" data-agent-native-cube-loader="true">',
+  `<style>
+        @keyframes an-cube-pulse {
+          0%, 100% { opacity: 0.15; }
+          50% { opacity: 0.95; }
+        }
+        .an-cube-cell {
+          animation: an-cube-pulse 650ms ease-in-out infinite;
+          fill: currentColor;
+          opacity: 0.15;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .an-cube-cell { animation: none; }
+        }
+      </style>`,
+  ...STATIC_SHELL_CUBE_DELAYS.map(
+    (delay, index) =>
+      `<rect class="an-cube-cell" x="${2.5 + (index % 3) * 7}" y="${2.5 + Math.floor(index / 3) * 7}" width="5" height="5" rx="1" style="animation-delay:calc(${delay}ms - var(--an-cube-loader-phase, 0ms))"></rect>`,
+  ),
+  '</svg><span data-agent-native-loading-label="true" class="agent-running-shimmer agent-loading-label" style="font-family:ui-sans-serif, system-ui, sans-serif;font-size:16px;font-weight:500;opacity:0.65">Churning</span>',
+  `<\/div><style>
+        html {
+          background: hsl(var(--background, 0 0% 100%));
+          color: hsl(var(--foreground, 240 10% 3.9%));
+        }
+        @media (prefers-color-scheme: dark) {
+          html {
+            background: hsl(var(--background, 240 10% 3.9%));
+            color: hsl(var(--foreground, 0 0% 98%));
+          }
+        }
+      </style></div>`,
+].join("");
+const STATIC_SHELL_LOADING_LABEL_SCRIPT = `<script>(function(){var now=window.performance.now();var loader=document.querySelector('[data-agent-native-cube-loader]');if(loader)loader.style.setProperty('--an-cube-loader-phase',(now%650)+'ms');var labels=${JSON.stringify(LOADING_LABELS)};var index=Math.floor(Math.random()*labels.length);window.__agentNativeLoadingLabelIndex=index;var label=document.querySelector('[data-agent-native-loading-label]');if(label){label.textContent=labels[index];label.style.animationDelay='-'+now%2600+'ms';}})();</script>`;
+
 export function generateCloudflarePagesStaticShellFromManifest(
   manifest: ReactRouterAssetManifest,
   basePath = normalizeConfiguredAppBasePath(),
@@ -1928,8 +2023,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  // guard:allow-raw-color - static shell loads before app theme tokens exist
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body>${STATIC_SHELL_LOADING_MARKUP}${STATIC_SHELL_LOADING_LABEL_SCRIPT}<script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -5173,6 +5267,16 @@ export function resolveNitroBuildReplacements(
     ),
     "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
       env.GA_MEASUREMENT_ID?.trim() || "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY": JSON.stringify(
+      env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+        env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY?.trim() ||
+        "",
+    ),
+    "process.env.AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT": JSON.stringify(
+      env.AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+        env.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT?.trim() ||
+        "",
     ),
     "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
       env.GTM_CONTAINER_ID?.trim() || "",

@@ -19,6 +19,7 @@ import {
   IconBrandZoom,
   IconPaperclip,
   IconCalendarTime,
+  IconDots,
 } from "@tabler/icons-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -514,6 +515,7 @@ export function EventDetailPopover({
 
   // Inline editing state
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const [editDescription, setEditDescription] = useState(
     event.description || "",
@@ -557,6 +559,7 @@ export function EventDetailPopover({
   const [zoomAfterConnectEventId, setZoomAfterConnectEventId] = useState<
     string | null
   >(() => getStoredZoomAfterConnectEventId());
+  const [showConferencingOptions, setShowConferencingOptions] = useState(false);
   const isOverlay = !!event.overlayEmail;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
@@ -578,6 +581,33 @@ export function EventDetailPopover({
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
+  const detailsScrollRef = useRef<HTMLDivElement>(null);
+  const actionPendingRef = useRef(false);
+  const [actionPending, setActionPending] = useState(false);
+
+  const beginAction = useCallback(() => {
+    if (
+      actionPendingRef.current ||
+      updateEvent.isPending ||
+      connectZoom.isPending
+    ) {
+      return false;
+    }
+    actionPendingRef.current = true;
+    setActionPending(true);
+    return true;
+  }, [connectZoom.isPending, updateEvent.isPending]);
+
+  const endAction = useCallback(() => {
+    actionPendingRef.current = false;
+    setActionPending(false);
+  }, []);
+
+  const mutationPending =
+    actionPending ||
+    updateEvent.isPending ||
+    connectZoom.isPending ||
+    pendingVideoProvider !== null;
 
   useEffect(() => {
     setSelectedAccountEmail(event.accountEmail);
@@ -596,35 +626,52 @@ export function EventDetailPopover({
       ) {
         return;
       }
+      if (!beginAction()) return;
 
       setSelectedAccountEmail(targetAccountEmail);
       void (async () => {
-        const guestNotification = await promptGuestNotification({
-          event,
-          action: "update",
-        });
-        if (!guestNotification) {
-          setSelectedAccountEmail(event.accountEmail);
-          return;
-        }
-        updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            targetAccountEmail,
-            ...guestNotification,
-          },
-          {
-            onSuccess: () => toast.success(t("eventForm.eventUpdated")),
-            onError: () => {
-              setSelectedAccountEmail(event.accountEmail);
-              toast.error(t("eventForm.updateFailed"));
+        try {
+          const guestNotification = await promptGuestNotification({
+            event,
+            action: "update",
+          });
+          if (!guestNotification) {
+            setSelectedAccountEmail(event.accountEmail);
+            endAction();
+            return;
+          }
+          updateEvent.mutate(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              targetAccountEmail,
+              ...guestNotification,
             },
-          },
-        );
+            {
+              onSuccess: () => toast.success(t("eventForm.eventUpdated")),
+              onError: () => {
+                setSelectedAccountEmail(event.accountEmail);
+                toast.error(t("eventForm.updateFailed"));
+              },
+              onSettled: endAction,
+            },
+          );
+        } catch {
+          setSelectedAccountEmail(event.accountEmail);
+          endAction();
+        }
       })();
     },
-    [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent],
+    [
+      beginAction,
+      endAction,
+      event,
+      isDraft,
+      onDraftUpdate,
+      promptGuestNotification,
+      t,
+      updateEvent,
+    ],
   );
 
   // Sync editing state when the event changes (incl. live agent/other-user
@@ -719,6 +766,17 @@ export function EventDetailPopover({
       ? event.visibility
       : "default";
   const reminderValue = getReminderValue(event);
+
+  useEffect(() => {
+    if (!showMoreOptions) return;
+    const container = detailsScrollRef.current;
+    if (!container) return;
+    const frame = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showMoreOptions]);
+
   // Save a field update
   const saveField = useCallback(
     (updates: EventUpdatePatch) => {
@@ -728,32 +786,50 @@ export function EventDetailPopover({
         onDraftUpdate?.(event.id, draftUpdates);
         return true;
       }
+      if (!beginAction()) return false;
       void (async () => {
-        const { scope: _scope, addAttendees, ...notificationUpdates } = updates;
-        const promptUpdates = addAttendees
-          ? {
-              ...notificationUpdates,
-              attendees: mergeAttendeesForPrompt(event.attendees, addAttendees),
-            }
-          : notificationUpdates;
-        const shouldChooseGuestScope =
-          isRecurringEvent &&
-          ("attendees" in updates || "addAttendees" in updates);
-        const guestNotification = await promptGuestNotification({
-          event,
-          action: "update",
-          updates: promptUpdates,
-          recurrenceScope: shouldChooseGuestScope
-            ? { enabled: true, defaultScope: "single" }
-            : undefined,
-        });
-        if (!guestNotification) return;
-        updateEvent.mutate({
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        });
+        try {
+          const {
+            scope: _scope,
+            addAttendees,
+            ...notificationUpdates
+          } = updates;
+          const promptUpdates = addAttendees
+            ? {
+                ...notificationUpdates,
+                attendees: mergeAttendeesForPrompt(
+                  event.attendees,
+                  addAttendees,
+                ),
+              }
+            : notificationUpdates;
+          const shouldChooseGuestScope =
+            isRecurringEvent &&
+            ("attendees" in updates || "addAttendees" in updates);
+          const guestNotification = await promptGuestNotification({
+            event,
+            action: "update",
+            updates: promptUpdates,
+            recurrenceScope: shouldChooseGuestScope
+              ? { enabled: true, defaultScope: "single" }
+              : undefined,
+          });
+          if (!guestNotification) {
+            endAction();
+            return;
+          }
+          updateEvent.mutate(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            { onSettled: endAction },
+          );
+        } catch {
+          endAction();
+        }
       })();
       return true;
     },
@@ -761,6 +837,8 @@ export function EventDetailPopover({
       event,
       isDraft,
       isRecurringEvent,
+      beginAction,
+      endAction,
       onDraftUpdate,
       promptGuestNotification,
       updateEvent,
@@ -823,33 +901,52 @@ export function EventDetailPopover({
       onDraftUpdate?.(event.id, { addGoogleMeet: true, addZoom: false });
       return;
     }
+    if (!beginAction()) return;
     setPendingVideoProvider("meet");
     void (async () => {
-      const updates = { addGoogleMeet: true };
-      const guestNotification = await promptGuestNotification({
-        event,
-        action: "update",
-        updates,
-      });
-      if (!guestNotification) {
+      try {
+        const updates = { addGoogleMeet: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast(t("eventForm.googleMeetAdded")),
+            onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
+            onSettled: () => {
+              setPendingVideoProvider(null);
+              endAction();
+            },
+          },
+        );
+      } catch {
         setPendingVideoProvider(null);
-        return;
+        endAction();
       }
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
-        {
-          onSuccess: () => toast(t("eventForm.googleMeetAdded")),
-          onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
     })();
-  }, [event, isDraft, onDraftUpdate, promptGuestNotification, updateEvent]);
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
 
   const addZoomToConnectedEvent = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -859,38 +956,57 @@ export function EventDetailPopover({
       return;
     }
 
+    if (!beginAction()) return;
     setPendingVideoProvider("zoom");
     void (async () => {
-      const updates = { addZoom: true };
-      const guestNotification = await promptGuestNotification({
-        event,
-        action: "update",
-        updates,
-      });
-      if (!guestNotification) {
+      try {
+        const updates = { addZoom: true };
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+          updates,
+        });
+        if (!guestNotification) {
+          setPendingVideoProvider(null);
+          endAction();
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast(t("eventForm.zoomAdded")),
+            onError: (error) =>
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : t("eventForm.zoomAddFailed"),
+              ),
+            onSettled: () => {
+              setPendingVideoProvider(null);
+              endAction();
+            },
+          },
+        );
+      } catch {
         setPendingVideoProvider(null);
-        return;
+        endAction();
       }
-      updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
-        {
-          onSuccess: () => toast(t("eventForm.zoomAdded")),
-          onError: (error) =>
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : t("eventForm.zoomAddFailed"),
-            ),
-          onSettled: () => setPendingVideoProvider(null),
-        },
-      );
     })();
-  }, [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent]);
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isDraft,
+    onDraftUpdate,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
 
   useEffect(() => {
     if (
@@ -925,6 +1041,7 @@ export function EventDetailPopover({
       toast.error(t("eventForm.zoomNotConfiguredDeployment"));
       return;
     }
+    if (!beginAction()) return;
 
     setZoomAfterConnectEventId(event.id);
     setStoredZoomAfterConnectEventId(event.id);
@@ -939,10 +1056,13 @@ export function EventDetailPopover({
             : t("eventForm.zoomConnectFailed"),
         );
       },
+      onSettled: endAction,
     });
   }, [
     addZoomToConnectedEvent,
+    beginAction,
     connectZoom,
+    endAction,
     event,
     t,
     updateEvent,
@@ -1013,11 +1133,13 @@ export function EventDetailPopover({
         onDraftUpdate?.(event.id, draftUpdate);
         return;
       }
+      if (!beginAction()) return;
       updateEvent.mutate(update, {
         onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        onSettled: endAction,
       });
     },
-    [event, isDraft, onDraftUpdate, t, updateEvent],
+    [beginAction, endAction, event, isDraft, onDraftUpdate, t, updateEvent],
   );
 
   const saveTimeValues = useCallback(
@@ -1428,6 +1550,8 @@ export function EventDetailPopover({
         eventDetailSidebar && !isNewEventRef.current && !isDraft;
       if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
+        setShowMoreOptions(false);
+        setShowConferencingOptions(false);
         const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
         // Popover is closing — handle saves
@@ -1548,7 +1672,7 @@ export function EventDetailPopover({
       >
         <TooltipProvider>
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               <span>
                 {isWorkingLocation
@@ -1559,6 +1683,26 @@ export function EventDetailPopover({
               </span>
             </div>
             <div className="flex items-center gap-0.5">
+              {!isOverlay && !isWorkingLocation && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-foreground"
+                      aria-label={t("eventForm.eventOptions")}
+                      aria-expanded={showMoreOptions}
+                      aria-controls={`event-more-options-${event.id}`}
+                      onClick={() => setShowMoreOptions((current) => !current)}
+                    >
+                      <IconDots className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>{t("eventForm.eventOptions")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {!isDraft && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1588,7 +1732,7 @@ export function EventDetailPopover({
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto">
+          <div ref={detailsScrollRef} className="flex-1 overflow-y-auto">
             <div className="px-4 pt-4 pb-1">
               {/* Title — always editable */}
               {isEditingTitle && !isWorkingLocation ? (
@@ -1637,7 +1781,7 @@ export function EventDetailPopover({
                 />
               ) : (
                 <h2
-                  className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
+                  className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-normal leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
                   onClick={() => {
                     if (isOverlay || isWorkingLocation) return;
                     setEditingTitle(getEditableEventTitle(event));
@@ -1656,7 +1800,7 @@ export function EventDetailPopover({
                     isDraft ? event.accountEmail : selectedAccountEmail
                   }
                   onAccountChange={handleAccountChange}
-                  disabled={updateEvent.isPending}
+                  disabled={mutationPending}
                 />
               )}
 
@@ -1670,7 +1814,7 @@ export function EventDetailPopover({
                         id={`working-location-all-day-${event.id}`}
                         checked={event.allDay}
                         onCheckedChange={handleWorkingLocationAllDayChange}
-                        disabled={updateEvent.isPending}
+                        disabled={mutationPending}
                       />
                       <Label
                         htmlFor={`working-location-all-day-${event.id}`}
@@ -1799,6 +1943,7 @@ export function EventDetailPopover({
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1.5 px-2 text-xs"
+                    disabled={mutationPending}
                     onClick={() => setFindTimeOpen(true)}
                   >
                     <IconCalendarTime className="h-3.5 w-3.5" />
@@ -1835,7 +1980,7 @@ export function EventDetailPopover({
                   isRecurring={isRecurringEvent}
                   isDraft={isDraft}
                   readOnly={isOverlay}
-                  disabled={updateEvent.isPending}
+                  disabled={mutationPending}
                   onSave={handleSaveWorkingLocation}
                 />
               )}
@@ -1974,45 +2119,46 @@ export function EventDetailPopover({
                 </>
               ) : !isOverlay ? (
                 <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
-                  {editingField === "meetingLink" ? (
-                    <div className="px-4 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <IconVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <input
-                          ref={meetingLinkRef}
-                          value={editMeetingLink}
-                          onChange={(e) => setEditMeetingLink(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              handleSaveMeetingLink();
-                            }
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              setEditMeetingLink("");
-                              setEditingField(null);
-                            }
-                            e.stopPropagation();
-                          }}
-                          onBlur={handleSaveMeetingLink}
-                          placeholder={t("eventForm.pasteMeetingLink")}
-                          className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="px-4 py-1.5">
-                      {pendingVideoProvider ? (
+                  {showConferencingOptions ? (
+                    pendingVideoProvider ? (
+                      <div className="px-4 py-1.5">
                         <MeetingLinkSkeleton provider={pendingVideoProvider} />
-                      ) : (
+                      </div>
+                    ) : editingField === "meetingLink" ? (
+                      <div className="px-4 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <IconVideo className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <input
+                            ref={meetingLinkRef}
+                            value={editMeetingLink}
+                            onChange={(e) => setEditMeetingLink(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveMeetingLink();
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setEditMeetingLink("");
+                                setEditingField(null);
+                              }
+                              e.stopPropagation();
+                            }}
+                            onBlur={handleSaveMeetingLink}
+                            placeholder={t("eventForm.pasteMeetingLink")}
+                            className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 focus:ring-0"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="px-4 py-1.5">
                         <div className="flex items-center gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
                             className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                            disabled={updateEvent.isPending}
+                            disabled={mutationPending}
                             onClick={handleAddGoogleMeet}
                           >
                             <IconVideo className="h-3.5 w-3.5" />
@@ -2023,9 +2169,7 @@ export function EventDetailPopover({
                             variant="outline"
                             size="sm"
                             className="h-8 flex-1 justify-center gap-1.5 px-2 text-xs"
-                            disabled={
-                              updateEvent.isPending || connectZoom.isPending
-                            }
+                            disabled={mutationPending}
                             onClick={handleAddZoom}
                           >
                             <IconBrandZoom className="h-3.5 w-3.5" />
@@ -2042,106 +2186,120 @@ export function EventDetailPopover({
                             {t("eventForm.pasteLink")}
                           </Button>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-md px-4 py-1.5 text-left text-sm text-muted-foreground/60 transition-colors hover:bg-muted/50 hover:text-foreground"
+                      onClick={() => setShowConferencingOptions(true)}
+                    >
+                      <IconVideo className="h-4 w-4 shrink-0" />
+                      {t("bookingLinks.conferencing")}
+                    </button>
                   )}
                 </>
               ) : null)}
 
             {/* Attachments */}
-            {!isOverlay && !isWorkingLocation && (
-              <>
-                <div className="mx-4 my-2 border-t border-border/50" />
-                {editingField === "attachments" ? (
-                  <div className="px-4 py-1.5">
-                    <div className="mb-2 flex items-center gap-3">
-                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-sm font-medium text-foreground">
-                        {t("eventForm.attachments")}
-                      </span>
+            {!isOverlay &&
+              !isWorkingLocation &&
+              (showMoreOptions ||
+                editingField === "attachments" ||
+                (event.attachments?.length ?? 0) > 0) && (
+                <>
+                  <div className="mx-4 my-2 border-t border-border/50" />
+                  {editingField === "attachments" ? (
+                    <div className="px-4 py-1.5">
+                      <div className="mb-2 flex items-center gap-3">
+                        <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="text-sm font-medium text-foreground">
+                          {t("eventForm.attachments")}
+                        </span>
+                      </div>
+                      <AttachmentControls
+                        idPrefix={`event-${event.id}`}
+                        attachments={editAttachments}
+                        onChange={setEditAttachments}
+                      />
+                      <div className="mt-2 flex justify-end gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs"
+                          onClick={() => {
+                            setEditAttachments(
+                              attachmentsToDrafts(event.attachments),
+                            );
+                            setEditingField(null);
+                          }}
+                        >
+                          {t("eventForm.cancel")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-6 text-xs"
+                          disabled={mutationPending}
+                          onClick={handleSaveAttachments}
+                        >
+                          {t("eventForm.save")}
+                        </Button>
+                      </div>
                     </div>
-                    <AttachmentControls
-                      idPrefix={`event-${event.id}`}
-                      attachments={editAttachments}
-                      onChange={setEditAttachments}
-                    />
-                    <div className="mt-2 flex justify-end gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs"
+                  ) : event.attachments && event.attachments.length > 0 ? (
+                    <div className="px-4 py-1.5 space-y-1">
+                      {event.attachments.map((att, i) => (
+                        <a
+                          key={i}
+                          href={att.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
+                        >
+                          {att.iconLink ? (
+                            <img
+                              src={att.iconLink}
+                              alt=""
+                              className="h-4 w-4 shrink-0"
+                            />
+                          ) : (
+                            <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="truncate text-foreground">
+                            {att.title}
+                          </span>
+                          <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        </a>
+                      ))}
+                      <button
+                        type="button"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                         onClick={() => {
                           setEditAttachments(
                             attachmentsToDrafts(event.attachments),
                           );
-                          setEditingField(null);
+                          setEditingField("attachments");
                         }}
                       >
-                        {t("eventForm.cancel")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="h-6 text-xs"
-                        onClick={handleSaveAttachments}
-                      >
-                        {t("eventForm.save")}
-                      </Button>
+                        <IconPlus className="h-4 w-4" />
+                        {t("eventForm.addAttachment")}
+                      </button>
                     </div>
-                  </div>
-                ) : event.attachments && event.attachments.length > 0 ? (
-                  <div className="px-4 py-1.5 space-y-1">
-                    {event.attachments.map((att, i) => (
-                      <a
-                        key={i}
-                        href={att.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-muted/50 group"
-                      >
-                        {att.iconLink ? (
-                          <img
-                            src={att.iconLink}
-                            alt=""
-                            className="h-4 w-4 shrink-0"
-                          />
-                        ) : (
-                          <IconFileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="truncate text-foreground">
-                          {att.title}
-                        </span>
-                        <IconExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                      </a>
-                    ))}
+                  ) : (
                     <button
                       type="button"
-                      className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
                       onClick={() => {
-                        setEditAttachments(
-                          attachmentsToDrafts(event.attachments),
-                        );
+                        setEditAttachments([attachmentsToDrafts(undefined)[0]]);
                         setEditingField("attachments");
                       }}
                     >
-                      <IconPlus className="h-4 w-4" />
+                      <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
                       {t("eventForm.addAttachment")}
                     </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 px-4 py-1.5 text-sm text-muted-foreground/60 hover:bg-muted/50 hover:text-foreground"
-                    onClick={() => {
-                      setEditAttachments([attachmentsToDrafts(undefined)[0]]);
-                      setEditingField("attachments");
-                    }}
-                  >
-                    <IconPaperclip className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                    {t("eventForm.addAttachment")}
-                  </button>
-                )}
-              </>
-            )}
+                  )}
+                </>
+              )}
 
             {!isWorkingLocation && (
               <>
@@ -2253,10 +2411,9 @@ export function EventDetailPopover({
               </>
             )}
 
-            {/* Description — always shown for editable events; hidden for overlay events with no description */}
+            {/* Description stays compact until the user opens the empty field. */}
             {!isWorkingLocation && (!isOverlay || event.description) && (
               <>
-                <div className="mx-4 my-2 border-t border-border/50" />
                 <div className="px-4 py-1.5">
                   <div className="flex items-start gap-3">
                     <IconAlignLeft className="mt-1.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -2267,8 +2424,7 @@ export function EventDetailPopover({
                             description={event.description}
                           />
                         ) : null
-                      ) : editingField === "description" ||
-                        !event.description ? (
+                      ) : editingField === "description" ? (
                         <AutoGrowTextarea
                           value={editDescription}
                           onChange={setEditDescription}
@@ -2280,12 +2436,20 @@ export function EventDetailPopover({
                           }}
                           autoFocus={editingField === "description"}
                         />
-                      ) : (
+                      ) : event.description ? (
                         <RenderedDescription
                           description={event.description}
                           editable
                           onClick={() => setEditingField("description")}
                         />
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-md text-left text-sm text-muted-foreground/60 transition-colors hover:text-foreground"
+                          onClick={() => setEditingField("description")}
+                        >
+                          {t("eventForm.description")}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -2329,6 +2493,7 @@ export function EventDetailPopover({
                       <Button
                         size="sm"
                         className="h-6 text-xs"
+                        disabled={mutationPending}
                         onClick={handleSaveReminders}
                       >
                         {t("eventForm.save")}
@@ -2355,98 +2520,105 @@ export function EventDetailPopover({
             {/* Availability, visibility, and alerts */}
             {!isWorkingLocation &&
               (!isOverlay ? (
-                <>
-                  <div className="mx-4 my-2 border-t border-border/50" />
-                  <div className="px-4 py-1.5">
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t("eventForm.showAs")}
-                        </span>
-                        <Select
-                          value={availabilityValue}
-                          onValueChange={(value) =>
-                            handleAvailabilityChange(value as AvailabilityValue)
-                          }
-                          disabled={updateEvent.isPending}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="opaque">
-                              {t("eventForm.busy")}
-                            </SelectItem>
-                            <SelectItem value="transparent">
-                              {t("eventForm.free")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t("eventForm.visibility")}
-                        </span>
-                        <Select
-                          value={visibilityValue}
-                          onValueChange={(value) =>
-                            handleVisibilityChange(value as VisibilityValue)
-                          }
-                          disabled={updateEvent.isPending}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">
-                              {t("eventForm.default")}
-                            </SelectItem>
-                            <SelectItem value="public">
-                              {t("eventForm.public")}
-                            </SelectItem>
-                            <SelectItem value="private">
-                              {t("eventForm.private")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t("eventForm.alerts")}
-                        </span>
-                        <Select
-                          value={reminderValue}
-                          onValueChange={(value) =>
-                            handleReminderChange(value as ReminderValue)
-                          }
-                          disabled={updateEvent.isPending}
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">
-                              {t("eventForm.default")}
-                            </SelectItem>
-                            <SelectItem value="none">
-                              {t("eventForm.none")}
-                            </SelectItem>
-                            <SelectItem value="0">
-                              {t("eventForm.atStart")}
-                            </SelectItem>
-                            <SelectItem value="10">10 min</SelectItem>
-                            <SelectItem value="30">30 min</SelectItem>
-                            <SelectItem value="60">1 hour</SelectItem>
-                            <SelectItem value="1440">1 day</SelectItem>
-                            <SelectItem value="custom">
-                              {t("eventForm.customEllipsis")}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
+                showMoreOptions ? (
+                  <>
+                    <div className="mx-4 my-2 border-t border-border/50" />
+                    <div
+                      id={`event-more-options-${event.id}`}
+                      className="px-4 py-1.5"
+                    >
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("eventForm.showAs")}
+                          </span>
+                          <Select
+                            value={availabilityValue}
+                            onValueChange={(value) =>
+                              handleAvailabilityChange(
+                                value as AvailabilityValue,
+                              )
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="opaque">
+                                {t("eventForm.busy")}
+                              </SelectItem>
+                              <SelectItem value="transparent">
+                                {t("eventForm.free")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("eventForm.visibility")}
+                          </span>
+                          <Select
+                            value={visibilityValue}
+                            onValueChange={(value) =>
+                              handleVisibilityChange(value as VisibilityValue)
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                {t("eventForm.default")}
+                              </SelectItem>
+                              <SelectItem value="public">
+                                {t("eventForm.public")}
+                              </SelectItem>
+                              <SelectItem value="private">
+                                {t("eventForm.private")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("eventForm.alerts")}
+                          </span>
+                          <Select
+                            value={reminderValue}
+                            onValueChange={(value) =>
+                              handleReminderChange(value as ReminderValue)
+                            }
+                            disabled={mutationPending}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">
+                                {t("eventForm.default")}
+                              </SelectItem>
+                              <SelectItem value="none">
+                                {t("eventForm.none")}
+                              </SelectItem>
+                              <SelectItem value="0">
+                                {t("eventForm.atStart")}
+                              </SelectItem>
+                              <SelectItem value="10">10 min</SelectItem>
+                              <SelectItem value="30">30 min</SelectItem>
+                              <SelectItem value="60">1 hour</SelectItem>
+                              <SelectItem value="1440">1 day</SelectItem>
+                              <SelectItem value="custom">
+                                {t("eventForm.customEllipsis")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </>
+                  </>
+                ) : null
               ) : event.status || event.visibility ? (
                 <>
                   <div className="mx-4 my-2 border-t border-border/50" />
@@ -2494,6 +2666,7 @@ export function EventDetailPopover({
                 variant="ghost"
                 size="sm"
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 text-xs"
+                disabled={mutationPending}
                 onClick={() => {
                   if (isDraft) onDraftDiscard?.(event.id);
                   else onDelete(event.id);

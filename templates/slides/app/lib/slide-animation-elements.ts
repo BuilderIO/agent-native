@@ -1,3 +1,5 @@
+import type { AnimationType } from "@/context/DeckContext";
+
 export interface ParsedAnimationElement {
   index: number;
   path: number[];
@@ -7,6 +9,14 @@ export interface ParsedAnimationElement {
 export interface AnimationTarget {
   elementIndex: number;
   elementPath?: number[];
+  byParagraph?: boolean;
+  id?: string;
+}
+
+export interface SelectedAnimationTarget {
+  elementIndex: number;
+  elementPath: number[];
+  preview: string;
 }
 
 export interface ResolvedAnimationTarget<
@@ -115,7 +125,7 @@ function collectAnimationElements(
   parentPath: number[],
   elements: ParsedAnimationElement[],
 ) {
-  Array.from(parent.children).forEach((child, childIndex) => {
+  getPersistedChildren(parent).forEach((child, childIndex) => {
     if (SKIPPED_TAGS.has(child.tagName.toLowerCase())) return;
 
     const path = [...parentPath, childIndex];
@@ -189,6 +199,47 @@ export function getElementPath(
   return current === root ? path : null;
 }
 
+function getPersistedChildren(parent: Element): Element[] {
+  const children: Element[] = [];
+  const append = (child: Element) => {
+    if (child.classList.contains("fmd-layout-spacer")) return;
+    if (child.hasAttribute("data-fmd-autofit-content")) {
+      Array.from(child.children).forEach(append);
+      return;
+    }
+    children.push(child);
+  };
+
+  Array.from(parent.children).forEach(append);
+  return children;
+}
+
+/**
+ * Resolve a live editor node against the HTML that will be persisted. The
+ * editor's AutoFit layer is transparent in saved markup, so paths through it
+ * must be flattened before animation metadata is written.
+ */
+export function getPersistedElementPath(
+  root: Element,
+  target: Element,
+): number[] | null {
+  if (root === target) return [];
+
+  const findPath = (parent: Element, parentPath: number[]): number[] | null => {
+    for (const [persistedIndex, child] of getPersistedChildren(
+      parent,
+    ).entries()) {
+      const path = [...parentPath, persistedIndex];
+      if (child === target) return path;
+      const nestedPath = findPath(child, path);
+      if (nestedPath) return nestedPath;
+    }
+    return null;
+  };
+
+  return findPath(root, []);
+}
+
 export function resolveElementPath(
   root: Element,
   path: number[],
@@ -197,7 +248,7 @@ export function resolveElementPath(
 
   for (const index of path) {
     if (!current) return null;
-    const next: Element | null = current.children.item(index);
+    const next: Element | null = getPersistedChildren(current)[index] ?? null;
     if (!next) return null;
     current = next;
   }
@@ -246,6 +297,57 @@ export function resolveSlideAnimationTargets<T extends AnimationTarget>(
   return resolveSlideAnimationTargetsWithDiagnostics(root, targets).resolved;
 }
 
+export function expandByParagraphAnimations<T extends AnimationTarget>(
+  root: Element,
+  animations: readonly T[],
+): T[] | null {
+  const resolved = resolveSlideAnimationTargets(root, animations);
+  if (!resolved) return null;
+
+  const expanded: T[] = [];
+  for (const { target, element } of resolved) {
+    if (!target.byParagraph) {
+      expanded.push(target);
+      continue;
+    }
+
+    const textObject = element.closest(".fmd-pptx-text");
+    const paragraphs = textObject
+      ? Array.from(textObject.querySelectorAll("p[data-pptx-paragraph]"))
+      : [];
+    if (paragraphs.length < 2) {
+      expanded.push(target);
+      continue;
+    }
+
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      const elementPath = getPersistedElementPath(root, paragraph);
+      if (!elementPath) return null;
+      expanded.push({
+        ...target,
+        id: target.id ? `${target.id}-paragraph-${paragraphIndex}` : undefined,
+        elementIndex: paragraphIndex,
+        elementPath,
+        byParagraph: false,
+      });
+    }
+  }
+  return expanded;
+}
+
+export function getElementAnimationValue(type: AnimationType): string {
+  switch (type) {
+    case "appear":
+      return "elem-appear 100ms ease both";
+    case "fade":
+      return "elem-appear 400ms ease both";
+    case "slide-up":
+      return "elem-slide-up 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
+    case "zoom":
+      return "elem-zoom 300ms cubic-bezier(0.25,0.46,0.45,0.94) both";
+  }
+}
+
 export function resolveSlideAnimationTargetsWithDiagnostics<
   T extends AnimationTarget,
 >(root: Element, targets: readonly T[]): AnimationTargetResolution<T> {
@@ -264,7 +366,7 @@ export function resolveSlideAnimationTargetsWithDiagnostics<
         },
       };
     }
-    const path = getElementPath(root, element);
+    const path = getPersistedElementPath(root, element);
     if (!path) {
       return {
         resolved: null,
@@ -313,7 +415,7 @@ export function getSlideAnimationTargetKey(
   const element = resolveSlideAnimationElement(root, target);
   if (!element) return null;
 
-  const path = getElementPath(root, element);
+  const path = getPersistedElementPath(root, element);
   return path ? animationElementKey(path) : null;
 }
 
