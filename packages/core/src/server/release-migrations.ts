@@ -17,7 +17,7 @@ import {
   CHAT_THREAD_SCHEMA_MIGRATIONS,
   CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
 } from "../chat-threads/schema-migrations.js";
-import { isLocalDatabase } from "../db/client.js";
+import { getDatabaseUrl, isLocalDatabase } from "../db/client.js";
 import { runMigrations } from "../db/migrations.js";
 import {
   REMOTE_DEVICE_MIGRATIONS,
@@ -59,13 +59,32 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
  */
 function assertReleaseMigrationTargetsRemoteDatabase(): void {
   if (getAppConfig().migration.deployContext !== "production") return;
-  if (!isLocalDatabase()) return;
+  const url = getDatabaseUrl();
+  // `isLocalDatabase()` alone is not enough. Netlify hands the CLI a MASKED
+  // secret ("****************uire") outside its own build infra, and that is
+  // neither empty nor a `file:` URL — so it reads as "not local" while being
+  // unconnectable, and the driver falls back to a local SQLite file anyway.
+  // Factory published green off exactly that, having applied 93 migrations to
+  // a file that died with the build container. Require a real scheme too.
+  if (!isLocalDatabase() && url.includes("://")) return;
   throw new Error(
-    "Release migrations resolved to a local database. DATABASE_URL is unset " +
-      "or local in this deploy step, so migrations would apply to a throwaway " +
-      "file while the deployed functions keep using the remote database. " +
-      "Supply the site's DATABASE_URL to the deploy step before publishing.",
+    `Release migrations resolved to an unusable database (${describeReleaseMigrationUrl(url)}). ` +
+      "In a production deploy the schema must be applied to the same remote " +
+      "database the deployed functions use; migrating a local or unconnectable " +
+      "URL succeeds silently and publishes a site whose database never received " +
+      "the schema. Supply the site's real DATABASE_URL to the deploy step. Note " +
+      "NETLIFY_DATABASE_URL and NETLIFY_DATABASE_URL_UNPOOLED take precedence " +
+      "over DATABASE_URL in the deploy build command, so a masked value in " +
+      "either of those overrides a correct DATABASE_URL.",
   );
+}
+
+/** Describes the URL shape without ever echoing a credential into build logs. */
+function describeReleaseMigrationUrl(url: string): string {
+  if (!url) return "unset";
+  if (url.startsWith("file:")) return "local file";
+  const scheme = url.includes("://") ? url.split("://")[0] : undefined;
+  return scheme ? `${scheme} url` : "no scheme — likely a masked secret";
 }
 
 /**
