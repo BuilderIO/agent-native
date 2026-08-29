@@ -56,6 +56,14 @@ function clearAuthPublicPathRegistry(): void {
   delete globalState[AUTH_PUBLIC_PATHS_REGISTRY_KEY];
 }
 
+function readAuthPageData(html: string): Record<string, unknown> {
+  const match = html.match(
+    /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
+  );
+  if (!match) throw new Error("auth page data is missing");
+  return JSON.parse(match[1]!) as Record<string, unknown>;
+}
+
 describe("server/auth", () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -6606,174 +6614,28 @@ describe("server/auth", () => {
   });
 
   describe("onboarding Google sign-in", () => {
-    it("uses popup OAuth in Builder iframes and redirect OAuth for top-level Builder", async () => {
+    it("passes OAuth configuration to the hydratable React auth page", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
 
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({ googleOnly: true });
+      const data = readAuthPageData(html);
 
-      expect(html).toContain(
-        'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
-      );
-      expect(html).toContain('var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";');
-      expect(html).toContain("__anStartPopupOAuth(ret, btn, err, flowId)");
-      expect(html).toContain(
-        "__anStartNativeDesktopOAuth(ret, btn, err, flowId)",
-      );
-      expect(html).toContain(
-        "__anPath('/_agent-native/auth/desktop-exchange')",
-      );
+      expect(data).toMatchObject({
+        googleOnly: true,
+        showGoogle: true,
+        googleAuthMode: "auto",
+        publicOAuthOrigin: "https://agent-workspace.builder.io",
+        workspaceGatewayReturnOrigin: "",
+      });
+      expect(html).toContain('id="google-btn"');
       expect(html).toContain('id="google-debug"');
-      expect(html).toContain(
-        "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
-      );
-      expect(html).toContain(
-        "function __anStartRedirectOAuth(ret, btn, err, flowId, reason)",
-      );
-      expect(html).toContain(
-        "function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage)",
-      );
-      expect(html).toContain(
-        "Google popup was blocked; falling back to redirect",
-      );
-      expect(html).toContain("Allow popups for this site and try again");
-      expect(html).toContain(
-        "Opening Google sign-in redirect from Builder preview",
-      );
-      expect(html).toContain("__anT('googleNeverFinished')");
-      expect(html).not.toContain("&debug=1");
-      expect(html).toContain("params.set('desktop', '1')");
-      expect(html).toContain("params.set('flow_id', flowId)");
-      expect(html).toContain("method: 'POST'");
-      expect(html).toContain("'Accept': 'application/json'");
-      expect(html).toContain("'X-Agent-Native-Desktop-Verifier': verifier");
-      expect(html).not.toContain("params.set('verifier', verifier)");
-      expect(html).toContain("params.set('redirect', '1')");
-      expect(html).toContain("function __anNewOAuthVerifier()");
-      expect(html).toContain("var __anBuilderPreviewSeen = false");
-      expect(html).toContain("function __anRememberBuilderPreview()");
-      expect(html).toContain(
-        "sessionStorage.setItem('__an_builder_preview_seen', '1')",
-      );
-      expect(html).toContain("function __anHasBuilderPreviewSignal()");
-      expect(html).toContain("params.has('builder.preview')");
-      expect(html).toContain("__anIsBuilderPreview();");
-      expect(html).toContain("__anIsBuilderDesktop()");
-      expect(html).toContain("__anIsAgentNativeDesktop()");
-      expect(html).toContain("function __anIsInFrame()");
-      expect(html).toContain(
-        "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
-      );
-      expect(html).toContain(
-        "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
-      );
-      expect(html).toContain(
-        "__anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId)",
-      );
-      expect(html).toContain("function __anBuilderPreviewReturnOrigin()");
-      expect(html).toContain("function __anGoogleAuthUrlPath()");
-      expect(html).toContain("function __anOAuthReturnTarget(ret)");
-      expect(html).toContain(
-        "function __anSessionBridgeUrl(ret, sessionToken)",
-      );
-      expect(html).toContain(
-        "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
-      );
-      expect(html).toContain(
-        "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
-      );
-      expect(html).toContain(
-        "if (oauthReturn) params.set('return', oauthReturn)",
-      );
-      expect(html).toContain(
-        "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
-      );
-      expect(html).toContain(
-        "__anFinishOAuthExchange(ret, flowId, data.token)",
-      );
-      expect(html).toContain(
-        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
-      );
-      expect(html).toContain(
-        "function __anWatchOAuthPopupClose(popup, flowId)",
-      );
-      expect(html).toContain("function __anHandleOAuthPopupClosed(flowId)");
-      expect(html).toContain("var __anOAuthPopupCloseGraceMs = 5000;");
-      expect(html).toContain("var __anNativeOAuthFlowId = null;");
-      expect(html).toContain("var __anNativeOAuthRequestPending = false;");
-      expect(html).toContain("var __anNativeOAuthReturnObserved = false;");
-      expect(html).toContain("var __anNativeOAuthAbandonGraceMs = 5000;");
-      expect(html).toContain("function __anBeginNativeOAuth(flowId)");
-      expect(html).toContain("function __anCancelNativeOAuthAbandonment()");
-      expect(html).toContain(
-        "function __anScheduleNativeOAuthAbandonment(flowId)",
-      );
-      expect(html).toContain("__anFinalizeNativeOAuthAbandonment(flowId);");
-      expect(html).toContain("__anNativeOAuthRequestPending = true;");
-      expect(html).toContain("__anNativeOAuthRequestPending = false;");
-      expect(html).toContain("__anNativeOAuthReturnObserved = true;");
-      expect(html).toContain("__anBeginNativeOAuth(flowId);");
-      expect(html).toContain("__anMarkNativeOAuthPolling(flowId);");
-      expect(html).toContain(
-        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);\n        __anScheduleNativeOAuthAbandonment(flowId);",
-      );
-      expect(html).toContain(
-        "if (__anOAuthPollTimer) {\n        __anOAuthPopupCloseGraceTimer = setTimeout(function()",
-      );
-      expect(html).toContain(
-        "__anFinalizeOAuthPopupClose(flowId);\n        }, __anOAuthPopupCloseGraceMs);",
-      );
-      expect(html).toContain("__anHandleOAuthPopupClosed(flowId);");
-      expect(html).toContain("closed = popup.closed === true");
-      expect(html).toContain("__anWatchOAuthPopupClose(popup, flowId);");
-      expect(html).toContain("function __anInvalidateGoogleSignInFlow(flowId)");
-      expect(html).toContain(
-        "if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;",
-      );
-      expect(html).toContain("__anStopOAuthExchangePolling();");
-      expect(html).toContain(
-        "if (!__anIsCurrentGoogleSignInFlow(flowId)) return;",
-      );
-      expect(html).toContain("__anRecoverGoogleSignInAfterReturn();");
-      expect(html).toContain(
-        "window.addEventListener('focus', function() {\n        __anRecoverGoogleSignInAfterReturn();\n      });",
-      );
-      expect(html).toContain(
-        "window.addEventListener('blur', function() {\n        __anCancelNativeOAuthAbandonment();\n      });",
-      );
-      expect(html).toContain(
-        "if (document.visibilityState === 'visible') {\n          __anRecoverGoogleSignInAfterReturn();\n        } else {\n          __anCancelNativeOAuthAbandonment();\n        }",
-      );
-      const recoverStart = html.indexOf(
-        "function __anRecoverGoogleSignInAfterReturn(flowId)",
-      );
-      const recoverEnd = html.indexOf(
-        "function __anBindGoogleRecover()",
-        recoverStart,
-      );
-      expect(recoverStart).toBeGreaterThan(-1);
-      expect(recoverEnd).toBeGreaterThan(recoverStart);
-      const recoverScript = html.slice(recoverStart, recoverEnd);
-      expect(recoverScript).toContain("Keep the desktop-exchange poll alive");
-      expect(recoverScript).not.toContain("clearInterval(__anOAuthPollTimer)");
-      expect(html).toContain("window.location.reload()");
-      expect(html).not.toContain(
-        "__anWaitForOAuthExchange(flowId, target, btn, err)",
-      );
-      expect(html).toContain(
-        "window.open('', '_blank', 'width=640,height=760')",
-      );
-      expect(html).toContain("popup.location.href = url");
-      expect(html).toContain("__anOpenOAuthUrl(data.url)");
-      expect(html).toContain("window.location.href = url");
-      expect(html).not.toContain("window.open(data.url");
-      expect(html).not.toContain("noopener,noreferrer,width=640,height=760");
-      expect(html).not.toContain("Waiting for sign-in");
+      expect(html).toContain('src="/assets/auth-client.js"');
     });
 
-    it("adds OAuth debug breadcrumbs to the minimal Google auth plugin page", async () => {
+    it("passes OAuth debug configuration through the minimal Google auth plugin page", async () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
@@ -6784,93 +6646,18 @@ describe("server/auth", () => {
         await import("./google-auth-plugin.js");
       createGoogleAuthPlugin();
 
-      const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml;
-      expect(loginHtml).toContain(
-        'var __AN_PUBLIC_OAUTH_ORIGIN = "https://agent-workspace.builder.io";',
-      );
-      expect(loginHtml).toContain(
-        'var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";',
-      );
+      const loginHtml = createAuthPlugin.mock.calls[0]?.[0]?.loginHtml as
+        | string
+        | undefined;
+      expect(loginHtml).toBeTypeOf("string");
+      expect(readAuthPageData(loginHtml!)).toMatchObject({
+        googleOnly: true,
+        showGoogle: true,
+        publicOAuthOrigin: "https://agent-workspace.builder.io",
+        workspaceGatewayReturnOrigin: "",
+      });
       expect(loginHtml).toContain('id="google-debug"');
-      expect(loginHtml).toContain(
-        "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
-      );
-      expect(loginHtml).toContain("var __anBuilderPreviewSeen = false");
-      expect(loginHtml).toContain("function __anRememberBuilderPreview()");
-      expect(loginHtml).toContain(
-        "sessionStorage.setItem('__an_builder_preview_seen', '1')",
-      );
-      expect(loginHtml).toContain("function __anHasBuilderPreviewSignal()");
-      expect(loginHtml).toContain("params.has('builder.preview')");
-      expect(loginHtml).toContain("__anIsBuilderPreview();");
-      expect(loginHtml).toContain("__anIsBuilderDesktop()");
-      expect(loginHtml).toContain("__anIsAgentNativeDesktop()");
-      expect(loginHtml).toContain("function __anIsInFrame()");
-      expect(loginHtml).toContain(
-        "if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect'",
-      );
-      expect(loginHtml).toContain(
-        "__anSetOAuthDebug('Opening Google sign-in in system browser', flowId)",
-      );
-      expect(loginHtml).toContain(
-        "__anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId)",
-      );
-      expect(loginHtml).toContain("function __anBuilderPreviewReturnOrigin()");
-      expect(loginHtml).toContain(
-        "var candidates = [window.location.href, document.referrer || ''];",
-      );
-      expect(loginHtml).toContain("function __anGoogleAuthUrlPath()");
-      expect(loginHtml).toContain("function __anOAuthReturnTarget(ret)");
-      expect(loginHtml).toContain(
-        "function __anSessionBridgeUrl(ret, sessionToken)",
-      );
-      expect(loginHtml).toContain(
-        "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
-      );
-      expect(loginHtml).toContain(
-        "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",
-      );
-      expect(loginHtml).toContain(
-        "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
-      );
-      expect(loginHtml).toContain(
-        "if (oauthReturn) params.set('return', oauthReturn)",
-      );
-      expect(loginHtml).toContain(
-        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
-      );
-      expect(loginHtml).toContain(
-        "'X-Agent-Native-Desktop-Verifier': verifier",
-      );
-      expect(loginHtml).not.toContain("params.set('verifier', verifier)");
-      expect(loginHtml).toContain(
-        "__anFinishOAuthExchange(ret, flowId, data.token)",
-      );
-      expect(loginHtml).toContain("window.location.reload()");
-      expect(loginHtml).not.toContain(
-        "__anWaitForOAuthExchange(flowId, target, btn, err)",
-      );
-      expect(loginHtml).toContain(
-        "window.open('', '_blank', 'width=640,height=760')",
-      );
-      expect(loginHtml).toContain("popup.location.href = url");
-      expect(loginHtml).toContain(
-        "function __anStartRedirectOAuth(ret, btn, err, flowId, reason)",
-      );
-      expect(loginHtml).toContain(
-        "function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage)",
-      );
-      expect(loginHtml).toContain(
-        "Google popup was blocked; falling back to redirect",
-      );
-      expect(loginHtml).toContain("Allow popups for this site and try again");
-      expect(loginHtml).toContain(
-        "Opening Google sign-in redirect from Builder preview",
-      );
-      expect(loginHtml).toContain(
-        "Google sign-in did not finish. Check the Google OAuth redirect URI",
-      );
-      expect(loginHtml).not.toContain("&debug=1");
+      expect(loginHtml).toContain('src="/assets/auth-client.js"');
     });
 
     it("defaults googleAuthMode to 'auto' and honors explicit overrides + env var", async () => {
@@ -6879,26 +6666,23 @@ describe("server/auth", () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
 
       const auto = getOnboardingHtml({ googleOnly: true });
-      expect(auto).toContain('var __AN_GOOGLE_AUTH_MODE = "auto"');
-      expect(auto).toContain("function __anResolveAuthFlow()");
-      expect(auto).toContain("function __anIsElectron()");
-      expect(auto).toContain("__anResolveAuthFlow() === 'popup'");
+      expect(readAuthPageData(auto).googleAuthMode).toBe("auto");
 
       const popup = getOnboardingHtml({
         googleOnly: true,
         googleAuthMode: "popup",
       });
-      expect(popup).toContain('var __AN_GOOGLE_AUTH_MODE = "popup"');
+      expect(readAuthPageData(popup).googleAuthMode).toBe("popup");
 
       vi.stubEnv("GOOGLE_AUTH_MODE", "redirect");
       const fromEnv = getOnboardingHtml({ googleOnly: true });
-      expect(fromEnv).toContain('var __AN_GOOGLE_AUTH_MODE = "redirect"');
+      expect(readAuthPageData(fromEnv).googleAuthMode).toBe("redirect");
 
       const explicitWins = getOnboardingHtml({
         googleOnly: true,
         googleAuthMode: "popup",
       });
-      expect(explicitWins).toContain('var __AN_GOOGLE_AUTH_MODE = "popup"');
+      expect(readAuthPageData(explicitWins).googleAuthMode).toBe("popup");
     });
 
     it("uses sign-in copy when only Google auth is enabled", async () => {
@@ -6906,6 +6690,7 @@ describe("server/auth", () => {
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({ googleOnly: true });
+      const data = readAuthPageData(html);
 
       expect(html).toContain(
         '<h1 id="heading" data-i18n="signInTitle">Sign in</h1>',
@@ -6913,6 +6698,7 @@ describe("server/auth", () => {
       expect(html).toContain("Use your workspace Google account to continue");
       expect(html).not.toContain('id="signup-form"');
       expect(html).not.toContain('data-tab="signup"');
+      expect(data.initialView).toBe("googleOnly");
     });
 
     it("renders marketing assets under APP_BASE_PATH", async () => {
@@ -6948,11 +6734,15 @@ describe("server/auth", () => {
 
     it("defaults the active tab from the login or signup path", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
-      const html = getOnboardingHtml();
 
-      expect(html).toContain("var path = location.pathname");
-      expect(html).toContain("path === '/login' || path.endsWith('/login')");
-      expect(html).toContain("path === '/signup' || path.endsWith('/signup')");
+      expect(
+        readAuthPageData(getOnboardingHtml({ requestPath: "/login" }))
+          .initialView,
+      ).toBe("login");
+      expect(
+        readAuthPageData(getOnboardingHtml({ requestPath: "/signup" }))
+          .initialView,
+      ).toBe("signup");
     });
   });
 
@@ -6965,8 +6755,8 @@ describe("server/auth", () => {
       expect(html).toContain('id="verify-continue"');
       expect(html).toContain('id="resend-verification"');
       expect(html).toContain('id="back-to-signup"');
-      expect(html).toContain("showVerificationStep(email, pass)");
-      expect(html).toContain("callbackURL: __anResumeHref()");
+      expect(html).toContain('src="/assets/auth-client.js"');
+      expect(html).not.toContain("showVerificationStep(email, pass)");
       expect(html).not.toContain(
         "Account created! Check your email to verify, then sign in.",
       );
@@ -6976,46 +6766,30 @@ describe("server/auth", () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml();
 
-      expect(html).toContain("var loginData;");
-      expect(html).toContain("loginData = await loginRes.json();");
+      expect(html).toContain('id="login-form"');
+      expect(html).toContain('id="verification-step"');
       expect(html).toContain(
-        "if (loginRes.status === 403 && /not verified|verification/i.test(loginError))",
+        'type="application/json" id="agent-native-auth-data"',
       );
-      expect(html).toContain(
-        "msg.textContent = loginError;\n        msg.classList.add('show', 'error');",
-      );
+      expect(html).not.toContain("loginData = await loginRes.json()");
     });
 
     it("silently signs in after verification completes outside the app", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
-      const html = getOnboardingHtml();
+      const html = getOnboardingHtml({ requestPath: "/sign-in?verified=1" });
 
-      expect(html).toContain("var pendingSignupPassword = ''");
-      expect(html).toContain("function __anIsVerifiedRedirectSuccess()");
-      expect(html).toContain(
-        "return params.has('verified') && !params.has('error');",
-      );
-      expect(html).toContain("async function signInWithPendingSignup()");
-      expect(html).toContain("__anPath('/_agent-native/auth/login')");
-      expect(html).toContain(
-        "window.addEventListener('focus', maybeCompleteVerificationAfterReturn)",
-      );
-      expect(html).toContain(
-        "checkVerificationSession(null, { silent: true })",
-      );
+      expect(readAuthPageData(html).initialView).toBe("login");
+      expect(html).toContain('id="login-form"');
+      expect(html).toContain('src="/assets/auth-client.js"');
     });
 
     it("keeps resend verification on a visible cooldown after sending", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml();
 
-      expect(html).toContain("var RESEND_VERIFICATION_COOLDOWN_SECONDS = 60");
-      expect(html).toContain(
-        "startResendVerificationCooldown(RESEND_VERIFICATION_COOLDOWN_SECONDS)",
-      );
-      expect(html).toContain(
-        "btn.textContent = __anT('resendEmail') + ' (' + remaining + 's)'",
-      );
+      expect(html).toContain('id="resend-verification"');
+      expect(html).toContain('data-i18n="resendEmail"');
+      expect(html).toContain('src="/assets/auth-client.js"');
     });
   });
 
