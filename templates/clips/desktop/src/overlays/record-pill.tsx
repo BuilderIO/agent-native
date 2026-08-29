@@ -128,6 +128,7 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
   /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -158,6 +159,7 @@ export function RecordingPill() {
   const userDragMarkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const toolbarDismissedRef = useRef(false);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -368,10 +370,11 @@ export function RecordingPill() {
     if (intent === "restart") {
       setPendingAction("restart");
       setElapsed(0);
-      // Hide immediately — the restart teardown and fresh countdown follow,
-      // and recording controls must not sit on screen while no capture is
-      // live. The replacement session's `clips:toolbar-enabled` re-shows the
-      // pill at 0:00, reusing this window thanks to the finishing hold.
+      // Hide immediately — the restart teardown follows. The replacement
+      // session's `clips:toolbar-preparing` re-shows the disabled pill for its
+      // countdown, reusing this window when the finishing hold keeps it alive.
+      toolbarDismissedRef.current = true;
+      setToolbarVisible(false);
       setEnabled(false);
       void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
         void safeEmit("clips:recorder-restart");
@@ -391,6 +394,8 @@ export function RecordingPill() {
     setPendingAction("cancel");
     // Vanish now — feedback must not wait on the recorder's teardown. The
     // window close (or its 3s fallback) follows behind.
+    toolbarDismissedRef.current = true;
+    setToolbarVisible(false);
     setEnabled(false);
     void safeEmit("clips:recorder-cancel").then(() =>
       scheduleCloseFallback("cancel"),
@@ -403,7 +408,21 @@ export function RecordingPill() {
         getCurrentWindow()
           .close()
           .catch(() => {});
+      else resetToRest();
     });
+  }
+
+  async function openRecording(url: string) {
+    try {
+      if (hasTauri) {
+        await openExternal(url);
+      } else if (!window.open(url, "_blank")) {
+        return;
+      }
+      dismissCard();
+    } catch (err) {
+      console.warn("[record-pill] opening recording failed:", err);
+    }
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
@@ -462,9 +481,39 @@ export function RecordingPill() {
       ),
     );
     track(
+      safeListen("clips:toolbar-preparing", () => {
+        if (modeRef.current === "done") {
+          if (stallTimerRef.current) {
+            clearTimeout(stallTimerRef.current);
+            stallTimerRef.current = null;
+          }
+          setViewUrl(null);
+          setCopied(false);
+          setSavedLocally(false);
+          setDoneStage("finishing");
+          sessionRef.current = {};
+        }
+        setElapsed(0);
+        elapsedAnchorRef.current = null;
+        setPendingAction(null);
+        resetToRest();
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-hidden", () => {
+        toolbarDismissedRef.current = true;
+        setToolbarVisible(false);
+      }),
+    );
+    track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
         setEnabled(!!payload);
         setPendingAction(null);
+        if (payload && !toolbarDismissedRef.current) {
+          setToolbarVisible(true);
+        }
         if (fallbackTimerRef.current) {
           clearTimeout(fallbackTimerRef.current);
           fallbackTimerRef.current = null;
@@ -630,11 +679,13 @@ export function RecordingPill() {
     if (!hasTauri) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let unlisten: (() => void) | null = null;
+    let lastDraggedPosition: { x: number; y: number } | null = null;
 
     function saveDraggedPosition() {
       if (!userDragActiveRef.current) return;
-      if (modeRef.current !== "recording") {
+      if (revealedRef.current || playheadConfirmOpenRef.current) {
         userDragActiveRef.current = false;
+        lastDraggedPosition = null;
         return;
       }
       const saveGeneration = userDragGenerationRef.current;
@@ -644,23 +695,30 @@ export function RecordingPill() {
         timer = setTimeout(saveDraggedPosition, remainingGuardMs + 1);
         return;
       }
-      void getCurrentWindow()
-        .outerPosition()
-        .then((pos) =>
-          safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
-        )
-        .finally(() => {
-          if (
-            userDragGenerationRef.current === saveGeneration &&
-            userDragChangeRef.current === saveChange
-          ) {
-            userDragActiveRef.current = false;
-          }
-        });
+      const position = lastDraggedPosition;
+      if (!position) return;
+      void safeInvoke("toolbar_save_position", position).finally(() => {
+        if (
+          userDragGenerationRef.current === saveGeneration &&
+          userDragChangeRef.current === saveChange
+        ) {
+          userDragActiveRef.current = false;
+        }
+      });
     }
 
     void getCurrentWindow()
-      .onMoved(() => {
+      .onMoved(({ payload }) => {
+        if (revealedRef.current || playheadConfirmOpenRef.current) {
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = false;
+          lastDraggedPosition = null;
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          return;
+        }
         if (!userDragArmedRef.current && !userDragActiveRef.current) return;
         if (userDragArmedRef.current) {
           userDragArmedRef.current = false;
@@ -671,6 +729,7 @@ export function RecordingPill() {
           }
         }
         if (!userDragActiveRef.current) return;
+        lastDraggedPosition = payload;
         userDragChangeRef.current += 1;
         if (timer) clearTimeout(timer);
         timer = setTimeout(saveDraggedPosition, 600);
@@ -728,20 +787,20 @@ export function RecordingPill() {
     };
   }, [mode]);
 
-  // The pill owns its window's visibility: hidden through pre-record and the
-  // countdown, shown the moment capture is live, and kept up while the
-  // completion card is open. Rust never shows this window itself.
+  // The pill owns its window's visibility: shown in its disabled state while
+  // preparing/counting down, enabled once capture is live, and kept up while
+  // the completion card is open. Rust never shows this window itself.
   const visibleRef = useRef(false);
   useEffect(() => {
     if (!hasTauri) return;
-    const visible = enabled || mode === "done";
+    const visible = toolbarVisible;
     if (visibleRef.current === visible) return;
     visibleRef.current = visible;
     if (visible) syncWindowToContent();
     queueWindowOp(async () => {
       await invoke("toolbar_set_visible", { visible });
     });
-  }, [enabled, mode]);
+  }, [toolbarVisible]);
 
   // The pill is also the single writer of the menu bar's recording mode:
   // stop square + ticking timer exactly while capture is live, the app logo
@@ -904,10 +963,7 @@ export function RecordingPill() {
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (hasTauri) void openExternal(viewUrl).catch(() => {});
-                    else window.open(viewUrl, "_blank");
-                  }}
+                  onClick={() => void openRecording(viewUrl)}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >
                   Open
