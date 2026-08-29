@@ -884,7 +884,7 @@ export function createIntegrationsPlugin(
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
     const createGoogleDocsPollerOptions = (event?: any) => {
-      const configuredBaseUrl = process.env.WEBHOOK_BASE_URL;
+      const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
       const baseUrl =
         configuredBaseUrl || (event ? getBaseUrl(event) : undefined);
       const webhookUrl = baseUrl
@@ -3552,7 +3552,7 @@ export function createIntegrationsPlugin(
       // processor killed mid-flight). No-ops gracefully if the queue table
       // hasn't been created yet on this deployment.
       startPendingTasksRetryJob({
-        webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+        webhookBaseUrl: getAppConfig().integrations.webhookBaseUrl,
       });
       startA2AContinuationRetryJob(adapterMap);
       startRemoteCommandsRetryJob();
