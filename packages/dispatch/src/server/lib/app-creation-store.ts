@@ -1294,7 +1294,19 @@ async function ensureWorkspaceAppRecords(
 
   return apps.map((app) => {
     const record = records.get(app.id);
-    return record ? { ...app, visibility: record.visibility } : app;
+    const owner = record?.ownerEmail.trim() || app.owner || app.createdBy;
+    return record
+      ? {
+          ...app,
+          visibility: record.visibility,
+          ...(owner
+            ? {
+                owner,
+                createdBy: app.createdBy ?? owner,
+              }
+            : {}),
+        }
+      : app;
   });
 }
 
