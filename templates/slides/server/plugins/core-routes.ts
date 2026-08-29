@@ -23,7 +23,8 @@ export default createCoreRoutesPlugin({
         : "";
       return `/deck/${params.deckId}${suffix}${query}`;
     }
-    if (view === "editor" || view === "present" || view === "list") return "/";
+    if (view === "editor" || view === "list") return "/home";
+    if (view === "present") return "/";
     return null;
   },
 });

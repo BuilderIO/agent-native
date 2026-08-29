@@ -5,7 +5,7 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 // polled `navigate` command applies record focus. Captures have no detail
 // route — they live in Search — so `view: "capture"` resolves to `/search`.
 const VIEW_PATHS: Record<string, string> = {
-  ask: "/",
+  ask: "/home",
   search: "/search",
   capture: "/search",
   knowledge: "/knowledge",

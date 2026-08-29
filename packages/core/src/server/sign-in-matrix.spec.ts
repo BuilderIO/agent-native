@@ -263,7 +263,7 @@ const SURFACES: Surface[] = [
 describe("sign-in matrix", () => {
   describe.each(SURFACES)("surface $id: $name", (surface) => {
     const { basePath, protectedPath, siblingPath } = surface;
-    const home = basePath || "/";
+    const home = basePath ? `${basePath}/home` : "/home";
     const runtimes: Array<[string, JourneyRuntime]> = [
       [
         "module",

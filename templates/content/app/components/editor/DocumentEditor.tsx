@@ -283,7 +283,7 @@ export function DocumentEditor({
     queriedDocument?.id === documentId ? queriedDocument : undefined;
 
   if (isError && !document) {
-    return <DocumentUnavailable onOpenHome={() => navigate("/")} />;
+    return <DocumentUnavailable onOpenHome={() => navigate("/home")} />;
   }
 
   // If we have a doc (real or optimistic from create) render the editor —
@@ -735,7 +735,7 @@ function DocumentEditorBody({
       } else {
         await deleteDocument.mutateAsync({ id: documentId });
       }
-      void navigate("/", { replace: true, flushSync: true });
+      void navigate("/home", { replace: true, flushSync: true });
     } catch (error) {
       toast.error(t("sidebar.failedDeletePage"), {
         description:

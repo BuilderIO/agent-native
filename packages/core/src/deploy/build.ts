@@ -68,6 +68,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
+import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createAgentNativeConfigContext,
@@ -909,6 +910,7 @@ export function generateWorkerEntry(
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
+  const ssrAuthRedirectScript = getSsrAuthRedirectScript();
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1445,6 +1447,7 @@ function injectHeadScript(html, script) {
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
+const SSR_AUTH_REDIRECT_SCRIPT = ${JSON.stringify(ssrAuthRedirectScript)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1597,6 +1600,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
+      pathname === "/" ? SSR_AUTH_REDIRECT_SCRIPT : null,
     ]
       .filter(Boolean)
       .join("") || null;

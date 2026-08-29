@@ -2352,7 +2352,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         <>
           <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
             <Link
-              to="/"
+              to="/home"
               className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
             >
               <AgentNativeIcon

@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { Header } from "./Header";
 
 const navItems = [
-  { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
+  { icon: IconFlame, labelKey: "navigation.entry", href: "/home" },
   { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
 ];
 
@@ -123,7 +123,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       } else if (cmd.view === "agent") {
         void navigate("/settings/agent");
       } else if (cmd.view === "entry") {
-        void navigate("/");
+        void navigate("/home");
       }
       // Clear the command
       fetch(agentNativePath("/_agent-native/application-state/navigate"), {
@@ -267,8 +267,8 @@ function SidebarContent({
           const Icon = item.icon;
           const label = t(item.labelKey);
           const isActive =
-            item.href === "/"
-              ? pathname === "/" || pathname === "/entry"
+            item.href === "/home"
+              ? pathname === "/home" || pathname === "/entry"
               : pathname.startsWith(item.href);
           const link = (
             <Link
