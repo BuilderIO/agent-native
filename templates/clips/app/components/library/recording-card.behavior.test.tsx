@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RecordingSummary } from "@/hooks/use-library";
+import { hasRecordingBackup } from "@/lib/recording-backup";
+import { isStaleRecordingUpload } from "@/lib/recording-status";
 
 import { RecordingCard } from "./recording-card";
 
@@ -70,12 +72,12 @@ vi.mock("@/lib/capture-install-options", () => ({
 }));
 
 vi.mock("@/lib/recording-status", () => ({
-  isStaleRecordingUpload: () => false,
-  isAtRiskRecordingUpload: () => false,
+  isStaleRecordingUpload: vi.fn(() => false),
+  isAtRiskRecordingUpload: vi.fn(() => false),
 }));
 
 vi.mock("@/lib/recording-backup", () => ({
-  hasRecordingBackup: () => Promise.resolve(false),
+  hasRecordingBackup: vi.fn(() => Promise.resolve(false)),
 }));
 
 vi.mock("@/lib/storage-failures", () => ({
@@ -108,12 +110,14 @@ const recording: RecordingSummary = {
   height: 720,
 };
 
-describe("RecordingCard delete menu", () => {
+describe("RecordingCard behavior", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.mocked(isStaleRecordingUpload).mockReturnValue(false);
+    vi.mocked(hasRecordingBackup).mockResolvedValue(false);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -123,6 +127,25 @@ describe("RecordingCard delete menu", () => {
     act(() => root.unmount());
     container.remove();
     vi.clearAllMocks();
+  });
+
+  it("does not offer retry for a stale processing upload", async () => {
+    vi.mocked(isStaleRecordingUpload).mockReturnValue(true);
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{ ...recording, status: "processing" }}
+          onRetry={onRetry}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
+    expect(hasRecordingBackup).not.toHaveBeenCalled();
   });
 
   it("defers trash until the dropdown menu has closed", async () => {

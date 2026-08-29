@@ -16,6 +16,7 @@ import {
   chunkUploadUrl,
   pickMimeType,
   pickMimeTypeCandidates,
+  UPLOAD_SLICE_BYTES,
   type UploadMode,
 } from "@shared/recording-core";
 
@@ -546,6 +547,7 @@ export class RecorderEngine {
    * failure never blocks or retries the actual upload.
    */
   private backupChunkIndex = 0;
+  private backupMirrorQueue: Promise<void> = Promise.resolve();
   /**
    * Owns the abort signal threaded into the compression pass so a `cancel()`
    * during a multi-minute ffmpeg.wasm encode actually terminates the worker
@@ -1311,6 +1313,7 @@ export class RecorderEngine {
       }
     }
 
+    let backupCaptureComplete = this.recorder.state === "inactive";
     if (this.recorder.state === "inactive") {
       // The MediaRecorder may have auto-stopped if all its tracks ended
       // (e.g. display-only mode with no mic). Different browsers dispatch
@@ -1330,7 +1333,7 @@ export class RecorderEngine {
       // again would duplicate the final ~2s slice in `localChunks`,
       // inflating the assembled blob and corrupting the compressed
       // re-encode.
-      const finalDataAvailable = new Promise<void>((resolve) => {
+      const finalDataAvailable = new Promise<boolean>((resolve) => {
         let resolved = false;
         // Defer with a microtask so the start()-time listener's
         // synchronous body (push + queue upload) runs first — both
@@ -1342,7 +1345,7 @@ export class RecorderEngine {
           queueMicrotask(() => {
             if (resolved) return;
             resolved = true;
-            resolve();
+            resolve(true);
           });
         };
         this.recorder!.addEventListener("dataavailable", passthrough, {
@@ -1355,7 +1358,7 @@ export class RecorderEngine {
           if (resolved) return;
           resolved = true;
           this.recorder?.removeEventListener("dataavailable", passthrough);
-          resolve();
+          resolve(false);
         }, 10_000);
       });
 
@@ -1370,7 +1373,7 @@ export class RecorderEngine {
         throw err;
       }
 
-      await finalDataAvailable;
+      backupCaptureComplete = await finalDataAvailable;
     }
 
     const dimensions = this.readDimensions();
@@ -1384,6 +1387,9 @@ export class RecorderEngine {
       hasCamera,
     };
     this.lastFinalizeMeta = finalizeMeta;
+    if (backupCaptureComplete) {
+      this.markRecordingBackupComplete(finalizeMeta);
+    }
 
     // Stop camera and mic hardware immediately — privacy-sensitive inputs no
     // longer needed once the final chunk is flushed. The composite and display
@@ -1479,7 +1485,7 @@ export class RecorderEngine {
       if (completed) {
         this.localChunks = [];
         this.lastFinalizeMeta = null;
-        void deleteRecordingBackup(this.opts.recordingId).catch(() => {});
+        this.clearRecordingBackup();
       }
     }
 
@@ -1516,7 +1522,7 @@ export class RecorderEngine {
       if (completed) {
         this.localChunks = [];
         this.lastFinalizeMeta = null;
-        void deleteRecordingBackup(this.opts.recordingId).catch(() => {});
+        this.clearRecordingBackup();
       }
     }
   }
@@ -1807,9 +1813,7 @@ export class RecorderEngine {
     this.localChunks = [];
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
-    if (this.opts.recordingId && this.opts.recordingId !== "__pending__") {
-      void deleteRecordingBackup(this.opts.recordingId).catch(() => {});
-    }
+    this.clearRecordingBackup();
     this.transition("idle");
 
     if (this.opts.abortUrl) {
@@ -2032,7 +2036,6 @@ export class RecorderEngine {
 
     // Keep binary uploads comfortably under Netlify's effective function
     // payload limit. This mirrors the local-file upload path in record.tsx.
-    const UPLOAD_SLICE_BYTES = 3 * 1024 * 1024;
     const PARALLELISM = 4;
     const totalSlices = Math.max(1, Math.ceil(blob.size / UPLOAD_SLICE_BYTES));
 
@@ -2417,9 +2420,10 @@ export class RecorderEngine {
     if (!recordingId || recordingId === "__pending__") return;
     const index = this.backupChunkIndex++;
     const dimensions = this.readDimensions();
-    void putRecordingBackupChunk(recordingId, index, blob)
-      .then(() =>
-        putRecordingBackupMeta({
+    this.backupMirrorQueue = this.backupMirrorQueue
+      .then(async () => {
+        await putRecordingBackupChunk(recordingId, index, blob);
+        await putRecordingBackupMeta({
           recordingId,
           mimeType: this.mimeType,
           durationMs: Math.round(this.getElapsedMs()),
@@ -2430,8 +2434,40 @@ export class RecorderEngine {
           bytes: this.totalRecordedBytes,
           chunkCount: index + 1,
           savedAt: new Date().toISOString(),
-        }),
-      )
+          completedAt: null,
+        });
+      })
+      .catch(() => {});
+  }
+
+  private markRecordingBackupComplete(meta: RecordingFinalizeMeta): void {
+    const recordingId = this.opts.recordingId;
+    if (!recordingId || recordingId === "__pending__") return;
+    this.backupMirrorQueue = this.backupMirrorQueue
+      .then(() => {
+        const completedAt = new Date().toISOString();
+        return putRecordingBackupMeta({
+          recordingId,
+          mimeType: this.mimeType,
+          durationMs: meta.durationMs,
+          width: meta.dimensions.width,
+          height: meta.dimensions.height,
+          hasAudio: meta.hasAudio,
+          hasCamera: meta.hasCamera,
+          bytes: this.totalRecordedBytes,
+          chunkCount: this.backupChunkIndex,
+          savedAt: completedAt,
+          completedAt,
+        });
+      })
+      .catch(() => {});
+  }
+
+  private clearRecordingBackup(): void {
+    const recordingId = this.opts.recordingId;
+    if (!recordingId || recordingId === "__pending__") return;
+    this.backupMirrorQueue = this.backupMirrorQueue
+      .then(() => deleteRecordingBackup(recordingId))
       .catch(() => {});
   }
 

@@ -141,7 +141,10 @@ export function RecordingCard({
     /native recording|native fullscreen|screencapture|avconvert/i.test(
       recording.failureReason ?? "",
     );
-  const canRetry = Boolean(onRetry) && displayFailed && !nativeUploadPaused;
+  const retryableStatus =
+    recording.status === "failed" ||
+    (recording.status === "uploading" && staleUpload);
+  const canRetry = Boolean(onRetry) && retryableStatus && !nativeUploadPaused;
 
   useEffect(() => {
     if (!canRetry) {

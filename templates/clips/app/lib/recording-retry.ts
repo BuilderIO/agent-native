@@ -13,12 +13,13 @@
  * rather than showing a retry button that can't succeed.
  */
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { chunkUploadUrl } from "@shared/recording-core";
+import { chunkUploadUrl, UPLOAD_SLICE_BYTES } from "@shared/recording-core";
 
 import {
   deleteRecordingBackup,
   getRecordingBackupChunks,
   getRecordingBackupMeta,
+  isCompleteRecordingBackup,
 } from "./recording-backup";
 
 export { hasRecordingBackup } from "./recording-backup";
@@ -38,6 +39,11 @@ export async function retryRecordingUploadFromBackup(
   if (!meta || chunks.length === 0) {
     throw new Error(
       "This clip's recorded data isn't saved in this browser, so it can only be retried from the device it was recorded on.",
+    );
+  }
+  if (!isCompleteRecordingBackup(meta, chunks)) {
+    throw new Error(
+      "This browser's local recording backup is incomplete and can't be safely retried.",
     );
   }
 
@@ -68,7 +74,11 @@ export async function retryRecordingUploadFromBackup(
       : undefined;
 
   const chunkBaseUrl = `${appBasePath()}/api/uploads/${recordingId}/chunk`;
-  const total = chunks.length;
+  const recordingBlob = new Blob(
+    chunks.map((chunk) => chunk.blob),
+    { type: meta.mimeType },
+  );
+  const total = Math.ceil(recordingBlob.size / UPLOAD_SLICE_BYTES);
   let result: Record<string, unknown> | undefined;
 
   for (let index = 0; index < total; index++) {
@@ -89,7 +99,11 @@ export async function retryRecordingUploadFromBackup(
           }
         : {}),
     });
-    const body = await chunks[index].arrayBuffer();
+    const start = index * UPLOAD_SLICE_BYTES;
+    const end = Math.min(start + UPLOAD_SLICE_BYTES, recordingBlob.size);
+    const body = await recordingBlob
+      .slice(start, end, meta.mimeType)
+      .arrayBuffer();
     const res = await fetch(url, {
       method: "POST",
       headers: {

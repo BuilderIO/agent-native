@@ -27,9 +27,10 @@ export interface RecordingBackupMeta {
   bytes: number;
   chunkCount: number;
   savedAt: string;
+  completedAt: string | null;
 }
 
-interface RecordingBackupChunk {
+export interface RecordingBackupChunk {
   recordingId: string;
   index: number;
   blob: Blob;
@@ -133,10 +134,10 @@ export async function putRecordingBackupChunk(
   }
 }
 
-/** Chunks in record order, ready to replay in a single upload pass. */
+/** IndexedDB entries in recording order, with indexes retained for validation. */
 export async function getRecordingBackupChunks(
   recordingId: string,
-): Promise<Blob[]> {
+): Promise<RecordingBackupChunk[]> {
   const db = await openDb();
   try {
     const tx = db.transaction(CHUNK_STORE, "readonly");
@@ -144,10 +145,7 @@ export async function getRecordingBackupChunks(
     const chunks = await waitForRequest<RecordingBackupChunk[]>(
       index.getAll(IDBKeyRange.only(recordingId)),
     );
-    return chunks
-      .slice()
-      .sort((a, b) => a.index - b.index)
-      .map((chunk) => chunk.blob);
+    return chunks.slice().sort((a, b) => a.index - b.index);
   } finally {
     db.close();
   }
@@ -175,14 +173,39 @@ export async function deleteRecordingBackup(
   }
 }
 
+export function isCompleteRecordingBackup(
+  meta: RecordingBackupMeta,
+  chunks: RecordingBackupChunk[],
+): boolean {
+  if (!meta.completedAt || meta.chunkCount <= 0 || meta.bytes <= 0)
+    return false;
+  if (chunks.length !== meta.chunkCount) return false;
+
+  let bytes = 0;
+  for (let index = 0; index < chunks.length; index++) {
+    const chunk = chunks[index];
+    if (chunk.index !== index || chunk.recordingId !== meta.recordingId) {
+      return false;
+    }
+    if (!(chunk.blob instanceof Blob) || chunk.blob.size !== chunk.bytes) {
+      return false;
+    }
+    bytes += chunk.bytes;
+  }
+  return bytes === meta.bytes;
+}
+
 /** Whether this browser holds a locally-recoverable backup for `recordingId`. */
 export async function hasRecordingBackup(
   recordingId: string,
 ): Promise<boolean> {
   if (!recordingBackupAvailable()) return false;
   try {
-    const meta = await getRecordingBackupMeta(recordingId);
-    return !!meta && meta.chunkCount > 0;
+    const [meta, chunks] = await Promise.all([
+      getRecordingBackupMeta(recordingId),
+      getRecordingBackupChunks(recordingId),
+    ]);
+    return !!meta && isCompleteRecordingBackup(meta, chunks);
   } catch {
     // coercion-ok: an unreadable backup store is exactly as unusable for
     // retry as a missing one — both mean "can't replay from this browser".
