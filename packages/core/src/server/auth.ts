@@ -577,10 +577,18 @@ async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
   for (const { name, value } of getFrameworkSessionCookieEntries(event)) {
-    const email =
-      (await getSessionEmail(value)) ??
-      (await emailFromBetterAuthSessionToken(value));
-    if (email) {
+    let resolvedToken: string | undefined;
+    let email: string | null = null;
+    for (const candidate of sessionTokenLookupCandidates(value)) {
+      email =
+        (await getSessionEmail(candidate)) ??
+        (await emailFromBetterAuthSessionToken(candidate));
+      if (email) {
+        resolvedToken = candidate;
+        break;
+      }
+    }
+    if (email && resolvedToken) {
       let canonicalUser: CanonicalLegacyUser | null | undefined;
       try {
         canonicalUser = await resolveCanonicalUserForLegacySession(email);
@@ -590,9 +598,11 @@ async function getLegacyCookieSession(
           error instanceof Error ? error.message : error,
         );
       }
-      if (name !== COOKIE_NAME) setFrameworkSessionCookie(event, value);
+      if (name !== COOKIE_NAME || resolvedToken !== value) {
+        setFrameworkSessionCookie(event, resolvedToken);
+      }
       return enrichLegacySessionIdentity(
-        await mapLegacySession(email, value),
+        await mapLegacySession(email, resolvedToken),
         canonicalUser,
       );
     }
@@ -1153,14 +1163,55 @@ function decodeSessionCookieValue(value: string): string {
   }
 }
 
+function sessionTokenLookupCandidates(value: string): string[] {
+  const decoded = decodeSessionCookieValue(value);
+  const tokens: string[] = [];
+  for (const token of [value, decoded]) {
+    if (token && !tokens.includes(token)) tokens.push(token);
+    const cut = token.lastIndexOf(".");
+    if (cut > 0) {
+      const unsigned = token.slice(0, cut);
+      if (unsigned && !tokens.includes(unsigned)) tokens.push(unsigned);
+    }
+  }
+  return tokens;
+}
+
+async function resolveBetterAuthSessionToken(
+  value: string,
+): Promise<{ token: string; email: string } | null> {
+  for (const token of sessionTokenLookupCandidates(value)) {
+    const email = await emailFromBetterAuthSessionToken(token);
+    if (email) return { token, email };
+  }
+  return null;
+}
+
+function decodeCookieHeader(raw: string): string {
+  return raw
+    .split(";")
+    .map((part) => {
+      const trimmed = part.trim();
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) return trimmed;
+      const name = trimmed.slice(0, eq).trim();
+      const value = decodeSessionCookieValue(trimmed.slice(eq + 1).trim());
+      return `${name}=${value}`;
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
 /**
  * Better Auth's getSession reads `headers.get("cookie")`. h3's `event.headers`
  * is not always a WHATWG Headers with Cookie populated — getHeader() is.
+ * Chrome also sends the percent-encoded Set-Cookie value; decode it so the
+ * signed session token matches the session table row.
  */
 function betterAuthRequestHeaders(event: H3Event): Headers {
   const headers = new Headers();
   const cookie = getHeader(event, "cookie");
-  if (cookie) headers.set("cookie", cookie);
+  if (cookie) headers.set("cookie", decodeCookieHeader(cookie));
   const authorization = getHeader(event, "authorization");
   if (authorization) headers.set("authorization", authorization);
   return headers;
@@ -1230,23 +1281,25 @@ function withMagicLinkVerifyCookies(
 async function persistMagicLinkLegacySession(
   event: H3Event,
   response: Response,
-): Promise<void> {
+): Promise<string | null> {
   const rawToken = extractSessionTokenFromAuthResponse(response);
-  if (!rawToken) return;
-  const token = decodeSessionCookieValue(rawToken);
+  if (!rawToken) return null;
+  const resolved = await resolveBetterAuthSessionToken(rawToken);
+  const token = resolved?.token ?? decodeSessionCookieValue(rawToken);
   try {
     setFrameworkSessionCookie(event, token);
   } catch {
     // Some hosted event shapes do not expose getSetCookie; the verify
     // response still gets the framework cookie from withMagicLinkVerifyCookies.
   }
-  const email = await emailFromBetterAuthSessionToken(token);
-  if (!email) return;
-  try {
-    await addSession(token, email);
-  } catch (error) {
-    console.error("[auth] failed to persist magic-link session", error);
+  if (resolved) {
+    try {
+      await addSession(resolved.token, resolved.email);
+    } catch (error) {
+      console.error("[auth] failed to persist magic-link session", error);
+    }
   }
+  return token;
 }
 
 /**
@@ -5450,11 +5503,14 @@ async function mountBetterAuthRoutes(
             authRequest,
             response as Response,
           );
-          await persistMagicLinkLegacySession(event, response as Response);
+          const persistedToken = await persistMagicLinkLegacySession(
+            event,
+            response as Response,
+          );
           response = withMagicLinkVerifyCookies(
             event,
             response as Response,
-            verifiedSessionToken,
+            persistedToken ?? verifiedSessionToken,
           );
         }
       }

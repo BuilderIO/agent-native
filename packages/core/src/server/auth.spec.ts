@@ -6484,6 +6484,51 @@ describe("server/auth", () => {
       expect(selectedTokens).toEqual(["stale-token", "fresh-token"]);
     });
 
+    it("resolves a signed Better Auth cookie to the unsigned session row", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      const mockExecute = vi.fn().mockImplementation((query: any) => {
+        const sql = typeof query === "string" ? query : query.sql;
+        const args = typeof query === "string" ? undefined : query.args;
+        if (
+          typeof sql === "string" &&
+          sql.includes('FROM "session"') &&
+          args?.[0] === "ba_unsigned_token"
+        ) {
+          return { rows: [{ email: "Designer@Example.COM" }] };
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie:
+            "an_session=ba_unsigned_token.%2Fsigned%3D; __Secure-an.session_token=ba_unsigned_token.%2Fsigned%3D",
+        },
+      });
+
+      await expect(getSession(event)).resolves.toEqual({
+        email: "designer@example.com",
+        token: "ba_unsigned_token",
+      });
+    });
+
     it("resolves a Better Auth token stored in the framework session cookie", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
