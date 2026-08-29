@@ -31,7 +31,7 @@ export default function VisualEditPage() {
   // Server shells are intentionally anonymous; defer session-specific chrome
   // until after hydration so the public entry never reconciles different links.
   const isSignedIn = hasHydrated && hasSession;
-  const primaryHref = isSignedIn ? "/" : (signInHref ?? undefined);
+  const primaryHref = isSignedIn ? "/home" : (signInHref ?? undefined);
   const primaryAriaLabel = isSignedIn
     ? t("visualEdit.openDesign")
     : t("designEditor.signUpToSave");

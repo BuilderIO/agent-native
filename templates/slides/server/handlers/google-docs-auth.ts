@@ -76,7 +76,7 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
       const requestedReturn =
-        typeof q.return === "string" ? safeReturnPath(q.return) : "/";
+        typeof q.return === "string" ? safeReturnPath(q.return) : "/home";
       const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
       const state = encodeOAuthState({
         redirectUri,

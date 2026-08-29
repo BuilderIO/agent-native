@@ -291,7 +291,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "input.setCustomValidity(__anT('passwordMinPlaceholder'))",
     );
-    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(html).toContain(`maxLength="${PASSWORD_MAX_LENGTH}"`);
     expect(html).toContain(
       "We couldn't create your account. Please try again.",
     );
@@ -346,8 +346,8 @@ describe("getOnboardingHtml", () => {
     const html = getOnboardingHtml();
     const resetHtml = getResetPasswordHtml();
 
-    expect(html).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
-    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(html).toContain(`minLength="${PASSWORD_MIN_LENGTH}"`);
+    expect(html).toContain(`maxLength="${PASSWORD_MAX_LENGTH}"`);
     expect(html).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
     expect(html).not.toContain('minlength="8"');
     expect(resetHtml).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
@@ -775,7 +775,7 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(journey.normalizeAppPath("https://evil.com/x")).toBeNull();
     expect(journey.signInJourney({ at: "/login" })).toEqual({
       signInHref: null,
-      resumeHref: "/",
+      resumeHref: "/home",
     });
     expect(
       journey.signInJourney({

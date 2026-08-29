@@ -275,13 +275,14 @@ export default function Root() {
   const location = useLocation();
   const isPublicPath =
     location.pathname === "/f" || location.pathname.startsWith("/f/");
+  const isMarketingHome = location.pathname === "/";
 
-  if (isPublicPath) {
+  if (isPublicPath || isMarketingHome) {
     return (
       <AppToolkitProvider>
         <AppProviders
           queryClient={queryClient}
-          isPublicPath
+          isPublicPath={isPublicPath || isMarketingHome}
           i18n={{ catalog: i18nCatalog }}
         >
           <Outlet />

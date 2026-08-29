@@ -33,6 +33,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
+import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
@@ -426,6 +427,7 @@ async function rewriteMountedResponse(
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
+      pathname === "/" ? getSsrAuthRedirectScript() : null,
     ]
       .filter(Boolean)
       .join("") || null;

@@ -753,7 +753,7 @@ export default function Index() {
         typeof window !== "undefined" &&
         deckIdFromPathname(window.location.pathname) === deckId
       ) {
-        void navigate("/", {
+        void navigate("/home", {
           replace: true,
           state: {
             retryPrompt: prompt,
@@ -1509,7 +1509,7 @@ export default function Index() {
         // there, send them back to the deck list instead of stranding them
         // on a "Deck unavailable" screen for a deck that no longer exists.
         if (deckIdFromPathname(window.location.pathname) === newId) {
-          void navigate("/");
+          void navigate("/home");
         }
         toast.error(t("home.duplicateFailed"));
       });

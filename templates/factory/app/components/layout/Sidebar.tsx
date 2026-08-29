@@ -166,9 +166,7 @@ function ChatThreadsSection({ open }: { open: boolean }) {
   );
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
-    (location.pathname === "/" || location.pathname === "/chat"
-      ? null
-      : activeThreadId);
+    (location.pathname === "/chat" ? null : activeThreadId);
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
       visibleThreads.map((thread) => ({
@@ -293,9 +291,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const t = useT();
   const isChatRoute =
-    location.pathname === "/" ||
-    location.pathname === "/chat" ||
-    location.pathname.startsWith("/chat/");
+    location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -377,7 +373,7 @@ export function Sidebar({
         )}
       >
         <Link
-          to="/"
+          to="/home"
           onClick={(event) => {
             if (
               !collapsible ||
@@ -429,7 +425,7 @@ export function Sidebar({
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =
-              item.href === "/"
+              item.href === "/chat"
                 ? isChatRoute
                 : item.href === "/factory"
                   ? location.pathname === "/factory" ||
@@ -440,7 +436,7 @@ export function Sidebar({
                 to={item.href}
                 onClick={(event) => {
                   if (
-                    item.href === "/" &&
+                    item.href === "/chat" &&
                     !isChatRoute &&
                     !event.metaKey &&
                     !event.ctrlKey &&

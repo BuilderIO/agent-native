@@ -103,7 +103,7 @@ export function useNavigationState() {
     getNavigationState: ({ pathname }) => {
       const state: NavigationState = { view: "calendar" };
 
-      if (pathname === "/" || pathname === "") {
+      if (pathname === "/home" || pathname === "") {
         state.view = "calendar";
       } else if (pathname.startsWith("/availability")) {
         state.view = "availability";
@@ -141,7 +141,7 @@ export function useNavigationState() {
       return state;
     },
     getCommandPath: (cmd) => {
-      let path = "/";
+      let path = "/home";
       if (cmd.view === "availability") {
         path = "/availability";
       } else if (cmd.view === "booking-links") {
@@ -156,7 +156,7 @@ export function useNavigationState() {
           ? `/extensions/${encodeURIComponent(cmd.extensionId)}`
           : "/extensions";
       } else {
-        path = "/";
+        path = "/home";
       }
       return path;
     },

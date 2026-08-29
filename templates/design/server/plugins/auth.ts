@@ -5,7 +5,7 @@ export default createAuthPlugin({
   // Visual-edit, public design editor links, and presentation links can load
   // without a session. Creating, mutating, generating, and sharing designs
   // still go through authenticated actions.
-  workspaceAppPublicPaths: ["/visual-edit", "/design", "/present"],
+  workspaceAppPublicPaths: ["/", "/visual-edit", "/design", "/present"],
   marketing: {
     appName: "Design",
     tagline:

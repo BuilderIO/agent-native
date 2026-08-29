@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 const trackedFiles = execFileSync("git", ["ls-files"], {
   encoding: "utf8",
+  maxBuffer: 1 << 28,
 })
   .split("\n")
   .filter(Boolean);

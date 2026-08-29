@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconLayoutGrid, labelKey: "navigation.decks", href: "/" },
+  { icon: IconLayoutGrid, labelKey: "navigation.decks", href: "/home" },
   {
     icon: IconComponents,
     labelKey: "navigation.designSystems",
@@ -46,8 +46,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const t = useT();
 
   const isItemActive = (href: string) =>
-    href === "/"
-      ? location.pathname === "/"
+    href === "/home"
+      ? location.pathname === "/home"
       : location.pathname.startsWith(href);
 
   const collapseButton = onToggleCollapsed ? (

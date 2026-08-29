@@ -716,7 +716,7 @@ export default function DeckEditor() {
 
   const openSignIn = useCallback(() => {
     window.location.href = buildSignInReturnHref({
-      returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/",
+      returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
     });
   }, [id]);
 
@@ -2022,7 +2022,7 @@ export default function DeckEditor() {
         requestAccessDialogError={requestAccessDialogError}
         signedIn={Boolean(session) && !sessionLoading}
         signInHref={buildSignInReturnHref({
-          returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/",
+          returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/home",
         })}
         viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}
@@ -2035,7 +2035,7 @@ export default function DeckEditor() {
         onSubmitGuestAccessRequest={submitGuestAccessRequest}
         onSignIn={openSignIn}
         onRetry={() => void retryOpenDeck()}
-        onBack={() => navigate("/")}
+        onBack={() => navigate("/home")}
       />
     );
   }
@@ -2238,7 +2238,7 @@ export default function DeckEditor() {
             // send them back instead of stranding them on a "Deck
             // unavailable" screen for a deck that no longer exists.
             if (deckIdFromPathname(window.location.pathname) === newId) {
-              void navigate("/");
+              void navigate("/home");
             }
             toast.error(t("home.duplicateFailed"));
           });

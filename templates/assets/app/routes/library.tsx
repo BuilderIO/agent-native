@@ -3193,7 +3193,11 @@ export function AssetPickerSurface() {
                 size="icon"
                 title={t("library.openAssets")}
               >
-                <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
+                <a
+                  href={absoluteAppUrl("/home")}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
               </Button>

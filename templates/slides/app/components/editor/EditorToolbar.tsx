@@ -662,7 +662,7 @@ export default function EditorToolbar({
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            to="/"
+            to="/home"
             className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
             aria-label={t("editorToolbar.backToDecks")}
           >
