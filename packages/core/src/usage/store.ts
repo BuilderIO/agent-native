@@ -14,6 +14,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getRequestOrgId } from "../server/request-context.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
@@ -211,6 +212,7 @@ export interface UsageRecord {
   costCentsX100?: number;
   /** Whether cost is provider-reported, estimated, or unavailable. */
   costSource?: UsageCostSource;
+  /** Defaults to the active request organization when omitted. */
   orgId?: string;
   runId?: string;
   threadId?: string;
@@ -456,6 +458,7 @@ export async function recordUsage(
     app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
   const resolvedLabel = label ?? "chat";
   const resolvedRef = refId ?? "";
+  const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
   // Replace any prior usage for this (label, refId) so re-recording the same
   // run — e.g. a recap regenerated on a PR re-push — overwrites instead of
@@ -500,7 +503,7 @@ export async function recordUsage(
       resolvedLabel,
       resolvedApp,
       resolvedRef,
-      orgId ?? null,
+      resolvedOrgId,
       runId ?? null,
       threadId ?? null,
       taskId ?? null,

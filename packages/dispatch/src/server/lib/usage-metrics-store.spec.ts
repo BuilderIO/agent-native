@@ -527,6 +527,58 @@ describe("listDispatchUsageMetrics", () => {
     expect(mocks.getUsageSummary).not.toHaveBeenCalled();
   });
 
+  it("redacts adoption metrics for apps the personal viewer does not own", async () => {
+    const now = Date.now();
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("ORDER BY created_at ASC")
+      ) {
+        return {
+          rows: [
+            {
+              created_at: now,
+              owner_email: "member@example.test",
+              app: "orders",
+              label: "create-order",
+              cost_cents_x100: 100,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({ scope: "me" });
+
+    expect(metrics.appAccess[0]).toMatchObject({
+      ownerEmail: null,
+      isOwnedByViewer: false,
+      canViewUsage: false,
+      usersWithUsage: 0,
+      dailyActiveUsers: 0,
+      weeklyActiveUsers: 0,
+      usageCalls: 0,
+      chatCalls: 0,
+      costCents: 0,
+      lastActiveAt: null,
+      actionMetrics: [],
+    });
+  });
+
   it("returns monthly credits and workspace app creation rows from shared tables", async () => {
     const firstUsageAt = Date.UTC(2026, 6, 1, 12);
     const secondUsageAt = Date.UTC(2026, 6, 15, 12);

@@ -1077,6 +1077,8 @@ export async function listDispatchUsageMetrics(input: {
     const isOwnedByViewer =
       ownerEmail?.toLowerCase() === viewerEmail.toLowerCase();
     const canViewUsage = isMetricsAdmin || isOwnedByViewer;
+    const visibleUsageBucket = canViewUsage ? usageBucket : undefined;
+    const visibleAdoption = canViewUsage ? adoption : undefined;
     return {
       id: app.id,
       name: app.name,
@@ -1090,15 +1092,21 @@ export async function listDispatchUsageMetrics(input: {
       ownerEmail: canViewUsage ? ownerEmail : null,
       isOwnedByViewer,
       canViewUsage,
-      usersWithUsage: adoption?.users.size ?? usageBucket?.activeUsers ?? 0,
-      dailyActiveUsers: adoption?.dailyUsers.size ?? 0,
-      weeklyActiveUsers: adoption?.weeklyUsers.size ?? 0,
-      usageCalls: adoption?.calls ?? usageBucket?.calls ?? 0,
-      chatCalls: adoption?.chatCalls ?? usageBucket?.chatCalls ?? 0,
-      costCents: adoption?.costCents ?? usageBucket?.costCents ?? 0,
-      lastActiveAt: adoption?.lastActiveAt ?? usageBucket?.lastActiveAt ?? null,
-      actionMetrics: adoption
-        ? [...adoption.actions.entries()]
+      usersWithUsage:
+        visibleAdoption?.users.size ?? visibleUsageBucket?.activeUsers ?? 0,
+      dailyActiveUsers: visibleAdoption?.dailyUsers.size ?? 0,
+      weeklyActiveUsers: visibleAdoption?.weeklyUsers.size ?? 0,
+      usageCalls: visibleAdoption?.calls ?? visibleUsageBucket?.calls ?? 0,
+      chatCalls:
+        visibleAdoption?.chatCalls ?? visibleUsageBucket?.chatCalls ?? 0,
+      costCents:
+        visibleAdoption?.costCents ?? visibleUsageBucket?.costCents ?? 0,
+      lastActiveAt:
+        visibleAdoption?.lastActiveAt ??
+        visibleUsageBucket?.lastActiveAt ??
+        null,
+      actionMetrics: visibleAdoption
+        ? [...visibleAdoption.actions.entries()]
             .map(([key, action]) => ({
               key,
               label: labelForKey(key),

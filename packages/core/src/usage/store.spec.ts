@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 // Real in-memory sqlite behind the raw getDbExec client so recordUsage /
 // getUserUsageCents / getUsageSummary exercise genuine aggregation + scoping.
 // A fresh DB per test keeps the module-level _initPromise (CREATE TABLE IF NOT
@@ -301,6 +303,24 @@ describe("recordUsage", () => {
       task_id: "task-42",
       org_id: "org-7",
     });
+  });
+
+  it("inherits the organization from the active request when omitted", async () => {
+    await runWithRequestContext(
+      { userEmail: "a@example.com", orgId: "org-7" },
+      () =>
+        recordUsage({
+          ownerEmail: "a@example.com",
+          inputTokens: 100,
+          outputTokens: 50,
+          model: "claude-sonnet-4-5",
+        }),
+    );
+
+    const row = sqlite.prepare(`SELECT org_id FROM token_usage`).get() as {
+      org_id: string | null;
+    };
+    expect(row.org_id).toBe("org-7");
   });
 
   it("leaves attribution NULL rather than empty-string when the caller omits it", async () => {
