@@ -22,6 +22,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // files off a single unbounded request body.
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
+const RETRYABLE_INDEX_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const INDEX_RETRY_DELAYS_MS = [600, 1800] as const;
 
 export interface BuilderDesignSystemIndexFile {
   name: string;
@@ -713,6 +715,22 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchBuilderDesignSystemIndex(
+  url: string | URL,
+  init: RequestInit,
+): Promise<Response> {
+  let response = await fetchWithTimeout(url, init);
+  for (const retryDelay of INDEX_RETRY_DELAYS_MS) {
+    if (response.ok || !RETRYABLE_INDEX_STATUSES.has(response.status)) {
+      return response;
+    }
+    if (response.body) await response.body.cancel();
+    await delay(retryDelay);
+    response = await fetchWithTimeout(url, init);
+  }
+  return response;
+}
+
 async function uploadToResumableUrl(
   slot: { uploadUrl: string },
   file: BuilderDesignSystemIndexFile,
@@ -1259,7 +1277,7 @@ export async function indexBuilderDesignSystem(
     );
   }
   const credentials = await resolveBuilderDesignSystemCredentials();
-  const index = await fetchWithTimeout(
+  const index = await fetchBuilderDesignSystemIndex(
     makeBuilderDesignSystemUrl("index", credentials),
     {
       method: "POST",
