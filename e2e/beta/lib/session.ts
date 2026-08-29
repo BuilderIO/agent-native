@@ -11,7 +11,10 @@ import { fileURLToPath } from "node:url";
 import type { Browser, BrowserContext } from "@playwright/test";
 
 import { type BetaSite, originFor } from "./fleet";
-import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./test-traffic";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./test-traffic";
 
 /**
  * Authenticated-session bootstrap for the beta fleet.
@@ -260,6 +263,7 @@ export async function bootstrapAppSession(
         }
       : { extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS },
   );
+  await installBetaE2ETrafficMarker(context);
 
   try {
     if (token) {

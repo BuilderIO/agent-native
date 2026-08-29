@@ -7,11 +7,25 @@ import {
   type SessionReplayIframeStartMessage,
   type SessionReplayIframeStopMessage,
 } from "../session-replay-iframe-protocol.js";
+import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { scrubUrl } from "./url-scrub.js";
+
+function isSyntheticBrowserTraffic(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    isSyntheticTrafficValue(
+      (
+        window as Window & {
+          __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: unknown;
+        }
+      ).__AGENT_NATIVE_SYNTHETIC_TRAFFIC__,
+    )
+  );
+}
 
 type ReplayEvent = Record<string, unknown>;
 type QueuedReplayEvent = {
@@ -2065,6 +2079,7 @@ function rollbackReplaySequenceReservation(
 }
 
 export async function flushSessionReplay(reason = "manual"): Promise<void> {
+  if (isSyntheticBrowserTraffic()) return;
   const state = getState();
   if (!state.options) return;
   if (state.pendingReplayUpload) {
@@ -3310,6 +3325,9 @@ function installCaptureInterceptors(state: SessionReplayState): void {
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  if (isSyntheticBrowserTraffic()) {
+    return { started: false, reason: "disabled" };
+  }
   if (options.enabled === false) return { started: false, reason: "disabled" };
   if (options.shouldStart && !options.shouldStart()) {
     return { started: false, reason: "disabled" };

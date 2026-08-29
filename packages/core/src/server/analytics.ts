@@ -1,4 +1,5 @@
 import { getAppConfig } from "../app-config/index.js";
+import { getRequestContext } from "./request-context.js";
 
 /**
  * Opt-in analytics injection for SSR streams.
@@ -146,6 +147,8 @@ type AnalyticsInjection = {
 };
 
 function getAnalyticsInjection(): AnalyticsInjection | null {
+  if (getRequestContext()?.isSyntheticTraffic) return null;
+
   const agentNativeAnalytics = getAgentNativeAnalyticsConfigScript();
   const containerId = getGtmContainerId();
   if (containerId) {

@@ -21,7 +21,10 @@ import {
   markAuthedLaneReady,
   missingCredentialsMessage,
 } from "./lib/session";
-import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./lib/test-traffic";
 
 function providerKeyRequired(): boolean {
   return process.env.BETA_E2E_CLUSTER?.trim().toLowerCase() === "chat";
@@ -137,6 +140,7 @@ async function globalSetup(): Promise<void> {
             storageState: authStatePath(site.id),
             extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
           });
+          await installBetaE2ETrafficMarker(context);
           try {
             if (!apiKey) {
               throw new Error("No validated OpenAI credential is available.");

@@ -24,7 +24,10 @@
 import { chromium } from "@playwright/test";
 
 import { authenticatableSites, originFor, siteById } from "./lib/fleet";
-import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./lib/test-traffic";
 
 const SESSION_COOKIE = /^an_session/;
 
@@ -85,6 +88,7 @@ async function capture(): Promise<void> {
       const context = await browser.newContext({
         extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
       });
+      await installBetaE2ETrafficMarker(context);
       const page = await context.newPage();
       await page.goto(`${origin}/sign-in`, { waitUntil: "domcontentloaded" });
 

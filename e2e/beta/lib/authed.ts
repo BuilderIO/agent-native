@@ -10,7 +10,10 @@ import {
   expectedEmail,
   sessionFailureReason,
 } from "./session";
-import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./test-traffic";
+import {
+  BETA_E2E_TEST_TRAFFIC_HEADERS,
+  installBetaE2ETrafficMarker,
+} from "./test-traffic";
 
 /**
  * Shared setup for the authenticated lane.
@@ -54,6 +57,7 @@ export async function signedInContext(
     storageState: statePath,
     extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
   });
+  await installBetaE2ETrafficMarker(context);
   if (seedModel) {
     const namespaces =
       site.id === "chat" || site.id === "analytics" || site.id === "dispatch"
