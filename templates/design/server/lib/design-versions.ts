@@ -612,7 +612,7 @@ export async function restoreDesignVersion(args: {
   collaborationReconcilePending: string[];
 }> {
   return withDesignVersionLock(args.designId, async () => {
-    const access = await assertAccess("design", args.designId, "editor");
+    await assertAccess("design", args.designId, "editor");
     const db = getDb();
     const [version] = await db
       .select({
