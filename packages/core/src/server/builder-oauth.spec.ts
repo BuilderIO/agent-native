@@ -41,6 +41,7 @@ import {
   exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
   getBuilderOAuthConnectionScope,
+  getBuilderOAuthStoredScope,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
   markBuilderOAuthReconnectRequired,
@@ -561,6 +562,17 @@ describe("Builder hosted user OAuth", () => {
     await expect(getBuilderOAuthConnectionScope(ownerEmail)).resolves.toBe(
       "org",
     );
+  });
+
+  it("reports stored custody for disconnect even when its token is unusable", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === "org:org-default" ? {} : null,
+    );
+    getAccessTokenMock.mockResolvedValue(null);
+
+    await expect(getBuilderOAuthStoredScope(ownerEmail)).resolves.toBe("org");
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
   });
 
   // A stored credential with no `scope` claim predates both Builder always

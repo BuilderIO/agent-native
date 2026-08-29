@@ -361,6 +361,21 @@ export async function getBuilderOAuthConnectionScope(
   return session?.scope ?? null;
 }
 
+export async function getBuilderOAuthStoredScope(
+  ownerEmail: string,
+  orgId?: string | null,
+): Promise<BuilderOAuthScope | null> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId)) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored !== null) return options.scope;
+  }
+  return null;
+}
+
 export async function resolveBuilderOAuthRequestAccess(input: {
   ownerEmail: string;
   requiredScope: string;

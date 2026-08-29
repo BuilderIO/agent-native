@@ -178,7 +178,7 @@ import {
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
-  getBuilderOAuthConnectionScope,
+  getBuilderOAuthStoredScope,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
@@ -3618,9 +3618,7 @@ export function createCoreRoutesPlugin(
           }
 
           try {
-            const oauthScope = await getBuilderOAuthConnectionScope(
-              session.email,
-            );
+            const oauthScope = await getBuilderOAuthStoredScope(session.email);
             const hadOAuth = oauthScope !== null;
             // Revoking an org-scoped grant takes the connection offline for
             // every member, so require org owner/admin before doing so.
