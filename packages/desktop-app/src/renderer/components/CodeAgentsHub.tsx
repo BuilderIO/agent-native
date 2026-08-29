@@ -1647,6 +1647,19 @@ export default function CodeAgentsHub({
     );
   }, []);
 
+  const handleChatFirstSelectedRunChange = useCallback(
+    (runId: string | null) => {
+      setHasChatFirstActiveChat(Boolean(runId));
+    },
+    [],
+  );
+  const handleChatFirstMainKindChange = useCallback(
+    (kind: "agent" | "code") => {
+      if (kind === "code") returnToChatFirstChats();
+    },
+    [returnToChatFirstChats],
+  );
+
   const handleChatFirstWatchedRunChange = useCallback(
     (run: CodeAgentRun | null, sourceRunId?: string | null) => {
       setChatFirstWatchedRun(run);
@@ -2950,14 +2963,10 @@ export default function CodeAgentsHub({
             onNewTerminal: handleNewTerminal,
           }}
           keyboardNavigation={chatFirstKeyboardNavigation}
-          onChatFirstMainKindChange={(kind) => {
-            if (kind === "code") returnToChatFirstChats();
-          }}
+          onChatFirstMainKindChange={handleChatFirstMainKindChange}
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}
-          onSelectedRunChange={(runId) =>
-            setHasChatFirstActiveChat(Boolean(runId))
-          }
+          onSelectedRunChange={handleChatFirstSelectedRunChange}
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={emitChatFirstOpenAppStable}
