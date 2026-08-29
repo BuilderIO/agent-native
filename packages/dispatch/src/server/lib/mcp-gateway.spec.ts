@@ -1107,48 +1107,51 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
-  it("retries transient target MCP gateway failures with HTML bodies", async () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    mocks.managerCallTool
-      .mockRejectedValueOnce(
-        Object.assign(
-          new Error(
-            'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
+  it.each([408, 429, 502, 503, 504])(
+    "retries transient typed HTTP %i target MCP failures with HTML bodies",
+    async (status) => {
+      const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+      mocks.managerCallTool
+        .mockRejectedValueOnce(
+          Object.assign(
+            new Error(
+              'MCP server "target" is not connected: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
+            ),
+            { code: status },
           ),
-          { code: 502 },
-        ),
-      )
-      .mockResolvedValueOnce({
-        structuredContent: {
-          startUrl:
-            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        )
+        .mockResolvedValueOnce({
+          structuredContent: {
+            startUrl:
+              "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+          },
+        });
+
+      const result = await runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
         },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "analytics",
+            path: "/dashboards",
+            embed: true,
+          }),
+      );
+
+      expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+      expect(mocks.managerStart).toHaveBeenCalledTimes(2);
+      expect(mocks.managerStop).toHaveBeenCalledTimes(2);
+      expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({
+        app: "analytics",
+        embedStartUrl:
+          "http://localhost:8086/_agent-native/embed/start?ticket=remote",
       });
-
-    const result = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        requestOrigin: "http://localhost:8092",
-      },
-      () =>
-        openGrantedDispatchMcpApp({
-          app: "analytics",
-          path: "/dashboards",
-          embed: true,
-        }),
-    );
-
-    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
-    expect(mocks.managerStart).toHaveBeenCalledTimes(2);
-    expect(mocks.managerStop).toHaveBeenCalledTimes(2);
-    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({
-      app: "analytics",
-      embedStartUrl:
-        "http://localhost:8086/_agent-native/embed/start?ticket=remote",
-    });
-    randomSpy.mockRestore();
-  });
+      randomSpy.mockRestore();
+    },
+  );
 
   it("does not retry an HTML 404 whose body mentions a gateway status", async () => {
     mocks.managerCallTool.mockRejectedValueOnce(

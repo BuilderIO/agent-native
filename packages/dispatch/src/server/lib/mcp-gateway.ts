@@ -1010,7 +1010,14 @@ function isRetryableTargetMcpError(error: unknown): boolean {
         : safeJson(error);
   const status = httpStatusFromError(error);
   if (status !== undefined) {
-    if (status === 502 || status === 503 || status === 504) return true;
+    if (
+      status === 408 ||
+      status === 429 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    )
+      return true;
     if (status >= 400 && status < 500) return false;
   }
   if (
