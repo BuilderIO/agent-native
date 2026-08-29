@@ -56,6 +56,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isAwsAmplifyPreset,
   isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
@@ -94,6 +95,8 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws_amplify")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws-amplify")).toEqual([]);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
@@ -113,11 +116,20 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
       "netlify",
       "vercel",
       "aws-lambda",
+      "aws_amplify",
     ]) {
       expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("isAwsAmplifyPreset", () => {
+  it("accepts Nitro's standard name and alias", () => {
+    expect(isAwsAmplifyPreset("aws_amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("node")).toBe(false);
   });
 });
 

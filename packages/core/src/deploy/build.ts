@@ -11,6 +11,7 @@
  * Supported presets:
  * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
  * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
+ * - aws_amplify: Uses Nitro's .amplify-hosting deployment specification
  *
  * Usage: node deploy/build.js (called automatically by `agent-native build`)
  */
@@ -107,6 +108,12 @@ export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare_module",
   "cloudflare-module",
 ] as const;
+
+export const AWS_AMPLIFY_PRESETS = ["aws_amplify", "aws-amplify"] as const;
+
+export function isAwsAmplifyPreset(targetPreset: string): boolean {
+  return (AWS_AMPLIFY_PRESETS as readonly string[]).includes(targetPreset);
+}
 
 export function isCloudflareModulePreset(targetPreset: string): boolean {
   return (CLOUDFLARE_MODULE_PRESETS as readonly string[]).includes(
@@ -3995,6 +4002,7 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
     targetPreset === "netlify" ||
     targetPreset === "vercel" ||
     targetPreset === "aws-lambda" ||
+    isAwsAmplifyPreset(targetPreset) ||
     targetPreset === "node" ||
     targetPreset === "node-server"
   );
@@ -5199,6 +5207,7 @@ export function nitroNoExternalsForPreset(
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
         targetPreset === "aws-lambda" ||
+        isAwsAmplifyPreset(targetPreset) ||
         targetPreset === "node" ||
         targetPreset === "node-server"
       ? []
@@ -5438,6 +5447,7 @@ export default bundle;
       ...(preset === "netlify" ||
       preset === "vercel" ||
       preset === "aws-lambda" ||
+      isAwsAmplifyPreset(preset) ||
       preset === "node" ||
       preset === "node-server"
         ? { external: ["yjs"] }
@@ -5483,7 +5493,12 @@ export default bundle;
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
   }
 
-  if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
+  if (
+    preset === "netlify" ||
+    preset === "vercel" ||
+    preset === "aws-lambda" ||
+    isAwsAmplifyPreset(preset)
+  ) {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
