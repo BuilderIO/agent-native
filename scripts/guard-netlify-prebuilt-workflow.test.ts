@@ -12,6 +12,7 @@ import {
   PRODUCTION_PURGE_CONDITION,
   PRODUCTION_SITE_GROUP,
   validateGoogleCallbackVerificationWorkflow,
+  validateNetlifyApiRateLimitHandling,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
@@ -44,7 +45,9 @@ const reusableSource = readFileSync(
   "utf8",
 );
 const nodeHeredocs = [
-  ...reusableSource.matchAll(/node <<'NODE'\n([\s\S]*?)\n\s*NODE/g),
+  ...reusableSource.matchAll(
+    /node(?: --experimental-strip-types)? <<'NODE'\n([\s\S]*?)\n\s*NODE/g,
+  ),
 ].map((match) => match[1]);
 
 describe("Google callback deploy verification guard", () => {
@@ -66,6 +69,21 @@ describe("Google callback deploy verification guard", () => {
           ),
       ).join("\n"),
       /directly with the supported Node loader|every non-zero/,
+    );
+  });
+});
+
+describe("Netlify API rate-limit guard", () => {
+  it("routes all reusable-workflow API calls through the bounded helper", () => {
+    assert.deepEqual(validateNetlifyApiRateLimitHandling(reusableSource), []);
+    assert.match(
+      validateNetlifyApiRateLimitHandling(
+        reusableSource.replace(
+          "requestNetlifyApi(`https://api.netlify.com/api/v1/sites/${siteId}`",
+          "fetch(`https://api.netlify.com/api/v1/sites/${siteId}`",
+        ),
+      ).join("\n"),
+      /raw Netlify fetch calls/,
     );
   });
 });
@@ -199,6 +217,11 @@ describe("production Netlify site concurrency guard", () => {
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
     assert.equal(nodeHeredocs.length, 9);
+    assert.equal(
+      (reusableSource.match(/node --experimental-strip-types <<'NODE'/g) ?? [])
+        .length,
+      9,
+    );
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
     );
@@ -247,7 +270,7 @@ describe("production Netlify site concurrency guard", () => {
       String(purge.run),
       /const api = "https:\/\/api\.netlify\.com\/api\/v1"/,
     );
-    assert.match(String(purge.run), /fetch\(`\$\{api\}\/purge`/);
+    assert.match(String(purge.run), /requestNetlifyApi\(`\$\{api\}\/purge`/);
     assert.match(String(purge.run), /method: "POST"/);
     assert.match(
       String(purge.run),
