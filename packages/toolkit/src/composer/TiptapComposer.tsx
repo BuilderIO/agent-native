@@ -24,6 +24,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useImperativeHandle,
   useMemo,
@@ -408,10 +409,20 @@ function uniquifyComposerImageFile(file: File): File {
   return new File([file], uniqueName, { type: file.type });
 }
 
-function composerDocumentHasContent(doc: {
+type ComposerDocument = {
   textContent: string;
   descendants: (callback: (node: any) => boolean | void) => void;
-}): boolean {
+};
+
+type ComposerDraftEditor = {
+  isDestroyed?: boolean;
+  getHTML(): string;
+  state: { doc: ComposerDocument };
+};
+
+const COMPOSER_DRAFT_SAVE_DELAY_MS = 300;
+
+function composerDocumentHasContent(doc: ComposerDocument): boolean {
   if (doc.textContent.trim().length > 0) return true;
   let hasContent = false;
   doc.descendants((node: any) => {
@@ -426,6 +437,31 @@ function composerDocumentHasContent(doc: {
     return true;
   });
   return hasContent;
+}
+
+function persistComposerDraft(
+  draftKey: string | null,
+  editor: ComposerDraftEditor,
+): void {
+  if (!draftKey) return;
+  try {
+    if (!composerDocumentHasContent(editor.state.doc)) {
+      localStorage.removeItem(draftKey);
+    } else {
+      localStorage.setItem(draftKey, editor.getHTML());
+    }
+  } catch {
+    // coercion-ok: browser storage is optional and can be unavailable or full.
+  }
+}
+
+function clearComposerDraft(draftKey: string | null): void {
+  if (!draftKey) return;
+  try {
+    localStorage.removeItem(draftKey);
+  } catch {
+    // coercion-ok: browser storage is optional and can be unavailable or full.
+  }
 }
 
 export function handleComposerFileDrop(options: {
@@ -1542,7 +1578,9 @@ function ModelSelector({
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
-    } catch {}
+    } catch {
+      // coercion-ok: browser storage is optional and can be unavailable or full.
+    }
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
     setPickerOpen(false);
   }, [setPickerOpen]);
@@ -2443,14 +2481,60 @@ export function TiptapComposer({
     popoverStateRef.current = null;
   }, []);
 
-  // Persist draft to localStorage so hot-reloads don't lose the prompt
-  const draftKey = getComposerDraftKey(draftScope);
-  const draftTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
-    return () => {
-      clearTimeout(draftTimerRef.current);
-    };
+  // Persist draft to localStorage so refreshes don't lose the prompt.
+  const hasDraftScope = Boolean(draftScope?.trim());
+  const draftKey =
+    hasDraftScope || initialText === undefined
+      ? getComposerDraftKey(draftScope)
+      : null;
+  const draftKeyRef = useRef(draftKey);
+  const draftScopeGenerationRef = useRef(0);
+  const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
+  const addAttachmentForCurrentScope = useCallback(
+    async (file: File) => {
+      const scopeGeneration = draftScopeGenerationRef.current;
+      await attachmentCleanupRef.current;
+      if (draftScopeGenerationRef.current !== scopeGeneration) return;
+      return composerRuntime.addAttachment(file);
+    },
+    [composerRuntime],
+  );
+  useLayoutEffect(() => {
+    if (draftKeyRef.current !== draftKey) {
+      draftKeyRef.current = draftKey;
+      draftScopeGenerationRef.current += 1;
+    }
+  }, [draftKey]);
+  const draftEditorRef = useRef<ComposerDraftEditor | null>(null);
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScheduledDraftPersist = useCallback(() => {
+    if (draftSaveTimerRef.current === null) return;
+    clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = null;
   }, []);
+  const flushComposerDraft = useCallback(() => {
+    cancelScheduledDraftPersist();
+    const ed = draftEditorRef.current;
+    if (!ed || !isComposerEditorUsable(ed)) return;
+    persistComposerDraft(draftKeyRef.current, ed);
+  }, [cancelScheduledDraftPersist]);
+  const scheduleComposerDraftPersist = useCallback(
+    (ed: ComposerDraftEditor) => {
+      draftEditorRef.current = ed;
+      cancelScheduledDraftPersist();
+      const key = draftKeyRef.current;
+      if (!key) return;
+      draftSaveTimerRef.current = setTimeout(() => {
+        draftSaveTimerRef.current = null;
+        if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
+          return;
+        }
+        persistComposerDraft(key, ed);
+      }, COMPOSER_DRAFT_SAVE_DELAY_MS);
+    },
+    [cancelScheduledDraftPersist],
+  );
+  const previousDraftKeyRef = useRef(draftKey);
   useEffect(() => {
     lastComposerRuntimeSyncRef.current = null;
   }, [composerRuntime]);
@@ -2468,44 +2552,13 @@ export function TiptapComposer({
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
     editable: !disabled,
-    onCreate: ({ editor: ed }) => {
-      // Restore draft on mount
-      try {
-        if (initialText !== undefined) {
-          ed.commands.setContent(plainTextToDoc(initialText));
-          ed.commands.focus("end");
-          setEditorHasText(composerDocumentHasContent(ed.state.doc));
-          initialTextKeyRef.current = initialTextKey ?? initialText;
-        } else {
-          const saved = localStorage.getItem(draftKey);
-          if (saved) {
-            ed.commands.setContent(saved);
-            ed.commands.focus("end");
-            setEditorHasText(composerDocumentHasContent(ed.state.doc));
-          }
-        }
-        onTextChangeRef.current?.(ed.state.doc.textContent.trim());
-      } catch {}
-    },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
       // the composer runtime is only synced on submit, so its isEmpty lags.
       setEditorHasText(composerDocumentHasContent(ed.state.doc));
       onTextChangeRef.current?.(ed.state.doc.textContent.trim());
 
-      // Debounce-save draft to localStorage
-      clearTimeout(draftTimerRef.current);
-      draftTimerRef.current = setTimeout(() => {
-        try {
-          const html = ed.getHTML();
-          const isEmpty = !composerDocumentHasContent(ed.state.doc);
-          if (isEmpty) {
-            localStorage.removeItem(draftKey);
-          } else {
-            localStorage.setItem(draftKey, html);
-          }
-        } catch {}
-      }, 300);
+      scheduleComposerDraftPersist(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to } = ed.state.selection;
@@ -2547,7 +2600,7 @@ export function TiptapComposer({
           }
 
           void Promise.all(
-            attachments.map((file) => composerRuntime.addAttachment(file)),
+            attachments.map((file) => addAttachmentForCurrentScope(file)),
           ).catch((error) => {
             const msg =
               error instanceof Error
@@ -2570,17 +2623,17 @@ export function TiptapComposer({
         // which cuts off mid-stream on large files and triggers a spin.
         if (shouldConvertClipboardToAttachment(paste)) {
           event.preventDefault();
-          void composerRuntime
-            .addAttachment(createPastedAttachmentFile(paste))
-            .catch((error) => {
-              const msg =
-                error instanceof Error
-                  ? error.message
-                  : t("agentChat.composer.pastedTextError", {
-                      defaultValue: "Could not attach the pasted text.",
-                    });
-              onAttachmentErrorRef.current?.(msg);
-            });
+          void addAttachmentForCurrentScope(
+            createPastedAttachmentFile(paste),
+          ).catch((error) => {
+            const msg =
+              error instanceof Error
+                ? error.message
+                : t("agentChat.composer.pastedTextError", {
+                    defaultValue: "Could not attach the pasted text.",
+                  });
+            onAttachmentErrorRef.current?.(msg);
+          });
           return true;
         }
 
@@ -2592,7 +2645,7 @@ export function TiptapComposer({
         // add the same file a second time.
         return handleComposerFileDrop({
           event: event as DragEvent,
-          addAttachment: (file) => composerRuntime.addAttachment(file),
+          addAttachment: addAttachmentForCurrentScope,
           onError: (error) => {
             const msg =
               error instanceof Error
@@ -2779,6 +2832,24 @@ export function TiptapComposer({
     },
   });
 
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    draftEditorRef.current = editor;
+    const flush = () => {
+      cancelScheduledDraftPersist();
+      persistComposerDraft(draftKey, editor);
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      cancelScheduledDraftPersist();
+      persistComposerDraft(draftKey, editor);
+      if (draftEditorRef.current === editor) draftEditorRef.current = null;
+    };
+  }, [cancelScheduledDraftPersist, draftKey, editor]);
+
   // Placeholder decorations are computed by ProseMirror. Dispatching an empty
   // transaction makes a locale or composer-mode change visible immediately.
   useEffect(() => {
@@ -2929,13 +3000,7 @@ export function TiptapComposer({
       setSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
-      try {
-        if (trimmed) {
-          localStorage.setItem(draftKey, editor.getHTML());
-        } else {
-          localStorage.removeItem(draftKey);
-        }
-      } catch {}
+      flushComposerDraft();
     },
     insertReference,
   }));
@@ -3102,6 +3167,8 @@ export function TiptapComposer({
     onLiveUpdate: handleLiveUpdate,
     contextPack: buildVoiceContextPack,
   });
+  const voiceCancelRef = useRef(voice.cancel);
+  voiceCancelRef.current = voice.cancel;
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)
   useEffect(() => {
@@ -3301,14 +3368,19 @@ export function TiptapComposer({
     const ed = editor;
     if (!isComposerEditorUsable(ed)) return;
     ed.commands.clearContent();
+    cancelScheduledDraftPersist();
     setEditorHasText(false);
     setSlotReferences([]);
     resetComposerRuntimeState();
-    try {
-      localStorage.removeItem(draftKey);
-    } catch {}
+    clearComposerDraft(draftKey);
     closePopover();
-  }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
+  }, [
+    cancelScheduledDraftPersist,
+    closePopover,
+    draftKey,
+    editor,
+    resetComposerRuntimeState,
+  ]);
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
@@ -3316,6 +3388,13 @@ export function TiptapComposer({
       if (!isComposerEditorUsable(ed)) return;
       if (submitInFlightRef.current) return;
 
+      draftEditorRef.current = ed;
+      flushComposerDraft();
+      const submittingDraftKey = draftKeyRef.current;
+      const submittingDraftGeneration = draftScopeGenerationRef.current;
+      const isCurrentDraftScope = () =>
+        draftKeyRef.current === submittingDraftKey &&
+        draftScopeGenerationRef.current === submittingDraftGeneration;
       const { text, references } = syncComposerState();
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
@@ -3380,6 +3459,7 @@ export function TiptapComposer({
         }
       }
       if (!isComposerEditorUsable(ed)) return;
+      if (!isCurrentDraftScope()) return;
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -3424,9 +3504,8 @@ export function TiptapComposer({
         setSlotReferences([]);
         setComposerMode(null);
         composerModeRef.current = null;
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
+        cancelScheduledDraftPersist();
+        clearComposerDraft(draftKey);
         closePopover();
         return;
       }
@@ -3439,6 +3518,7 @@ export function TiptapComposer({
           // available for recovery when a host rejects the submission.
           return;
         }
+        if (!isCurrentDraftScope()) return;
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
@@ -3455,18 +3535,19 @@ export function TiptapComposer({
       if (isComposerEditorUsable(ed)) ed.commands.clearContent();
       setEditorHasText(false);
       setSlotReferences([]);
-      try {
-        localStorage.removeItem(draftKey);
-      } catch {}
+      cancelScheduledDraftPersist();
+      clearComposerDraft(draftKey);
       closePopover();
     },
     [
       closePopover,
       clearEditorAfterSubmit,
+      cancelScheduledDraftPersist,
       composerMode,
       composerRuntime,
       draftKey,
       editor,
+      flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
       onBeforeSubmit,
@@ -3637,30 +3718,82 @@ export function TiptapComposer({
 
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
+    if (previousDraftKeyRef.current !== draftKey) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
     editor.commands.clearContent();
-  }, [composerText, editor]);
+  }, [composerText, draftKey, editor]);
 
   useEffect(() => {
-    if (!isComposerEditorUsable(editor) || initialText === undefined) return;
+    if (!isComposerEditorUsable(editor)) return;
+    const draftKeyChanged = previousDraftKeyRef.current !== draftKey;
+    previousDraftKeyRef.current = draftKey;
+    if (draftKeyChanged) {
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
+      voiceCancelRef.current();
+      editor.commands.clearContent(false);
+      initialTextKeyRef.current = undefined;
+      setEditorHasText(false);
+      setSlotReferences([]);
+      setComposerMode(null);
+      composerModeRef.current = null;
+      lastComposerRuntimeSyncRef.current = null;
+      composerRuntime.setText("");
+      const cleanupGeneration = draftScopeGenerationRef.current;
+      attachmentCleanupRef.current = attachmentCleanupRef.current
+        .then(() => composerRuntime.clearAttachments())
+        .catch((error) => {
+          if (draftScopeGenerationRef.current === cleanupGeneration) {
+            console.error(
+              "Could not clear attachments while changing composer scope",
+              error,
+            );
+          }
+        });
+      onTextChangeRef.current?.("");
+    }
     const key = initialTextKey ?? initialText;
-    if (initialTextKeyRef.current === key) return;
-    initialTextKeyRef.current = key;
-    editor.commands.setContent(plainTextToDoc(initialText));
-    editor.commands.focus("end");
-    const trimmed = editor.state.doc.textContent.trim();
-    setEditorHasText(trimmed.length > 0);
-    composerRuntime.setText(trimmed);
-    onTextChangeRef.current?.(trimmed);
-    try {
-      if (trimmed) {
-        localStorage.setItem(draftKey, editor.getHTML());
-      } else {
-        localStorage.removeItem(draftKey);
+    let saved: string | null = null;
+    if (draftKey) {
+      try {
+        saved = localStorage.getItem(draftKey);
+      } catch {
+        // coercion-ok: browser storage is optional and can be unavailable or full.
       }
-    } catch {}
-  }, [composerRuntime, draftKey, editor, initialText, initialTextKey]);
+    }
+
+    try {
+      if (saved && editor.isEmpty) {
+        editor.commands.setContent(saved);
+        editor.commands.focus("end");
+        if (initialText !== undefined) initialTextKeyRef.current = key;
+      } else if (initialText === undefined) {
+        onTextChangeRef.current?.(editor.state.doc.textContent.trim());
+        return;
+      } else if (initialTextKeyRef.current !== key) {
+        initialTextKeyRef.current = key;
+        editor.commands.setContent(plainTextToDoc(initialText));
+        editor.commands.focus("end");
+      } else {
+        return;
+      }
+      const trimmed = editor.state.doc.textContent.trim();
+      setEditorHasText(composerDocumentHasContent(editor.state.doc));
+      composerRuntime.setText(trimmed);
+      onTextChangeRef.current?.(trimmed);
+      scheduleComposerDraftPersist(editor);
+    } catch {
+      // coercion-ok: a stale editor during unmount should not block the refresh path.
+    }
+  }, [
+    composerRuntime,
+    draftKey,
+    editor,
+    initialText,
+    initialTextKey,
+    scheduleComposerDraftPersist,
+  ]);
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
@@ -3797,6 +3930,7 @@ export function TiptapComposer({
         {attachButton ??
           (plusMenuMode === "hidden" ? null : (
             <ComposerPlusMenu
+              addAttachment={addAttachmentForCurrentScope}
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
               terminalModeControl={terminalModeControl}

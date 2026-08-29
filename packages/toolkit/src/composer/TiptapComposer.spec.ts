@@ -4,6 +4,7 @@ import {
   AssistantRuntimeProvider,
   useLocalRuntime,
   type ChatModelAdapter,
+  type AttachmentAdapter,
 } from "@assistant-ui/react";
 import { Editor } from "@tiptap/core";
 import React, { act } from "react";
@@ -16,6 +17,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { TooltipProvider } from "../ui/tooltip.js";
+import { getComposerDraftKey } from "./draft-key.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
@@ -54,6 +56,7 @@ let root: Root;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -221,6 +224,298 @@ describe("createTiptapComposerExtensions", () => {
     expect(editor.getHTML()).toContain('data-type="file-reference"');
 
     editor.destroy();
+  });
+
+  it("restores a scoped draft before a seeded prompt without crossing scopes", async () => {
+    const scope = "draft-recovery:test";
+    const draftEditor = new Editor({
+      element: document.createElement("div"),
+      extensions: createTiptapComposerExtensions(() => "Message agent..."),
+    });
+    draftEditor.commands.setContent("<p>Saved prompt</p>");
+    localStorage.setItem(getComposerDraftKey(scope), draftEditor.getHTML());
+    draftEditor.destroy();
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "Saved prompt",
+    );
+
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onTextChange = vi.fn();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({
+      currentScope,
+      plusMenuMode = "hidden",
+    }: {
+      currentScope?: string;
+      plusMenuMode?: "full" | "hidden";
+    }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: currentScope,
+            initialText: "Seed prompt",
+            initialTextKey: "seed",
+            includeDefaultSlashSkills: false,
+            onTextChange,
+            plusMenuMode,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      localStorage.setItem(getComposerDraftKey(), "<p>Legacy prompt</p>");
+      root.render(React.createElement(Harness, { currentScope: undefined }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Seed prompt");
+    expect(localStorage.getItem(getComposerDraftKey())).toContain(
+      "Legacy prompt",
+    );
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: scope }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Saved prompt");
+    expect(onTextChange).toHaveBeenCalledWith("Saved prompt");
+
+    act(() => focusRef.current?.setText("Typed prompt"));
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "Typed prompt",
+    );
+
+    act(() =>
+      focusRef.current?.insertReference({
+        label: "Pending reference",
+        refType: "file",
+        refPath: "/tmp/pending.txt",
+      }),
+    );
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(localStorage.getItem(getComposerDraftKey(scope))).toContain(
+      "Pending reference",
+    );
+
+    await act(async () => {
+      await harnessRuntime?.thread.composer.addAttachment({
+        id: "scope-a-attachment",
+        type: "document",
+        name: "scope-a.txt",
+        content: [],
+      });
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, {
+          currentScope: scope,
+          plusMenuMode: "full",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Add..."]')
+        ?.click();
+    });
+    act(() => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Schedule Task")
+        ?.click();
+    });
+    expect(
+      container.querySelector('[data-agent-composer-slot="mode-row"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      root.render(
+        React.createElement(Harness, {
+          currentScope: "draft-recovery:other",
+          plusMenuMode: "full",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Seed prompt");
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+    expect(
+      container.querySelector('[data-agent-composer-slot="mode-row"]'),
+    ).toBeNull();
+  });
+
+  it("syncs identical text after switching draft scopes", async () => {
+    const runs: Array<ReadonlyArray<{ content?: unknown }>> = [];
+    const recordingAdapter: ChatModelAdapter = {
+      async *run({ messages }) {
+        runs.push(messages);
+      },
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ currentScope }: { currentScope: string }) {
+      const runtime = useLocalRuntime(recordingAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: currentScope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    const submit = async () => {
+      const editor = container.querySelector(
+        ".agent-composer-prosemirror",
+      ) as HTMLElement;
+      await act(async () => {
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("hello"));
+    await submit();
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("hello"));
+    await submit();
+
+    expect(runs).toHaveLength(2);
+    expect(runs[1]?.at(-1)?.content).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  it("waits for old attachment cleanup before accepting a new-scope upload", async () => {
+    let releaseCleanup!: () => void;
+    const cleanupDone = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const removeAttachment = vi.fn(() => cleanupDone);
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: file.name,
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: removeAttachment,
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness({ currentScope }: { currentScope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: currentScope,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-a" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await harnessRuntime?.thread.composer.addAttachment(
+        new File(["old"], "same.txt", { type: "text/plain" }),
+      );
+    });
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { currentScope: "scope-b" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["new"], "same.txt", { type: "text/plain" })],
+    });
+    await act(async () => {
+      input?.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(removeAttachment).toHaveBeenCalledTimes(1);
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      0,
+    );
+
+    await act(async () => {
+      releaseCleanup();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
   });
 
   it.each([
