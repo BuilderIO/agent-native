@@ -34,12 +34,6 @@ Read the relevant skill before deeper work:
 - New-deck attachments are reference context. Import into a deck only after an
   explicit user request or Import control; explicit imports follow `sourceImport`,
   preserve structure, and are verified with `get-deck`.
-- In chat, an explicit request to import an attached PDF or PPTX uses
-  `import-file` with its persisted `filePath`, matching `format`, current
-  `deckId`, and `importIntoDeck: true`; verify `imported: true` and `slideCount`.
-  An attachment alone never imports. `import-pptx --deckId` replaces all slides,
-  so use it only for an explicit whole-deck replacement. `import-google-slides-reference`
-  is the deterministic URL/Picker path and creates a new editable reference deck.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
   restyle automatically. Report the exact warning rather than silently
   replacing missing content.
