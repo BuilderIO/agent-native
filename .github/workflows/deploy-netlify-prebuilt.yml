@@ -822,10 +822,11 @@ jobs:
 
       # The active managed client and its capability are observable only from
       # the live host, so this is a post-publish verification. If the declared
-      # managed callback is unregistered or the check is inconclusive, the
-      # immediately following step restores the deploy captured above before
-      # leaving the job failed. Draft deploy URLs are intentionally excluded
-      # because they are not registered OAuth origins.
+      # managed callback is definitively unregistered, the immediately
+      # following step restores the deploy captured above before leaving the
+      # job failed. Inconclusive checks fail loudly without destructive
+      # rollback. Draft deploy URLs are intentionally excluded because they
+      # are not registered OAuth origins.
       - name: Verify Google OAuth redirect registration
         id: google_redirect
         if: >-
@@ -844,7 +845,7 @@ jobs:
       - name: Roll back after Google callback verification failure
         if: >-
           steps.google_redirect.outcome == 'failure' &&
-          steps.google_redirect.outputs.exit_code != '0'
+          steps.google_redirect.outputs.exit_code == '1'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   classifyGoogleAuthorizeResponse,
   classifyGoogleHealthResponse,
+  fetchWithRetry,
   googleRedirectProbeExitCode,
 } from "./check-google-redirect-uris.ts";
 
@@ -11,6 +14,9 @@ const redirectUri =
   "https://calendar.agent-native.com/_agent-native/google/callback";
 const jsonHeaders = { "content-type": "application/json" };
 const googleDocsCallback = "/_agent-native/google-docs/callback";
+const probePath = fileURLToPath(
+  new URL("./check-google-redirect-uris.ts", import.meta.url),
+);
 
 test("reads callback ownership from the deployed health contract", () => {
   const result = classifyGoogleHealthResponse(
@@ -76,6 +82,25 @@ test("separates definitive mismatches from inconclusive probe failures", () => {
       allowNoCoverage: true,
     }),
     0,
+  );
+});
+
+test("maps unexpected CLI failures to the inconclusive exit code", () => {
+  assert.throws(
+    () =>
+      execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", probePath, "--budget-seconds", "bad"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      ),
+    (error: unknown) => {
+      assert.equal((error as { status?: number }).status, 2);
+      assert.match(
+        String((error as { stderr?: string }).stderr),
+        /Google redirect probe could not run: --budget-seconds must be a positive integer/,
+      );
+      return true;
+    },
   );
 });
 
@@ -185,6 +210,59 @@ test("keeps incomplete and changed provider responses unknown", () => {
     ).state,
     "unknown",
   );
+});
+
+test("retries transient provider responses before classifying the result", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return new Response(null, {
+        status: 429,
+        headers: { "retry-after": "0" },
+      });
+    }
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: "https://accounts.google.com/v3/signin/identifier",
+      },
+    });
+  };
+  try {
+    const response = await fetchWithRetry(
+      "https://accounts.google.com/o/oauth2/v2/auth",
+      { redirect: "manual" },
+      Date.now() + 1_000,
+    );
+    assert.equal(response.status, 302);
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("does not fetch after the probe deadline", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async () => {
+    attempts += 1;
+    return new Response(null, { status: 302 });
+  };
+  try {
+    await assert.rejects(
+      fetchWithRetry(
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        { redirect: "manual" },
+        Date.now() - 1,
+      ),
+      /Google probe request deadline exceeded/,
+    );
+    assert.equal(attempts, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("keeps a client fingerprint alongside the id needed for the probe", () => {
