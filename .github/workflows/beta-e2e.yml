@@ -34,9 +34,19 @@ on:
         default: "all"
         type: string
       lane:
-        description: "Which lanes to run"
+        description: "Which lanes to run (public, authed, public+authed, or signup)"
         required: false
         default: "public+authed"
+        type: string
+      signup_apps:
+        description: "Apps for the signup canary"
+        required: false
+        default: "clips,design,chat"
+        type: string
+      signup_environments:
+        description: "Environments for the signup canary"
+        required: false
+        default: "beta"
         type: string
       grep:
         description: "Only run tests whose title matches this (optional)"
@@ -59,6 +69,12 @@ on:
         required: false
       OPENAI_API_KEY:
         required: false
+      MAILOSAUR_API_KEY:
+        required: false
+      MAILOSAUR_SERVER_ID:
+        required: false
+      PAGERDUTY_ROUTING_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       apps:
@@ -73,6 +89,17 @@ on:
         options:
           - public
           - public+authed
+          - signup
+      signup_apps:
+        description: "Apps for the signup canary"
+        required: false
+        default: "clips,design,chat"
+        type: string
+      signup_environments:
+        description: "Environments for the signup canary"
+        required: false
+        default: "beta"
+        type: string
       key_source:
         description: "Which OpenAI credential the agent turns bill"
         required: false
@@ -102,6 +129,7 @@ permissions:
 jobs:
   discover:
     name: Resolve host shards
+    if: ${{ inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -162,7 +190,7 @@ jobs:
     # databases; always() keeps later evidence running after ordinary failure.
     name: ${{ matrix.app }} public sweep
     needs: discover
-    if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' }}
+    if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -201,7 +229,7 @@ jobs:
   fleet:
     name: Fleet-wide checks
     needs: [discover, public]
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' }}
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -230,7 +258,7 @@ jobs:
   authed:
     name: Authenticated journeys
     needs: [discover, advisory]
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'public' }}
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'public' && inputs.lane != 'signup' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -296,7 +324,7 @@ jobs:
 
   advisory:
     name: Advisory findings (non-gating)
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' }}
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
     needs: [discover, fleet]
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -327,3 +355,48 @@ jobs:
           path: e2e/beta/playwright-report/
           if-no-files-found: warn
           retention-days: 7
+
+  signup:
+    name: Signup canary
+    if: ${{ inputs.lane == 'signup' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SIGNUP_E2E_APPS: ${{ inputs.signup_apps || 'clips,design,chat' }}
+      SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.signup_environments || 'beta' }}
+      MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
+      PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
+      - name: Typecheck signup suite
+        run: pnpm typecheck:e2e:signup
+      - name: Run full signup flow
+        id: signup
+        run: pnpm e2e:signup
+      - name: Page signup health on-call
+        if: ${{ steps.signup.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+            echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; the GitHub issue fallback is active but no page was sent."
+            exit 0
+          fi
+          jq -n \
+            --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+            --arg dedup_key "agent-native-signup-e2e" \
+            --arg source "${{ github.repository }}" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{routing_key: $routing_key, event_action: "trigger", dedup_key: $dedup_key, payload: {summary: "Agent-Native signup E2E is failing", source: $source, severity: "critical", custom_details: {run_url: $run_url, apps: env.SIGNUP_E2E_APPS, environments: env.SIGNUP_E2E_ENVIRONMENTS}}}' \
+            | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://events.pagerduty.com/v2/enqueue
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: signup-e2e-${{ github.run_id }}
+          path: e2e/signup/test-results/
+          if-no-files-found: warn
+          retention-days: 14

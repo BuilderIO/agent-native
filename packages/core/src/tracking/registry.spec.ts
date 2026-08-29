@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runWithRequestContext } from "../server/request-context.js";
+import { isQaTestEmail } from "../shared/qa-test-email.js";
 import {
   flushTracking,
+  identify,
   registerTrackingProvider,
   track,
   unregisterTrackingProvider,
@@ -25,6 +27,7 @@ describe("tracking registry", () => {
     unregisterTrackingProvider("qa-throwing-track");
     unregisterTrackingProvider("qa-rejecting-flush");
     unregisterTrackingProvider("qa-capture");
+    unregisterTrackingProvider("qa-identify");
     vi.restoreAllMocks();
   });
 
@@ -77,6 +80,38 @@ describe("tracking registry", () => {
     });
 
     expect(events[0]?.sessionId).toBe("session-2");
+  });
+
+  it("suppresses reserved QA identities before track or identify reaches providers", () => {
+    const events = captureEvents();
+    const identified: string[] = [];
+    registerTrackingProvider({
+      name: "qa-identify",
+      track() {},
+      identify(userId) {
+        identified.push(userId);
+      },
+    });
+    const email = "signup+qa-test-bot-123@example.com";
+
+    expect(isQaTestEmail(email)).toBe(true);
+    track("signup", { email }, { userId: email });
+    track("client_event", undefined, { userId: email });
+    track("property_event", { userEmail: email });
+    identify(email, { email });
+
+    expect(events).toEqual([]);
+    expect(identified).toEqual([]);
+  });
+
+  it("keeps ordinary plus-addresses trackable", () => {
+    const events = captureEvents();
+    const email = "signup+experiment-123@example.com";
+
+    expect(isQaTestEmail(email)).toBe(false);
+    track("signup", { email }, { userId: email });
+
+    expect(events).toHaveLength(1);
   });
 
   it("leaves the session absent for callers with no browser", () => {

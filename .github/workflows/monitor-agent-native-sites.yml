@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   issues: write
 
@@ -39,6 +40,59 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
+
+      - name: Check signup canary dead-man
+        run: |
+          set -o pipefail
+          node <<'NODE' | tee /tmp/agent-native-signup-deadman.log
+          (async () => {
+            const repository = process.env.GITHUB_REPOSITORY;
+            const token = process.env.GH_TOKEN;
+            const url = `https://api.github.com/repos/${repository}/actions/workflows/signup-e2e-scheduled.yml/runs?event=schedule&per_page=20`;
+            const response = await fetch(url, {
+              headers: {
+                accept: "application/vnd.github+json",
+                authorization: `Bearer ${token}`,
+                "x-github-api-version": "2022-11-28",
+              },
+            });
+            if (!response.ok) {
+              console.error(`FAIL\tsignup-e2e\tGitHub Actions API HTTP ${response.status}`);
+              process.exitCode = 1;
+            } else {
+              const body = await response.json();
+              const completed = (body.workflow_runs ?? []).filter(
+                (run) => run.status === "completed",
+              );
+              const successful = completed.find(
+                (run) => run.conclusion === "success",
+              );
+              if (completed.length === 0) {
+                console.log("INFO\tsignup-e2e\tno completed scheduled run yet");
+              } else if (!successful) {
+                console.error(
+                  "FAIL\tsignup-e2e\tno successful scheduled run exists",
+                );
+                process.exitCode = 1;
+              } else {
+                const ageMs = Date.now() - Date.parse(successful.created_at);
+                if (!Number.isFinite(ageMs) || ageMs > 48 * 60 * 60 * 1_000) {
+                  console.error(
+                    `FAIL\tsignup-e2e\tlast successful scheduled run is ${Math.round(ageMs / 3_600_000)}h old`,
+                  );
+                  process.exitCode = 1;
+                } else {
+                  console.log(
+                    `PASS\tsignup-e2e\tlast successful scheduled run is ${Math.round(ageMs / 3_600_000)}h old`,
+                  );
+                }
+              }
+            }
+          })().catch((error) => {
+            console.error(`FAIL\tsignup-e2e\t${error?.message ?? error}`);
+            process.exitCode = 1;
+          });
+          NODE
 
       - name: Probe every public host
         id: probe
@@ -548,6 +602,10 @@ jobs:
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
           GOOGLE_FAILING="$(grep -E '^(FAIL|INCONCLUSIVE)' /tmp/agent-native-google-credentials.log || true)"
           REDIRECT_FAILING="$(grep -E '^(FAIL|UNKNOWN|UNPROBEABLE)' /tmp/agent-native-google-redirects.log || true)"
+          SIGNUP_DEADMAN_FAILING="$(grep '^FAIL[[:space:]].*signup-e2e' /tmp/agent-native-signup-deadman.log || true)"
+          if [ -n "$SIGNUP_DEADMAN_FAILING" ]; then
+            FAILING="$SIGNUP_DEADMAN_FAILING${FAILING:+$'\n'}$FAILING"
+          fi
           if [ -n "$GOOGLE_FAILING" ]; then
             if [ -n "$FAILING" ]; then
               FAILING="$(printf '%s\n%s' "$FAILING" "$GOOGLE_FAILING")"
