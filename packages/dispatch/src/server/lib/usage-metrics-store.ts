@@ -49,6 +49,14 @@ export interface UserUsageMetric extends UsageMetricBucket {
   role: string | null;
 }
 
+export interface AppAdoptionActionMetric {
+  key: string;
+  label: string;
+  calls: number;
+  activeUsers: number;
+  lastActiveAt: number | null;
+}
+
 export interface AppAccessMetric {
   id: string;
   name: string;
@@ -59,11 +67,17 @@ export interface AppAccessMetric {
   accessModel: "workspace" | "solo";
   accessLabel: string;
   accessUsers: number;
+  ownerEmail: string | null;
+  isOwnedByViewer: boolean;
+  canViewUsage: boolean;
   usersWithUsage: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number;
   usageCalls: number;
   chatCalls: number;
   costCents: number;
   lastActiveAt: number | null;
+  actionMetrics: AppAdoptionActionMetric[];
 }
 
 export interface DailyUsageMetric {
@@ -115,7 +129,7 @@ export interface RecentUsageMetric {
   sourceId: string | null;
 }
 
-export type UsageMetricsScope = "me" | "workspace";
+export type UsageMetricsScope = "me" | "workspace" | "app";
 
 export interface UsageUserOption {
   email: string;
@@ -126,6 +140,7 @@ export interface DispatchUsageMetrics {
   billing: UsageBillingMode;
   viewScope: UsageMetricsScope;
   selectedUserEmail: string | null;
+  selectedAppId: string | null;
   availableUsers: UsageUserOption[];
   sinceMs: number;
   sinceDays: number;
@@ -343,10 +358,14 @@ function labelForKey(value: string): string {
   return trimmed || "Unattributed";
 }
 
-function normalizeAppKey(value: string | null | undefined): string {
+function appUsageKey(value: string | null | undefined): string {
   const raw = (value ?? "").trim().toLowerCase();
-  if (!raw) return "unattributed";
-  return raw.replace(/^agent-native-/, "");
+  return raw || "unattributed";
+}
+
+function appOwner(app: WorkspaceAppSummary): string | null {
+  const owner = app.owner?.trim();
+  return owner || null;
 }
 
 function envEmails(name: string): string[] {
@@ -427,10 +446,11 @@ async function getViewerOrgRole(
 
 async function listOrgMembers(orgId: string | null): Promise<MemberRecord[]> {
   if (!orgId) return [];
-  const rows = await queryRows<Record<string, unknown>>(
-    `SELECT email, role, joined_at AS joined_at FROM org_members WHERE org_id = ? ORDER BY joined_at ASC`,
-    [orgId],
-  );
+  const result = await getDbExec().execute({
+    sql: `SELECT email, role, joined_at AS joined_at FROM org_members WHERE org_id = ? ORDER BY joined_at ASC`,
+    args: [orgId],
+  });
+  const rows = result.rows as Record<string, unknown>[];
   return rows
     .map((row) => ({
       email: stringField(row, "email").trim(),
@@ -451,6 +471,18 @@ function usageScope(
   return {
     where: `created_at >= ? AND LOWER(owner_email) IN (${placeholders})`,
     args: [sinceMs, ...memberEmails.map((email) => email.toLowerCase())],
+  };
+}
+
+function withOrgUsageScope(
+  scope: { where: string; args: unknown[] },
+  orgId: string | null,
+): { where: string; args: unknown[] } {
+  const orgClause = orgId?.trim() ? "org_id = ?" : "org_id IS NULL";
+  const orgArgs = orgId?.trim() ? [orgId.trim()] : [];
+  return {
+    where: `${scope.where} AND ${orgClause}`,
+    args: [...scope.args, ...orgArgs],
   };
 }
 
@@ -491,6 +523,19 @@ function ownerThreadScope(
   return {
     where: "updated_at >= ? AND LOWER(owner_email) = ?",
     args: [sinceMs, ownerEmail.toLowerCase()],
+  };
+}
+
+function appUsageScope(
+  sinceMs: number,
+  memberEmails: string[],
+  appId: string,
+  orgId: string | null,
+): { where: string; args: unknown[] } {
+  const scope = withOrgUsageScope(usageScope(sinceMs, memberEmails), orgId);
+  return {
+    where: `${scope.where} AND LOWER(app) = ?`,
+    args: [...scope.args, appUsageKey(appId)],
   };
 }
 
@@ -560,6 +605,212 @@ async function usageBuckets(
   return rows.map(bucketFromRow);
 }
 
+const adoptionActionKeySql = `CASE
+  WHEN LOWER(TRIM(label)) = 'chat' THEN 'chat'
+  WHEN LOWER(TRIM(label)) IN ('automation', 'manual-automation')
+    OR LOWER(TRIM(label)) LIKE 'automation:%'
+    OR LOWER(TRIM(label)) LIKE 'manual-automation:%'
+    OR LOWER(TRIM(label)) LIKE 'recurring-job:%' THEN 'automation'
+  WHEN LOWER(TRIM(label)) = 'custom-agent'
+    OR LOWER(TRIM(label)) LIKE 'custom-agent:%' THEN 'custom-agent'
+  ELSE 'other'
+END`;
+
+interface AppAdoptionAggregate {
+  calls: number;
+  costCents: number;
+  chatCalls: number;
+  activeUsers: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number;
+  lastActiveAt: number | null;
+  actions: Map<
+    string,
+    { calls: number; activeUsers: number; lastActiveAt: number | null }
+  >;
+}
+
+function emptyAppAdoptionAggregate(): AppAdoptionAggregate {
+  return {
+    calls: 0,
+    costCents: 0,
+    chatCalls: 0,
+    activeUsers: 0,
+    dailyActiveUsers: 0,
+    weeklyActiveUsers: 0,
+    lastActiveAt: null,
+    actions: new Map(),
+  };
+}
+
+async function loadAppAdoption(
+  usage: { where: string; args: unknown[] },
+  adoptionUsage: { where: string; args: unknown[] },
+  generatedAt: number,
+): Promise<Map<string, AppAdoptionAggregate>> {
+  const appExpression = "COALESCE(NULLIF(app, ''), 'unattributed')";
+  const [selectedRows, adoptionRows, actionRows] = await Promise.all([
+    queryRows<Record<string, unknown>>(
+      `SELECT ${appExpression} AS app,
+          COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+          COUNT(*) AS calls,
+          SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
+          COUNT(DISTINCT owner_email) AS active_users,
+          MAX(created_at) AS last_active_at
+        FROM token_usage
+        WHERE ${usage.where}
+        GROUP BY ${appExpression}`,
+      usage.args,
+    ),
+    queryRows<Record<string, unknown>>(
+      `SELECT ${appExpression} AS app,
+          COUNT(DISTINCT CASE WHEN created_at >= ? THEN owner_email END) AS daily_active_users,
+          COUNT(DISTINCT CASE WHEN created_at >= ? THEN owner_email END) AS weekly_active_users
+        FROM token_usage
+        WHERE ${adoptionUsage.where}
+        GROUP BY ${appExpression}`,
+      [generatedAt - DAY_MS, generatedAt - 7 * DAY_MS, ...adoptionUsage.args],
+    ),
+    queryRows<Record<string, unknown>>(
+      `SELECT ${appExpression} AS app,
+          ${adoptionActionKeySql} AS action_key,
+          COUNT(*) AS calls,
+          COUNT(DISTINCT owner_email) AS active_users,
+          MAX(created_at) AS last_active_at
+        FROM token_usage
+        WHERE ${usage.where}
+        GROUP BY ${appExpression}, ${adoptionActionKeySql}`,
+      usage.args,
+    ),
+  ]);
+
+  const adoptionByApp = new Map<string, AppAdoptionAggregate>();
+  const getAdoption = (app: string): AppAdoptionAggregate => {
+    const key = appUsageKey(app);
+    const existing = adoptionByApp.get(key);
+    if (existing) return existing;
+    const created = emptyAppAdoptionAggregate();
+    adoptionByApp.set(key, created);
+    return created;
+  };
+
+  for (const row of selectedRows) {
+    const adoption = getAdoption(stringField(row, "app"));
+    adoption.calls = numberField(row, "calls");
+    adoption.costCents = numberField(row, "cost_x100") / 100;
+    adoption.chatCalls = numberField(row, "chat_calls");
+    adoption.activeUsers = numberField(row, "active_users");
+    adoption.lastActiveAt = nullableNumberField(row, "last_active_at");
+  }
+  for (const row of adoptionRows) {
+    const adoption = getAdoption(stringField(row, "app"));
+    adoption.dailyActiveUsers = numberField(row, "daily_active_users");
+    adoption.weeklyActiveUsers = numberField(row, "weekly_active_users");
+  }
+  for (const row of actionRows) {
+    const adoption = getAdoption(stringField(row, "app"));
+    adoption.actions.set(stringField(row, "action_key"), {
+      calls: numberField(row, "calls"),
+      activeUsers: numberField(row, "active_users"),
+      lastActiveAt: nullableNumberField(row, "last_active_at"),
+    });
+  }
+
+  return adoptionByApp;
+}
+
+async function loadDailyAndMonthlyUsage(usage: {
+  where: string;
+  args: unknown[];
+}): Promise<{
+  daily: DailyUsageMetric[];
+  monthlyByUser: Omit<MonthlyUserUsageMetric, "credits">[];
+}> {
+  const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
+  const rows = await queryRows<Record<string, unknown>>(
+    `SELECT ${dayBucketExpression} AS day_bucket,
+        owner_email,
+        COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+        COUNT(*) AS calls,
+        SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
+        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+        COALESCE(SUM(output_tokens), 0) AS output_tokens,
+        COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+        COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens
+      FROM token_usage
+      WHERE ${usage.where}
+      GROUP BY ${dayBucketExpression}, owner_email
+      ORDER BY ${dayBucketExpression} ASC`,
+    usage.args,
+  );
+  const dailyMap = new Map<
+    string,
+    { costX100: number; calls: number; chatCalls: number; users: Set<string> }
+  >();
+  const monthlyByUserMap = new Map<
+    string,
+    Omit<MonthlyUserUsageMetric, "credits">
+  >();
+
+  for (const row of rows) {
+    const date = new Date(
+      numberField(row, "day_bucket") * DAY_MS,
+    ).toISOString();
+    const day = date.slice(0, 10);
+    const ownerEmail = stringField(row, "owner_email");
+    const daily = dailyMap.get(day) ?? {
+      costX100: 0,
+      calls: 0,
+      chatCalls: 0,
+      users: new Set<string>(),
+    };
+    daily.costX100 += numberField(row, "cost_x100");
+    daily.calls += numberField(row, "calls");
+    daily.chatCalls += numberField(row, "chat_calls");
+    daily.users.add(ownerEmail.toLowerCase());
+    dailyMap.set(day, daily);
+
+    const month = day.slice(0, 7);
+    const monthlyKey = `${ownerEmail}\u0000${month}`;
+    const monthly = monthlyByUserMap.get(monthlyKey) ?? {
+      month,
+      ownerEmail,
+      costCents: 0,
+      calls: 0,
+      chatCalls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    monthly.costCents += numberField(row, "cost_x100") / 100;
+    monthly.calls += numberField(row, "calls");
+    monthly.chatCalls += numberField(row, "chat_calls");
+    monthly.inputTokens += numberField(row, "input_tokens");
+    monthly.outputTokens += numberField(row, "output_tokens");
+    monthly.cacheReadTokens += numberField(row, "cache_read_tokens");
+    monthly.cacheWriteTokens += numberField(row, "cache_write_tokens");
+    monthlyByUserMap.set(monthlyKey, monthly);
+  }
+
+  return {
+    daily: [...dailyMap.entries()]
+      .map(([date, value]) => ({
+        date,
+        costCents: value.costX100 / 100,
+        calls: value.calls,
+        chatCalls: value.chatCalls,
+        activeUsers: value.users.size,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+    monthlyByUser: [...monthlyByUserMap.values()].sort(
+      (a, b) =>
+        a.month.localeCompare(b.month) ||
+        a.ownerEmail.localeCompare(b.ownerEmail),
+    ),
+  };
+}
+
 async function loadChatStats(
   where: string,
   args: unknown[],
@@ -614,13 +865,45 @@ export async function listDispatchUsageMetrics(input: {
   sinceDays?: number;
   scope?: UsageMetricsScope;
   userEmail?: string | null;
+  appId?: string | null;
 }): Promise<DispatchUsageMetrics> {
   const viewScope: UsageMetricsScope =
-    input.scope === "me" ? "me" : "workspace";
-  const { viewerEmail, orgId, role } = await assertCanViewMetrics(viewScope);
+    input.scope === "me" ? "me" : input.scope === "app" ? "app" : "workspace";
+  const { viewerEmail, orgId, role } = await assertCanViewMetrics(
+    viewScope === "app" ? "me" : viewScope,
+  );
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
-  const sinceMs = Date.now() - sinceDays * DAY_MS;
+  const generatedAt = Date.now();
+  const sinceMs = generatedAt - sinceDays * DAY_MS;
   const billing = usageBillingForEngine(await detectUsageEngineName());
+
+  const apps = await listWorkspaceApps({ includeAgentCards: false });
+  const requestedAppId = input.appId?.trim() || null;
+  const selectedApp =
+    viewScope === "app" && requestedAppId
+      ? apps.find((app) => app.id === requestedAppId)
+      : null;
+  if (viewScope === "app" && !requestedAppId) {
+    throw new Error("App metrics require an appId.");
+  }
+  if (viewScope === "app" && !selectedApp) {
+    throw new ForbiddenError(
+      "You do not have access to metrics for this workspace app.",
+    );
+  }
+  const selectedAppOwner = selectedApp ? appOwner(selectedApp) : null;
+  const isMetricsAdmin = Boolean(
+    isEnvAdmin(viewerEmail) || role === "owner" || role === "admin",
+  );
+  if (
+    viewScope === "app" &&
+    !isMetricsAdmin &&
+    selectedAppOwner?.toLowerCase() !== viewerEmail.toLowerCase()
+  ) {
+    throw new ForbiddenError(
+      "Only the app owner or an organization owner or admin can view app metrics.",
+    );
+  }
 
   await initializeUsageMetricsTable(sinceMs);
 
@@ -631,10 +914,11 @@ export async function listDispatchUsageMetrics(input: {
         ? await listOrgMembers(orgId)
         : [{ email: viewerEmail, role: null, joinedAt: null }];
   const members =
-    viewScope === "workspace" && orgId && rawMembers.length === 0
+    viewScope !== "me" && orgId && rawMembers.length === 0
       ? [{ email: viewerEmail, role, joinedAt: null }]
       : rawMembers;
-  const requestedUserEmail = input.userEmail?.trim() || null;
+  const requestedUserEmail =
+    viewScope === "app" ? null : input.userEmail?.trim() || null;
   const selectedUserEmail =
     viewScope === "me"
       ? viewerEmail
@@ -655,9 +939,25 @@ export async function listDispatchUsageMetrics(input: {
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );
-  const usage = selectedUserEmail
-    ? ownerScope(sinceMs, selectedUserEmail)
-    : usageScope(sinceMs, memberEmails);
+  const usage =
+    viewScope === "app" && selectedApp
+      ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId)
+      : withOrgUsageScope(
+          selectedUserEmail
+            ? ownerScope(sinceMs, selectedUserEmail)
+            : usageScope(sinceMs, memberEmails),
+          orgId,
+        );
+  const adoptionSinceMs = Math.min(sinceMs, generatedAt - 7 * DAY_MS);
+  const adoptionUsage =
+    viewScope === "app" && selectedApp
+      ? appUsageScope(adoptionSinceMs, memberEmails, selectedApp.id, orgId)
+      : withOrgUsageScope(
+          selectedUserEmail
+            ? ownerScope(adoptionSinceMs, selectedUserEmail)
+            : usageScope(adoptionSinceMs, memberEmails),
+          orgId,
+        );
   const threads = selectedUserEmail
     ? ownerThreadScope(sinceMs, selectedUserEmail)
     : threadScope(sinceMs, memberEmails);
@@ -669,7 +969,6 @@ export async function listDispatchUsageMetrics(input: {
   );
 
   const [
-    apps,
     totalsRows,
     byApp,
     byUserBase,
@@ -678,7 +977,6 @@ export async function listDispatchUsageMetrics(input: {
     chatStats,
     workspaceAppCreationRows,
   ] = await Promise.all([
-    listWorkspaceApps({ includeAgentCards: false }),
     queryRows<Record<string, unknown>>(
       `SELECT
             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
@@ -699,39 +997,50 @@ export async function listDispatchUsageMetrics(input: {
       usage.args,
       20,
     ),
-    usageBuckets("owner_email", usage.where, usage.args, 50),
-    usageBuckets(
-      `COALESCE(NULLIF(label, ''), 'chat')`,
-      usage.where,
-      usage.args,
-      20,
-    ),
+    viewScope === "app"
+      ? Promise.resolve([] as UsageMetricBucket[])
+      : usageBuckets("owner_email", usage.where, usage.args, 50),
+    viewScope === "app"
+      ? Promise.resolve([] as UsageMetricBucket[])
+      : usageBuckets(
+          `COALESCE(NULLIF(label, ''), 'chat')`,
+          usage.where,
+          usage.args,
+          20,
+        ),
     usageBuckets(
       `COALESCE(NULLIF(model, ''), 'unknown')`,
       usage.where,
       usage.args,
       20,
     ),
-    loadChatStats(threads.where, threads.args),
-    queryRows<Record<string, unknown>>(
-      `SELECT owner_email, actor, target_id, created_at
-          FROM dispatch_audit_events
-          WHERE ${workspaceAppCreation.where}
-          ORDER BY created_at ASC`,
-      workspaceAppCreation.args,
-    ),
+    viewScope === "app"
+      ? Promise.resolve(new Map<string, ChatStats>())
+      : loadChatStats(threads.where, threads.args),
+    viewScope === "app"
+      ? Promise.resolve([])
+      : queryRows<Record<string, unknown>>(
+          `SELECT owner_email, actor, target_id, created_at
+              FROM dispatch_audit_events
+              WHERE ${workspaceAppCreation.where}
+              ORDER BY created_at ASC`,
+          workspaceAppCreation.args,
+        ),
   ]);
 
-  const topAppRows = await queryRows<Record<string, unknown>>(
-    `SELECT owner_email AS owner_email,
-        COALESCE(NULLIF(app, ''), 'unattributed') AS app,
-        COALESCE(SUM(cost_cents_x100), 0) AS cost_x100
-      FROM token_usage
-      WHERE ${usage.where}
-      GROUP BY owner_email, COALESCE(NULLIF(app, ''), 'unattributed')
-      ORDER BY owner_email ASC, cost_x100 DESC`,
-    usage.args,
-  );
+  const topAppRows =
+    viewScope === "app"
+      ? []
+      : await queryRows<Record<string, unknown>>(
+          `SELECT owner_email AS owner_email,
+              COALESCE(NULLIF(app, ''), 'unattributed') AS app,
+              COALESCE(SUM(cost_cents_x100), 0) AS cost_x100
+            FROM token_usage
+            WHERE ${usage.where}
+            GROUP BY owner_email, COALESCE(NULLIF(app, ''), 'unattributed')
+            ORDER BY owner_email ASC, cost_x100 DESC`,
+          usage.args,
+        );
   const topAppByUser = new Map<string, string>();
   for (const row of topAppRows) {
     const email = stringField(row, "owner_email");
@@ -783,81 +1092,19 @@ export async function listDispatchUsageMetrics(input: {
     });
   }
 
-  const dayRows = await queryRows<Record<string, unknown>>(
-    `SELECT created_at, owner_email, label, input_tokens, output_tokens,
-        cache_read_tokens, cache_write_tokens, cost_cents_x100
-      FROM token_usage
-      WHERE ${usage.where}
-      ORDER BY created_at ASC`,
-    usage.args,
-  );
-  const dailyMap = new Map<
-    string,
-    { costX100: number; calls: number; chatCalls: number; users: Set<string> }
-  >();
-  const monthlyByUserMap = new Map<
-    string,
-    Omit<MonthlyUserUsageMetric, "credits">
-  >();
-  for (const row of dayRows) {
-    const date = new Date(numberField(row, "created_at"))
-      .toISOString()
-      .slice(0, 10);
-    const month = date.slice(0, 7);
-    const ownerEmail = stringField(row, "owner_email");
-    const current = dailyMap.get(date) ?? {
-      costX100: 0,
-      calls: 0,
-      chatCalls: 0,
-      users: new Set<string>(),
-    };
-    current.costX100 += numberField(row, "cost_cents_x100");
-    current.calls += 1;
-    if (stringField(row, "label") === "chat") current.chatCalls += 1;
-    current.users.add(ownerEmail);
-    dailyMap.set(date, current);
+  const [{ daily, monthlyByUser: monthlyUsage }, appAdoptionMap] =
+    await Promise.all([
+      loadDailyAndMonthlyUsage(usage),
+      loadAppAdoption(usage, adoptionUsage, generatedAt),
+    ]);
 
-    const monthlyKey = `${ownerEmail}\u0000${month}`;
-    const monthly = monthlyByUserMap.get(monthlyKey) ?? {
-      month,
-      ownerEmail,
-      costCents: 0,
-      calls: 0,
-      chatCalls: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    };
-    monthly.costCents += numberField(row, "cost_cents_x100") / 100;
-    monthly.calls += 1;
-    if (stringField(row, "label") === "chat") monthly.chatCalls += 1;
-    monthly.inputTokens += numberField(row, "input_tokens");
-    monthly.outputTokens += numberField(row, "output_tokens");
-    monthly.cacheReadTokens += numberField(row, "cache_read_tokens");
-    monthly.cacheWriteTokens += numberField(row, "cache_write_tokens");
-    monthlyByUserMap.set(monthlyKey, monthly);
-  }
-  const daily = [...dailyMap.entries()]
-    .map(([date, value]) => ({
-      date,
-      costCents: value.costX100 / 100,
-      calls: value.calls,
-      chatCalls: value.chatCalls,
-      activeUsers: value.users.size,
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const monthlyByUser = [...monthlyByUserMap.values()]
-    .map((row) => ({
-      ...row,
-      credits: builderCreditsFromCostCents(row.costCents),
-    }))
-    .sort(
-      (a, b) =>
-        a.month.localeCompare(b.month) ||
-        a.ownerEmail.localeCompare(b.ownerEmail),
-    );
+  const monthlyByUser =
+    viewScope === "app"
+      ? []
+      : monthlyUsage.map((row) => ({
+          ...row,
+          credits: builderCreditsFromCostCents(row.costCents),
+        }));
 
   const workspaceAppCreationMap = new Map<
     string,
@@ -893,20 +1140,24 @@ export async function listDispatchUsageMetrics(input: {
         a.ownerEmail.localeCompare(b.ownerEmail),
     );
 
-  const recentRows = await queryRows<Record<string, unknown>>(
-    `SELECT id, created_at, owner_email, app, label, model,
-        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-        cost_cents_x100, thread_id, run_id, task_id, source_platform, source_id
-      FROM token_usage
-      WHERE ${usage.where}
-      ORDER BY created_at DESC
-      LIMIT 50`,
-    usage.args,
-  );
-  const recent = await hydrateRecentPrompts(recentRows);
+  const recentRows =
+    viewScope === "app"
+      ? []
+      : await queryRows<Record<string, unknown>>(
+          `SELECT id, created_at, owner_email, app, label, model,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+              cost_cents_x100, thread_id, run_id, task_id, source_platform, source_id
+            FROM token_usage
+            WHERE ${usage.where}
+            ORDER BY created_at DESC
+            LIMIT 50`,
+          usage.args,
+        );
+  const recent =
+    viewScope === "app" ? [] : await hydrateRecentPrompts(recentRows);
 
   const appUsageByKey = new Map(
-    byApp.map((bucket) => [normalizeAppKey(bucket.key), bucket]),
+    byApp.map((bucket) => [appUsageKey(bucket.key), bucket]),
   );
   const accessUsers = members.length || byUserMap.size;
   const accessModel =
@@ -917,8 +1168,16 @@ export async function listDispatchUsageMetrics(input: {
       : orgId
         ? "Workspace members"
         : "Signed-in users";
-  const appAccess = apps.map((app) => {
-    const usageBucket = appUsageByKey.get(normalizeAppKey(app.id));
+  const appRows = selectedApp ? [selectedApp] : apps;
+  const appAccess = appRows.map((app) => {
+    const usageBucket = appUsageByKey.get(appUsageKey(app.id));
+    const adoption = appAdoptionMap.get(appUsageKey(app.id));
+    const ownerEmail = appOwner(app);
+    const isOwnedByViewer =
+      ownerEmail?.toLowerCase() === viewerEmail.toLowerCase();
+    const canViewUsage = isMetricsAdmin || isOwnedByViewer;
+    const visibleUsageBucket = canViewUsage ? usageBucket : undefined;
+    const visibleAdoption = canViewUsage ? adoption : undefined;
     return {
       id: app.id,
       name: app.name,
@@ -929,11 +1188,33 @@ export async function listDispatchUsageMetrics(input: {
       accessModel,
       accessLabel,
       accessUsers,
-      usersWithUsage: usageBucket?.activeUsers ?? 0,
-      usageCalls: usageBucket?.calls ?? 0,
-      chatCalls: usageBucket?.chatCalls ?? 0,
-      costCents: usageBucket?.costCents ?? 0,
-      lastActiveAt: usageBucket?.lastActiveAt ?? null,
+      ownerEmail: canViewUsage ? ownerEmail : null,
+      isOwnedByViewer,
+      canViewUsage,
+      usersWithUsage:
+        visibleAdoption?.activeUsers ?? visibleUsageBucket?.activeUsers ?? 0,
+      dailyActiveUsers: visibleAdoption?.dailyActiveUsers ?? 0,
+      weeklyActiveUsers: visibleAdoption?.weeklyActiveUsers ?? 0,
+      usageCalls: visibleAdoption?.calls ?? visibleUsageBucket?.calls ?? 0,
+      chatCalls:
+        visibleAdoption?.chatCalls ?? visibleUsageBucket?.chatCalls ?? 0,
+      costCents:
+        visibleAdoption?.costCents ?? visibleUsageBucket?.costCents ?? 0,
+      lastActiveAt:
+        visibleAdoption?.lastActiveAt ??
+        visibleUsageBucket?.lastActiveAt ??
+        null,
+      actionMetrics: visibleAdoption
+        ? [...visibleAdoption.actions.entries()]
+            .map(([key, action]) => ({
+              key,
+              label: key,
+              calls: action.calls,
+              activeUsers: action.activeUsers,
+              lastActiveAt: action.lastActiveAt,
+            }))
+            .sort((a, b) => b.calls - a.calls)
+        : [],
     } satisfies AppAccessMetric;
   });
 
@@ -950,12 +1231,16 @@ export async function listDispatchUsageMetrics(input: {
     billing,
     viewScope,
     selectedUserEmail,
-    availableUsers: members
-      .map(({ email, role }) => ({ email, role }))
-      .sort((a, b) => a.email.localeCompare(b.email)),
+    selectedAppId: selectedApp?.id ?? null,
+    availableUsers:
+      viewScope === "app"
+        ? []
+        : members
+            .map(({ email, role }) => ({ email, role }))
+            .sort((a, b) => a.email.localeCompare(b.email)),
     sinceMs,
     sinceDays,
-    generatedAt: Date.now(),
+    generatedAt,
     access: {
       viewerEmail,
       orgId,
@@ -977,10 +1262,13 @@ export async function listDispatchUsageMetrics(input: {
       workspaceApps: apps.filter((app) => !app.isDispatch).length,
     },
     byApp,
-    byUser: [...byUserMap.values()].sort((a, b) => {
-      if (b.costCents !== a.costCents) return b.costCents - a.costCents;
-      return (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0);
-    }),
+    byUser:
+      viewScope === "app"
+        ? []
+        : [...byUserMap.values()].sort((a, b) => {
+            if (b.costCents !== a.costCents) return b.costCents - a.costCents;
+            return (b.lastActiveAt ?? 0) - (a.lastActiveAt ?? 0);
+          }),
     byLabel,
     byModel,
     daily,
