@@ -177,6 +177,15 @@ const PATTERNS = [
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
   },
   {
+    key: "credential-wrong-namespace",
+    label: "Had to stop a credential rotation that was the wrong fix",
+    fixedBy:
+      "pnpm check:google-redirect-uris (MISMATCHED-PAIRS remediation, 2026-08-29)",
+    // The failure is repairing one namespace while the flow reads the other,
+    // so the repair verifies clean and changes nothing.
+    re: /\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b|\bmismatched?[ -]pairs?\b|\b(?:wrong|losing|stale) (?:key|secret|pair|namespace)\b|\bGOOGLE_SIGN_IN_[A-Z_]+\b/i,
+  },
+  {
     key: "missed-localization",
     label: "Had to ask whether changed copy was translated",
     fixedBy: "guard:i18n-changed-copy + AGENTS.md review rule (2026-08-20)",

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { countLockedLayers } from "../shared/locked-layers.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -66,7 +67,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("File ID to delete"),
   }),
-  run: async ({ id }) => {
+  run: async ({ id }, context) => {
     const db = getDb();
 
     // Look up the file to get its designId for access check
@@ -92,6 +93,7 @@ export default defineAction({
     if (!file) return { id, deleted: false, alreadyMissing: true };
 
     await assertAccess("design", file.designId, "editor");
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
     if (countLockedLayers(file.content) > 0) {
       throw new Error(
         "This screen contains locked layers. Unlock them before deleting the screen.",

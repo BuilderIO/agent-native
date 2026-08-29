@@ -9,6 +9,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -677,15 +678,18 @@ export default defineAction({
         "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),
   }),
-  run: async ({
-    source,
-    intent,
-    includeContent,
-    persist,
-    activeBreakpoint,
-    activeFrameWidthPx,
-    maxWidthPx,
-  }) => {
+  run: async (
+    {
+      source,
+      intent,
+      includeContent,
+      persist,
+      activeBreakpoint,
+      activeFrameWidthPx,
+      maxWidthPx,
+    },
+    context,
+  ) => {
     const actionSource = source as VisualEditActionSource;
     let editIntent = intent as EditIntent;
 
@@ -947,6 +951,7 @@ export default defineAction({
     }
 
     if (patch.result.status === "applied" && patch.result.changed) {
+      await snapshotDesignBeforeAgentEdit(file.designId, context);
       await persistDesignFileEdit({
         id: file.id,
         designId: file.designId,

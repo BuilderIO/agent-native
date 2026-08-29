@@ -51,6 +51,7 @@ interface BuildAssistantMessageOptions {
    */
   turnId?: string;
   runDurationMs?: number;
+  scope?: { type: string; id: string } | null;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -361,6 +362,12 @@ export function buildAssistantMessage(
 
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
+  if (options.scope?.type && options.scope.id) {
+    custom.chatScope = {
+      type: options.scope.type,
+      id: options.scope.id,
+    };
+  }
   if (runId) custom.foldedRunIds = [runId];
   if (
     typeof options.runDurationMs === "number" &&
