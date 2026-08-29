@@ -112,6 +112,27 @@ describe("formatMcpConnectError", () => {
     );
   });
 
+  it("keeps a useful fallback for typed errors without a message", () => {
+    const error = Object.assign(new Error(), { code: 502 });
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: Could not connect to that MCP server.",
+    );
+  });
+
+  it("retains typed status when an HTML body contains the same status", () => {
+    const error = Object.assign(
+      new Error(
+        "Error POSTing to endpoint: HTTP 502 Bad Gateway <!doctype html><html></html>",
+      ),
+      { code: 502 },
+    );
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
   it("explains Streamable HTTP handshake failures", () => {
     expect(
       formatMcpConnectError("Streamable HTTP error: non-200 status code"),

@@ -35,15 +35,16 @@ export function formatMcpConnectError(error: unknown): string {
   const raw = stringifyError(error);
   const text = raw.trim();
   const status = httpStatusFromError(error);
-  const statusPrefix =
+  const statusPrefix = status !== undefined ? `HTTP ${status}: ` : "";
+  const hasStatusInText =
     status !== undefined &&
-    !new RegExp(`\\bHTTP(?:\\/\\d+(?:\\.\\d+)?)?\\s+${status}\\b`, "i").test(
+    new RegExp(`\\bHTTP(?:\\/\\d+(?:\\.\\d+)?)?\\s+${status}\\b`, "i").test(
       text,
-    )
-      ? `HTTP ${status}: `
-      : "";
-  const formattedText = `${statusPrefix}${text}`;
-  if (!formattedText) return "Could not connect to that MCP server.";
+    );
+  const formattedText = hasStatusInText ? text : `${statusPrefix}${text}`;
+  if (!text) {
+    return `${statusPrefix}Could not connect to that MCP server.`;
+  }
   if (
     /<!doctype|<html[\s>]|<\/html>|unexpected token '<'|is not valid json/i.test(
       text,
