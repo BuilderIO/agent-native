@@ -4,9 +4,10 @@
  * active Google client each deployed host advertises. This public probe sees
  * redirect_uri_mismatch without reading or sending a client secret.
  *
- * The target is the deployment-level managed OAuth client from
- * health/google?client=managed. The endpoint fails closed when that client is
- * unavailable; provider-scoped credentials are never inferred from sign-in.
+ * The probe checks both the identity client from health/google and the
+ * deployment-level managed client from health/google?client=managed. The
+ * managed endpoint fails closed when that client is unavailable; provider-
+ * scoped credentials are never inferred from sign-in.
  */
 import { createHash } from "node:crypto";
 import { setDefaultResultOrder } from "node:dns";
@@ -124,6 +125,8 @@ type Options = {
   allowLegacyHealth: boolean;
 };
 
+type GoogleHealthClient = "managed" | "sign_in";
+
 type Target = { lane: string; host: string };
 
 const repoRoot = path.resolve(
@@ -172,6 +175,20 @@ function emptyHealth(
     credentialMode: null,
     managedConnection: null,
     callbackPaths: null,
+  };
+}
+
+function normalizeHealth(
+  health: GoogleHealthResult,
+  status: GoogleHealthStatus,
+  reason: string,
+): GoogleHealthResult {
+  return {
+    ...health,
+    status,
+    reason,
+    clientId: null,
+    clientFingerprint: null,
   };
 }
 
@@ -579,13 +596,14 @@ async function healthOf(
   host: string,
   deadline: number,
   allowLegacyHealth: boolean,
+  client: GoogleHealthClient,
 ): Promise<GoogleHealthResult> {
   if (Date.now() >= deadline) {
     return emptyHealth("unknown", "host probe budget exhausted");
   }
   try {
     const response = await fetchWithRetry(
-      `https://${host}/_agent-native/health/google?client=managed`,
+      `https://${host}/_agent-native/health/google${client === "managed" ? "?client=managed" : ""}`,
       { redirect: "manual" },
       deadline,
     );
@@ -594,26 +612,31 @@ async function healthOf(
       return emptyHealth("unknown", "health response exceeded 64 KiB");
     }
     const health = classifyGoogleHealthResponse(response, bodyText);
+    if (client === "sign_in") return health;
     if (health.managedConnection === "not_applicable") {
-      return emptyHealth(
+      return normalizeHealth(
+        health,
         "not_applicable",
         "app does not expose deployment-level Google OAuth",
       );
     }
     if (health.managedConnection === "unknown") {
-      return emptyHealth(
+      return normalizeHealth(
+        health,
         "unknown",
         "health response declared managed OAuth capability as unknown",
       );
     }
     if (health.managedConnection === null && health.credentialMode === "user") {
-      return emptyHealth(
+      return normalizeHealth(
+        health,
         "not_applicable",
         "OAuth credentials are user-scoped and checked after authentication",
       );
     }
     if (health.managedConnection === null && !allowLegacyHealth) {
-      return emptyHealth(
+      return normalizeHealth(
+        health,
         "unknown",
         "health response did not declare managed OAuth capability",
       );
@@ -622,7 +645,8 @@ async function healthOf(
       health.managedConnection === "required" &&
       health.credentialSource !== "managed"
     ) {
-      return emptyHealth(
+      return normalizeHealth(
+        health,
         "unknown",
         "required managed OAuth health did not advertise managed credentials",
       );
@@ -630,7 +654,8 @@ async function healthOf(
     if (health.credentialSource === "managed") {
       return health.credentialMode === "managed"
         ? health
-        : emptyHealth(
+        : normalizeHealth(
+            health,
             "unknown",
             "managed health response omitted its credential mode",
           );
@@ -639,7 +664,8 @@ async function healthOf(
       (health.credentialSource === "active" ||
         health.credentialSource === "preferred")
       ? health
-      : emptyHealth(
+      : normalizeHealth(
+          health,
           "unknown",
           "health endpoint did not advertise managed OAuth",
         );
@@ -664,6 +690,39 @@ async function mapWithLimit<T, R>(
     }),
   );
   return results;
+}
+
+function sameStringArray(
+  left: string[] | null,
+  right: string[] | null,
+): boolean {
+  return (
+    left !== null &&
+    right !== null &&
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+export function healthContractDisagreement(
+  managed: GoogleHealthResult,
+  signIn: GoogleHealthResult,
+): string | null {
+  if (
+    managed.managedConnection !== null &&
+    signIn.managedConnection !== null &&
+    managed.managedConnection !== signIn.managedConnection
+  ) {
+    return "managed capability differs between health contracts";
+  }
+  if (
+    managed.callbackPaths !== null &&
+    signIn.callbackPaths !== null &&
+    !sameStringArray(managed.callbackPaths, signIn.callbackPaths)
+  ) {
+    return "callback paths differ between health contracts";
+  }
+  return null;
 }
 
 function allManifestHosts(manifest: Manifest): Set<string> {
@@ -728,40 +787,74 @@ async function run(argv: string[]): Promise<number> {
       if (notApplicable.has(target.host)) {
         return {
           ...target,
-          health: emptyHealth(
+          managedHealth: emptyHealth(
             "not_applicable",
             "site is not a Google-enabled app",
           ),
-          results: [],
+          signInHealth: emptyHealth(
+            "not_applicable",
+            "site is not a Google-enabled app",
+          ),
+          results: [] as Array<{
+            client: GoogleHealthClient;
+            callbackPath: string;
+            redirectUri: string;
+            state: GoogleRedirectProbeState;
+            detail?: string;
+          }>,
         };
       }
       const hostDeadline = Math.min(runDeadline, Date.now() + HOST_TIMEOUT_MS);
-      const health = await healthOf(
-        target.host,
-        hostDeadline,
-        options.allowLegacyHealth,
-      );
-      const callbackPaths =
-        health.callbackPaths && options.paths
-          ? health.callbackPaths.filter((callbackPath) =>
-              options.paths?.includes(callbackPath),
-            )
-          : (health.callbackPaths ?? []);
-      const results = health.clientId
-        ? await mapWithLimit(callbackPaths, 3, async (callbackPath) => {
-            const redirectUri = `https://${target.host}${callbackPath}`;
-            return {
-              callbackPath,
-              redirectUri,
-              ...(await probeRedirect(
-                health.clientId as string,
+      const [managedHealth, signInHealth] = await Promise.all([
+        healthOf(
+          target.host,
+          hostDeadline,
+          options.allowLegacyHealth,
+          "managed",
+        ),
+        healthOf(
+          target.host,
+          hostDeadline,
+          options.allowLegacyHealth,
+          "sign_in",
+        ),
+      ]);
+      const probeHealth = async (
+        client: GoogleHealthClient,
+        health: GoogleHealthResult,
+      ) => {
+        const callbackPaths =
+          health.callbackPaths && options.paths
+            ? health.callbackPaths.filter((callbackPath) =>
+                options.paths?.includes(callbackPath),
+              )
+            : (health.callbackPaths ?? []);
+        return health.clientId
+          ? mapWithLimit(callbackPaths, 3, async (callbackPath) => {
+              const redirectUri = `https://${target.host}${callbackPath}`;
+              return {
+                client,
+                callbackPath,
                 redirectUri,
-                hostDeadline,
-              )),
-            };
-          })
-        : [];
-      return { ...target, health, results };
+                ...(await probeRedirect(
+                  health.clientId as string,
+                  redirectUri,
+                  hostDeadline,
+                )),
+              };
+            })
+          : [];
+      };
+      const [managedResults, signInResults] = await Promise.all([
+        probeHealth("managed", managedHealth),
+        probeHealth("sign_in", signInHealth),
+      ]);
+      return {
+        ...target,
+        managedHealth,
+        signInHealth,
+        results: [...managedResults, ...signInResults],
+      };
     },
   );
 
@@ -772,63 +865,79 @@ async function run(argv: string[]): Promise<number> {
   let verified = 0;
   let expected = 0;
   let managedHosts = 0;
+  let signInHosts = 0;
   for (const row of rows) {
-    const healthLabel = [
-      row.health.status,
-      row.health.reason ? `reason=${row.health.reason}` : "",
-      row.health.mismatchedPairs ? "mismatched-pairs" : "",
-      row.health.credentialSource
-        ? `source=${row.health.credentialSource}`
-        : "",
-      row.health.managedConnection
-        ? `managed=${row.health.managedConnection}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const healthLabel = (health: GoogleHealthResult) =>
+      [
+        health.status,
+        health.reason ? `reason=${health.reason}` : "",
+        health.mismatchedPairs ? "mismatched-pairs" : "",
+        health.credentialSource ? `source=${health.credentialSource}` : "",
+        health.managedConnection ? `managed=${health.managedConnection}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
     console.log(
-      `HOST\t${row.lane}\t${row.host}\tclient=${row.health.clientFingerprint ?? "none"}\t${healthLabel}`,
+      `HOST\t${row.lane}\t${row.host}\tsign_in_client=${row.signInHealth.clientFingerprint ?? "none"}\t${healthLabel(row.signInHealth)}\tmanaged_client=${row.managedHealth.clientFingerprint ?? "none"}\t${healthLabel(row.managedHealth)}`,
     );
-    if (row.health.status === "not_applicable") continue;
     if (
-      row.health.credentialSource === "managed" &&
-      row.health.managedConnection !== "not_applicable"
+      row.signInHealth.status === "not_applicable" &&
+      row.managedHealth.status === "not_applicable"
+    )
+      continue;
+    if (
+      row.managedHealth.credentialSource === "managed" &&
+      row.managedHealth.managedConnection !== "not_applicable"
     ) {
       managedHosts += 1;
     }
-    if (
-      options.allowLegacyHealth &&
-      row.health.credentialSource !== "managed"
-    ) {
-      console.log(
-        `NOT VERIFIED\t${row.host}\tmanaged OAuth health contract is not deployed`,
-      );
-      continue;
-    }
-    if (
-      row.health.credentialSource === "managed" &&
-      row.health.callbackPaths === null
-    ) {
+    if (row.signInHealth.status === "valid") signInHosts += 1;
+    const disagreement = healthContractDisagreement(
+      row.managedHealth,
+      row.signInHealth,
+    );
+    if (disagreement) {
       unknown += 1;
-      console.log(
-        `UNKNOWN\t${row.host}\thealth\thealth response omitted callback paths`,
-      );
-      continue;
+      console.log(`UNKNOWN\t${row.host}\thealth\t${disagreement}`);
     }
-    if (row.health.status === "invalid") invalidCredentials += 1;
-    if (row.health.status === "invalid") {
-      console.log(
-        `FAIL\t${row.host}\thealth\t${row.health.reason ?? "invalid"}`,
-      );
-    } else if (row.health.status !== "valid") {
-      console.log(
-        `UNKNOWN\t${row.host}\thealth\t${row.health.reason ?? row.health.status}`,
-      );
-    }
-    if (!row.health.clientId) {
-      unprobeable += 1;
-      console.log(`UNPROBEABLE\t${row.host}\t(no active client id advertised)`);
-      continue;
+    for (const [client, health] of [
+      ["sign_in", row.signInHealth] as const,
+      ["managed", row.managedHealth] as const,
+    ]) {
+      if (
+        client === "managed" &&
+        options.allowLegacyHealth &&
+        health.credentialSource !== "managed" &&
+        health.status !== "not_applicable"
+      ) {
+        console.log(
+          `NOT VERIFIED\t${row.host}\tmanaged OAuth health contract is not deployed`,
+        );
+        continue;
+      }
+      if (health.status === "not_applicable") continue;
+      if (health.status === "invalid") invalidCredentials += 1;
+      if (health.status === "invalid") {
+        console.log(
+          `FAIL\t${row.host}\t${client}\thealth\t${health.reason ?? "invalid"}`,
+        );
+      } else if (health.status !== "valid") {
+        console.log(
+          `UNKNOWN\t${row.host}\t${client}\thealth\t${health.reason ?? health.status}`,
+        );
+      }
+      if (health.clientId && health.callbackPaths === null) {
+        unknown += 1;
+        console.log(
+          `UNKNOWN\t${row.host}\t${client}\thealth\thealth response omitted callback paths`,
+        );
+      }
+      if (!health.clientId) {
+        unprobeable += 1;
+        console.log(
+          `UNPROBEABLE\t${row.host}\t${client}\t(no active client id advertised)`,
+        );
+      }
     }
     expected += row.results.length;
     for (const result of row.results) {
@@ -842,16 +951,13 @@ async function run(argv: string[]): Promise<number> {
       if (result.state === "unregistered") unregistered += 1;
       if (result.state === "unknown") unknown += 1;
       console.log(
-        `${label}\t${row.host}\t${result.callbackPath}\t${result.redirectUri}${result.detail ? `\t${result.detail}` : ""}`,
+        `${label}\t${row.host}\t${result.client}\t${result.callbackPath}\t${result.redirectUri}${result.detail ? `\t${result.detail}` : ""}`,
       );
-    }
-    if (row.health.status === "unknown" || row.health.status === "absent") {
-      unknown += 1;
     }
   }
 
   console.log(
-    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
+    `\nSummary: hosts=${rows.length} paths=${options.paths?.length ?? "auto"} sign_in_hosts=${signInHosts} managed_hosts=${managedHosts} expected=${expected} verified=${verified} unregistered=${unregistered} unknown=${unknown} unprobeable=${unprobeable} invalid_credentials=${invalidCredentials} skipped_required=${skippedRequired.length}`,
   );
   return googleRedirectProbeExitCode({
     expected,
@@ -862,8 +968,11 @@ async function run(argv: string[]): Promise<number> {
     skippedRequired: skippedRequired.length,
     allowNoCoverage:
       managedHosts === 0 &&
-      (options.allowLegacyHealth ||
-        rows.every((row) => row.health.status === "not_applicable")),
+      rows.every(
+        (row) =>
+          row.signInHealth.status === "not_applicable" &&
+          row.managedHealth.status === "not_applicable",
+      ),
   });
 }
 

@@ -8,6 +8,7 @@ import {
   classifyGoogleHealthResponse,
   fetchWithRetry,
   googleRedirectProbeExitCode,
+  healthContractDisagreement,
 } from "./check-google-redirect-uris.ts";
 
 const redirectUri =
@@ -46,6 +47,51 @@ test("reads callback ownership from the deployed health contract", () => {
   ]);
   assert.equal(result.credentialMode, "managed");
   assert.equal(result.managedConnection, "required");
+});
+
+test("does not treat separate client ids as a health-contract disagreement", () => {
+  const managed = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "managed-client",
+        managedConnection: "required",
+        callbackPaths: ["/_agent-native/google/callback"],
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "managed-client",
+      managedConnection: "required",
+      callbackPaths: ["/_agent-native/google/callback"],
+    }),
+  );
+  const signIn = classifyGoogleHealthResponse(
+    new Response(
+      JSON.stringify({
+        status: "valid",
+        clientId: "sign-in-client",
+        managedConnection: "required",
+        callbackPaths: ["/_agent-native/google/callback"],
+      }),
+      { status: 200, headers: jsonHeaders },
+    ),
+    JSON.stringify({
+      status: "valid",
+      clientId: "sign-in-client",
+      managedConnection: "required",
+      callbackPaths: ["/_agent-native/google/callback"],
+    }),
+  );
+  assert.equal(healthContractDisagreement(managed, signIn), null);
+  assert.equal(
+    healthContractDisagreement(managed, {
+      ...signIn,
+      managedConnection: "not_applicable",
+    }),
+    "managed capability differs between health contracts",
+  );
 });
 
 test("separates definitive mismatches from inconclusive probe failures", () => {
