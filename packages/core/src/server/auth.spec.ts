@@ -5123,14 +5123,19 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
-      const mockExecute = vi.fn(async (query: { sql?: string; args?: unknown[] } | string) => {
-        const sql = typeof query === "string" ? query : (query.sql ?? "");
-        const args = typeof query === "string" ? undefined : query.args;
-        if (sql.includes('FROM "session"') && args?.[0] === "ba_unsigned_token") {
-          return { rows: [{ email: "Designer@Example.COM" }] };
-        }
-        return { rows: [] };
-      });
+      const mockExecute = vi.fn(
+        async (query: { sql?: string; args?: unknown[] } | string) => {
+          const sql = typeof query === "string" ? query : (query.sql ?? "");
+          const args = typeof query === "string" ? undefined : query.args;
+          if (
+            sql.includes('FROM "session"') &&
+            args?.[0] === "ba_unsigned_token"
+          ) {
+            return { rows: [{ email: "Designer@Example.COM" }] };
+          }
+          return { rows: [] };
+        },
+      );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isPostgres: () => false,

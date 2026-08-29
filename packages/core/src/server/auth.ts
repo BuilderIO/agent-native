@@ -1150,7 +1150,9 @@ async function emailFromVerificationResponseSession(
 ): Promise<string | null> {
   const sessionToken = extractSessionTokenFromAuthResponse(response);
   if (!sessionToken) return null;
-  return (await resolveBetterAuthSessionToken(sessionToken))?.email ?? null;
+  const resolved = await resolveBetterAuthSessionToken(sessionToken);
+  if (!resolved) return null;
+  return resolved.email;
 }
 
 function decodeSessionCookieValue(value: string): string {
