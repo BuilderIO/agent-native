@@ -54,6 +54,22 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  /**
+   * Every search field in the repo draws its own clear button, so leaving
+   * WebKit's cancel widget in place renders two "x" controls side by side.
+   * Assert the suppression here rather than per component: the reported
+   * duplicate came back the moment a new search field was added.
+   */
+  it("suppresses the native search cancel and decoration widgets", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /input\[type="search"\]::-webkit-search-cancel-button,\s*input\[type="search"\]::-webkit-search-decoration,\s*input\[type="search"\]::-webkit-search-results-button,\s*input\[type="search"\]::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+    );
+  });
+
   it("removes shell transitions while the agent sidebar is being resized", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",

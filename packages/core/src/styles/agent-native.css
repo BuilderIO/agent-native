@@ -617,6 +617,22 @@
   [role="button"] {
     cursor: pointer;
   }
+
+  /* WebKit paints its own cancel/decoration widgets inside every
+     `input[type="search"]`. They are unthemeable, mouse-only, absent in
+     Firefox, and sit on top of whatever end padding the field reserved — so a
+     search field that draws its own themed clear button renders two visible
+     "x" affordances side by side, and one of them cannot be reached by
+     keyboard. The design system owns the clear affordance; drop the platform
+     one everywhere rather than per call site, so a new search field cannot
+     reintroduce the duplicate. */
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration,
+  input[type="search"]::-webkit-search-results-button,
+  input[type="search"]::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 /* Appearance presets.
