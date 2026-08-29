@@ -391,6 +391,7 @@ function isDesktopRendererEntryUrl(url: string): boolean {
       path.resolve(fileURLToPath(new URL(url))) ===
       path.resolve(desktopRendererEntryPath())
     );
+    // coercion-ok: malformed navigation URLs are not the renderer entry.
   } catch {
     return false;
   }
