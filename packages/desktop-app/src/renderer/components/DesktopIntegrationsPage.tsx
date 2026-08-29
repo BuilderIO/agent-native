@@ -69,6 +69,7 @@ export default function DesktopIntegrationsPage({
               <McpIntegrationsLanding
                 title="Integrations"
                 onOAuthStart={startOAuth}
+                oauthReady={targetWebContentsId !== undefined}
                 oauthReturnPath="/integrations"
               />
             </McpServersApiProvider>

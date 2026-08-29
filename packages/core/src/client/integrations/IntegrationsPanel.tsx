@@ -763,6 +763,7 @@ export interface McpIntegrationsSectionProps {
   showHeader?: boolean;
   className?: string;
   onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReady?: boolean;
   oauthReturnPath?: string;
 }
 
@@ -775,6 +776,7 @@ export function McpIntegrationsSection({
   showHeader = true,
   className,
   onOAuthStart,
+  oauthReady,
   oauthReturnPath,
 }: McpIntegrationsSectionProps) {
   const t = useT();
@@ -1097,6 +1099,7 @@ export function McpIntegrationsSection({
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createServer.mutateAsync(args)}
         onOAuthStart={onOAuthStart}
+        oauthReady={oauthReady}
         oauthReturnPath={oauthReturnPath}
       />
     </section>
