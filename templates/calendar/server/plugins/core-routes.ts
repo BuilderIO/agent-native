@@ -3,6 +3,7 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 import { envKeys } from "../lib/env-config.js";
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "required",
   sseRoute: "/_agent-native/sse",
   envKeys,
   // Land deep links (`/_agent-native/open?app=calendar&view=calendar&eventId=…&date=…`)

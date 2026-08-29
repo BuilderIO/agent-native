@@ -1049,6 +1049,10 @@ const messages = {
       "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
     resume: "फिर शुरू करें",
     discardRecording: "रिकॉर्डिंग हटाएं",
+    restart: "रिकॉर्डिंग फिर से शुरू करें",
+    restartShortcut: "फिर से शुरू करें (⌥⇧R)",
+    restartQuestion: "क्या नई रिकॉर्डिंग शुरू करें?",
+    restartConfirm: "फिर से शुरू करें",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",

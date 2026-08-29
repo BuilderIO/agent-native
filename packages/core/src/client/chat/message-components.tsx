@@ -1424,14 +1424,15 @@ export function shouldShowAssistantWorkSummary({
   chatRunning: boolean;
 }): boolean {
   if (!hasCollapsibleWork) return false;
-  if (hasActiveTool) return false;
 
-  // An unresolved tool means "still working" only while the turn is actually
-  // running. On a stalled or interrupted turn it used to hide the summary
-  // forever, so the longest turns showed no "Worked for Xm Ys" at all.
-  if (hasUnresolvedTool) return !(isLast && chatRunning);
+  // Keep every work segment behind its disclosure while the current turn is
+  // streaming. Text parts still break the grouped-parts sequence, so a final
+  // response appears between separate work summaries instead of being buried
+  // with the tool calls that surround it.
+  if (isLast && chatRunning) return true;
+  if (hasActiveTool || hasUnresolvedTool) return true;
 
-  // Keep completed historical work wrapped while a later turn is running.
+  // Keep completed historical work grouped while a later turn is running.
   // Removing the wrapper exposes/remounts ReasoningCell and resets its
   // disclosure state to the default-open value on every new submission.
   return isComplete || !isLast;
@@ -2038,6 +2039,7 @@ export function AssistantMessage() {
                         part.indices[0] ?? -1,
                         firstWorkPartIndex,
                       )}
+                      isRunning={isLast && chatRunning}
                       defaultOpen={hasCustomUi}
                       autoCollapse={animateCollapse && !hasCustomUi}
                     >

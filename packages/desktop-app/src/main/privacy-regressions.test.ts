@@ -50,6 +50,35 @@ describe("desktop passive-access regressions", () => {
     expect(signedInFastPath).toBeGreaterThan(signOutGuard);
   });
 
+  it("starts native sign-in from the Dispatch authority, not the active app", () => {
+    const main = source("./index.ts");
+    const signIn = between(
+      main,
+      "ipcMain.handle(IPC.IDENTITY_SIGN_IN",
+      "ipcMain.handle(IPC.IDENTITY_AUTHENTICATE",
+    );
+
+    expect(signIn).toContain("resolveDesktopIdentityAuthority()");
+    expect(signIn).not.toContain("resolveDesktopIdentityApp(activeAppId)");
+
+    const resolver = between(
+      main,
+      "function resolveDesktopIdentityApp(",
+      "function listDesktopIdentityApps(",
+    );
+    expect(resolver).toContain(
+      'allowDisabled: appId === "dispatch" && isCanonical',
+    );
+    expect(resolver).toContain("allowDisabled?: boolean");
+    expect(main).toContain(
+      'return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });',
+    );
+    expect(main).not.toContain(
+      'refreshStatus(resolveDesktopIdentityApp("dispatch"))',
+    );
+    expect(main).toContain("retryAppSessionFanout()");
+  });
+
   it("keeps remembered Content folder discovery metadata-only", () => {
     const main = source("./index.ts");
     const normalization = between(
@@ -368,5 +397,23 @@ describe("desktop passive-access regressions", () => {
     );
     expect(whenReady).toContain("if (pendingDeepLink) {");
     expect(whenReady).toContain("handleDeepLink(pendingDeepLink);");
+  });
+
+  it("registers development deep links against the current app path", () => {
+    const main = source("./index.ts");
+    const registration = between(
+      main,
+      "const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;",
+      "let pendingDeepLink: string | null = null;",
+    );
+
+    expect(registration).toContain(
+      "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [",
+    );
+    expect(registration).toContain("app.getAppPath(),");
+    expect(registration).not.toContain("process.argv[1]");
+    expect(registration).toContain(
+      "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);",
+    );
   });
 });

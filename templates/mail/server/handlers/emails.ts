@@ -9,7 +9,10 @@ import {
 import { readBody, getSession } from "@agent-native/core/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import { mailLabelMatches } from "@shared/gmail-labels.js";
+import {
+  isInboxScopedAppLabel,
+  mailLabelMatches,
+} from "@shared/gmail-labels.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import type { EmailMessage, Label, UserSettings } from "@shared/types.js";
@@ -36,7 +39,10 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
-import { filterInboxScopedThreadMessages } from "../lib/gmail-query.js";
+import {
+  filterInboxScopedThreadMessages,
+  filterLabelMessages,
+} from "../lib/gmail-query.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -182,11 +188,7 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     try {
       const { clientId, clientSecret } =
         await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(
-        clientId,
-        clientSecret,
-        "http://localhost:8080/_agent-native/google/callback",
-      );
+      const oauth = createOAuth2Client(clientId, clientSecret, "");
       const refreshed = await oauth.refreshToken(tokens.refresh_token);
       const updated = {
         ...tokens,
@@ -217,8 +219,14 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
  */
 async function getAccountTokens(
   forEmail: string,
+  requestedAccountEmails?: readonly string[],
 ): Promise<Array<{ email: string; accessToken: string }>> {
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const requested = requestedAccountEmails
+    ? new Set(requestedAccountEmails.map((account) => account.toLowerCase()))
+    : undefined;
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => !requested || requested.has(account.accountId.toLowerCase()),
+  );
 
   const results: Array<{ email: string; accessToken: string }> = [];
 
@@ -354,8 +362,12 @@ function recomputeUnreadCounts(
   labels: Label[],
 ): Label[] {
   return labels.map((label) => {
+    const inboxScoped = label.id === "inbox" || isInboxScopedAppLabel(label.id);
     const active = emails.filter(
-      (e) => !e.isArchived && !e.isTrashed && e.labelIds.includes(label.id),
+      (e) =>
+        !e.isTrashed &&
+        (!inboxScoped || !e.isArchived) &&
+        e.labelIds.includes(label.id),
     );
     const unread = active.filter((e) => !e.isRead).length;
     return { ...label, unreadCount: unread, totalCount: active.length };
@@ -522,6 +534,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         emails = emails.filter((e) => e.isTrashed);
         break;
       case "all":
+        if (label) emails = filterLabelMessages(emails, label);
         break;
       default:
         // label: prefixed or raw label id
@@ -1731,7 +1744,14 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
   const email = await userEmail(_event);
   if (await isConnected(email)) {
     try {
-      const accountTokens = await getAccountTokens(email);
+      const { accountEmails: accountEmailsQuery } = getQuery(_event) as {
+        accountEmails?: string;
+      };
+      const accountEmails = accountEmailsQuery
+        ?.split(",")
+        .map((account) => account.trim())
+        .filter(Boolean);
+      const accountTokens = await getAccountTokens(email, accountEmails);
       // Deduplicate by derived short-name id (not Gmail label ID)
       const labelMap = new Map<
         string,
@@ -1848,7 +1868,10 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       return { error: "Unable to load Gmail labels. Please retry." };
     }
   }
-  return readLabels(email);
+  return recomputeUnreadCounts(
+    await readEmails(email),
+    await readLabels(email),
+  );
 });
 
 // ─── Calendar RSVP ───────────────────────────────────────────────────────────

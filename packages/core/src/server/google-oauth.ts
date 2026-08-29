@@ -346,10 +346,19 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
   );
 }
 
-function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
+export type OAuthRedirectUriOptions = {
+  /** Allow a known framework callback to bypass an app mount prefix. */
+  allowRootCallback?: boolean;
+};
+
+function getDefaultOAuthRedirectUrl(
+  event: H3Event,
+  path: string,
+  options: OAuthRedirectUriOptions = {},
+): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   if (
-    isWorkspaceOAuthCallbackRelayEnabled() &&
+    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
     isFrameworkOAuthCallbackPath(cleanPath)
   ) {
     return `${getOrigin(event)}${cleanPath}`;
@@ -389,6 +398,7 @@ export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
   expectedOrigin = getOrigin(event),
+  options: OAuthRedirectUriOptions = {},
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -415,7 +425,8 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...(isWorkspaceOAuthCallbackRelayEnabled() &&
+          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
+            options.allowRootCallback) &&
           isFrameworkOAuthCallbackPath(url.pathname)
             ? ["/_agent-native/"]
             : []),
@@ -444,12 +455,15 @@ export function isAllowedOAuthRedirectUri(
 export function resolveOAuthRedirectUri(
   event: H3Event,
   defaultPath = "/_agent-native/google/callback",
+  options: OAuthRedirectUriOptions = {},
 ): string | null {
   const supplied = getQuery(event).redirect_uri;
   if (typeof supplied === "string" && supplied.length > 0) {
-    return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
+    return isAllowedOAuthRedirectUri(supplied, event, getOrigin(event), options)
+      ? supplied
+      : null;
   }
-  return getDefaultOAuthRedirectUrl(event, defaultPath);
+  return getDefaultOAuthRedirectUrl(event, defaultPath, options);
 }
 
 // ─── OAuth State ─────────────────────────────────────────────────────────────
@@ -660,8 +674,9 @@ export function encodeOAuthState(
 
 /**
  * Decode and verify OAuth state from the callback's state query parameter.
- * Rejects forged or tampered state by checking the HMAC signature.
- * Falls back to the provided URI if decoding or verification fails.
+ * A fallback-shaped payload is returned when state is missing, malformed, or
+ * fails HMAC verification. That payload is untrusted; callers must validate
+ * the fields their flow requires before exchanging a code or redirecting.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,

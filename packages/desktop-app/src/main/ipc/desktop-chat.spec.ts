@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({
+  app: { getPath: vi.fn(() => "/tmp"), once: vi.fn() },
   ipcMain: { handle: vi.fn() },
   net: { request: vi.fn() },
   session: { fromPartition: vi.fn() },
+}));
+
+vi.mock("@agent-native/core/terminal/server", () => ({
+  createPtyWebSocketServer: vi.fn(),
 }));
 
 vi.mock("../app-store", () => ({
@@ -11,11 +16,19 @@ vi.mock("../app-store", () => ({
 }));
 
 import {
+  desktopTerminalInfo,
   resolveTargetUrl,
   shouldForwardRequestHeader,
 } from "./desktop-chat.js";
 
 describe("desktop chat relay target URLs", () => {
+  it("returns an authenticated desktop-owned terminal endpoint", () => {
+    expect(desktopTerminalInfo(4567, "a token")).toEqual({
+      available: true,
+      wsUrl: "ws://127.0.0.1:4567/ws?token=a%20token",
+    });
+  });
+
   it("rejects dot-segment traversal after URL normalization", () => {
     expect(
       resolveTargetUrl(

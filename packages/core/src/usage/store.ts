@@ -14,6 +14,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getRequestOrgId } from "../server/request-context.js";
 
 /**
  * Per-million-token pricing in cents. Cache read is typically ~10% of
@@ -211,6 +212,7 @@ export interface UsageRecord {
   costCentsX100?: number;
   /** Whether cost is provider-reported, estimated, or unavailable. */
   costSource?: UsageCostSource;
+  /** Defaults to the active request organization when omitted. */
   orgId?: string;
   runId?: string;
   threadId?: string;
@@ -315,6 +317,10 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_lower_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
         );
+        await ensureIndexExists(
+          "idx_token_usage_org_app_created",
+          `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
+        );
         return;
       }
 
@@ -339,6 +345,7 @@ export async function ensureUsageTable(): Promise<void> {
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
       ]) {
         try {
           await client.execute(ddl);
@@ -456,14 +463,17 @@ export async function recordUsage(
     app ?? process.env.AGENT_APP ?? process.env.APP_NAME ?? "";
   const resolvedLabel = label ?? "chat";
   const resolvedRef = refId ?? "";
+  const resolvedOrgId = orgId ?? getRequestOrgId() ?? null;
 
-  // Replace any prior usage for this (label, refId) so re-recording the same
-  // run — e.g. a recap regenerated on a PR re-push — overwrites instead of
-  // double-counting. No-op when refId is unset (the common per-call path).
+  // Replace any prior usage for this (org, label, refId) so re-recording the
+  // same run — e.g. a recap regenerated on a PR re-push — overwrites instead
+  // of double-counting. No-op when refId is unset (the common per-call path).
   if (resolvedRef) {
     await client.execute({
-      sql: `DELETE FROM token_usage WHERE label = ? AND ref_id = ?`,
-      args: [resolvedLabel, resolvedRef],
+      sql: `DELETE FROM token_usage
+        WHERE label = ? AND ref_id = ?
+          AND (org_id IS NULL OR org_id = ?)`,
+      args: [resolvedLabel, resolvedRef, resolvedOrgId],
     });
   }
 
@@ -500,7 +510,7 @@ export async function recordUsage(
       resolvedLabel,
       resolvedApp,
       resolvedRef,
-      orgId ?? null,
+      resolvedOrgId,
       runId ?? null,
       threadId ?? null,
       taskId ?? null,
@@ -516,7 +526,10 @@ export async function recordUsage(
   // evaluator serializes its own work so the hot path stays one insert.
   void import("./alerts-store.js")
     .then(({ enqueueUsageAlertEvaluation }) => {
-      return enqueueUsageAlertEvaluation(record);
+      return enqueueUsageAlertEvaluation({
+        ...record,
+        orgId: resolvedOrgId,
+      });
     })
     .catch((error) => {
       console.error("[usage-alerts] could not enqueue evaluation:", error);

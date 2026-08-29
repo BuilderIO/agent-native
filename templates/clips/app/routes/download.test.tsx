@@ -28,6 +28,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadRoute.nightly": "Nightly",
       "downloadRoute.switchToNightly": "Switch to Nightly builds",
       "downloadRoute.switchToStable": "Switch to stable builds",
+      "downloadRoute.chromeTitle": "Chrome extension for browser logs",
+      "captureInstall.chromeDescription":
+        "Best when you want redacted console and network diagnostics from the browser tab.",
     };
     return (messages[key] ?? key).replace(
       "{{platform}}",
@@ -37,9 +40,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@/lib/capture-install-options", () => ({
-  clipsChromeExtensionUrl: null,
+  clipsChromeExtensionUrl: "https://chromewebstore.google.com/detail/example",
   markDesktopAppDownloaded: markDownloaded,
-  useClipsChromeExtensionEnabled: () => false,
+  useClipsChromeExtensionEnabled: () => true,
 }));
 
 vi.mock("@/lib/download-release-channel", () => ({
@@ -188,5 +191,18 @@ describe("Clips download page", () => {
     expect(container.textContent).toContain(
       "Didn't work? Try downloading again",
     );
+  });
+
+  it("keeps the extension explanation compact and links to its docs", () => {
+    expect(container.textContent).toContain(
+      "Best when you want redacted console and network diagnostics from the browser tab.",
+    );
+    const docsLink = container.querySelector<HTMLAnchorElement>(
+      'a[aria-label="Chrome extension for browser logs"]',
+    );
+    expect(docsLink?.getAttribute("href")).toBe(
+      "https://www.agent-native.com/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension",
+    );
+    expect(docsLink?.querySelector("svg")).toBeTruthy();
   });
 });

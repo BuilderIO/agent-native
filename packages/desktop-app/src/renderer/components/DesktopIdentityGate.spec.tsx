@@ -71,6 +71,14 @@ describe("DesktopIdentityGate", () => {
     expect(container.textContent).toContain("Sign in with Google");
     expect(container.textContent).toContain("Welcome");
     expect(container.textContent).toContain("Create an account or sign in");
+    expect(
+      container.querySelector(".desktop-identity-gate__app-name"),
+    ).toBeNull();
+    expect(
+      container
+        .querySelector(".desktop-identity-gate")
+        ?.getAttribute("aria-label"),
+    ).toBe("Mail sign-in");
     expect(container.textContent).toContain("Email");
     expect(container.textContent).toContain(
       "By signing up, you accept our Terms and Privacy Policy.",

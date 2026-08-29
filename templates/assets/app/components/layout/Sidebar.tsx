@@ -4,13 +4,12 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -394,21 +393,9 @@ export function Sidebar() {
       )}
       data-sidebar-brand-toggle
     >
-      <img
-        src={appPath("/agent-native-icon-light.svg")}
-        alt=""
+      <AgentNativeIcon
         aria-hidden="true"
-        width={28}
-        height={16}
-        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-      />
-      <img
-        src={appPath("/agent-native-icon-dark.svg")}
-        alt=""
-        aria-hidden="true"
-        width={28}
-        height={16}
-        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+        className="h-3.5 w-6 shrink-0 text-sidebar-foreground"
       />
       {!collapsed && (
         <span className="text-sm font-semibold tracking-tight">
@@ -548,13 +535,13 @@ export function Sidebar() {
           </nav>
 
           {!collapsed && (
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <OrgSwitcher />
             </div>
           )}
 
           {!collapsed && (
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <DevDatabaseLink />
             </div>
           )}

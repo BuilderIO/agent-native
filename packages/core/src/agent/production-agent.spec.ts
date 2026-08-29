@@ -2395,6 +2395,88 @@ describe("runAgentLoop", () => {
     expect(seenTools[2]).toContain("hidden-tool");
   });
 
+  it("prioritizes tool-search matches before the provider tool cap", async () => {
+    const actions = attachToolSearch(
+      Object.fromEntries([
+        ...Array.from({ length: 128 }, (_, index) => [
+          `starter-${index}`,
+          actionEntry({
+            description: `Starter tool ${index}`,
+            readOnly: true,
+          }),
+        ]),
+        [
+          "late-tool",
+          actionEntry({
+            description: "The late tool that search should load",
+            readOnly: true,
+          }),
+        ],
+      ] as const),
+    );
+    const allTools = actionsToEngineTools(actions);
+    const initialTools = allTools.filter(
+      (tool) =>
+        tool.name === "tool-search" ||
+        (tool.name.startsWith("starter-") && Number(tool.name.slice(8)) < 127),
+    );
+    const seenTools: string[][] = [];
+    let streamCalls = 0;
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "tool-search-late-tool",
+                name: "tool-search",
+                input: { query: "late tool" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: initialTools,
+      availableTools: allTools,
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(seenTools[0]?.indexOf("late-tool")).toBe(-1);
+    expect(seenTools[1]?.indexOf("late-tool")).toBeLessThan(127);
+  });
+
   it("expands the full authorized tool surface for a guarded corrective retry", async () => {
     const actions = attachToolSearch({
       starter: actionEntry({

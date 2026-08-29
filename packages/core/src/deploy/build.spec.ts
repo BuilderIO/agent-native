@@ -1049,6 +1049,8 @@ export default (event) =>
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("Churning");
+    expect(html).toContain("__agentNativeLoadingLabelIndex");
+    expect(html).toContain("Math.random()");
     expect(html).toContain("an-cube-pulse");
     expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
     expect(html).not.toContain("an-spin");

@@ -1086,6 +1086,10 @@ const messages = {
       "Cette action est irréversible. Votre enregistrement en cours sera définitivement supprimé.",
     resume: "Reprendre",
     discardRecording: "Supprimer l’enregistrement",
+    restart: "Redémarrer l’enregistrement",
+    restartShortcut: "Redémarrer (⌥⇧R)",
+    restartQuestion: "Démarrer un nouvel enregistrement ?",
+    restartConfirm: "Redémarrer",
   },
   countdownOverlay: {
     startsIn: "L’enregistrement commence dans {{count}}",

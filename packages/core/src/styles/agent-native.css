@@ -550,7 +550,7 @@
   background-image: linear-gradient(
     100deg,
     transparent 30%,
-    hsl(var(--foreground, var(--ui-foreground)) / 0.12) 50%,
+    hsl(var(--foreground, var(--ui-foreground)) / 0.072) 50%,
     transparent 70%
   );
   background-position: 150% 0;
@@ -1128,8 +1128,22 @@
 }
 
 .agent-thinking-indicator__text,
-.agent-running-shimmer {
+.agent-running-shimmer,
+.agent-loading-label {
   display: inline-block;
+}
+
+.agent-loading-label {
+  overflow: hidden;
+  text-align: left;
+  transition: width 220ms var(--ease-out-strong);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-loading-label {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {

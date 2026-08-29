@@ -2476,6 +2476,41 @@ describe("server/auth", () => {
       );
     });
 
+    it("relays mounted standalone Google provider callbacks under the app prefix", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "calendar");
+      vi.stubEnv("APP_BASE_PATH", "/calendar");
+      delete process.env.AGENT_NATIVE_WORKSPACE;
+      delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+      delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+      delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = `${Buffer.from(
+        JSON.stringify({ app: "calendar", p: "google_calendar" }),
+      ).toString("base64url")}.sig`;
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).headers.get("location")).toBe(
+        `/calendar/_agent-native/connections/oauth/google_calendar/callback?code=abc&state=${state}`,
+      );
+    });
+
     it("relays workspace Google MCP callbacks to the MCP route", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -7533,6 +7568,24 @@ describe("server/auth", () => {
       expect(resolveOAuthRedirectUri(event)).toBe(
         "https://agent-workspace.builder.io/dispatch/_agent-native/google/callback",
       );
+    });
+
+    it("allows managed Google callbacks to use the registered root path when mounted", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/calendar");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/calendar/_agent-native/connections/oauth/google_calendar/start",
+        headers: {
+          host: "calendar.agent-native.com",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(
+        resolveOAuthRedirectUri(event, "/_agent-native/google/callback", {
+          allowRootCallback: true,
+        }),
+      ).toBe("https://calendar.agent-native.com/_agent-native/google/callback");
     });
 
     it("defaults app-base OAuth requests to the root callback relay in workspace mode", async () => {

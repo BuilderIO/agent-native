@@ -44,6 +44,21 @@ describe("create-event recurrence", () => {
     createEventMock.mockResolvedValue({ id: "event-123" });
   });
 
+  it("returns a caller-readable error for a blank event title", async () => {
+    await expect(
+      createEventAction.run({
+        title: "   ",
+        start: "2026-08-17T16:00:00.000Z",
+        end: "2026-08-17T16:30:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      actionContractError: true,
+      statusCode: 400,
+      message: "Event title is required.",
+    });
+    expect(createEventMock).not.toHaveBeenCalled();
+  });
+
   it("passes normalized recurrence rules to Google Calendar on create", async () => {
     await createEventAction.run({
       title: "Daily standup",
