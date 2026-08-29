@@ -7,6 +7,11 @@ import {
   loadAwarenessRowsStrict,
   seedFromText,
 } from "@agent-native/core/collab";
+import {
+  putPrivateBlob,
+  readPrivateBlob,
+  type PrivateBlobHandle,
+} from "@agent-native/core/private-blob";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -17,6 +22,7 @@ import { withSourceFileWriteLock } from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
+const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
 
 export interface DesignVersionChatContext {
   threadId?: string;
@@ -52,6 +58,7 @@ export interface DesignVersionListEntry {
   source: "chat" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
+  editable: boolean;
 }
 
 export class DesignVersionRestoreConflictError extends Error {
@@ -222,19 +229,58 @@ export function parseDesignVersionSnapshot(
   return parsed;
 }
 
-type DesignVersionSnapshotParseResult =
-  | { ok: true; value: ParsedDesignVersionSnapshot }
-  | { ok: false; error: unknown };
-
-function tryParseDesignVersionSnapshot(
-  raw: string,
-  designId: string,
-): DesignVersionSnapshotParseResult {
+function parseStoredChatContext(
+  raw: string | null,
+): DesignVersionChatContext | undefined {
+  if (raw === null) return undefined;
+  let value: unknown;
   try {
-    return { ok: true, value: parseDesignVersionSnapshot(raw, designId) };
-  } catch (error) {
-    return { ok: false, error };
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("Design version chat metadata is not valid JSON.");
   }
+  const context = parseChatContext(value);
+  if (!context) throw new Error("Design version chat metadata is invalid.");
+  return context;
+}
+
+function isPrivateBlobHandle(value: unknown): value is PrivateBlobHandle {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.trim().length > 0 &&
+    typeof value.provider === "string" &&
+    value.provider.trim().length > 0 &&
+    value.opaque === true &&
+    typeof value.encrypted === "boolean"
+  );
+}
+
+/** Read both legacy inline snapshots and bounded private-blob references. */
+export async function readDesignVersionSnapshot(
+  raw: string,
+  expectedDesignId: string,
+): Promise<ParsedDesignVersionSnapshot> {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("Design version snapshot is not valid JSON.");
+  }
+  if (!isRecord(value) || value.snapshotKind !== "design-history-blob") {
+    return parseDesignVersionSnapshot(raw, expectedDesignId);
+  }
+  if (value.designId !== expectedDesignId) {
+    throw new Error("Design version belongs to a different design.");
+  }
+  if (!isPrivateBlobHandle(value.blob)) {
+    throw new Error("Design version blob reference is invalid.");
+  }
+  const blob = await readPrivateBlob(value.blob);
+  return parseDesignVersionSnapshot(
+    Buffer.from(blob.data).toString("utf8"),
+    expectedDesignId,
+  );
 }
 
 function chatContextKey(
@@ -401,6 +447,7 @@ async function captureDesignVersion(
     description?: unknown;
     projectType?: unknown;
     designSystemId?: unknown;
+    ownerEmail?: unknown;
   };
   const designData = parseDesignData(designId, design.data);
   const liveSnapshot = await buildDesignSnapshot(designId, designData);
@@ -430,14 +477,50 @@ async function captureDesignVersion(
     capturedAt: createdAt,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
   });
+  let storedSnapshot = snapshot;
+  if (Buffer.byteLength(snapshot, "utf8") > MAX_INLINE_DESIGN_VERSION_BYTES) {
+    const blob = await putPrivateBlob({
+      data: Buffer.from(snapshot),
+      filename: `${id}.design-history.json`,
+      mimeType: "application/json",
+      ownerEmail:
+        typeof design.ownerEmail === "string" ? design.ownerEmail : undefined,
+      metadata: {
+        appId: "design",
+        resourceType: "design-version",
+        resourceId: designId,
+        versionId: id,
+      },
+    });
+    if (!blob) {
+      throw new Error(
+        "Private blob storage is required for design checkpoints larger than 256 KiB.",
+      );
+    }
+    storedSnapshot = JSON.stringify({
+      schemaVersion: 2,
+      snapshotKind: "design-history-blob",
+      designId,
+      fileCount: liveSnapshot.files.length,
+      capturedAt: createdAt,
+      ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+      blob,
+    });
+  }
 
-  await getDb().insert(schema.designVersions).values({
-    id,
-    designId,
-    label: options.label,
-    snapshot,
-    createdAt,
-  });
+  await getDb()
+    .insert(schema.designVersions)
+    .values({
+      id,
+      designId,
+      label: options.label,
+      snapshot: storedSnapshot,
+      chatContext: options.chatContext
+        ? JSON.stringify(options.chatContext)
+        : null,
+      fileCount: liveSnapshot.files.length,
+      createdAt,
+    });
   return { id, createdAt, label: options.label };
 }
 
@@ -488,9 +571,9 @@ export async function snapshotDesignBeforeAgentEdit(
     const rows = await getDb()
       .select({
         id: schema.designVersions.id,
-        snapshot: schema.designVersions.snapshot,
         createdAt: schema.designVersions.createdAt,
         label: schema.designVersions.label,
+        chatContext: schema.designVersions.chatContext,
       })
       .from(schema.designVersions)
       .where(eq(schema.designVersions.designId, designId))
@@ -499,9 +582,13 @@ export async function snapshotDesignBeforeAgentEdit(
 
     let existing: { id: string; createdAt: string; label: string } | undefined;
     for (const row of rows) {
-      const parsed = tryParseDesignVersionSnapshot(row.snapshot, designId);
-      if (!parsed.ok || chatContextKey(parsed.value.chatContext) !== key)
+      let rowChatContext: DesignVersionChatContext | undefined;
+      try {
+        rowChatContext = parseStoredChatContext(row.chatContext);
+      } catch {
         continue;
+      }
+      if (chatContextKey(rowChatContext) !== key) continue;
       const candidate = {
         id: row.id,
         createdAt: row.createdAt ?? new Date().toISOString(),
@@ -543,8 +630,9 @@ export async function listDesignVersions(
     .select({
       id: schema.designVersions.id,
       label: schema.designVersions.label,
-      snapshot: schema.designVersions.snapshot,
       createdAt: schema.designVersions.createdAt,
+      chatContext: schema.designVersions.chatContext,
+      fileCount: schema.designVersions.fileCount,
     })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
@@ -555,8 +643,10 @@ export async function listDesignVersions(
   const chat = new Map<string, DesignVersionListEntry>();
   let invalidCount = 0;
   for (const row of rows) {
-    const parsed = tryParseDesignVersionSnapshot(row.snapshot, designId);
-    if (!parsed.ok) {
+    let chatContext: DesignVersionChatContext | undefined;
+    try {
+      chatContext = parseStoredChatContext(row.chatContext);
+    } catch {
       invalidCount += 1;
       continue;
     }
@@ -565,11 +655,12 @@ export async function listDesignVersions(
       designId,
       label: row.label,
       createdAt: row.createdAt,
-      source: parsed.value.chatContext ? "chat" : "legacy",
-      fileCount: parsed.value.files.length,
-      chatContext: parsed.value.chatContext ?? null,
+      source: chatContext ? "chat" : "legacy",
+      fileCount: row.fileCount ?? 0,
+      chatContext: chatContext ?? null,
+      editable: Boolean(chatContext),
     };
-    const key = chatContextKey(parsed.value.chatContext);
+    const key = chatContextKey(chatContext);
     if (!key) {
       regular.push(entry);
       continue;
@@ -631,7 +722,7 @@ export async function restoreDesignVersion(args: {
 
     let target: ParsedDesignVersionSnapshot;
     try {
-      target = parseDesignVersionSnapshot(version.snapshot, args.designId);
+      target = await readDesignVersionSnapshot(version.snapshot, args.designId);
     } catch (error) {
       throw new Error(
         `Design version ${args.versionId} cannot be restored: ${error instanceof Error ? error.message : "invalid snapshot"}`,
@@ -901,6 +992,12 @@ export async function restoreDesignVersion(args: {
         }
       }),
     ]);
+
+    if (pending.length > 0) {
+      throw new DesignVersionRestoreConflictError(
+        "Design was restored in SQL, but collaboration sync is still pending. Refresh and try again before editing.",
+      );
+    }
 
     await writeAppState("refresh-signal", {
       ts: result.restore.updatedAt,

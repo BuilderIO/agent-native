@@ -9,6 +9,11 @@ export default defineAction({
   description: "List saved versions for a document.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID"),
+    includeContent: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Include full version content in the response"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -18,23 +23,35 @@ export default defineAction({
     const access = await assertAccess("document", args.documentId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
-    const versions = await db
-      .select()
-      .from(schema.documentVersions)
-      .where(
-        and(
-          eq(schema.documentVersions.documentId, args.documentId),
-          eq(schema.documentVersions.ownerEmail, ownerEmail),
-        ),
-      )
-      .orderBy(desc(schema.documentVersions.createdAt));
+    const where = and(
+      eq(schema.documentVersions.documentId, args.documentId),
+      eq(schema.documentVersions.ownerEmail, ownerEmail),
+    );
+    const versions = args.includeContent
+      ? await db
+          .select()
+          .from(schema.documentVersions)
+          .where(where)
+          .orderBy(desc(schema.documentVersions.createdAt))
+      : await db
+          .select({
+            id: schema.documentVersions.id,
+            documentId: schema.documentVersions.documentId,
+            title: schema.documentVersions.title,
+            createdAt: schema.documentVersions.createdAt,
+          })
+          .from(schema.documentVersions)
+          .where(where)
+          .orderBy(desc(schema.documentVersions.createdAt));
 
     return {
       versions: versions.map((version) => ({
         id: version.id,
         documentId: version.documentId,
         title: version.title,
-        content: version.content,
+        ...(args.includeContent && "content" in version
+          ? { content: version.content }
+          : {}),
         createdAt: version.createdAt,
       })),
     };

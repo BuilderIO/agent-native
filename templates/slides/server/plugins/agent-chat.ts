@@ -37,7 +37,6 @@ const INITIAL_TOOL_NAMES = [
 
 const DECK_EDIT_TOOLS = new Set([
   "add-slide",
-  "create-deck",
   "patch-deck",
   "restore-deck-version",
   "save-deck",
@@ -45,18 +44,56 @@ const DECK_EDIT_TOOLS = new Set([
   "update-slide",
 ]);
 
-function hasDeckEdit(run: { events: readonly unknown[] }): boolean {
-  return run.events.some((entry) => {
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function hasDeckEdit(
+  run: { events: readonly unknown[] },
+  deckId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    const input = record
+      ? inputForCompletedTool(run.events, index, record)
+      : undefined;
     if (!entry || typeof entry !== "object") return false;
-    const event = (entry as { event?: unknown }).event;
-    if (!event || typeof event !== "object") return false;
-    const record = event as Record<string, unknown>;
     return (
-      record.type === "tool_done" &&
+      record?.type === "tool_done" &&
       record.completedSideEffect === true &&
       record.isError !== true &&
       typeof record.tool === "string" &&
-      DECK_EDIT_TOOLS.has(record.tool)
+      DECK_EDIT_TOOLS.has(record.tool) &&
+      input?.deckId === deckId
     );
   });
 }
@@ -65,7 +102,7 @@ async function autosaveDeckAfterAgentTurn(
   scope: { type: string; id: string },
   run: { events: readonly unknown[] },
 ): Promise<void> {
-  if (scope.type !== "deck" || !hasDeckEdit(run)) return;
+  if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
 
   const access = await assertAccess("deck", scope.id, "editor");
   const deck = access.resource as {

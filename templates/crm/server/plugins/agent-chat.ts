@@ -51,7 +51,6 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const CRM_DASHBOARD_EDIT_TOOLS = new Set([
-  "install-crm-pipeline-dashboard",
   "restore-crm-dashboard-revision",
   "save-crm-dashboard",
 ]);

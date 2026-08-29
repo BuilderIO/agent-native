@@ -51,10 +51,7 @@ const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
 
 const DASHBOARD_EDIT_TOOLS = new Set([
-  "archive-dashboard",
-  "certify-dashboard",
   "compose-dashboard",
-  "hide-dashboard",
   "mutate-dashboard",
   "rename-dashboard",
   "reorder-dashboard-panels",
@@ -62,14 +59,11 @@ const DASHBOARD_EDIT_TOOLS = new Set([
   "save-explorer-config",
   "save-explorer-dashboard",
   "save-sql-dashboard",
-  "set-dashboard-folder",
   "update-dashboard",
   "update-dashboard-demo",
   "update-dashboard-summary",
 ]);
 const ANALYSIS_EDIT_TOOLS = new Set([
-  "delete-analysis",
-  "hide-analysis",
   "rename-analysis",
   "restore-analysis-revision",
   "save-analysis",

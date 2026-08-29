@@ -1,6 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { parseDesignVersionSnapshot } from "./design-versions.js";
+const readPrivateBlob = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  putPrivateBlob: vi.fn(),
+  readPrivateBlob,
+}));
+
+import {
+  parseDesignVersionSnapshot,
+  readDesignVersionSnapshot,
+} from "./design-versions.js";
 
 describe("parseDesignVersionSnapshot", () => {
   it("accepts buildDesignSnapshot files and preserves restore metadata", () => {
@@ -65,5 +75,44 @@ describe("parseDesignVersionSnapshot", () => {
         "design-1",
       ),
     ).toThrow("duplicate file");
+  });
+
+  it("reads large snapshots through their private blob reference", async () => {
+    const handle = {
+      id: "blob-1",
+      provider: "test",
+      opaque: true as const,
+      encrypted: true,
+    };
+    readPrivateBlob.mockResolvedValue({
+      data: Buffer.from(
+        JSON.stringify({
+          designId: "design-1",
+          files: [
+            {
+              filename: "index.html",
+              fileType: "html",
+              content: "<main>Restored</main>",
+            },
+          ],
+        }),
+      ),
+      handle,
+    });
+
+    await expect(
+      readDesignVersionSnapshot(
+        JSON.stringify({
+          snapshotKind: "design-history-blob",
+          designId: "design-1",
+          blob: handle,
+        }),
+        "design-1",
+      ),
+    ).resolves.toMatchObject({
+      designId: "design-1",
+      files: [{ content: "<main>Restored</main>" }],
+    });
+    expect(readPrivateBlob).toHaveBeenCalledWith(handle);
   });
 });

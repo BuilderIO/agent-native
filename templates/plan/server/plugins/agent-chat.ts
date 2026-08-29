@@ -10,6 +10,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { PLAN_CONNECTOR_CATALOG } from "../lib/plan-connector-catalog.js";
 import { PLAN_FRAMEWORK_TOOLS } from "../lib/plan-framework-tools.js";
 import { resolvePlanAnonymousOwner } from "../lib/public-plans.js";
+import { assertPlanEditor } from "../plans.js";
 
 const PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
@@ -41,6 +42,7 @@ async function autosavePlanAfterAgentTurn(
   run: { events: readonly unknown[] },
 ): Promise<void> {
   if (scope.type !== "plan" || !hasPlanEdit(run)) return;
+  await assertPlanEditor(scope.id);
   const { createPlanVersionSnapshot } = await import("../lib/plan-versions.js");
   await createPlanVersionSnapshot(scope.id, {
     force: true,

@@ -24,8 +24,6 @@ const INJECTED_INITIAL_TOOL_NAMES = [
 ];
 
 const DOCUMENT_EDIT_TOOLS = new Set([
-  "create-document",
-  "delete-document",
   "edit-document",
   "restore-document-version",
   "update-document",
