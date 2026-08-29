@@ -1860,9 +1860,10 @@ function safeOriginFromUrl(value: string | null | undefined): string | null {
 
 export function createBuilderBrowserCallbackPage(
   previewUrl: string,
-  opts: { parentOrigin?: string } = {},
+  opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
   // postMessage requires a specific target origin for cross-origin opener
@@ -1905,13 +1906,13 @@ export function createBuilderBrowserCallbackPage(
       // mirror the parent-side listener in useBuilderStatus / useBuilderConnectUrl.
       try {
         var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-        bc.postMessage({ type: "builder-connect-success" });
+        bc.postMessage({ type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined });
         bc.close();
       } catch (e) {}
       try {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
-            { type: "builder-connect-success" },
+            { type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined },
             ${escapedTargetOrigin},
           );
         }
@@ -1955,10 +1956,12 @@ export function createBuilderBrowserCallbackErrorPage(
     closeHint?: string;
     parentOrigin?: string;
     code?: string;
+    attemptId?: string;
   } = {},
 ): string {
   const escapedMessage = JSON.stringify(message);
   const escapedCode = JSON.stringify(opts.code ?? null);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
   const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
@@ -2005,13 +2008,13 @@ export function createBuilderBrowserCallbackErrorPage(
         // fallback for non-BroadcastChannel environments.
         try {
           var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-          bc.postMessage({ type: "builder-connect-error", message: msg, code: code || undefined });
+          bc.postMessage({ type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined });
           bc.close();
         } catch (e) {}
         if (window.opener && !window.opener.closed) {
           try {
             window.opener.postMessage(
-              { type: "builder-connect-error", message: msg, code: code || undefined },
+              { type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined },
               ${escapedTargetOrigin},
             );
           } catch (e) {}

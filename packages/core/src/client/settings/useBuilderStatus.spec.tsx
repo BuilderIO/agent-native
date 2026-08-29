@@ -283,7 +283,9 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
     expect(container.textContent).not.toContain("Popup blocked");
   });
 
@@ -388,7 +390,9 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
   });
 
   it("allows an existing-account click to bypass provisioning mode", async () => {
@@ -421,7 +425,9 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
   });
 
   it("surfaces a provisioning account collision as an existing-account state", async () => {
@@ -491,7 +497,9 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
     expect(container.textContent).not.toContain(
       "Couldn't start Builder connect",
     );
@@ -602,7 +610,9 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(refreshedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(refreshedConnectUrl),
+    );
 
     resolveInitialFetch(jsonResponse({ configured: false }));
   });
@@ -637,7 +647,9 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
     expect(container.textContent).not.toContain(
       "Couldn't start Builder connect",
     );
@@ -887,11 +899,17 @@ describe("useBuilderConnectFlow", () => {
       container.querySelector("button")?.click();
     });
 
-    expect(openSpy).toHaveBeenCalledWith(
+    const openedUrl = String(openSpy.mock.calls[0]?.[0]);
+    expect(withoutConnectAttempt(openedUrl)).toBe(
       expectedConnectUrl(signedConnectUrl),
+    );
+    expect(new URL(openedUrl).searchParams.get("_an_connect_attempt")).toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+    expect(openSpy.mock.calls[0]?.slice(1)).toEqual([
       "_blank",
       "noopener,noreferrer",
-    );
+    ]);
     expect(window.location.href).toBe("http://localhost:3000/settings");
     expect(container.textContent).not.toContain("Popup blocked");
   });
@@ -948,8 +966,12 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(openMcpAppHostLink).toHaveBeenCalledWith(
+    const hostUrl = String(vi.mocked(openMcpAppHostLink).mock.calls[0]?.[0]);
+    expect(withoutConnectAttempt(hostUrl)).toBe(
       expectedConnectUrl(refreshedConnectUrl),
+    );
+    expect(new URL(hostUrl).searchParams.get("_an_connect_attempt")).toMatch(
+      /^[0-9a-f-]{36}$/,
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");
@@ -1001,7 +1023,9 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain(
       "Private key does not match spaceId",

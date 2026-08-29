@@ -1,5 +1,5 @@
 import { IconArrowRight, IconLoader2 } from "@tabler/icons-react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   Popover,
@@ -12,12 +12,14 @@ import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
   onClick?: React.MouseEventHandler<HTMLElement>;
+  "aria-disabled"?: boolean;
 }>;
 
 export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
     agentNativeProvisioningEnabled?: boolean;
     accountExists?: boolean;
+    statusResolved?: boolean;
   };
   children: BuilderConnectTrigger;
   /** Preserve a surface-specific tracking source or callback when choosing a path. */
@@ -40,14 +42,21 @@ export function BuilderConnectPopover({
 }: BuilderConnectPopoverProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const showPopover = flow.agentNativeProvisioningEnabled;
+  const capabilityResolved = flow.statusResolved === true;
+  const showPopover =
+    capabilityResolved && flow.agentNativeProvisioningEnabled === true;
   const accountExists = showPopover && flow.accountExists;
+  const initiatedByThisTriggerRef = useRef(false);
 
   useEffect(() => {
-    if (accountExists) setOpen(true);
+    if (accountExists && initiatedByThisTriggerRef.current) {
+      initiatedByThisTriggerRef.current = false;
+      setOpen(true);
+    }
   }, [accountExists]);
 
   const start = (provisionAccount: boolean) => {
+    initiatedByThisTriggerRef.current = true;
     setOpen(false);
     if (onConnect) {
       onConnect(provisionAccount);
@@ -57,7 +66,13 @@ export function BuilderConnectPopover({
   };
 
   const trigger = React.cloneElement(children, {
+    "aria-disabled": capabilityResolved ? undefined : true,
     onClick: (event) => {
+      if (!capabilityResolved) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       children.props.onClick?.(event);
       onTriggerClick?.(event);
       if (!showPopover && !event.defaultPrevented) start(false);

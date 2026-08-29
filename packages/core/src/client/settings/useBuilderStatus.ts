@@ -821,27 +821,27 @@ export function useBuilderConnectFlow(
         provisioningEnabled = agentNativeProvisioningEnabled,
         provisioningToken = agentNativeProvisioningToken,
       ): string => {
+        const connectUrl = new URL(url, origin);
+        connectUrl.searchParams.set(
+          BUILDER_CONNECT_ATTEMPT_PARAM,
+          connectAttemptId,
+        );
         if (
           !provisionAccountForStart ||
           !provisioningEnabled ||
           !provisioningToken
         ) {
-          return url;
+          return connectUrl.toString();
         }
-        const provisionUrl = new URL(url, origin);
-        provisionUrl.searchParams.set(
+        connectUrl.searchParams.set(
           BUILDER_CONNECT_MODE_PARAM,
           BUILDER_AGENT_NATIVE_PROVISION_MODE,
         );
-        provisionUrl.searchParams.set(
+        connectUrl.searchParams.set(
           BUILDER_PROVISIONING_TOKEN_PARAM,
           provisioningToken,
         );
-        provisionUrl.searchParams.set(
-          BUILDER_CONNECT_ATTEMPT_PARAM,
-          connectAttemptId,
-        );
-        return provisionUrl.toString();
+        return connectUrl.toString();
       };
       const directUrl = withProvisionMode(
         cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
@@ -1082,7 +1082,16 @@ export function useBuilderConnectFlow(
   // by the setConnecting(false) call, which is idempotent.
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
-    const handleError = (message: string, code?: string) => {
+    const isCurrentConnectAttempt = (attemptId: string | undefined): boolean =>
+      typeof attemptId === "string" &&
+      attemptId === connectAttemptIdRef.current &&
+      connectStartedAtRef.current !== null;
+    const handleError = (
+      message: string,
+      code: string | undefined,
+      attemptId: string | undefined,
+    ) => {
+      if (!isCurrentConnectAttempt(attemptId)) return;
       connectStartedAtRef.current = null;
       setConnecting(false);
       setAccountExists(code === "account_exists");
@@ -1180,7 +1189,12 @@ export function useBuilderConnectFlow(
       channel = new BroadcastChannel(`builder-connect:${window.location.host}`);
       channel.onmessage = (e: MessageEvent) => {
         const data = e.data as
-          | { type?: string; message?: string; code?: string }
+          | {
+              type?: string;
+              message?: string;
+              code?: string;
+              attemptId?: string;
+            }
           | undefined;
         if (data?.type === "builder-connect-success") {
           void handleSuccess();
@@ -1188,7 +1202,7 @@ export function useBuilderConnectFlow(
         }
         if (data?.type === "builder-connect-error") {
           if (typeof data.message !== "string" || !data.message) return;
-          handleError(data.message, data.code);
+          handleError(data.message, data.code, data.attemptId);
         }
       };
     } catch {
@@ -1198,7 +1212,12 @@ export function useBuilderConnectFlow(
     const handler = (e: MessageEvent) => {
       if (!isTrustedBuilderConnectMessageOrigin(e.origin)) return;
       const data = e.data as
-        | { type?: string; message?: string; code?: string }
+        | {
+            type?: string;
+            message?: string;
+            code?: string;
+            attemptId?: string;
+          }
         | undefined;
       if (data?.type === "builder-connect-success") {
         void handleSuccess();
@@ -1206,7 +1225,7 @@ export function useBuilderConnectFlow(
       }
       if (data?.type === "builder-connect-error") {
         if (typeof data.message !== "string" || !data.message) return;
-        handleError(data.message, data.code);
+        handleError(data.message, data.code, data.attemptId);
       }
     };
     window.addEventListener("message", handler);

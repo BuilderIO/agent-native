@@ -2659,6 +2659,10 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/builder/connect`,
         defineEventHandler(async (event) => {
+          const requestUrl = getFrameworkRouteRequestUrl(event);
+          const connectAttemptId = requestUrl.searchParams.get(
+            BUILDER_CONNECT_ATTEMPT_PARAM,
+          );
           const ownerContext = await resolveBuilderOwnerContext(
             event,
             "connect",
@@ -2684,14 +2688,11 @@ export function createCoreRoutesPlugin(
                 title: "Sign in required",
                 body: "Builder OAuth is tied to a signed-in account. Sign in, then try Connect Builder again.",
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               },
             );
           }
 
-          const requestUrl = getFrameworkRouteRequestUrl(event);
-          const connectAttemptId = requestUrl.searchParams.get(
-            BUILDER_CONNECT_ATTEMPT_PARAM,
-          );
           const connectToken = requestUrl.searchParams.get(
             BUILDER_CONNECT_PARAM,
           );
@@ -2731,6 +2732,7 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-error:${ownerEmail}`, {
               message: crossOriginMessage,
               at: Date.now(),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             }).catch(() => {});
             console.warn("[builder-connect] rejected cross-origin connect", {
               hasConnectToken: Boolean(connectToken),
@@ -2750,6 +2752,7 @@ export function createCoreRoutesPlugin(
               closeHint:
                 "Close this popup, refresh the app, and try Connect account again.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
 
@@ -2787,6 +2790,7 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
                 ...(code ? { code } : {}),
               });
             };
@@ -2858,7 +2862,10 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackPage(
                 `${parentOrigin}${getAppBasePath() || "/"}`,
-                { parentOrigin },
+                {
+                  parentOrigin,
+                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+                },
               );
             } catch (error) {
               console.error(
@@ -2908,6 +2915,7 @@ export function createCoreRoutesPlugin(
               title: "Builder connection is unavailable here",
               body: "Open this app on its public HTTPS URL, then try again.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
           const { orgId: connectOrgId, deny: orgConnectDenied } =
@@ -2933,6 +2941,7 @@ export function createCoreRoutesPlugin(
               title: "Not allowed to connect Builder for this organization",
               body: "Ask an organization owner or admin to connect Builder.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
           // The standard OAuth client discovers Builder's protected-resource
@@ -2956,6 +2965,7 @@ export function createCoreRoutesPlugin(
               redirectUri: callbackUrl,
               expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
               tracking: connectTracking,
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
             await purgeExpiredBuilderConnectPendingStates().catch(() => 0); // coercion-ok: connect already persisted the new pending row; purge of abandoned rows must not fail OAuth start
             setCookie(
@@ -2995,6 +3005,7 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-error:${ownerEmail}`, {
               message: msg,
               at: Date.now(),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             }).catch(() => {});
             setResponseStatus(event, 503);
             setResponseHeader(
@@ -3004,6 +3015,7 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(msg, {
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
           await trackBuilderLifecycle(
@@ -3264,6 +3276,9 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
           const requestUrl = getFrameworkRouteRequestUrl(event);
+          const requestConnectAttemptId = requestUrl.searchParams.get(
+            BUILDER_CONNECT_ATTEMPT_PARAM,
+          );
           const relayStateRaw = requestUrl.searchParams.get(
             BUILDER_RELAY_STATE_PARAM,
           );
@@ -3285,6 +3300,9 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder preview relay state is invalid or expired.",
+                requestConnectAttemptId
+                  ? { attemptId: requestConnectAttemptId }
+                  : undefined,
               );
             }
 
@@ -3306,7 +3324,12 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder didn't return credentials. Restart the connect flow from settings.",
-                { parentOrigin: relayParentOrigin },
+                {
+                  parentOrigin: relayParentOrigin,
+                  ...(requestConnectAttemptId
+                    ? { attemptId: requestConnectAttemptId }
+                    : {}),
+                },
               );
             }
 
@@ -3363,6 +3386,9 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(message, {
                 parentOrigin: relayParentOrigin,
+                ...(requestConnectAttemptId
+                  ? { attemptId: requestConnectAttemptId }
+                  : {}),
               });
             }
 
@@ -3373,7 +3399,12 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackPage(
               `${relayParentOrigin}${relayPayload.basePath || "/"}`,
-              { parentOrigin: relayParentOrigin },
+              {
+                parentOrigin: relayParentOrigin,
+                ...(requestConnectAttemptId
+                  ? { attemptId: requestConnectAttemptId }
+                  : {}),
+              },
             );
           }
 
@@ -3386,6 +3417,7 @@ export function createCoreRoutesPlugin(
             getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
           );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
+          let callbackAttemptId = requestConnectAttemptId;
           const fail = async (
             status: number,
             message: string,
@@ -3397,6 +3429,7 @@ export function createCoreRoutesPlugin(
               await putSetting(`builder-connect-error:${ownerEmail}`, {
                 message,
                 at: Date.now(),
+                ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
               }).catch(() => {});
               await trackBuilderLifecycle(
                 event,
@@ -3417,6 +3450,7 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(message, {
               parentOrigin,
+              ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
             });
           };
 
@@ -3434,6 +3468,11 @@ export function createCoreRoutesPlugin(
               "No active Builder connect flow found. Restart the connection from Settings.",
             );
           }
+
+          callbackAttemptId =
+            typeof pending.attemptId === "string"
+              ? pending.attemptId
+              : callbackAttemptId;
 
           const ownerEmail =
             typeof pending.ownerEmail === "string" ? pending.ownerEmail : null;
@@ -3596,7 +3635,10 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackPage(
             `${parentOrigin}${getAppBasePath() || "/"}`,
-            { parentOrigin },
+            {
+              parentOrigin,
+              ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
+            },
           );
         }),
       );

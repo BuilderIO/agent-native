@@ -185,6 +185,7 @@ describe("FirstRunOnboarding", () => {
   it("shows one-click account consent in a popover and its loading state when enabled", () => {
     const flow = {
       hasFetchedStatus: true,
+      statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
       connecting: false,
@@ -266,6 +267,7 @@ describe("FirstRunOnboarding", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
+      statusResolved: true,
       configured: false,
       agentNativeProvisioningEnabled: true,
       connecting: false,
