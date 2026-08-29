@@ -163,7 +163,13 @@ function summaryScore(
     { value: dashboard.catalogTemplateId, weight: 6 },
     { value: dashboard.demoId, weight: 6 },
   ]);
-  return score + (favoriteIds.has(dashboard.id) ? 20 : 0);
+  const certified = isDashboardCertified(
+    dashboard.certification,
+    dashboard.updatedAt,
+  );
+  return (
+    score + (certified ? 60 : 0) + (favoriteIds.has(dashboard.id) ? 20 : 0)
+  );
 }
 
 function shortlistDashboardSummaries(

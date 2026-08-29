@@ -1611,6 +1611,11 @@ export async function certifyDashboardWithRetry(
         "Only dashboards owned by the active organization can be certified for AI queries.",
       );
     }
+    if (existing.archivedAt) {
+      throw new Error(
+        "Archived dashboards cannot be certified for AI queries.",
+      );
+    }
     const updatedAt = nextDashboardVersion(existing.updatedAt);
     const certification: DashboardCertification = {
       status: "certified",
