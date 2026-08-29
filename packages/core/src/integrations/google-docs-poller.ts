@@ -185,13 +185,13 @@ async function cleanupRegisteredWatch(
   accessToken: string,
   channel: WatchChannel,
 ): Promise<void> {
-  const currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
-  if (currentConfig?.configData?.channelId === channel.id) {
-    await saveIntegrationConfigIfUnchanged(
-      PLATFORM,
-      {},
-      "watch-channel",
-      currentConfig,
+  let currentConfig: IntegrationConfig | null = null;
+  try {
+    currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
+  } catch (err) {
+    console.warn(
+      "[google-docs] Could not read watch config during cleanup; continuing with provider stop",
+      err,
     );
   }
 
@@ -200,7 +200,26 @@ async function cleanupRegisteredWatch(
     channel.id,
     channel.resourceId,
   );
-  if (!stopped) scheduleOrphanedWatchCleanup(channel);
+  if (!stopped) {
+    scheduleOrphanedWatchCleanup(channel);
+    return;
+  }
+
+  if (currentConfig?.configData?.channelId === channel.id) {
+    try {
+      await saveIntegrationConfigIfUnchanged(
+        PLATFORM,
+        {},
+        "watch-channel",
+        currentConfig,
+      );
+    } catch (err) {
+      console.warn(
+        "[google-docs] Could not clear watch config after provider stop",
+        err,
+      );
+    }
+  }
 }
 
 /**
@@ -215,6 +234,9 @@ export async function registerWatch(
   expectedPollerGeneration?: number,
 ): Promise<boolean> {
   if (!isCurrentPollerGeneration(expectedPollerGeneration)) return false;
+
+  const integrationConfig = await getIntegrationConfig(PLATFORM);
+  if (!integrationConfig?.configData?.enabled) return false;
 
   const accessToken = await getServiceAccountAccessToken();
   if (!accessToken) return false;
@@ -284,6 +306,12 @@ export async function registerWatch(
       return false;
     }
 
+    const enabledAfterRegistration = await getIntegrationConfig(PLATFORM);
+    if (!enabledAfterRegistration?.configData?.enabled) {
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
+      return false;
+    }
+
     // Promote only if no other registration changed the active channel while
     // this request was in flight. Stop this orphaned channel if it lost.
     const promoted = await saveIntegrationConfigIfUnchanged(
@@ -307,6 +335,12 @@ export async function registerWatch(
     }
 
     if (!isCurrentPollerGeneration(expectedPollerGeneration)) {
+      await cleanupRegisteredWatch(accessToken, registeredChannel);
+      return false;
+    }
+
+    const enabledBeforeScheduling = await getIntegrationConfig(PLATFORM);
+    if (!enabledBeforeScheduling?.configData?.enabled) {
       await cleanupRegisteredWatch(accessToken, registeredChannel);
       return false;
     }
@@ -504,15 +538,7 @@ function scheduleWatchRenewal(
         return;
       }
 
-      if (expectedChannelId !== undefined) {
-        const currentConfig = await getIntegrationConfig(
-          PLATFORM,
-          "watch-channel",
-        );
-        if (currentConfig?.configData?.channelId !== expectedChannelId) {
-          return;
-        }
-      }
+      if (!(await shouldRetryWatchRenewal(expectedChannelId))) return;
 
       if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
 
@@ -531,22 +557,14 @@ function scheduleWatchRenewal(
         err,
       );
       if (!isCurrentPollerGeneration(expectedPollerGeneration)) return;
-      if (expectedChannelId !== undefined) {
-        try {
-          const currentConfig = await getIntegrationConfig(
-            PLATFORM,
-            "watch-channel",
-          );
-          if (currentConfig?.configData?.channelId !== expectedChannelId) {
-            return;
-          }
-        } catch (configErr) {
-          console.warn(
-            "[google-docs] Could not verify the current watch before retrying",
-            configErr,
-          );
-          return;
-        }
+      try {
+        if (!(await shouldRetryWatchRenewal(expectedChannelId))) return;
+      } catch (configErr) {
+        console.warn(
+          "[google-docs] Could not verify the current watch before retrying",
+          configErr,
+        );
+        return;
       }
       scheduleWatchRenewal(
         webhookUrl,
@@ -557,6 +575,17 @@ function scheduleWatchRenewal(
     }
   }, delayMs);
   unrefTimer(watchRenewalTimer);
+}
+
+async function shouldRetryWatchRenewal(
+  expectedChannelId?: string,
+): Promise<boolean> {
+  const integrationConfig = await getIntegrationConfig(PLATFORM);
+  if (!integrationConfig?.configData?.enabled) return false;
+  if (expectedChannelId === undefined) return true;
+
+  const currentConfig = await getIntegrationConfig(PLATFORM, "watch-channel");
+  return currentConfig?.configData?.channelId === expectedChannelId;
 }
 
 function scheduleWatchCleanupRetry(
