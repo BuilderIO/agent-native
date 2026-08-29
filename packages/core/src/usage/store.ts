@@ -472,8 +472,8 @@ export async function recordUsage(
     await client.execute({
       sql: `DELETE FROM token_usage
         WHERE label = ? AND ref_id = ?
-          AND ((org_id = ?) OR (org_id IS NULL AND ? IS NULL))`,
-      args: [resolvedLabel, resolvedRef, resolvedOrgId, resolvedOrgId],
+          AND (org_id IS NULL OR org_id = ?)`,
+      args: [resolvedLabel, resolvedRef, resolvedOrgId],
     });
   }
 
@@ -526,7 +526,10 @@ export async function recordUsage(
   // evaluator serializes its own work so the hot path stays one insert.
   void import("./alerts-store.js")
     .then(({ enqueueUsageAlertEvaluation }) => {
-      return enqueueUsageAlertEvaluation(record);
+      return enqueueUsageAlertEvaluation({
+        ...record,
+        orgId: resolvedOrgId,
+      });
     })
     .catch((error) => {
       console.error("[usage-alerts] could not enqueue evaluation:", error);

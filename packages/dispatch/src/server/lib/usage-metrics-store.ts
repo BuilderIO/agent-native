@@ -942,9 +942,12 @@ export async function listDispatchUsageMetrics(input: {
   const usage =
     viewScope === "app" && selectedApp
       ? appUsageScope(sinceMs, memberEmails, selectedApp.id, orgId)
-      : selectedUserEmail
-        ? ownerScope(sinceMs, selectedUserEmail)
-        : usageScope(sinceMs, memberEmails);
+      : withOrgUsageScope(
+          selectedUserEmail
+            ? ownerScope(sinceMs, selectedUserEmail)
+            : usageScope(sinceMs, memberEmails),
+          orgId,
+        );
   const adoptionSinceMs = Math.min(sinceMs, generatedAt - 7 * DAY_MS);
   const adoptionUsage =
     viewScope === "app" && selectedApp

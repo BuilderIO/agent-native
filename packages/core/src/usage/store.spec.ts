@@ -603,6 +603,36 @@ describe("recordUsage refId + cost override", () => {
     ]);
   });
 
+  it("replaces a legacy unscoped refId when an organization is available", async () => {
+    sqlite
+      .prepare(
+        `INSERT INTO token_usage
+          (id, owner_email, input_tokens, output_tokens, model, label, ref_id, org_id, created_at)
+         VALUES (1, 'legacy@example.com', 100, 10, 'gpt-5.6-sol', 'visual-recap', 'legacy-recap', NULL, ?)`,
+      )
+      .run(Date.now());
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "org-a" },
+      () =>
+        recordUsage({
+          ownerEmail: "owner@example.com",
+          inputTokens: 200,
+          outputTokens: 20,
+          model: "gpt-5.6-sol",
+          label: "visual-recap",
+          refId: "legacy-recap",
+        }),
+    );
+
+    const rows = sqlite
+      .prepare(
+        "SELECT org_id, input_tokens FROM token_usage WHERE label = 'visual-recap' AND ref_id = 'legacy-recap'",
+      )
+      .all() as Array<{ org_id: string | null; input_tokens: number }>;
+    expect(rows).toEqual([{ org_id: "org-a", input_tokens: 200 }]);
+  });
+
   it("stores a precomputed costCentsX100 verbatim instead of deriving from tokens", async () => {
     await recordUsage({
       ownerEmail: "u@x.com",
