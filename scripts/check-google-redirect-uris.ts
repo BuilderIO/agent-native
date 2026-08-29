@@ -43,8 +43,14 @@ const SAFE_CREDENTIAL_SOURCES = new Set([
   "preferred",
   "managed",
   "user",
+  "none",
 ]);
 const SAFE_CREDENTIAL_MODES = new Set(["managed", "user"]);
+const SAFE_MANAGED_CONNECTIONS = new Set([
+  "required",
+  "not_applicable",
+  "unknown",
+]);
 
 setDefaultResultOrder("ipv4first");
 
@@ -74,6 +80,7 @@ export type GoogleHealthResult = {
   mismatchedPairs: boolean | null;
   credentialSource: string | null;
   credentialMode: "managed" | "user" | null;
+  managedConnection: "required" | "not_applicable" | "unknown" | null;
   callbackPaths: string[] | null;
 };
 
@@ -156,6 +163,7 @@ function emptyHealth(
     mismatchedPairs: null,
     credentialSource: null,
     credentialMode: null,
+    managedConnection: null,
     callbackPaths: null,
   };
 }
@@ -480,6 +488,11 @@ export function classifyGoogleHealthResponse(
       SAFE_CREDENTIAL_MODES.has(body.credentialMode)
         ? (body.credentialMode as "managed" | "user")
         : null,
+    managedConnection:
+      typeof body.managedConnection === "string" &&
+      SAFE_MANAGED_CONNECTIONS.has(body.managedConnection)
+        ? (body.managedConnection as "required" | "not_applicable" | "unknown")
+        : null,
     callbackPaths: advertisedCallbackPaths(body.callbackPaths),
   };
 }
@@ -502,10 +515,37 @@ async function healthOf(
       return emptyHealth("unknown", "health response exceeded 64 KiB");
     }
     const health = classifyGoogleHealthResponse(response, bodyText);
-    if (health.credentialMode === "user") {
+    if (health.managedConnection === "not_applicable") {
+      return emptyHealth(
+        "not_applicable",
+        "app does not expose deployment-level Google OAuth",
+      );
+    }
+    if (health.managedConnection === "unknown") {
+      return emptyHealth(
+        "unknown",
+        "health response declared managed OAuth capability as unknown",
+      );
+    }
+    if (health.managedConnection === null && health.credentialMode === "user") {
       return emptyHealth(
         "not_applicable",
         "OAuth credentials are user-scoped and checked after authentication",
+      );
+    }
+    if (health.managedConnection === null && !allowLegacyHealth) {
+      return emptyHealth(
+        "unknown",
+        "health response did not declare managed OAuth capability",
+      );
+    }
+    if (
+      health.managedConnection === "required" &&
+      health.credentialSource !== "managed"
+    ) {
+      return emptyHealth(
+        "unknown",
+        "required managed OAuth health did not advertise managed credentials",
       );
     }
     if (health.credentialSource === "managed") {
@@ -661,6 +701,9 @@ async function run(argv: string[]): Promise<number> {
       row.health.credentialSource
         ? `source=${row.health.credentialSource}`
         : "",
+      row.health.managedConnection
+        ? `managed=${row.health.managedConnection}`
+        : "",
     ]
       .filter(Boolean)
       .join(" ");
@@ -668,7 +711,12 @@ async function run(argv: string[]): Promise<number> {
       `HOST\t${row.lane}\t${row.host}\tclient=${row.health.clientFingerprint ?? "none"}\t${healthLabel}`,
     );
     if (row.health.status === "not_applicable") continue;
-    if (row.health.credentialSource === "managed") managedHosts += 1;
+    if (
+      row.health.credentialSource === "managed" &&
+      row.health.managedConnection !== "not_applicable"
+    ) {
+      managedHosts += 1;
+    }
     if (
       options.allowLegacyHealth &&
       row.health.credentialSource !== "managed"

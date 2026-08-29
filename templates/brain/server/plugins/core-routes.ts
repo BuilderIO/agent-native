@@ -18,6 +18,7 @@ const VIEW_PATHS: Record<string, string> = {
 };
 
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   envKeys: [],
   resolveOpenPath: ({ view, params }) => {
     if (view && VIEW_PATHS[view]) return VIEW_PATHS[view];
