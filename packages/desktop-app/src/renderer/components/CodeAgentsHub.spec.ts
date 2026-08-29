@@ -270,6 +270,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
 
     expect(hubSource).toContain('placement: enabled ? "side" : "main"');
+    expect(hubSource).toContain('state.tabs.find((tab) => tab.kind === "app")');
+    expect(hubSource).toContain("setChatFirstSurfacePanelOpen(false)");
     expect(hubSource).toContain("onNewCliTab={handleNewCliTab}");
     expect(hubSource).toContain("onNewUiTab={handleNewUiTab}");
     expect(hubSource).toContain(

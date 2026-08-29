@@ -1110,11 +1110,14 @@ export default function CodeAgentsHub({
       const activeTab = state.tabs.find(
         (tab) => tab.id === state.activeTabId && tab.kind === "app",
       );
-      if (activeTab?.kind === "app") {
+      const appTab = activeTab ?? state.tabs.find((tab) => tab.kind === "app");
+      if (appTab?.kind === "app") {
         chatFirstSurfaceTabsStore.open({
-          ...activeTab,
+          ...appTab,
           placement: enabled ? "side" : "main",
         });
+      } else if (!enabled) {
+        setChatFirstSurfacePanelOpen(false);
       }
       writeDesktopTerminalPreferences({ enabled });
       if (enabled && startSession) {
@@ -1122,7 +1125,7 @@ export default function CodeAgentsHub({
         setTerminalSessionStarted(true);
       }
     },
-    [chatFirstSurfaceTabsStore],
+    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
   );
   const handleTerminalModeChange = useCallback(
     (enabled: boolean) => {
