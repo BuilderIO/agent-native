@@ -79,6 +79,7 @@ describe("agent model config catalog", () => {
         "ollama",
         "openai",
         "openrouter",
+        "orcarouter",
       ].sort(),
     );
     for (const cfg of Object.values(AI_SDK_MODEL_CONFIG)) {

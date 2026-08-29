@@ -38,6 +38,7 @@ const aiSdkProviders: AISDKProvider[] = [
   "anthropic",
   "openai",
   "openrouter",
+  "orcarouter",
   "google",
   "groq",
   "mistral",
@@ -49,6 +50,7 @@ const providerLabels: Record<AISDKProvider, string> = {
   anthropic: "Claude",
   openai: "OpenAI",
   openrouter: "OpenRouter",
+  orcarouter: "OrcaRouter",
   google: "Gemini",
   groq: "Groq",
   mistral: "Mistral",
@@ -62,6 +64,8 @@ const providerDescriptions: Record<AISDKProvider, string> = {
   openai: "OpenAI GPT models via the Vercel AI SDK. Requires OPENAI_API_KEY.",
   openrouter:
     "300+ models from Anthropic, OpenAI, Google, Z.ai, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-sol', or 'z-ai/glm-5.2'. Requires OPENROUTER_API_KEY.",
+  orcarouter:
+    "Adaptive routing and failover across Claude, GPT, Gemini, and more through an OpenAI-compatible gateway. Use model IDs like 'orcarouter/auto', 'orcarouter/fusion', or 'openai/gpt-5.6-luna'. Requires ORCAROUTER_API_KEY.",
   google:
     "Google Gemini models via the Vercel AI SDK. Requires GOOGLE_GENERATIVE_AI_API_KEY.",
   groq: "Groq LPU inference via the Vercel AI SDK. Requires GROQ_API_KEY.",

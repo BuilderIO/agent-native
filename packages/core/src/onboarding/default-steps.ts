@@ -63,6 +63,13 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
     description: "OpenRouter models, including GLM 5.2, with your own key.",
   },
   {
+    provider: "orcarouter",
+    id: "orcarouter-key",
+    label: "OrcaRouter",
+    description:
+      "OrcaRouter's adaptive-routing gateway models with your own key.",
+  },
+  {
     provider: "groq",
     id: "groq-key",
     label: "Groq",

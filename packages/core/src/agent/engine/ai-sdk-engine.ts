@@ -86,6 +86,13 @@ const PROVIDER_CAPABILITIES: Record<AISDKProvider, EngineCapabilities> = {
     computerUse: false,
     parallelToolCalls: true,
   },
+  orcarouter: {
+    thinking: true,
+    promptCaching: true,
+    vision: true,
+    computerUse: false,
+    parallelToolCalls: true,
+  },
   google: {
     thinking: true,
     promptCaching: false,
@@ -145,6 +152,7 @@ const PROVIDER_ENV_VARS: Record<AISDKProvider, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
+  orcarouter: ["ORCAROUTER_API_KEY"],
   google: ["GOOGLE_GENERATIVE_AI_API_KEY"],
   groq: ["GROQ_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
@@ -156,6 +164,7 @@ const PROVIDER_PACKAGES: Record<AISDKProvider, string> = {
   anthropic: "@ai-sdk/anthropic",
   openai: "@ai-sdk/openai",
   openrouter: "@openrouter/ai-sdk-provider",
+  orcarouter: "@ai-sdk/openai",
   google: "@ai-sdk/google",
   groq: "@ai-sdk/groq",
   mistral: "@ai-sdk/mistral",
@@ -168,12 +177,20 @@ const PROVIDER_FACTORIES: Record<AISDKProvider, string> = {
   anthropic: "createAnthropic",
   openai: "createOpenAI",
   openrouter: "createOpenRouter",
+  orcarouter: "createOpenAI",
   google: "createGoogleGenerativeAI",
   groq: "createGroq",
   mistral: "createMistral",
   cohere: "createCohere",
   ollama: "createOllama",
 };
+
+/**
+ * OrcaRouter's OpenAI-compatible gateway endpoint. Kept as the default when no
+ * explicit `baseUrl` is supplied, mirroring how @openrouter/ai-sdk-provider
+ * bakes in its own endpoint.
+ */
+const ORCAROUTER_BASE_URL = "https://api.orcarouter.ai/v1";
 
 function googleThinkingBudget(effort: string) {
   if (effort === "low") return 1024;
@@ -246,13 +263,16 @@ class AISDKEngine implements AgentEngine {
     this.preserveCustomModels =
       provider === "ollama" ||
       provider === "openrouter" ||
+      provider === "orcarouter" ||
       (provider === "openai" && Boolean(config.baseUrl));
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??
       (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
     this.requiredEnvVars = PROVIDER_ENV_VARS[provider];
-    this.baseUrl = config.baseUrl;
+    this.baseUrl =
+      config.baseUrl ??
+      (provider === "orcarouter" ? ORCAROUTER_BASE_URL : undefined);
     this.appName = config.appName;
     this.appUrl = config.appUrl;
   }
@@ -647,9 +667,12 @@ class AISDKEngine implements AgentEngine {
     // GPT reasoning models get the API OpenAI recommends. If someone points
     // the OpenAI provider at an OpenAI-compatible gateway, keep using Chat
     // Completions because many gateway base URLs do not implement Responses.
+    // OrcaRouter is always such a gateway, so it always goes through `chat()`.
     return this.provider === "openai" && this.baseUrl
       ? provider.chat(model)
-      : provider(model);
+      : this.provider === "orcarouter"
+        ? provider.chat(model)
+        : provider(model);
   }
 }
 
@@ -678,6 +701,10 @@ async function importProviderPackage(provider: AISDKProvider): Promise<any> {
       return import("@ai-sdk/openai");
     case "openrouter":
       return import("@openrouter/ai-sdk-provider");
+    case "orcarouter":
+      // OrcaRouter is an OpenAI-compatible gateway, so it rides the same
+      // @ai-sdk/openai factory as a custom-base-URL OpenAI connection.
+      return import("@ai-sdk/openai");
     case "google":
       return import("@ai-sdk/google");
     case "groq":

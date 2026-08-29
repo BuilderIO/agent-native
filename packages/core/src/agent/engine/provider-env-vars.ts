@@ -42,6 +42,11 @@ export const PROVIDER_ENV_META: Record<string, ProviderEnvMeta> = {
     label: "OpenRouter API Key",
     placeholder: "sk-or-...",
   },
+  orcarouter: {
+    envVar: "ORCAROUTER_API_KEY",
+    label: "OrcaRouter API Key",
+    placeholder: "sk-orca-...",
+  },
   groq: {
     envVar: "GROQ_API_KEY",
     label: "Groq API Key",

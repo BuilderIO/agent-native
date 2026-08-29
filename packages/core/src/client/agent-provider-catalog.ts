@@ -13,6 +13,7 @@ export type AgentProviderId =
   | "anthropic"
   | "openai"
   | "openrouter"
+  | "orcarouter"
   | "google"
   | "groq"
   | "mistral"
@@ -40,6 +41,7 @@ const PROVIDER_LABELS: Record<AgentProviderId, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   openrouter: "OpenRouter",
+  orcarouter: "OrcaRouter",
   google: "Google Gemini",
   groq: "Groq",
   mistral: "Mistral",
@@ -51,6 +53,7 @@ const PROVIDER_DESCRIPTIONS: Record<AgentProviderId, string> = {
   anthropic: "Claude models with your own API key.",
   openai: "GPT models and OpenAI-compatible gateways.",
   openrouter: "One key for hundreds of hosted models.",
+  orcarouter: "Adaptive routing across hosted models with one key.",
   google: "Gemini models with a Google AI key.",
   groq: "Fast inference for open models.",
   mistral: "Mistral models through the Mistral API.",
@@ -62,6 +65,7 @@ const PROVIDER_DOCS: Partial<Record<AgentProviderId, string>> = {
   anthropic: "https://console.anthropic.com/settings/keys",
   openai: "https://platform.openai.com/api-keys",
   openrouter: "https://openrouter.ai/keys",
+  orcarouter: "https://www.orcarouter.ai",
   google: "https://aistudio.google.com/apikey",
   groq: "https://console.groq.com/keys",
   mistral: "https://console.mistral.ai/api-keys/",
@@ -70,6 +74,7 @@ const PROVIDER_DOCS: Partial<Record<AgentProviderId, string>> = {
 
 const PROVIDER_ORDER: readonly AgentProviderId[] = [
   "openrouter",
+  "orcarouter",
   "ollama",
   "anthropic",
   "openai",
@@ -106,7 +111,9 @@ export const AGENT_PROVIDER_CATALOG: readonly AgentProviderOption[] =
       defaultModel: config.defaultModel,
       supportedModels: config.supportedModels,
       ...(PROVIDER_DOCS[id] ? { docsUrl: PROVIDER_DOCS[id] } : {}),
-      ...(id === "openrouter" || isOllama ? { supportsCustomModel: true } : {}),
+      ...(id === "openrouter" || id === "orcarouter" || isOllama
+        ? { supportsCustomModel: true }
+        : {}),
       ...(id === "openai" || isOllama
         ? {
             supportsEndpoint: true,
@@ -117,7 +124,7 @@ export const AGENT_PROVIDER_CATALOG: readonly AgentProviderOption[] =
         : {}),
       kind: isOllama
         ? ("local" as const)
-        : id === "openrouter"
+        : id === "openrouter" || id === "orcarouter"
           ? ("gateway" as const)
           : ("cloud" as const),
     } satisfies AgentProviderOption;
