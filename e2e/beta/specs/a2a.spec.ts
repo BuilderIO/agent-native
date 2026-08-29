@@ -12,7 +12,12 @@ import {
   sendPromptAndAwaitTurn,
   watchChatRequests,
 } from "../lib/chat";
-import { originFor, selectedSites, siteById } from "../lib/fleet";
+import {
+  authenticatedEntryPath,
+  originFor,
+  selectedSites,
+  siteById,
+} from "../lib/fleet";
 
 /**
  * Cross-app delegation: Slides asking Analytics for data.
@@ -55,10 +60,13 @@ test.describe("slides -> analytics delegation", () => {
       const page = await context.newPage();
       const chat = watchChatRequests(page);
 
-      await page.goto(`${origin}/?agentSidebar=open`, {
-        waitUntil: "domcontentloaded",
-        timeout: 45_000,
-      });
+      await page.goto(
+        `${origin}${authenticatedEntryPath(slides)}?agentSidebar=open`,
+        {
+          waitUntil: "domcontentloaded",
+          timeout: 45_000,
+        },
+      );
       await expect(page.locator(COMPOSER.input).first()).toBeVisible({
         timeout: 60_000,
       });
@@ -111,7 +119,7 @@ test.describe("A2A reachability between deployed peers", () => {
     });
     try {
       const page = await context.newPage();
-      await page.goto(`${originFor(slides)}/`, {
+      await page.goto(`${originFor(slides)}${authenticatedEntryPath(slides)}`, {
         waitUntil: "domcontentloaded",
         timeout: 45_000,
       });

@@ -37,6 +37,10 @@ const GOOGLE_ONLY_APPS = new Set(["mail", "calendar"]);
  * so it should be a decision someone makes, not a side effect of deploying.
  */
 const CHAT_APPS = ["chat", "slides", "analytics", "content", "dispatch"];
+const AUTHENTICATED_ENTRY_PATHS: Record<string, string> = {
+  content: "/home",
+  slides: "/home",
+};
 
 function readSites(): BetaSite[] {
   const file = path.join(repoRoot, "scripts", "netlify-beta-sites.json");
@@ -106,6 +110,11 @@ export function siteById(id: string): BetaSite {
 export function originFor(site: BetaSite | string): string {
   const host = typeof site === "string" ? siteById(site).host : site.host;
   return `https://${host}`;
+}
+
+export function authenticatedEntryPath(site: BetaSite | string): string {
+  const id = typeof site === "string" ? site : site.id;
+  return AUTHENTICATED_ENTRY_PATHS[id] ?? "/";
 }
 
 /** The production twin of a beta host, used for isolation checks. */

@@ -32,7 +32,11 @@ import {
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
 
@@ -233,6 +237,10 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 export function canUseDeployCredentialFallbackForRequest(
   key?: string,
 ): boolean {
+  // Synthetic checks must never fall through to a deploy-wide provider key.
+  // If the dedicated test credential is rejected, using the site's shared key
+  // would make a green retry both misleading and billable to real traffic.
+  if (getRequestContext()?.isSyntheticTraffic === true) return false;
   const email = getRequestUserEmail();
   if (!email) return true;
   if (isAppProvidedDeployCredentialKey(key)) return true;

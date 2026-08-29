@@ -449,6 +449,7 @@ describe("AgentEngine registry", () => {
 
     it("prefers a current app default model over the global model", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "owner@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -882,6 +883,7 @@ describe("AgentEngine registry", () => {
 
   it("resolveEngine honors a usable app default before the global setting", async () => {
     vi.doMock("../../server/request-context.js", () => ({
+      getRequestContext: () => undefined,
       getRequestUserEmail: () => "owner@example.com",
       getRequestOrgId: () => undefined,
     }));
@@ -1082,6 +1084,7 @@ describe("AgentEngine registry", () => {
         deleteSetting: vi.fn(),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "visitor@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -1481,6 +1484,7 @@ describe("AgentEngine registry", () => {
 
     it("returns null when no request user is set", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => undefined,
         getRequestOrgId: () => undefined,
       }));
@@ -1492,6 +1496,7 @@ describe("AgentEngine registry", () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
       try {
         vi.doMock("../../server/request-context.js", () => ({
+          getRequestContext: () => undefined,
           getRequestUserEmail: () => undefined,
           getRequestOrgId: () => undefined,
         }));
@@ -1506,6 +1511,7 @@ describe("AgentEngine registry", () => {
 
     it("returns null for the local-dev session", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "local@localhost",
         getRequestOrgId: () => undefined,
       }));
@@ -1515,6 +1521,7 @@ describe("AgentEngine registry", () => {
 
     it("surfaces an unreadable credential store instead of reporting no engine", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "tim@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1546,6 +1553,7 @@ describe("AgentEngine registry", () => {
 
     it("picks the Builder engine when the user has Builder keys in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -1593,6 +1601,7 @@ describe("AgentEngine registry", () => {
 
     it("picks the Builder engine when the active org has shared Builder credentials", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "member@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1663,6 +1672,7 @@ describe("AgentEngine registry", () => {
 
     it("picks the Builder engine from org credentials when the user has only a partial stale Builder row", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "member@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1721,6 +1731,7 @@ describe("AgentEngine registry", () => {
 
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -1781,6 +1792,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "member@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1854,6 +1866,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1929,6 +1942,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1987,6 +2001,7 @@ describe("AgentEngine registry", () => {
 
     it("pairs an explicitly selected provider with its saved key when the caller has none", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2037,6 +2052,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2078,6 +2094,7 @@ describe("AgentEngine registry", () => {
     it("does not pass an unrelated active key to an env-selected provider", async () => {
       vi.stubEnv("AGENT_ENGINE", "ai-sdk:openai");
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2134,6 +2151,7 @@ describe("AgentEngine registry", () => {
       // key it carries (plugin `options.apiKey`) matches no stored secret, so
       // only the declared env var can prove it belongs to Anthropic.
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2173,6 +2191,7 @@ describe("AgentEngine registry", () => {
 
     it("keeps a declared key on the provider it was issued for", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2215,6 +2234,7 @@ describe("AgentEngine registry", () => {
         getSetting: vi.fn().mockResolvedValue(null),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2290,6 +2310,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2366,6 +2387,7 @@ describe("AgentEngine registry", () => {
         ),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2422,6 +2444,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2499,6 +2522,7 @@ describe("AgentEngine registry", () => {
 
     it("passes a scoped OpenAI-compatible endpoint into the OpenAI engine", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2585,6 +2609,7 @@ describe("AgentEngine registry", () => {
 
     it("does not pass the scoped OpenAI endpoint into non-OpenAI engines", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2634,6 +2659,7 @@ describe("AgentEngine registry", () => {
         getSetting: vi.fn().mockResolvedValue(null),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
@@ -2697,6 +2723,7 @@ describe("AgentEngine registry", () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit app-level LLM engine selection can inherit hosted env
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
@@ -2762,6 +2789,7 @@ describe("AgentEngine registry", () => {
         deleteSetting: vi.fn(),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
