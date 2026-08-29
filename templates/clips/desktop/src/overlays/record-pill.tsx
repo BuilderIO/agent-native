@@ -403,6 +403,7 @@ export function RecordingPill() {
         getCurrentWindow()
           .close()
           .catch(() => {});
+      else resetToRest();
     });
   }
 
