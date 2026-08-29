@@ -879,10 +879,12 @@ function extractSessionTokenFromSetCookies(
 function extractSessionTokenFromAuthResponse(
   response: Response,
 ): string | undefined {
-  return (
-    extractSessionTokenFromSetCookies(response) ??
-    (response.headers.get("set-auth-token")?.trim() || undefined)
-  );
+  // Prefer set-auth-token: it is the session table token. The session_token
+  // cookie is a signed/percent-encoded value and is not the DB row.
+  const bearer = response.headers.get("set-auth-token")?.trim();
+  if (bearer) return bearer;
+  const cookie = extractSessionTokenFromSetCookies(response);
+  return cookie ? decodeSessionCookieValue(cookie) : undefined;
 }
 
 function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
@@ -1164,18 +1166,60 @@ function betterAuthRequestHeaders(event: H3Event): Headers {
   return headers;
 }
 
-function withStagedCookies(event: H3Event, response: Response): Response {
-  const staged = event.res?.headers?.getSetCookie?.() ?? [];
-  if (staged.length === 0) return response;
+function expirePoisonedMagicLinkCookies(event: H3Event): string[] {
+  const https = isHttpsRequest(event);
+  const names = new Set([
+    COOKIE_NAME,
+    betterAuthSessionCookieName(event),
+    `${BETTER_AUTH_COOKIE_PREFIX}.session_token`,
+    `__Secure-${BETTER_AUTH_COOKIE_PREFIX}.session_token`,
+  ]);
+  return [...names].map((name) => {
+    const parts = [`${name}=`, "Path=/", "Max-Age=0", "SameSite=Lax"];
+    if (https) parts.push("Secure");
+    return parts.join("; ");
+  });
+}
+
+function frameworkSessionCookieHeader(event: H3Event, token: string): string {
+  const attrs = crossSiteCookieAttrs(event);
+  const parts = [
+    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
+    "Path=/",
+    `Max-Age=${sessionMaxAge}`,
+    "HttpOnly",
+    attrs.sameSite === "none" ? "SameSite=None" : "SameSite=Lax",
+  ];
+  if (attrs.secure) parts.push("Secure");
+  if (attrs.partitioned) parts.push("Partitioned");
+  const domain = getCookieDomain();
+  if (domain) parts.push(`Domain=${domain}`);
+  return parts.join("; ");
+}
+
+function withMagicLinkVerifyCookies(
+  event: H3Event,
+  response: Response,
+  token: string,
+): Response {
+  const staged =
+    event.res?.headers?.getSetCookie?.() ??
+    (event.res?.headers && typeof event.res.headers.get === "function"
+      ? getSetCookieHeaders(event.res.headers)
+      : []);
   const headers = new Headers();
   for (const [key, value] of response.headers.entries()) {
     if (key.toLowerCase() === "set-cookie") continue;
     headers.append(key, value);
   }
+  for (const cookie of expirePoisonedMagicLinkCookies(event)) {
+    headers.append("set-cookie", cookie);
+  }
   for (const cookie of getSetCookieHeaders(response.headers)) {
     headers.append("set-cookie", cookie);
   }
   for (const cookie of staged) headers.append("set-cookie", cookie);
+  headers.append("set-cookie", frameworkSessionCookieHeader(event, token));
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -1190,8 +1234,11 @@ async function persistMagicLinkLegacySession(
   const rawToken = extractSessionTokenFromAuthResponse(response);
   if (!rawToken) return;
   const token = decodeSessionCookieValue(rawToken);
-  if (!setCookieNames(response.headers).includes(COOKIE_NAME)) {
+  try {
     setFrameworkSessionCookie(event, token);
+  } catch {
+    // Some hosted event shapes do not expose getSetCookie; the verify
+    // response still gets the framework cookie from withMagicLinkVerifyCookies.
   }
   const email = await emailFromBetterAuthSessionToken(token);
   if (!email) return;
@@ -4187,104 +4234,6 @@ function betterAuthSessionCookieName(event: H3Event): string {
   return isHttpsRequest(event) ? `__Secure-${name}` : name;
 }
 
-function serializeMagicLinkSessionCookie(
-  event: H3Event,
-  name: string,
-  token: string,
-  { httpOnly }: { httpOnly: boolean },
-): string {
-  // Top-level email clicks (and Brave Shields) reject SameSite=None; Partitioned
-  // login cookies. Lax is enough: verify is always a first-party document GET.
-  const parts = [
-    `${name}=${encodeURIComponent(token)}`,
-    "Path=/",
-    `Max-Age=${sessionMaxAge}`,
-    "SameSite=Lax",
-  ];
-  if (httpOnly) parts.push("HttpOnly");
-  const domain = getCookieDomain();
-  if (domain) parts.push(`Domain=${domain}`);
-  if (isHttpsRequest(event)) parts.push("Secure");
-  return parts.join("; ");
-}
-
-function magicLinkVerifyContinuePage(
-  location: string,
-  cookies: string[],
-  options?: { setAuthToken?: string; jsCookie?: string },
-): Response {
-  const safeLocation = escapeHtmlAttr(location);
-  const jsCookieStmt = options?.jsCookie
-    ? `document.cookie=${JSON.stringify(options.jsCookie)};`
-    : "";
-  // No Location header and no meta-refresh: Chrome treats 200+Location as a
-  // navigation redirect (HAR redirectURL, no onLoad) and never applies
-  // Set-Cookie or runs this document. Script sets a host-only Lax cookie
-  // first so the next hop still has a session if Set-Cookie was stripped.
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing in</title><script>${jsCookieStmt}location.replace(${JSON.stringify(location)})</script></head><body><p>Signing you in…</p><noscript><a href="${safeLocation}">Continue</a></noscript></body></html>`;
-  const headers = new Headers({
-    "cache-control": "no-store",
-    "content-type": "text/html; charset=utf-8",
-    "referrer-policy": "no-referrer",
-  });
-  if (options?.setAuthToken) {
-    headers.set("set-auth-token", options.setAuthToken);
-  }
-  const seen = new Set<string>();
-  for (const cookie of cookies) {
-    const name = cookie.split("=", 1)[0]?.trim();
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    headers.append("set-cookie", cookie);
-  }
-  return new Response(html, { status: 200, headers });
-}
-
-/**
- * Hosted verify 302s (Netlify/Cloudflare) have been observed to keep
- * `set-auth-token` and drop `Set-Cookie`. A 200 document can set the session
- * before the browser follows through to Location.
- *
- * Do not forward Better Auth's own Set-Cookie lines: they are
- * `SameSite=None; Partitioned` (CHIPS) and Brave/Safari drop them on a
- * top-level email click. The first cookie name wins in the continue page,
- * so forwarding those would also hide the Lax rewrite.
- */
-function attachMissingMagicLinkSessionCookies(
-  event: H3Event,
-  response: Response,
-): Response {
-  if (response.status < 300 || response.status >= 400) return response;
-  const location = response.headers.get("location");
-  if (!location) return response;
-
-  const token =
-    extractSessionTokenFromSetCookies(response) ??
-    response.headers.get("set-auth-token")?.trim();
-  if (!token) return response;
-
-  return magicLinkVerifyContinuePage(
-    location,
-    [
-      serializeMagicLinkSessionCookie(
-        event,
-        betterAuthSessionCookieName(event),
-        token,
-        { httpOnly: true },
-      ),
-      serializeMagicLinkSessionCookie(event, COOKIE_NAME, token, {
-        httpOnly: true,
-      }),
-    ],
-    {
-      setAuthToken: response.headers.get("set-auth-token")?.trim(),
-      jsCookie: serializeMagicLinkSessionCookie(event, COOKIE_NAME, token, {
-        httpOnly: false,
-      }),
-    },
-  );
-}
-
 function isHttpsRequest(event: H3Event): boolean {
   try {
     const xfProto = getHeader(event, "x-forwarded-proto");
@@ -5486,25 +5435,27 @@ async function mountBetterAuthRoutes(
           response,
           magicLinkPreConsume,
         );
+        const verifiedSessionToken = extractSessionTokenFromAuthResponse(
+          response as Response,
+        );
         if (
           (response as Response).status >= 200 &&
-          (response as Response).status < 400
+          (response as Response).status < 400 &&
+          verifiedSessionToken
         ) {
-          response = attachMissingMagicLinkSessionCookies(
-            event,
+          // Existing users do not run Better Auth's user-create hook when
+          // magic-link verification flips emailVerified, so reconcile their
+          // pending organization invitations here as well.
+          await ensureEmailVerifiedForRedirect(
+            authRequest,
             response as Response,
           );
-          if (extractSessionTokenFromAuthResponse(response as Response)) {
-            // Existing users do not run Better Auth's user-create hook when
-            // magic-link verification flips emailVerified, so reconcile their
-            // pending organization invitations here as well.
-            await ensureEmailVerifiedForRedirect(
-              authRequest,
-              response as Response,
-            );
-            await persistMagicLinkLegacySession(event, response as Response);
-            response = withStagedCookies(event, response as Response);
-          }
+          await persistMagicLinkLegacySession(event, response as Response);
+          response = withMagicLinkVerifyCookies(
+            event,
+            response as Response,
+            verifiedSessionToken,
+          );
         }
       }
 

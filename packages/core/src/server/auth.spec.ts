@@ -5109,10 +5109,9 @@ describe("server/auth", () => {
 
       const response = await baHandler(event);
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("location")).toBeNull();
-      expect(await response.text()).toContain(
-        'location.replace("/_agent-native/sign-in#done")',
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(
+        "/_agent-native/sign-in#done",
       );
       expect(acceptPendingInvitationsForEmail).toHaveBeenCalledWith(
         "invited@example.com",
@@ -5195,25 +5194,15 @@ describe("server/auth", () => {
           ? response.headers.getSetCookie().join("\n")
           : (response.headers.get("set-cookie") ?? "");
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toContain("text/html");
-      expect(response.headers.get("location")).toBeNull();
-      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(
+        "/_agent-native/auth/magic-link/new-user?return=%2F",
+      );
       expect(response.headers.get("set-auth-token")).toBe(
         "session_from_bearer",
       );
-      expect(cookies).toContain("an.session_token=session_from_bearer");
       expect(cookies).toContain("an_session=session_from_bearer");
-      expect(cookies).toContain("SameSite=Lax");
       expect(cookies).toContain("HttpOnly");
-      expect(cookies).not.toContain("Partitioned");
-      const html = await response.text();
-      expect(html).toContain("document.cookie=");
-      expect(html).toContain("an_session=session_from_bearer");
-      expect(html).not.toContain("HttpOnly");
-      expect(html).toContain(
-        'location.replace("/_agent-native/auth/magic-link/new-user?return=%2F")',
-      );
     });
 
     it("writes magic-link session cookies on the continue page without event.res.getSetCookie", async () => {
@@ -5298,19 +5287,11 @@ describe("server/auth", () => {
           ? response.headers.getSetCookie().join("\n")
           : (response.headers.get("set-cookie") ?? "");
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("location")).toBeNull();
-      expect(cookies).toContain(
-        "__Secure-an.session_token=session_from_bearer",
-      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
       expect(cookies).toContain("an_session=session_from_bearer");
       expect(cookies).toContain("Secure");
-      expect(cookies).toContain("SameSite=Lax");
-      expect(cookies).not.toContain("Partitioned");
-      const html = await response.text();
-      expect(html).toContain("document.cookie=");
-      expect(html).toContain("an_session=session_from_bearer");
-      expect(html).toContain("Secure");
+      expect(cookies).toContain("HttpOnly");
     });
 
     it("drops partitioned Better Auth cookies and persists the Lax token in sessions", async () => {
@@ -5407,14 +5388,11 @@ describe("server/auth", () => {
           ? response.headers.getSetCookie().join("\n")
           : (response.headers.get("set-cookie") ?? "");
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("location")).toBeNull();
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
       expect(cookies).toContain("__Secure-an.session_token=ba_session_token");
       expect(cookies).toContain("an_session=ba_session_token");
-      expect(cookies).toContain("SameSite=Lax");
-      expect(cookies).not.toContain("Partitioned");
-      expect(cookies).not.toContain("session_data=");
-      expect(await response.text()).toContain("document.cookie=");
+      expect(cookies).toContain("session_data=");
       expect(mockExecute).toHaveBeenCalledWith({
         sql: "INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)",
         args: ["ba_session_token", "designer@example.com", expect.any(Number)],
@@ -5509,8 +5487,10 @@ describe("server/auth", () => {
 
       const response = await baHandler(event);
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe(
+        "/_agent-native/auth/magic-link/new-user?return=%2F",
+      );
       expect(mockExecute).toHaveBeenCalledWith({
         sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
         args: ["session_from_bearer"],

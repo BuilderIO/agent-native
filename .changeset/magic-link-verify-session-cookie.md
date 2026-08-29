@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Fix magic-link sign-in dropping the session after verify. `getSession` now waits for Better Auth to initialize and passes a real Cookie header (from `getHeader`) into `ba.api.getSession`. Successful magic-link verify also sets the framework session cookie the same way password login does, so the legacy fallback can resolve the session on the next request.
+Fix magic-link sign-in dropping the session after verify. Persist the raw `set-auth-token` (the session table token) as the framework cookie, keep Better Auth's own cookies, and expire the previous Lax rewrite so a stale encoded cookie cannot win. `getSession` also waits for Better Auth and passes a real Cookie header.
