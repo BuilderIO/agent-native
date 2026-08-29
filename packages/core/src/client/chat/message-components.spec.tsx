@@ -197,6 +197,23 @@ describe("assistant chat history matching", () => {
         { matchVersion: () => true },
       ),
     ).toBeNull();
+    expect(
+      findMatchingAssistantChatHistoryVersion(
+        [
+          {
+            ...version,
+            chatContext: { runId: "run-1", turnId: "other-turn" },
+          },
+        ],
+        {
+          id: "assistant-1",
+          createdAt: "2026-08-29T10:02:00.000Z",
+          runId: "run-1",
+          turnId: "turn-1",
+          hasCompletedSideEffect: true,
+        },
+      ),
+    ).toBeNull();
   });
 });
 

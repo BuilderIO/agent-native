@@ -518,8 +518,12 @@ export function findMatchingAssistantChatHistoryVersion<
     const chatContext = version.chatContext;
     const matchesChatTurn = Boolean(
       chatContext &&
-      ((message.turnId && chatContext.turnId === message.turnId) ||
-        (message.runId && chatContext.runId === message.runId)),
+      ((message.turnId && chatContext.turnId
+        ? chatContext.turnId === message.turnId
+        : false) ||
+        ((!message.turnId || !chatContext.turnId) &&
+          message.runId &&
+          chatContext.runId === message.runId)),
     );
     if (!matchesChatTurn) continue;
     const versionTime = coerceMessageDate(version.createdAt)?.getTime();
