@@ -1,21 +1,35 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import path from "node:path";
 
 import { createPtyWebSocketServer } from "@agent-native/core/terminal/server";
 import {
+  getDesktopVisibleApps,
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
   type AppConfig,
 } from "@shared/app-registry";
 import { IPC } from "@shared/ipc-channels";
-import { app, ipcMain, net, session, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  net,
+  session,
+  type IpcMainInvokeEvent,
+} from "electron";
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
+import {
+  DesktopSurfaceMcpBridge,
+  type DesktopSurfaceMcpRegistration,
+} from "../desktop-surface-mcp";
 
 const RELAY_ROOT = "/desktop-chat";
 const DESKTOP_TERMINAL_INFO_ROOT = "/desktop-terminal-info";
@@ -58,26 +72,136 @@ let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
   null;
 let ipcRegistered = false;
 
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlInlineTable(headers: Record<string, string>): string {
+  return `{${Object.entries(headers)
+    .map(([key, value]) => `${tomlString(key)}=${tomlString(value)}`)
+    .join(",")}}`;
+}
+
+export function desktopTerminalMcpArgs(
+  command: string,
+  registration: DesktopSurfaceMcpRegistration,
+  claudeConfigPath: string,
+): string[] {
+  if (command === "claude") {
+    return ["--mcp-config", claudeConfigPath];
+  }
+  if (command === "codex") {
+    return [
+      "-c",
+      `mcp_servers.agent-native-desktop.url=${tomlString(registration.url)}`,
+      "-c",
+      `mcp_servers.agent-native-desktop.http_headers=${tomlInlineTable({
+        Authorization: `Bearer ${registration.bearerToken}`,
+      })}`,
+    ];
+  }
+  return [];
+}
+
+function removeDesktopTerminalConfig(filePath: string | undefined): void {
+  if (!filePath) return;
+  try {
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    console.warn(
+      "[desktop-terminal] Could not remove temporary MCP config:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+}
+
+function reportDesktopTerminalCleanupFailure(error: unknown): void {
+  console.warn(
+    "[desktop-terminal] Could not close the desktop surface bridge:",
+    error instanceof Error ? error.message : "unknown error",
+  );
+}
+
 async function createDesktopTerminal() {
   const token = randomUUID().replaceAll("-", "");
-  const terminal = await createPtyWebSocketServer({
-    appDir: app.getPath("home"),
-    authCheck: (request) => {
-      try {
-        const url = new URL(
-          request.url ?? "",
-          `http://${request.headers.host ?? "127.0.0.1"}`,
-        );
-        return url.searchParams.get("token") === token;
-      } catch {
-        // coercion-ok: malformed websocket URLs are authentication denials, never success.
-        return false;
-      }
+  const surfaceMcp = new DesktopSurfaceMcpBridge({
+    listApps: () =>
+      getDesktopVisibleApps(AppStore.loadApps())
+        .filter((appConfig) => appConfig.enabled !== false)
+        .map(({ id, name }) => ({ id, name })),
+    openApp: (request) => {
+      const win = BrowserWindow.getAllWindows().find(
+        (candidate) => !candidate.isDestroyed(),
+      );
+      if (!win) throw new Error("The desktop shell is not available.");
+      win.webContents.send(IPC.DESKTOP_CHAT_OPEN_APP, request);
     },
-    logPrefix: "[desktop-terminal]",
   });
-  app.once("before-quit", terminal.close);
-  return { terminal, token };
+  let claudeConfigPath: string | undefined;
+  try {
+    const surfaceMcpUrl = await surfaceMcp.start();
+    const surfaceMcpRegistration = surfaceMcp.register();
+    claudeConfigPath = path.join(
+      app.getPath("temp"),
+      `agent-native-desktop-${randomUUID()}.json`,
+    );
+    fs.writeFileSync(
+      claudeConfigPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            "agent-native-desktop": {
+              type: "http",
+              url: surfaceMcpUrl,
+              headers: {
+                Authorization: `Bearer ${surfaceMcpRegistration.bearerToken}`,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+    const terminal = await createPtyWebSocketServer({
+      appDir: app.getPath("home"),
+      authCheck: (request) => {
+        try {
+          const url = new URL(
+            request.url ?? "",
+            `http://${request.headers.host ?? "127.0.0.1"}`,
+          );
+          return url.searchParams.get("token") === token;
+        } catch {
+          // coercion-ok: malformed websocket URLs are authentication denials, never success.
+          return false;
+        }
+      },
+      getCommandArgs: (command) =>
+        desktopTerminalMcpArgs(
+          command,
+          surfaceMcpRegistration,
+          claudeConfigPath!,
+        ),
+      logPrefix: "[desktop-terminal]",
+    });
+    const close = () => {
+      terminal.close();
+      void surfaceMcp.close().catch(reportDesktopTerminalCleanupFailure);
+      removeDesktopTerminalConfig(claudeConfigPath);
+    };
+    app.once("before-quit", close);
+    return { terminal, token };
+  } catch (error) {
+    removeDesktopTerminalConfig(claudeConfigPath);
+    try {
+      await surfaceMcp.close();
+    } catch (closeError) {
+      reportDesktopTerminalCleanupFailure(closeError);
+    }
+    throw error;
+  }
 }
 
 function ensureDesktopTerminal() {
