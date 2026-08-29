@@ -376,7 +376,7 @@ export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
 
           {!collapsed && (
-            <div className="mt-2 grid gap-2 px-1">
+            <div className="mt-2 grid gap-2 px-1 empty:hidden">
               <OrgSwitcher reserveSpace />
               <DevDatabaseLink />
             </div>
