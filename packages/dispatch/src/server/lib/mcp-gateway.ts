@@ -1011,9 +1011,7 @@ function isRetryableTargetMcpError(error: unknown): boolean {
   const status = httpStatusFromError(error);
   if (status !== undefined) {
     if (status === 502 || status === 503 || status === 504) return true;
-    if (status === 401 || status === 403 || status === 404 || status === 405) {
-      return false;
-    }
+    if (status >= 400 && status < 500) return false;
   }
   if (
     /^(?:MCP server\b.*?\bnot connected:\s+)?HTTP(?:\/\d+(?:\.\d+)?)?\s+(?:502|503|504)\b/i.test(

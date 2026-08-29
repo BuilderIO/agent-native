@@ -1176,6 +1176,32 @@ describe("openGrantedDispatchMcpApp", () => {
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
+  it("does not retry a typed permanent 4xx MCP error", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "Streamable HTTP error: Error POSTing to endpoint: <!doctype html><html>422</html>",
+        ),
+        { code: 422 },
+      ),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/Streamable HTTP error/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+  });
+
   it("returns the normal open URL when embed preminting fails", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.managerCallTool.mockRejectedValueOnce(
