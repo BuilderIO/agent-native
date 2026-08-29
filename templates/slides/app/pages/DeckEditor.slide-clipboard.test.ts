@@ -87,7 +87,7 @@ describe("slide paste fallback", () => {
       }
     };
   }, [activeSlideId, id]);`);
-});
+  });
 });
 
 describe("source-imported deck structure", () => {
