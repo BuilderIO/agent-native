@@ -728,13 +728,13 @@ export function RecordingPill() {
     };
   }, [mode]);
 
-  // The pill owns its window's visibility: hidden through pre-record and the
-  // countdown, shown the moment capture is live, and kept up while the
-  // completion card is open. Rust never shows this window itself.
+  // The pill owns its window's visibility: shown in its disabled state while
+  // preparing/counting down, enabled once capture is live, and kept up while
+  // the completion card is open. Rust never shows this window itself.
   const visibleRef = useRef(false);
   useEffect(() => {
     if (!hasTauri) return;
-    const visible = enabled || mode === "done";
+    const visible = true;
     if (visibleRef.current === visible) return;
     visibleRef.current = visible;
     if (visible) syncWindowToContent();
@@ -907,6 +907,7 @@ export function RecordingPill() {
                   onClick={() => {
                     if (hasTauri) void openExternal(viewUrl).catch(() => {});
                     else window.open(viewUrl, "_blank");
+                    dismissCard();
                   }}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >

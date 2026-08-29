@@ -2760,9 +2760,8 @@ export function App({
   });
 
   bubbleActiveRef.current = bubbleActive;
-  // The toolbar is recording chrome, not pre-record chrome. Showing it while
-  // the popover is merely open leaves a disabled 0:00 Stop/Pause pill on the
-  // desktop, which reads as a stuck recorder and can trap accessibility clicks.
+  // The toolbar is recording chrome. It is created once the recording flow
+  // starts, then stays visible but disabled until capture is live.
   const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
@@ -3493,8 +3492,7 @@ export function App({
     // Tell Rust we're entering the recording flow NOW, not after the
     // handle arrives. The macOS screen-picker dialog steals focus from
     // the popover, which would otherwise trigger the blur-auto-hide
-    // mid-setup — so the countdown and toolbar render behind a hidden
-    // popover and the user sees nothing happen.
+    // mid-setup — so the countdown and toolbar can render during setup.
     invoke("set_recording_state", { active: true }).catch(() => {});
 
     // Hand the live camera stream to the recorder so it doesn't
