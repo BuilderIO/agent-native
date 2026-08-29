@@ -1,3 +1,4 @@
+import type { ChatFirstAppItem } from "@agent-native/core/client/chat-first";
 import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import {
   DropdownMenu,
@@ -6,17 +7,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
-import {
-  IconDotsVertical,
-  IconLayoutSidebarRightCollapse,
-  IconMessageCircle,
-  IconPlus,
-  IconX,
-} from "@tabler/icons-react";
+import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 import { useCallback, useRef, useState } from "react";
 
 import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
 import type { RendererTheme } from "../lib/theme.js";
+import {
+  DesktopChatFirstSurfaceMenuItems,
+  type DesktopChatFirstSurfaceMenuProps,
+} from "./DesktopChatFirstSurfaceMenu.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 
 export interface DesktopTerminalPromptRequest extends AgentTerminalSubmitRequest {}
@@ -29,6 +29,9 @@ interface DesktopTerminalSurfaceProps {
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
   onOpenSidebar?: () => void;
+  apps?: readonly ChatFirstAppItem[];
+  onOpenApp?: DesktopChatFirstSurfaceMenuProps["onOpenApp"];
+  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
 }
 
 interface DesktopTerminalTab {
@@ -51,6 +54,9 @@ export default function DesktopTerminalSurface({
   onPromptSubmitted,
   onNewUiTab,
   onOpenSidebar,
+  apps = [],
+  onOpenApp,
+  renderAppIcon,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
@@ -168,24 +174,15 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
-              {onOpenSidebar ? (
+              {onOpenSidebar || (apps.length > 0 && onOpenApp) || onNewUiTab ? (
                 <>
-                  <DropdownMenuItem onSelect={onOpenSidebar}>
-                    <IconLayoutSidebarRightCollapse
-                      size={14}
-                      className="shrink-0"
-                    />
-                    Open sidebar
-                  </DropdownMenuItem>
-                  {onNewUiTab ? <DropdownMenuSeparator /> : null}
-                </>
-              ) : null}
-              {onNewUiTab ? (
-                <>
-                  <DropdownMenuItem onSelect={onNewUiTab}>
-                    <IconMessageCircle size={14} className="shrink-0" />
-                    New UI tab
-                  </DropdownMenuItem>
+                  <DesktopChatFirstSurfaceMenuItems
+                    apps={apps}
+                    onToggleSidebar={onOpenSidebar}
+                    onOpenApp={onOpenApp}
+                    renderAppIcon={renderAppIcon}
+                    onNewUiTab={onNewUiTab}
+                  />
                   <DropdownMenuSeparator />
                 </>
               ) : null}
