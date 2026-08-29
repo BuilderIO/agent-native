@@ -69,6 +69,21 @@ async function prepare(helper = createHelper()) {
 }
 
 describe("ComputerControlBroker", () => {
+  it("does not let one task observe another task's leased desktop", async () => {
+    const helper = createHelper();
+    const broker = new ComputerControlBroker({ helper });
+    await broker.acquireLease(
+      "task-1",
+      { bundleIds: ["com.google.Chrome"], origins: ["https://example.com"] },
+      60_000,
+    );
+
+    await expect(
+      broker.execute("act", { kind: "observe.snapshot", taskId: "task-2" }),
+    ).rejects.toMatchObject({ code: "CONTROL_BUSY" });
+    expect(helper.snapshot).not.toHaveBeenCalled();
+  });
+
   it("fails closed with setup guidance when Accessibility is unavailable", async () => {
     const helper = createHelper();
     const broker = new ComputerControlBroker({

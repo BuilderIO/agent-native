@@ -69,6 +69,7 @@ export class EphemeralScreenObserver {
   async capture(
     taskId: string,
     requestedSourceId?: string,
+    requestedSourceName?: string,
   ): Promise<EphemeralFrameDescriptor> {
     this.purgeExpired();
     if (this.options.permissionStatus().screenRecording !== "granted") {
@@ -83,8 +84,10 @@ export class EphemeralScreenObserver {
     });
     const source = requestedSourceId
       ? sources.find((candidate) => candidate.id === requestedSourceId)
-      : (sources.find((candidate) => candidate.id.startsWith("screen:")) ??
-        sources[0]);
+      : requestedSourceName
+        ? sources.find((candidate) => candidate.name === requestedSourceName)
+        : (sources.find((candidate) => candidate.id.startsWith("screen:")) ??
+          sources[0]);
     if (!source || source.thumbnail.isEmpty()) {
       throw new Error("No capturable desktop source is available.");
     }

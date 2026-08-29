@@ -49,6 +49,11 @@ export class ComputerControlBroker {
     return this.activeLease;
   }
 
+  canObserve(taskId: string): boolean {
+    const lease = this.activeLease;
+    return !lease || lease.expiresAt <= this.now() || lease.taskId === taskId;
+  }
+
   async acquireLease(
     taskId: string,
     requestedScope: ComputerScope,
@@ -63,8 +68,12 @@ export class ComputerControlBroker {
       );
     }
 
-    if (this.activeLease && this.activeLease.expiresAt > this.now()) {
-      if (!options.takeover && this.activeLease.taskId !== taskId) {
+    if (this.activeLease) {
+      if (
+        this.activeLease.expiresAt > this.now() &&
+        !options.takeover &&
+        this.activeLease.taskId !== taskId
+      ) {
         throw new ComputerControlPolicyError(
           `Computer control is already leased to task ${this.activeLease.taskId}.`,
           "CONTROL_BUSY",
@@ -96,6 +105,14 @@ export class ComputerControlBroker {
     }
 
     if (!isMutationOperation(operation)) {
+      if (!this.canObserve(operation.taskId)) {
+        const error = new ComputerControlPolicyError(
+          "Computer control is already leased to another task.",
+          "CONTROL_BUSY",
+        );
+        await this.audit(operation, "blocked", auditMetadata(operation));
+        throw error;
+      }
       const permissions = this.options.permissionStatus?.();
       if (permissions && !permissions.accessibility) {
         const error = new Error(
@@ -104,7 +121,9 @@ export class ComputerControlBroker {
         await this.audit(operation, "blocked", { permission: "accessibility" });
         throw error;
       }
-      const snapshot = await this.options.helper.snapshot();
+      const snapshot = await this.options.helper.snapshot(
+        this.activeAbort.signal,
+      );
       this.snapshots.set(operation.taskId, snapshot);
       await this.audit(operation, "succeeded", snapshotMetadata(snapshot));
       return snapshot;

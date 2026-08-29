@@ -424,6 +424,10 @@ app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVe
 // Register before app is ready so macOS associates the scheme with this app.
 
 const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
+const DESKTOP_DEEP_LINK_PROTOCOLS = new Set([
+  "agentnative",
+  "agentnative-nightly",
+]);
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
     app.getAppPath(),
@@ -441,6 +445,30 @@ let desktopIdentityBroker: DesktopIdentityBroker | null = null;
 let desktopWorkspaceApps: AppConfig[] = [];
 let desktopWorkspaceAppsGeneration = 0;
 const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
+const desktopWebviewHealthHandlers = new WeakSet<Electron.WebContents>();
+
+function installDesktopWebviewHealthLogging(
+  contents: Electron.WebContents,
+): void {
+  if (desktopWebviewHealthHandlers.has(contents)) return;
+  desktopWebviewHealthHandlers.add(contents);
+  const appId = () => desktopWebviewAppIds.get(contents) ?? null;
+
+  contents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    console.error("[desktop-webview] render process gone", {
+      appId: appId(),
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+  });
+  contents.on("unresponsive", () => {
+    console.warn("[desktop-webview] renderer unresponsive", { appId: appId() });
+  });
+  contents.on("responsive", () => {
+    console.info("[desktop-webview] renderer responsive", { appId: appId() });
+  });
+}
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 
@@ -552,13 +580,32 @@ export interface CodeAgentTranscriptSubscription {
 }
 
 function isDeepLinkArg(arg: string): boolean {
-  return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
+  return [...DESKTOP_DEEP_LINK_PROTOCOLS].some((protocol) =>
+    arg.startsWith(`${protocol}:`),
+  );
+}
+
+function isDesktopDeepLinkUrl(url: string): boolean {
+  try {
+    return DESKTOP_DEEP_LINK_PROTOCOLS.has(new URL(url).protocol.slice(0, -1));
+  } catch {
+    // coercion-ok: malformed protocol candidates are not desktop deep links.
+    return false;
+  }
+}
+
+function queueOrHandleDeepLink(url: string): void {
+  if (app.isReady()) {
+    void handleDeepLink(url);
+  } else {
+    pendingDeepLink = url;
+  }
 }
 
 function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   const deepLink = argv.find(isDeepLinkArg);
   if (deepLink) {
-    void handleDeepLink(deepLink);
+    queueOrHandleDeepLink(deepLink);
   } else {
     focusMainWindow();
   }
@@ -754,6 +801,7 @@ function cacheDesktopWorkspaceApps(
   generation: number,
 ): void {
   if (generation !== desktopWorkspaceAppsGeneration) return;
+  if (result.unavailable) return;
   desktopWorkspaceApps = result.enabled ? result.apps : [];
 }
 
@@ -1265,11 +1313,15 @@ function reloadAllWebviews() {
 // macOS: deep links arrive via open-url (both when app is running and on cold launch)
 app.on("open-url", (event, url) => {
   event.preventDefault();
-  if (app.isReady()) {
-    void handleDeepLink(url);
-  } else {
-    pendingDeepLink = url;
+  if (isDesktopDeepLinkUrl(url)) {
+    const parsed = new URL(url);
+    console.info("[main] received desktop deep link", {
+      protocol: parsed.protocol,
+      host: parsed.host,
+      ready: app.isReady(),
+    });
   }
+  queueOrHandleDeepLink(url);
 });
 
 // --------------- Run completion / attention notifications ---------------
@@ -9278,13 +9330,37 @@ const contentFilesChangeTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
 >();
+const contentFilesWatcherRetryTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
 
 function stopContentFilesWatcher(folderId: string): void {
   const timer = contentFilesChangeTimers.get(folderId);
   if (timer) clearTimeout(timer);
   contentFilesChangeTimers.delete(folderId);
+  const retryTimer = contentFilesWatcherRetryTimers.get(folderId);
+  if (retryTimer) clearTimeout(retryTimer);
+  contentFilesWatcherRetryTimers.delete(folderId);
   contentFilesWatchers.get(folderId)?.close();
   contentFilesWatchers.delete(folderId);
+}
+
+function scheduleContentFilesWatcherRetry(grant: ContentFilesGrant): void {
+  if (contentFilesWatcherRetryTimers.has(grant.id)) return;
+  const retry = () => {
+    contentFilesWatcherRetryTimers.delete(grant.id);
+    if (!getContentFilesGrant(grant.id)) return;
+    watchContentFilesGrant(grant);
+    if (!contentFilesWatchers.has(grant.id)) {
+      const timer = setTimeout(retry, 1_000);
+      timer.unref?.();
+      contentFilesWatcherRetryTimers.set(grant.id, timer);
+    }
+  };
+  const timer = setTimeout(retry, 1_000);
+  timer.unref?.();
+  contentFilesWatcherRetryTimers.set(grant.id, timer);
 }
 
 function contentFilesChangeRevision(): string {
@@ -9336,20 +9412,25 @@ function watchContentFilesGrant(grant: ContentFilesGrant): void {
       );
     });
     watcher.on("error", () => {
-      if (
-        grant.kind === "temporary" &&
-        !resolveUsableContentFolder(grant.path)
-      ) {
-        stopContentFilesWatcher(grant.id);
+      const missing = !resolveUsableContentFolder(grant.path);
+      stopContentFilesWatcher(grant.id);
+      if (grant.kind === "temporary" && missing) {
         clearContentFilesGrant(grant.id);
         emitContentFilesChange(grant.id, true);
+        return;
       }
+      emitContentFilesChange(grant.id, missing);
+      scheduleContentFilesWatcherRetry(grant);
     });
     contentFilesWatchers.set(grant.id, watcher);
   } catch {
-    if (grant.kind === "temporary" && !resolveUsableContentFolder(grant.path)) {
+    const missing = !resolveUsableContentFolder(grant.path);
+    if (grant.kind === "temporary" && missing) {
       emitContentFilesChange(grant.id, true);
+      return;
     }
+    emitContentFilesChange(grant.id, missing);
+    scheduleContentFilesWatcherRetry(grant);
   }
 }
 
@@ -9922,7 +10003,9 @@ async function contentReadRoot(folder: string): Promise<{
   try {
     await assertUsableContentFolder(contentFolder);
     return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return { folder, prefix: "" };
   }
 }
@@ -9941,7 +10024,9 @@ async function contentWriteRoot(folder: string): Promise<{
   try {
     await assertUsableContentFolder(contentFolder);
     return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return { folder, prefix: "" };
   }
 }
@@ -9956,7 +10041,9 @@ async function collectContentMarkdownFiles(
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(folder, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code && code !== "ENOENT" && code !== "ENOTDIR") throw error;
     return files;
   }
 
@@ -10609,6 +10696,7 @@ async function readContentFilesForRequest(
   try {
     const grant = getRequiredContentFilesGrant(request.folderId);
     const root = await contentReadRoot(grant.path);
+    await assertUsableContentFolder(root.folder);
     const identities: Record<string, string> = {};
     const sources = await collectContentMarkdownFiles(
       root.folder,
@@ -12510,6 +12598,20 @@ function handleDesktopProtocolUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== `${DEEP_LINK_PROTOCOL}:`) return false;
+    const recognizedRoute =
+      parsed.host === "oauth-complete" ||
+      (parsed.host === "open" &&
+        ["app", "goal", "command", "run"].some((key) =>
+          parsed.searchParams.has(key),
+        )) ||
+      (parsed.host === "shortcuts" && parsed.pathname === "/upsert");
+    if (!recognizedRoute) {
+      console.warn("[main] ignored unsupported desktop deep link route", {
+        host: parsed.host,
+        pathname: parsed.pathname,
+      });
+      return false;
+    }
     void handleDeepLink(url);
     return true;
   } catch {
@@ -13596,7 +13698,20 @@ function handleWindowOpenForContents(
   contents: Electron.WebContents,
   url: string,
 ) {
-  if (handleDesktopProtocolUrl(url)) {
+  const isTrustedShell = Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !mainWindow.webContents.isDestroyed() &&
+    contents.id === mainWindow.webContents.id,
+  );
+  if (isTrustedShell && handleDesktopProtocolUrl(url)) {
+    return { action: "deny" as const };
+  }
+
+  if (isDesktopDeepLinkUrl(url)) {
+    console.warn("[main] denied desktop deep link from embedded content", {
+      appId: desktopWebviewAppIds.get(contents) ?? null,
+    });
     return { action: "deny" as const };
   }
 
@@ -13638,11 +13753,17 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
-    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
-    if (handleDesktopProtocolUrl(url)) {
+    if (isDesktopDeepLinkUrl(url)) {
       event.preventDefault();
+      console.warn(
+        "[main] denied desktop deep-link navigation from embedded content",
+        {
+          appId: desktopWebviewAppIds.get(contents) ?? null,
+        },
+      );
       return;
     }
+    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
     if (openOAuthFromWebviewNavigation(url, contents)) {
       event.preventDefault();
       return;
@@ -13689,6 +13810,7 @@ app.on("web-contents-created", (_event, contents) => {
         installSentryWebContentsInstrumentation(webviewContents, {
           role: "app-webview",
         });
+        installDesktopWebviewHealthLogging(webviewContents);
         installWebviewReloadGuard(webviewContents);
         installWebviewOAuthNavigationHandler(webviewContents);
 
@@ -13700,6 +13822,7 @@ app.on("web-contents-created", (_event, contents) => {
     return;
   }
 
+  installDesktopWebviewHealthLogging(contents);
   installWebviewReloadGuard(contents);
   installWebviewOAuthNavigationHandler(contents);
 
@@ -14081,8 +14204,9 @@ void app.whenReady().then(async () => {
   desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
-    void handleDeepLink(pendingDeepLink);
+    const deepLink = pendingDeepLink;
     pendingDeepLink = null;
+    void handleDeepLink(deepLink);
   }
 
   // Webviews now run in per-app persisted partitions (persist:app-<id>), so

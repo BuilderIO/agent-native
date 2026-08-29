@@ -340,6 +340,24 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("runs Clips migrations against the production database", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Clips release migrations",
+    );
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    assert.ok(migrationStart >= 0 && migrationStart < verifyStart);
+    const migration = workflow.slice(migrationStart, verifyStart);
+    assert.match(migration, /inputs\.target == 'production'/);
+    assert.match(migration, /inputs\.deploy_mode == 'production'/);
+    assert.match(migration, /source_template == 'clips'/);
+    assert.match(migration, /CLIPS_DATABASE_URL/);
+    assert.match(migration, /pnpm --filter clips migrate:production/);
+  });
+
   it("only verifies static cache artifacts for prerendered prebuilt targets", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",

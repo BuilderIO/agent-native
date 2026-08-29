@@ -2893,6 +2893,7 @@ export function createAgentChatPlugin(
               typeof run.turnId === "string" && run.turnId
                 ? run.turnId
                 : undefined,
+            parentId: run.parentId,
           });
 
           // Store debug metadata so we can inspect what the LLM actually

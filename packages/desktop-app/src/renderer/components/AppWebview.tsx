@@ -59,6 +59,10 @@ type WebviewLoadFailedEvent = Event & {
   errorDescription?: string;
   isMainFrame?: boolean;
 };
+type WebviewProcessGoneEvent = Event & {
+  reason?: string;
+  exitCode?: number;
+};
 type WebviewConsoleMessageEvent = Event & { message?: string };
 type WebviewIpcMessageEvent = Event & {
   channel?: string;
@@ -1339,6 +1343,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         }, 120);
       };
       const titleTimers = new Set<ReturnType<typeof setTimeout>>();
+      let unresponsiveTimer: ReturnType<typeof setTimeout> | undefined;
       let disposed = false;
       const emitTitle = (candidate?: unknown) => {
         const title = typeof candidate === "string" ? candidate.trim() : "";
@@ -1414,6 +1419,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         emitCurrentTitleSoon();
         emitAuthState();
       };
+      const reportGuestFailure = (details: {
+        errorCode?: number;
+        errorDescription: string;
+      }) => {
+        if (disposed || loadFailureRef.current) return;
+        loadFailureRef.current = true;
+        authProbeSequenceRef.current += 1;
+        setError(true);
+        setIsLoading(false);
+        onMainFrameLoadFailureRef.current?.(details);
+      };
       const onTitleUpdated = (e: Event) => {
         const title = String(
           (e as WebviewTitleUpdatedEvent).title ?? "",
@@ -1442,14 +1458,37 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           recoverOutdatedOptimizeDep();
           return;
         }
-        loadFailureRef.current = true;
-        authProbeSequenceRef.current += 1;
-        setError(true);
-        setIsLoading(false);
-        onMainFrameLoadFailureRef.current?.({
+        reportGuestFailure({
           errorCode,
           errorDescription: description,
         });
+      };
+      const onCrashed = () => {
+        reportGuestFailure({
+          errorDescription: "The app process ended unexpectedly.",
+        });
+      };
+      const onProcessGone = (e: Event) => {
+        const details = e as WebviewProcessGoneEvent;
+        if (details.reason === "clean-exit") return;
+        reportGuestFailure({
+          errorDescription: `The app process ended (${details.reason || "unknown reason"}).`,
+        });
+      };
+      const onUnresponsive = () => {
+        setSlowLoad(true);
+        if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
+        unresponsiveTimer = setTimeout(() => {
+          unresponsiveTimer = undefined;
+          reportGuestFailure({
+            errorDescription: "The app stopped responding.",
+          });
+        }, 5_000);
+      };
+      const onResponsive = () => {
+        if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
+        unresponsiveTimer = undefined;
+        if (!loadFailureRef.current) setSlowLoad(false);
       };
       const onConsoleMessage = (e: Event) => {
         const message = String((e as WebviewConsoleMessageEvent).message || "");
@@ -1472,6 +1511,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       wv.addEventListener("did-navigate", onNavigation);
       wv.addEventListener("did-navigate-in-page", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
+      wv.addEventListener("crashed", onCrashed);
+      wv.addEventListener("render-process-gone", onProcessGone);
+      wv.addEventListener("unresponsive", onUnresponsive);
+      wv.addEventListener("responsive", onResponsive);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("ipc-message", onIpcMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
@@ -1480,11 +1523,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       return () => {
         disposed = true;
         for (const timer of titleTimers) clearTimeout(timer);
+        if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
         wv.removeEventListener("dom-ready", onReady);
         wv.removeEventListener("page-title-updated", onTitleUpdated);
         wv.removeEventListener("did-navigate", onNavigation);
         wv.removeEventListener("did-navigate-in-page", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
+        wv.removeEventListener("crashed", onCrashed);
+        wv.removeEventListener("render-process-gone", onProcessGone);
+        wv.removeEventListener("unresponsive", onUnresponsive);
+        wv.removeEventListener("responsive", onResponsive);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("ipc-message", onIpcMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);

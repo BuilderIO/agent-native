@@ -986,6 +986,59 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("keeps the prior answer when a regeneration targets the same user branch", () => {
+    const regenerated = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Regenerated answer." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-regenerated",
+      { turnId: "turn-regenerated" },
+    );
+    expect(regenerated).not.toBeNull();
+
+    const updated = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "assistant-original",
+              role: "assistant",
+              content: [{ type: "text", text: "Original answer." }],
+              status: { type: "complete", reason: "stop" },
+            },
+            parentId: "user-1",
+          },
+        ],
+      },
+      regenerated!,
+      {
+        turnId: "turn-regenerated",
+        runId: "run-regenerated",
+        parentId: "user-1",
+      },
+    );
+
+    expect(updated.messages).toHaveLength(3);
+    expect(updated.messages[1].message.content).toEqual([
+      { type: "text", text: "Original answer." },
+    ]);
+    expect(updated.messages[2]).toMatchObject({
+      parentId: "user-1",
+      message: {
+        content: [{ type: "text", text: "Regenerated answer." }],
+      },
+    });
+  });
+
   it("does not replace a completed different-run answer with a prefix-matching recovery answer", () => {
     const finalMessage = buildAssistantMessage(
       [
