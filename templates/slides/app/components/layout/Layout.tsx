@@ -59,7 +59,6 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(

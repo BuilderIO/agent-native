@@ -204,12 +204,14 @@ function MiniCalendar({
   const { data: settings } = useSettings();
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
-  // Sync viewMonth when selectedDate changes to a different month
+  // Sync viewMonth when selectedDate changes without undoing explicit month navigation.
   useEffect(() => {
-    if (!isSameMonth(viewMonth, selectedDate)) {
-      setViewMonth(startOfMonth(selectedDate));
-    }
-  }, [selectedDate, viewMonth]);
+    setViewMonth((currentMonth) =>
+      isSameMonth(currentMonth, selectedDate)
+        ? currentMonth
+        : startOfMonth(selectedDate),
+    );
+  }, [selectedDate]);
 
   const days = useMemo(() => {
     const monthStart = startOfMonth(viewMonth);

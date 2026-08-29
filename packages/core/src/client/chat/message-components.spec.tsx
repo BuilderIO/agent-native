@@ -806,7 +806,7 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
-  it("does not group the currently running assistant response", () => {
+  it("groups the currently running assistant response", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -815,10 +815,10 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: false,
         chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("does not group the running turn whose tool is still in flight", () => {
+  it("groups the running turn whose tool is still in flight", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -827,7 +827,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: true,
         chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("still shows the duration summary for a stalled turn that is not running", () => {
@@ -842,7 +842,7 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
-  it("does not collapse active delegated work into a duration summary", () => {
+  it("collapses active delegated work into a duration summary", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: true,
@@ -852,7 +852,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasActiveTool: true,
         chatRunning: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("groups historical work with a dangling tool", () => {

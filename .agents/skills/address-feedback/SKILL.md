@@ -13,7 +13,14 @@ metadata:
 
 Use this skill when the user shares a feedback document, issue, thread, or pasted notes and asks you to address the feedback.
 
-The default posture is judgment plus action: fix clear, verified bugs you agree with; propose UX changes with rationale; skip or flag low-signal, unclear, or out-of-scope items.
+The default posture is judgment plus action: fix clear, verified bugs you agree
+with; skip low-signal, subjective, and out-of-scope items. In a Slack bug
+sweep, only clear observable failures enter the reaction or reply ledger - do
+not react to general UX suggestions, product ideas, or merge/review requests.
+Design feedback routes to Sid unless the user separately assigns a concrete
+Design fix. If another agent or owner is already handling a report, leave it
+with that owner. If a previous run mistakenly reacted to a non-bug, remove the
+reaction when the connector supports it and do not add a compensating reply.
 
 ## Choose the fix altitude
 
@@ -102,7 +109,9 @@ the repro, links a fix, or says the issue is fixed, landed, or being fixed is
 evidence, not a clarification gap. Verify the claim when needed and record the
 item as already owned, fixed, or in progress; do not ask a duplicate question
 while that work is being verified or handed off. Ask only when one concrete
-reporter or product detail still blocks a safe fix after this review.
+reporter detail still blocks a safe fix to an otherwise clear bug after this
+review. Do not ask a subjective product question merely to choose between
+plausible UX options.
 
 Every human-facing feedback reply starts with a brief thank-you. When
 clarification is genuinely required, say `thanks for the feedback -` first and
