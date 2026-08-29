@@ -530,7 +530,13 @@ export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
   // Sentiment keeps its own resolver as the top layer: it derives a default
   // from whether this is a first-party hosted deployment, which no declared
   // default can express.
-  return { ...config, ...resolveInferredSentimentConfig(config) };
+  return {
+    ...config,
+    // `enabled` is the deprecated spelling of `aiTelemetryEnabled`. An app that
+    // set it did so deliberately, so it wins while it is present.
+    aiTelemetryEnabled: config.enabled ?? config.aiTelemetryEnabled,
+    ...resolveInferredSentimentConfig(config),
+  };
 }
 
 export async function instrumentAgentLoop(opts: {

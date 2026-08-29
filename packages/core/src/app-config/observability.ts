@@ -16,13 +16,26 @@ import { z } from "zod";
  * rather than being flattened into these fields.
  */
 export const observabilityConfig = z.object({
-  enabled: z
+  aiTelemetryEnabled: z
     .boolean()
     .default(true)
     .meta({
       env: ["AGENT_NATIVE_OBSERVABILITY"],
       doc: "Capture agent run, model call, and tool call traces.",
     }),
+  /**
+   * @deprecated The old spelling of `aiTelemetryEnabled`. A bare `enabled` in a
+   * domain that also gates MCP events, eval sampling, and HTTP telemetry read
+   * as the switch for all of them; it only ever governed agent traces.
+   *
+   * Kept because the schema strips unknown keys: without it an app that set
+   * `enabled: false` would silently start capturing traces again. Folded in by
+   * `getObservabilityConfig`, which is the one accessor every trace consumer
+   * already goes through.
+   */
+  enabled: z.boolean().optional().meta({
+    doc: "Deprecated alias for `aiTelemetryEnabled`. Set that instead; this wins while both are present.",
+  }),
   // Message bodies are user data, and a trace store is not a place to put them
   // without a decision. Each of these three defaults to off for that reason.
   capturePrompts: z
@@ -85,6 +98,26 @@ export const observabilityConfig = z.object({
     .meta({
       env: ["AGENT_NATIVE_OBSERVABILITY_EVAL_SAMPLE_RATE"],
       doc: "Fraction of runs given an LLM-as-judge eval, 0 to 1.",
+    }),
+
+  // HTTP request telemetry. `http.response` is emitted from the Nitro response
+  // hook for every request, so its switches are read on the response path and
+  // belong with the other capture gates rather than beside a provider key.
+  httpTelemetryDisabled: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["AGENT_NATIVE_HTTP_TELEMETRY_DISABLED"],
+      doc: "Stop emitting `http.response` request telemetry entirely.",
+    }),
+  httpTelemetrySampleRate: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(0.1)
+    .meta({
+      env: ["AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE"],
+      doc: "Fraction of fast successful requests that emit `http.response`, 0 to 1. Cold, slow, failing, and 4xx action requests are always kept regardless.",
     }),
 
   // No env aliases: `resolveInferredSentimentConfig` owns the env step for

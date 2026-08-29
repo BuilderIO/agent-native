@@ -1,16 +1,85 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+  type TrackingEvent,
+} from "../tracking/index.js";
+import {
   getDeploymentEmailReadiness,
   getEmailReadiness,
   sendEmail,
 } from "./email";
+
+/** Collects tracking events for one test; unregistered in `afterEach`. */
+function collectTrackedEvents(): TrackingEvent[] {
+  const tracked: TrackingEvent[] = [];
+  registerTrackingProvider({
+    name: "email-tracking-test",
+    track(event) {
+      tracked.push(event);
+    },
+  });
+  return tracked;
+}
 
 describe("sendEmail", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    unregisterTrackingProvider("email-tracking-test");
+  });
+
+  it("tracks email.sent with the template and recipient domain, not the address", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 202 })),
+    );
+    const tracked = collectTrackedEvents();
+
+    await sendEmail({
+      to: "Reader@Example.com",
+      subject: "Booking confirmed",
+      html: "<p>Booked</p>",
+      templateId: "calendar.booking-confirmed",
+      app: "calendar",
+      orgId: "org-1",
+    });
+
+    const sent = tracked.find((entry) => entry.name === "email.sent");
+    expect(sent?.properties).toMatchObject({
+      template_id: "calendar.booking-confirmed",
+      app: "calendar",
+      org_id: "org-1",
+      provider: "sendgrid",
+      recipient_domain: "example.com",
+    });
+    expect(JSON.stringify(sent?.properties)).not.toContain("Reader");
+  });
+
+  it("tracks a rejected send as email.send_failed, never as email.sent", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("bad request", { status: 400 })),
+    );
+    const tracked = collectTrackedEvents();
+
+    await expect(
+      sendEmail({
+        to: "reader@example.com",
+        subject: "Booking confirmed",
+        html: "<p>Booked</p>",
+        templateId: "calendar.booking-confirmed",
+        app: "calendar",
+      }),
+    ).rejects.toThrow();
+
+    expect(tracked.map((entry) => entry.name)).toEqual(["email.send_failed"]);
   });
 
   it("overrides only the verified sender display name and maps Reply-To", async () => {

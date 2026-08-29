@@ -75,24 +75,6 @@ function envValue(key: string): string | undefined {
   return value || undefined;
 }
 
-function boolEnv(key: string): boolean {
-  return ["1", "true", "yes", "on"].includes(
-    (process.env[key] ?? "").trim().toLowerCase(),
-  );
-}
-
-function sampleRate(): number {
-  const raw = envValue("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE");
-  if (!raw) return 0.1;
-  const parsed = Number.parseFloat(raw);
-  if (!Number.isFinite(parsed)) return 0.1;
-  return Math.max(0, Math.min(1, parsed));
-}
-
-function shouldDisableTelemetry(): boolean {
-  return boolEnv("AGENT_NATIVE_HTTP_TELEMETRY_DISABLED");
-}
-
 function isTrackingIngestPath(pathname: string): boolean {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   return TRACKING_INGEST_PATHS.has(normalized);
@@ -172,8 +154,8 @@ function shouldTrack(
   pathname: string,
   statusCode: number,
   state: HttpRequestTelemetryState,
+  sampleRate: number,
 ): boolean {
-  if (shouldDisableTelemetry()) return false;
   if (isTrackingIngestPath(pathname)) return false;
   if (pathname.startsWith("/api/analytics/replay")) return false;
   if (statusCode >= 500) return true;
@@ -190,10 +172,9 @@ function shouldTrack(
   if (state.db.errorCount > 0 || state.db.timeoutCount > 0) {
     return true;
   }
-  const rate = sampleRate();
-  if (rate <= 0) return false;
-  if (rate >= 1) return true;
-  return Math.random() < rate;
+  if (sampleRate <= 0) return false;
+  if (sampleRate >= 1) return true;
+  return Math.random() < sampleRate;
 }
 
 function responseStatusCode(event: H3Event, response?: Response): number {
@@ -232,9 +213,15 @@ function emitTelemetry(
 ): void {
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
-  if (!shouldTrack(pathname, statusCode, state)) return;
 
   try {
+    const { httpTelemetryDisabled, httpTelemetrySampleRate } =
+      getAppConfig().observability;
+    if (httpTelemetryDisabled) return;
+    if (!shouldTrack(pathname, statusCode, state, httpTelemetrySampleRate)) {
+      return;
+    }
+
     const host = hostForEvent(event);
     const db = getDatabaseRuntimeFingerprint();
     track(TELEMETRY_EVENT_NAME, {

@@ -16,6 +16,7 @@ import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
+import { track } from "../tracking/index.js";
 import {
   readDeployCredentialEnv,
   resolveSecret,
@@ -429,40 +430,80 @@ async function deliverEmail(
 }
 
 /**
+ * Analytics properties for one send attempt.
+ *
+ * Recipient address and subject are user data and stay in the access-scoped
+ * `email_log`; only the recipient's domain crosses into tracking providers,
+ * because "which domains stop accepting our mail" is the question these events
+ * exist to answer.
+ */
+function emailTrackingProperties(
+  args: SendEmailArgs,
+  app: string,
+  orgId: string | null | undefined,
+  provider: string,
+): Record<string, unknown> {
+  const firstRecipient = args.to.split(",")[0] ?? "";
+  const domain = firstRecipient.split("@")[1]?.trim().toLowerCase();
+  return {
+    template_id: args.templateId,
+    app,
+    org_id: orgId ?? undefined,
+    provider,
+    recipient_domain: domain || undefined,
+  };
+}
+
+/**
  * Deliver, then record the attempt. Recording lives here rather than in each
  * provider branch so a new transport cannot be added without being logged.
+ *
+ * A failed send emits `email.send_failed` rather than an `email.sent` carrying
+ * a status property: an outage has to look different from a quiet week, and a
+ * "sent" event that sometimes means "not sent" makes those two identical.
  */
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<void> {
+  const app = args.app ?? getAppConfig().app.slug ?? "unknown";
+  const orgId = args.orgId ?? getRequestOrgId();
   let outcome: DeliveryOutcome | undefined;
   try {
     outcome = await deliverEmail(args, signal);
   } catch (error) {
+    const provider = outcome?.provider ?? "unknown";
     await recordEmailSend({
       templateId: args.templateId,
-      app: args.app ?? getAppConfig().app.slug ?? "unknown",
-      orgId: args.orgId ?? getRequestOrgId(),
+      app,
+      orgId,
       recipient: args.to,
       sender: outcome?.from ?? args.from ?? "unknown",
       subject: args.subject,
       status: "failed",
       error: error instanceof Error ? error.message : String(error),
-      provider: outcome?.provider ?? "unknown",
+      provider,
     });
+    track(
+      "email.send_failed",
+      emailTrackingProperties(args, app, orgId, provider),
+    );
     throw error;
   }
   await recordEmailSend({
     templateId: args.templateId,
-    app: args.app ?? getAppConfig().app.slug ?? "unknown",
-    orgId: args.orgId ?? getRequestOrgId(),
+    app,
+    orgId,
     recipient: args.to,
     sender: outcome.from,
     subject: args.subject,
     status: "sent",
     provider: outcome.provider,
   });
+  track(
+    "email.sent",
+    emailTrackingProperties(args, app, orgId, outcome.provider),
+  );
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {

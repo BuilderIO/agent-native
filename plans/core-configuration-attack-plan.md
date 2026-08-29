@@ -665,6 +665,7 @@ Filled in as domains migrate. This is the end-state deliverable.
 | `registerSandboxAdapter`, `registerSandboxExecutionRunner`                                                       | `defineAppConfig` — setters, not registries                          | on-touch                      |
 | `configureTracking`, `configureLocalSqlite`, `configureCloudflareModuleWorkerOutput`                             | `defineAppConfig`                                                    | on-touch                      |
 | `setToolsOrder`, `setContextXraySystemSections`, `setBrowserDemoModeEnabled`, `setTrackingContentCaptureEnabled` | `defineAppConfig`                                                    | on-touch                      |
+| `observability.enabled`                                                                                          | `observability.aiTelemetryEnabled`                                   | on-touch                      |
 
 Deprecate, do not delete. Core is published; removal is a later, separate
 decision once usage is zero.

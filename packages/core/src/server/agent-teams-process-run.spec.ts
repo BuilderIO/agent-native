@@ -440,7 +440,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       async ({ runAgentLoop, loopOpts }: any) => runAgentLoop(loopOpts),
     );
     getObservabilityConfigMock.mockReset();
-    getObservabilityConfigMock.mockResolvedValue({ enabled: true });
+    getObservabilityConfigMock.mockResolvedValue({ aiTelemetryEnabled: true });
     getRunMock.mockReset();
     abortRunMock.mockReset();
     subscribeToRunMock.mockReset();

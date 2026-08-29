@@ -175,7 +175,8 @@ export interface ExperimentMetricResult {
 // ─── Observability config ─────────────────────────────────────────────
 
 export interface ObservabilityConfig {
-  enabled: boolean;
+  /** Capture agent run, model call, and tool call traces. */
+  aiTelemetryEnabled: boolean;
   /**
    * Export prompt and completion content (`$ai_input`, `$ai_output_choices`)
    * to configured LLM-analytics backends. Off by default: message bodies are

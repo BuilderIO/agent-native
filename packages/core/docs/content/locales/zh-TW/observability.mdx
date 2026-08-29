@@ -164,7 +164,7 @@ import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
-    enabled: true,
+    aiTelemetryEnabled: true,
     evalSampleRate: 0.05, // 5%
   },
 });
@@ -266,7 +266,7 @@ import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
-    enabled: true, // Master switch
+    aiTelemetryEnabled: true, // 代理執行、模型呼叫與工具呼叫的追蹤
     capturePrompts: false, // Store prompt content in traces
     captureToolArgs: false, // Store action input arguments
     captureToolResults: false, // Store action results

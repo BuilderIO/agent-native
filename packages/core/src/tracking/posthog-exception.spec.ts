@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chunkIdsByFilename,
   errorToPostHogExceptionProperties,
   parseStackFrames,
   reshapeTrackedExceptionProperties,
   toPostHogExceptionProperties,
+  type PostHogStackFrame,
 } from "./posthog-exception.js";
 
 const V8_STACK = [
@@ -178,5 +180,71 @@ describe("reshapeTrackedExceptionProperties", () => {
   it("returns undefined when there is nothing exception-shaped to map", () => {
     expect(reshapeTrackedExceptionProperties({ foo: "bar" })).toBeUndefined();
     expect(reshapeTrackedExceptionProperties(undefined)).toBeUndefined();
+  });
+});
+
+describe("chunk ids and symbolicable frames", () => {
+  /** A minified serverless stack — the shape that never resolved in PostHog. */
+  const SERVER_STACK = [
+    "Error: boom",
+    "    at Xy (file:///var/task/server/_chunks/access-DKcU.mjs:1:8421)",
+    "    at node:internal/process/task_queues:95:5",
+  ].join("\n");
+
+  /** What `@posthog/cli sourcemap inject` writes: `new Error().stack` → id. */
+  const REGISTRY = {
+    "Error\n    at file:///var/task/server/_chunks/access-DKcU.mjs:1:23":
+      "01a04de0-0619-7762-8247-c5746777fd9d",
+  };
+
+  it("keys the injected registry by filename, not by its stack string", () => {
+    expect(chunkIdsByFilename(REGISTRY)).toEqual({
+      "/var/task/server/_chunks/access-DKcU.mjs":
+        "01a04de0-0619-7762-8247-c5746777fd9d",
+    });
+  });
+
+  it("returns an empty map when nothing was injected", () => {
+    expect(chunkIdsByFilename(undefined)).toEqual({});
+  });
+
+  it("marks a frame node:javascript only when its chunk id is known", () => {
+    const frames = parseStackFrames(
+      SERVER_STACK,
+      "javascript",
+      chunkIdsByFilename(REGISTRY),
+    );
+
+    const appFrame = frames.find((f) =>
+      f.filename?.endsWith("access-DKcU.mjs"),
+    );
+    expect(appFrame?.platform).toBe("node:javascript");
+    expect(appFrame?.chunk_id).toBe("01a04de0-0619-7762-8247-c5746777fd9d");
+
+    // `node:internal/…` is never injected, so claiming a symbolicable platform
+    // for it would render as a failed resolution rather than a raw frame.
+    const internal = frames.find((f) => f.filename?.startsWith("node:"));
+    expect(internal?.platform).toBe("custom");
+    expect(internal?.chunk_id).toBeUndefined();
+  });
+
+  it("leaves every frame custom when no chunk ids are supplied", () => {
+    const frames = parseStackFrames(SERVER_STACK);
+    expect(frames.every((f) => f.platform === "custom")).toBe(true);
+    expect(frames.every((f) => f.chunk_id === undefined)).toBe(true);
+  });
+
+  it("threads chunk ids through the tracked-exception reshape", () => {
+    const reshaped = reshapeTrackedExceptionProperties(
+      {
+        exceptionType: "TypeError",
+        exceptionMessage: "x is not a function",
+        exceptionStack: SERVER_STACK,
+      },
+      chunkIdsByFilename(REGISTRY),
+    ) as { $exception_list: { stacktrace: { frames: PostHogStackFrame[] } }[] };
+
+    const frames = reshaped.$exception_list[0].stacktrace.frames;
+    expect(frames.some((f) => f.platform === "node:javascript")).toBe(true);
   });
 });

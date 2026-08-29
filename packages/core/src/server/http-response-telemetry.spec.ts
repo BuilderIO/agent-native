@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { withDbTimeout } from "../db/client.js";
 import {
   registerTrackingProvider,
@@ -30,6 +34,7 @@ afterEach(() => {
   logSpy.mockRestore();
   unregisterTrackingProvider("http-response-telemetry-test");
   vi.unstubAllEnvs();
+  resetAppConfigForTests();
 });
 
 function createHooks() {
@@ -232,6 +237,28 @@ describe("http response telemetry", () => {
       await requestHooks[0](event);
       await responseHooks[0](new Response("", { status: 202 }), event);
     }
+
+    expect(tracked).toHaveLength(0);
+  });
+
+  it("stops tracking when an app disables http telemetry in config", async () => {
+    // The switch has to be reachable without an environment variable, so this
+    // sets the app layer rather than stubbing AGENT_NATIVE_HTTP_TELEMETRY_DISABLED.
+    defineAppConfig({ observability: { httpTelemetryDisabled: true } });
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    const event = eventFor("/_agent-native/actions/list-visual-plans");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("{}"), event);
 
     expect(tracked).toHaveLength(0);
   });

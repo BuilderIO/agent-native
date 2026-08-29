@@ -10889,7 +10889,7 @@ export function createProductionAgentHandler(
             const { getObservabilityConfig, instrumentAgentLoop } =
               await import("../observability/traces.js");
             const obsConfig = await getObservabilityConfig();
-            if (obsConfig.enabled) {
+            if (obsConfig.aiTelemetryEnabled) {
               instrumented = true;
               await instrumentAgentLoop({
                 runAgentLoop: runAgentLoopWithMainChatInternalContinuations,

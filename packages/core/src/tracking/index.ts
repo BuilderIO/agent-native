@@ -15,10 +15,12 @@ export {
   type TrackingExceptionLevel,
 } from "./error-capture.js";
 export {
+  chunkIdsByFilename,
   errorToPostHogExceptionProperties,
   parseStackFrames,
   reshapeTrackedExceptionProperties,
   toPostHogExceptionProperties,
+  type ChunkIdsByFilename,
   type PostHogExceptionEntry,
   type PostHogExceptionInput,
   type PostHogExceptionLevel,

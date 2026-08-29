@@ -697,7 +697,7 @@ async function executeBackgroundAutomation(
               const { getObservabilityConfig, instrumentAgentLoop } =
                 await import("../observability/traces.js");
               const config = await getObservabilityConfig();
-              if (config.enabled) {
+              if (config.aiTelemetryEnabled) {
                 instrumented = true;
                 usageRef.current = await instrumentAgentLoop({
                   runAgentLoop: (o) => execute(o as typeof loopOpts),

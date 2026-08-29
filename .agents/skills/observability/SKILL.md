@@ -46,7 +46,7 @@ import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
   observability: {
-    enabled: true,
+    aiTelemetryEnabled: true,
     capturePrompts: false,
     captureToolArgs: true, // capture action input args
     captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries

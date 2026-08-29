@@ -14,7 +14,10 @@
  */
 
 import { getAppConfig } from "../app-config/index.js";
-import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
+import {
+  chunkIdsByFilename,
+  reshapeTrackedExceptionProperties,
+} from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
@@ -247,7 +250,13 @@ function createPostHogProvider(
         // `/capture/`: a malformed exception is what this branch exists to
         // prevent.
         if (!errorTracking) return;
-        const reshaped = reshapeTrackedExceptionProperties(event.properties);
+        // Chunk ids make the difference between a resolvable server frame
+        // and a permanently minified one; they are absent (and this is a
+        // no-op) unless the app uploaded source maps for its server bundle.
+        const reshaped = reshapeTrackedExceptionProperties(
+          event.properties,
+          chunkIdsByFilename(),
+        );
         if (reshaped) {
           sendToEventsEndpoint(event, reshaped, distinctId);
           return;

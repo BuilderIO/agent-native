@@ -335,7 +335,9 @@ describe("delegated A2A final response guards", () => {
   });
 
   it("instruments A2A loops with stable task correlation and user identity", async () => {
-    getObservabilityConfigMock.mockResolvedValueOnce({ enabled: true });
+    getObservabilityConfigMock.mockResolvedValueOnce({
+      aiTelemetryEnabled: true,
+    });
     instrumentAgentLoopMock.mockImplementationOnce(async (options: any) =>
       options.runAgentLoop(options.loopOpts),
     );

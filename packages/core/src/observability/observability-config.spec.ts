@@ -11,7 +11,7 @@ describe("getObservabilityConfig", () => {
 
   it("serves declared defaults when nothing is configured", async () => {
     const config = await getObservabilityConfig();
-    expect(config.enabled).toBe(true);
+    expect(config.aiTelemetryEnabled).toBe(true);
     expect(config.capturePrompts).toBe(false);
     expect(config.captureToolArgs).toBe(false);
     expect(config.captureToolResults).toBe(false);
@@ -26,6 +26,13 @@ describe("getObservabilityConfig", () => {
     const config = await getObservabilityConfig();
     expect(config.captureToolArgs).toBe(true);
     expect(config.evalSampleRate).toBe(0.05);
+  });
+
+  it("honours the deprecated `enabled` spelling over the renamed field", async () => {
+    // The schema strips unknown keys, so dropping `enabled` outright would
+    // silently turn trace capture back on for an app that had switched it off.
+    defineAppConfig({ observability: { enabled: false } });
+    expect((await getObservabilityConfig()).aiTelemetryEnabled).toBe(false);
   });
 
   it("rejects a sample rate outside 0-1 at the call site that set it", () => {

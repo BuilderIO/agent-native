@@ -3,6 +3,23 @@
  * camelCase exception properties the framework's own `captureException()`
  * emits.
  *
+ * SYMBOLICATION. A frame is only ever resolved against an uploaded source map
+ * when it names a platform PostHog has a symbol store for AND carries the
+ * `chunk_id` of the file it came from. `custom` is not such a platform:
+ * `RawFrame::Custom.symbol_set_ref()` returns `None`, so a `custom` frame is
+ * inert by construction and a correctly uploaded map cannot rescue it. This
+ * module emitted `custom` unconditionally, on the premise — true when it was
+ * written — that the framework ships no source maps. An app that DOES upload
+ * them (`@posthog/cli sourcemap process` over its build output) then saw its
+ * browser stacks resolve, because those come from posthog-js, and its server
+ * stacks stay minified forever, because those come from here.
+ *
+ * So a frame now claims `node:javascript` — whose symbol-set reference IS its
+ * `chunk_id` — exactly when a chunk id is known for its file, and stays
+ * `custom` otherwise. `chunkIds` is passed in rather than read ambiently, so
+ * this module keeps running unchanged in the browser, where the relayed
+ * posthog-js frames are already `web:javascript` and must not be touched.
+ *
  * PostHog's error tracking only groups and renders an issue when the event
  * carries `$exception_list` with per-frame stack data. An event named
  * `$exception` without it is ingested and displayed as an empty, ungroupable
@@ -50,17 +67,23 @@ export type PostHogExceptionLevel =
 
 export interface PostHogStackFrame {
   /**
-   * Always `"custom"`. PostHog reserves the language-specific platforms for
-   * frames it will try to symbolicate against uploaded source maps; we upload
-   * none, so claiming one would render every minified frame as a failed
-   * resolution rather than as the raw frame it is.
+   * `"node:javascript"` when a `chunk_id` is known for this frame's file —
+   * PostHog will look that chunk up and resolve the frame. `"custom"`
+   * otherwise: claiming a symbolicable platform with nothing to symbolicate
+   * against renders the frame as a FAILED resolution, which is strictly worse
+   * than presenting it as the raw frame it is.
    */
-  platform: "custom";
+  platform: "custom" | "node:javascript";
   lang: string;
   function: string;
   filename?: string;
   lineno?: number;
   colno?: number;
+  /**
+   * The id `@posthog/cli sourcemap inject` stamped into this frame's file and
+   * into its uploaded `.map`. Present only on `node:javascript` frames.
+   */
+  chunk_id?: string;
   in_app: boolean;
   resolved: boolean;
 }
@@ -97,6 +120,50 @@ export interface PostHogExceptionInput {
   fingerprint?: string;
   /** Frame language tag. Defaults to `javascript`. */
   lang?: string;
+  /**
+   * `filename → chunk_id` for the bundle these frames came from, from
+   * `chunkIdsByFilename()`. Frames whose file is in it become symbolicable
+   * `node:javascript` frames; everything else is unaffected.
+   */
+  chunkIds?: ChunkIdsByFilename;
+}
+
+/** `filename → chunk_id`, as produced by {@link chunkIdsByFilename}. */
+export type ChunkIdsByFilename = Record<string, string>;
+
+/**
+ * Read the chunk-id registry `@posthog/cli sourcemap inject` left behind.
+ *
+ * The CLI prepends a snippet to every file it processes that does, at module
+ * load, `globalThis._posthogChunkIds[new Error().stack] = "<uuid>"`. The key
+ * is a STACK STRING, not a filename — so the registry is unusable until each
+ * key is parsed back into the file that produced it. We parse it with
+ * {@link parseStackFrames}, the same function that parses the exception being
+ * reported, so both sides normalize `file://` prefixes identically; a
+ * different parser matches nothing and fails silently.
+ *
+ * NOT MEMOIZED. The registry grows as chunks are lazily imported, so a
+ * snapshot taken at boot would be missing exactly the route chunk that later
+ * threw. It is rebuilt per report, on a path where something has already gone
+ * wrong.
+ */
+export function chunkIdsByFilename(
+  registry: Record<string, string> | undefined = (
+    globalThis as { _posthogChunkIds?: Record<string, string> }
+  )._posthogChunkIds,
+): ChunkIdsByFilename {
+  const byFilename: ChunkIdsByFilename = {};
+  if (!registry) return byFilename;
+
+  for (const [stack, chunkId] of Object.entries(registry)) {
+    if (typeof stack !== "string" || typeof chunkId !== "string") continue;
+    // Oldest-call-first, so the frame that ran the injected `new Error()` —
+    // the chunk's own file — is the last one.
+    const frames = parseStackFrames(stack);
+    const filename = frames[frames.length - 1]?.filename;
+    if (filename) byFilename[filename] = chunkId;
+  }
+  return byFilename;
 }
 
 function isInAppFrame(filename: string | undefined): boolean {
@@ -115,19 +182,25 @@ function makeFrame(
   filename: string | undefined,
   lineno: number | undefined,
   colno: number | undefined,
+  chunkIds: ChunkIdsByFilename | undefined,
 ): PostHogStackFrame {
   const name = !fn || fn === "<anonymous>" ? UNKNOWN_FUNCTION : fn;
+  const chunkId = filename ? chunkIds?.[filename] : undefined;
   return {
-    platform: "custom",
+    // Per-FRAME, not per-stack: a server stack mixes app chunks (injected,
+    // resolvable) with `node:internal/…` frames (never injected). Deciding
+    // once for the whole stack would either strand the app frames as `custom`
+    // or claim a resolvable platform for frames that have nothing to resolve.
+    platform: chunkId ? "node:javascript" : "custom",
     lang,
     function: name,
     ...(filename ? { filename } : {}),
     ...(lineno !== undefined && Number.isFinite(lineno) ? { lineno } : {}),
     ...(colno !== undefined && Number.isFinite(colno) ? { colno } : {}),
+    ...(chunkId ? { chunk_id: chunkId } : {}),
     in_app: isInAppFrame(filename),
-    // Never `true`: we ship no source maps to PostHog, so a minified browser
-    // frame is exactly as informative as it looks. Claiming it is resolved
-    // would present a mangled name as the real one.
+    // Never `true` on the way out: `resolved` describes what WE did, and we
+    // resolve nothing. PostHog flips it when it symbolicates the frame.
     resolved: false,
   };
 }
@@ -135,6 +208,7 @@ function makeFrame(
 function parseFrameLine(
   line: string,
   lang: string,
+  chunkIds: ChunkIdsByFilename | undefined,
 ): PostHogStackFrame | undefined {
   const v8 = V8_FRAME_RE.exec(line);
   if (v8) {
@@ -146,6 +220,7 @@ function parseFrameLine(
       filename,
       lineNo ? Number(lineNo) : undefined,
       colNo ? Number(colNo) : undefined,
+      chunkIds,
     );
   }
 
@@ -158,6 +233,7 @@ function parseFrameLine(
       file,
       lineNo ? Number(lineNo) : undefined,
       colNo ? Number(colNo) : undefined,
+      chunkIds,
     );
   }
 
@@ -174,6 +250,7 @@ function parseFrameLine(
 export function parseStackFrames(
   stack: string | undefined,
   lang = "javascript",
+  chunkIds?: ChunkIdsByFilename,
 ): PostHogStackFrame[] {
   if (!stack) return [];
   const frames: PostHogStackFrame[] = [];
@@ -185,7 +262,7 @@ export function parseStackFrames(
       : rawLine;
     if (ERROR_HEADER_RE.test(line)) continue;
 
-    const frame = parseFrameLine(line, lang);
+    const frame = parseFrameLine(line, lang, chunkIds);
     if (frame) frames.push(frame);
     if (frames.length >= STACKTRACE_FRAME_LIMIT) break;
   }
@@ -204,7 +281,7 @@ export function toPostHogExceptionProperties(
   input: PostHogExceptionInput,
 ): PostHogExceptionProperties {
   const lang = input.lang ?? "javascript";
-  const frames = parseStackFrames(input.stack, lang);
+  const frames = parseStackFrames(input.stack, lang, input.chunkIds);
   const entry: PostHogExceptionEntry = {
     type: boundedText(input.type || "Error", 200),
     value: boundedText(
@@ -255,6 +332,7 @@ export function errorToPostHogExceptionProperties(
  */
 export function reshapeTrackedExceptionProperties(
   properties: Record<string, unknown> | undefined,
+  chunkIds?: ChunkIdsByFilename,
 ): Record<string, unknown> | undefined {
   if (!properties) return undefined;
   // Already in PostHog form (e.g. relayed from the browser) — leave it alone.
@@ -290,6 +368,7 @@ export function reshapeTrackedExceptionProperties(
       handled:
         typeof properties.handled === "boolean" ? properties.handled : true,
       level: isExceptionLevel(level) ? level : "error",
+      chunkIds,
     }),
   };
 }

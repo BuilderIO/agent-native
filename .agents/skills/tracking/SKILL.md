@@ -268,9 +268,19 @@ Other framework-level baseline events:
   initialization is reported separately as `startup_db_*` on the first
   framework request that passes the readiness gate.
   Slow, cold-isolate, server failures, and 4xx action routes are always
-  retained; fast successful requests default to 10% sampling. Override with
-  `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
-  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
+  retained; fast successful requests default to 10% sampling. Both server
+  switches are app config fields — `observability.httpTelemetrySampleRate`
+  (`AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE`) and
+  `observability.httpTelemetryDisabled`
+  (`AGENT_NATIVE_HTTP_TELEMETRY_DISABLED`), which turns the event off
+  entirely. The browser side is still
+  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE`.
+- `email.sent` and `email.send_failed` from `sendEmail`, one per transactional
+  send attempt, with `template_id` (the `defineTransactionalEmail` id),
+  `app`, `org_id`, `provider`, and the recipient's `recipient_domain`. A
+  failure is its own event rather than a status property, so an outage cannot
+  read as a quiet week. Recipient address, subject, and provider error text
+  stay in the access-scoped `email_log` table.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable

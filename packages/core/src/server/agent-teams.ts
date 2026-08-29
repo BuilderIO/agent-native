@@ -1937,7 +1937,7 @@ export async function processAgentTeamRun(
                     const { getObservabilityConfig, instrumentAgentLoop } =
                       await import("../observability/traces.js");
                     const observabilityConfig = await getObservabilityConfig();
-                    if (observabilityConfig.enabled) {
+                    if (observabilityConfig.aiTelemetryEnabled) {
                       instrumented = true;
                       chunkUsage = await instrumentAgentLoop({
                         runAgentLoop,

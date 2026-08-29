@@ -581,7 +581,7 @@ async function runDelegatedAgentLoop(
     const { getObservabilityConfig, instrumentAgentLoop } =
       await import("../../observability/traces.js");
     const config = await getObservabilityConfig();
-    if (config.enabled) {
+    if (config.aiTelemetryEnabled) {
       instrumented = true;
       return await instrumentAgentLoop({
         runAgentLoop: (loopOptions) =>
