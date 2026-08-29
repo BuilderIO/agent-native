@@ -41,7 +41,7 @@ on:
       signup_apps:
         description: "Apps for the signup canary"
         required: false
-        default: "clips,design,chat"
+        default: "all"
         type: string
       signup_environments:
         description: "Environments for the signup canary"
@@ -93,7 +93,7 @@ on:
       signup_apps:
         description: "Apps for the signup canary"
         required: false
-        default: "clips,design,chat"
+        default: "all"
         type: string
       signup_environments:
         description: "Environments for the signup canary"
@@ -362,7 +362,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      SIGNUP_E2E_APPS: ${{ inputs.signup_apps || 'clips,design,chat' }}
+      SIGNUP_E2E_APPS: ${{ inputs.signup_apps || 'all' }}
       SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.signup_environments || 'beta' }}
       MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
       MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}

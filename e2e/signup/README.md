@@ -5,11 +5,14 @@ follows the link delivered by Mailosaur, proves the
 authenticated Better Auth session before a refresh, then proves it again after
 the refresh that exposed the reported outage.
 
-The scheduled targets are `clips`, `design`, and `chat` on beta, using a fresh
-reserved address per run to exercise new-user creation. Production is opt-in
-through `workflow_dispatch` and also uses a fresh reserved address. The
-workflow is serial so one run creates a bounded number of canary accounts
-instead of multiplying them across a matrix.
+The scheduled target is `all` email-capable sites on beta. That currently covers
+12 of the 16 fleet apps; Google-only apps (`mail` and `calendar`) and apps
+without the Better Auth email magic-link flow (`factory` and `macros`) are
+intentionally excluded. Every target uses a fresh reserved address per run to
+exercise new-user creation. Production is opt-in through `workflow_dispatch`
+and also uses a fresh reserved address. The workflow is serial so one run
+creates a bounded number of canary accounts instead of multiplying them across
+a matrix.
 
 ## GitHub Actions setup
 

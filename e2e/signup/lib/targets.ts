@@ -14,7 +14,7 @@ export interface SignupTarget {
   origin: string;
 }
 
-const DEFAULT_APPS = ["clips", "design", "chat"];
+const DEFAULT_APPS = "all";
 const EMAIL_SIGNUP_UNSUPPORTED_APPS = new Set(["factory", "macros"]);
 
 function supportsEmailSignup(app: string): boolean {
@@ -39,7 +39,7 @@ function requestedValues(name: string, fallback: string): string[] {
 }
 
 function selectedApps() {
-  const requested = requestedValues("SIGNUP_E2E_APPS", DEFAULT_APPS.join(","));
+  const requested = requestedValues("SIGNUP_E2E_APPS", DEFAULT_APPS);
   if (requested[0] === "all")
     return ALL_SITES.filter((site) => supportsEmailSignup(site.id));
   const known = new Set(ALL_SITES.map((site) => site.id));
