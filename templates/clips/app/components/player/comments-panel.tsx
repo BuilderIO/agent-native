@@ -35,9 +35,10 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  displayCommentMentions,
   mentionsForCommentText,
-  parseCommentMentions,
   type CommentMention,
+  type CommentMentionDisplay,
 } from "../../../shared/comment-mentions";
 import { useMentionMembers } from "../../hooks/use-mention-members";
 import {
@@ -81,7 +82,7 @@ export interface Comment {
   authorEmail: string;
   authorName: string | null;
   content: string;
-  mentionsJson?: string | null;
+  mentions?: CommentMentionDisplay[];
   videoTimestampMs: number;
   emojiReactionsJson: string;
   resolved: boolean;
@@ -153,7 +154,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [editDraft, setEditDraft] = useState("");
   const [editMentions, setEditMentions] = useState<MentionEntry[]>([]);
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
-  const { data: mentionMembers = [] } = useMentionMembers(isSignedIn);
+  const { data: mentionMembers = [] } = useMentionMembers(
+    recordingId,
+    isSignedIn,
+  );
+  const selectedEditMentions = useMemo(
+    () => mentionsForCommentText(editDraft, editMentions),
+    [editDraft, editMentions],
+  );
 
   const queryClient = useQueryClient();
 
@@ -178,9 +186,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         authorEmail: currentUserEmail ?? "",
         authorName: currentUserName ?? null,
         content: vars.content,
-        mentionsJson: vars.mentions?.length
-          ? JSON.stringify(vars.mentions)
-          : null,
+        mentions: displayCommentMentions(vars.mentions),
         videoTimestampMs: vars.videoTimestampMs ?? 0,
         emojiReactionsJson: "{}",
         resolved: false,
@@ -315,9 +321,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
             ? {
                 ...comment,
                 content: vars.content,
-                mentionsJson: vars.mentions?.length
-                  ? JSON.stringify(vars.mentions)
-                  : null,
+                ...(vars.mentions === undefined
+                  ? {}
+                  : { mentions: displayCommentMentions(vars.mentions) }),
                 updatedAt,
               }
             : comment,
@@ -339,8 +345,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
             ? {
                 ...comment,
                 content: data.content,
-                ...(data.mentionsJson !== undefined
-                  ? { mentionsJson: data.mentionsJson }
+                ...(data.mentions !== undefined
+                  ? { mentions: data.mentions }
                   : {}),
                 updatedAt: data.updatedAt,
               }
@@ -426,7 +432,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!canComment) return;
     setEditingId(comment.id);
     setEditDraft(comment.content);
-    setEditMentions(parseCommentMentions(comment.mentionsJson));
+    // Persisted comment data only contains display-safe mention names.
+    setEditMentions([]);
   }
 
   function cancelEditing() {
@@ -439,7 +446,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!canComment) return;
     const content = editDraft.trim();
     if (!content) return;
-    if (content === comment.content) {
+    if (content === comment.content && selectedEditMentions.length === 0) {
       cancelEditing();
       return;
     }
@@ -447,7 +454,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     updateComment.mutate({
       id: comment.id,
       content,
-      ...mentionArgs(editDraft, editMentions),
+      ...mentionArgs(editDraft, selectedEditMentions),
     });
   }
 
@@ -510,6 +517,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
                         upsertMention(current, mention),
                       )
                     }
+                    hasSelectedEditMentions={selectedEditMentions.length > 0}
                     members={mentionMembers}
                     onStartEdit={() => startEditing(root)}
                     onCancelEdit={cancelEditing}
@@ -540,6 +548,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
                               setEditMentions((current) =>
                                 upsertMention(current, mention),
                               )
+                            }
+                            hasSelectedEditMentions={
+                              selectedEditMentions.length > 0
                             }
                             members={mentionMembers}
                             onStartEdit={() => startEditing(r)}
@@ -849,6 +860,7 @@ function InlineEditComposer({
   originalContent,
   onDraftChange,
   onMentionAdd,
+  hasSelectedMentions,
   members,
   onCancel,
   onSubmit,
@@ -857,6 +869,7 @@ function InlineEditComposer({
   originalContent: string;
   onDraftChange: (value: string) => void;
   onMentionAdd: (mention: MentionEntry) => void;
+  hasSelectedMentions: boolean;
   members: { email: string; name: string | null }[];
   onCancel: () => void;
   onSubmit: () => void;
@@ -886,7 +899,8 @@ function InlineEditComposer({
           size="sm"
           onClick={onSubmit}
           disabled={
-            !normalizedDraft || normalizedDraft === originalContent.trim()
+            !normalizedDraft ||
+            (normalizedDraft === originalContent.trim() && !hasSelectedMentions)
           }
         >
           {t("common.save")}
@@ -908,6 +922,7 @@ function CommentCard({
   onDelete,
   onEditDraftChange,
   onEditMentionAdd,
+  hasSelectedEditMentions,
   members,
   onStartEdit,
   onCancelEdit,
@@ -927,6 +942,7 @@ function CommentCard({
   onDelete: (id: string) => void;
   onEditDraftChange: (value: string) => void;
   onEditMentionAdd: (mention: MentionEntry) => void;
+  hasSelectedEditMentions: boolean;
   members: { email: string; name: string | null }[];
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -1011,6 +1027,7 @@ function CommentCard({
             originalContent={comment.content}
             onDraftChange={onEditDraftChange}
             onMentionAdd={onEditMentionAdd}
+            hasSelectedMentions={hasSelectedEditMentions}
             members={members}
             onCancel={onCancelEdit}
             onSubmit={onSaveEdit}
@@ -1020,7 +1037,7 @@ function CommentCard({
             <InlineMarkdown
               content={comment.content}
               className="mt-0.5 text-sm text-foreground"
-              protectedSpans={commentMentionSpans(comment.mentionsJson)}
+              protectedSpans={commentMentionSpans(comment.mentions)}
             />
 
             <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
@@ -1177,10 +1194,10 @@ function mentionArgs(
 }
 
 function commentMentionSpans(
-  mentionsJson: string | null | undefined,
+  mentions: readonly CommentMentionDisplay[] | null | undefined,
 ): InlineMarkdownProtectedSpan[] {
   const labels = Array.from(
-    new Set(parseCommentMentions(mentionsJson).map((mention) => mention.name)),
+    new Set((mentions ?? []).map((mention) => mention.name)),
   ).sort((a, b) => b.length - a.length);
   return labels.map((name) => ({
     source: `@${name}`,

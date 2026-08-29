@@ -44,7 +44,10 @@ export default function NotificationsRoute() {
   const [replyFor, setReplyFor] = useState<NotificationItem | null>(null);
   const [replyText, setReplyText] = useState("");
   const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
-  const { data: mentionMembers = [] } = useMentionMembers(true);
+  const { data: mentionMembers = [] } = useMentionMembers(
+    replyFor?.recordingId,
+    !!replyFor,
+  );
 
   const qc = useQueryClient();
   const {

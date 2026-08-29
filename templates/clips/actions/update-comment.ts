@@ -16,6 +16,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
 import { isRecordingExpired } from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
+import {
+  displayCommentMentions,
+  mentionsForCommentText,
+  parseCommentMentions,
+} from "../shared/comment-mentions.js";
 
 const mentionSchema = z.object({
   email: z.string().email(),
@@ -73,7 +78,12 @@ export default defineAction({
     }
 
     const mentions = await resolveCommentMentions(
-      args.mentions,
+      args.mentions === undefined
+        ? mentionsForCommentText(
+            args.content,
+            parseCommentMentions(existing.mentionsJson),
+          )
+        : args.mentions,
       existing.organizationId,
     );
 
@@ -101,6 +111,11 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id: args.id, content: args.content, updatedAt };
+    return {
+      id: args.id,
+      content: args.content,
+      mentions: displayCommentMentions(mentions),
+      updatedAt,
+    };
   },
 });

@@ -17,6 +17,7 @@ import { and, desc, gte, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { canReceiveRecordingActivity } from "../server/lib/recording-page-access.js";
 import {
   getCurrentOwnerEmail,
   sameOwnerEmail,
@@ -42,20 +43,30 @@ export default defineAction({
         id: schema.recordings.id,
         title: schema.recordings.title,
         ownerEmail: schema.recordings.ownerEmail,
+        password: schema.recordings.password,
+        expiresAt: schema.recordings.expiresAt,
       })
       .from(schema.recordings)
       .where(accessFilter(schema.recordings, schema.recordingShares));
-    if (visibleRecordings.length === 0) {
+    const accessibleRecordings = visibleRecordings.filter((recording) =>
+      canReceiveRecordingActivity({
+        ownerEmail: recording.ownerEmail,
+        recipientEmail: me,
+        hasPassword: Boolean(recording.password),
+        expiresAt: recording.expiresAt,
+      }),
+    );
+    if (accessibleRecordings.length === 0) {
       return { items: [], count: 0 };
     }
 
-    const myRecordingIds = visibleRecordings
+    const myRecordingIds = accessibleRecordings
       .filter((recording) => sameOwnerEmail(recording.ownerEmail, me))
       .map((recording) => recording.id);
     const myRecordingIdSet = new Set(myRecordingIds);
-    const ids = visibleRecordings.map((recording) => recording.id);
+    const ids = accessibleRecordings.map((recording) => recording.id);
     const titleById = new Map(
-      visibleRecordings.map(
+      accessibleRecordings.map(
         (recording) => [recording.id, recording.title] as const,
       ),
     );

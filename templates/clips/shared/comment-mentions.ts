@@ -3,6 +3,10 @@ export interface CommentMention {
   name: string;
 }
 
+export interface CommentMentionDisplay {
+  name: string;
+}
+
 export function normalizeCommentMentions(value: unknown): CommentMention[] {
   let raw = value;
   if (typeof raw === "string") {
@@ -44,11 +48,24 @@ export function parseCommentMentions(
   return normalizeCommentMentions(value);
 }
 
+export function displayCommentMentions(
+  value: unknown,
+): CommentMentionDisplay[] {
+  return normalizeCommentMentions(value).map(({ name }) => ({ name }));
+}
+
+function hasMentionToken(text: string, name: string): boolean {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)@${escapedName}(?=$|[^\\p{L}\\p{N}_])`, "u").test(
+    text,
+  );
+}
+
 export function mentionsForCommentText(
   text: string,
   mentions: readonly CommentMention[],
 ): CommentMention[] {
   return normalizeCommentMentions(
-    mentions.filter((mention) => text.includes(`@${mention.name}`)),
+    mentions.filter((mention) => hasMentionToken(text, mention.name)),
   );
 }

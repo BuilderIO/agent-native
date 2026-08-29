@@ -36,6 +36,7 @@ import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
 } from "../../../shared/agent-context.js";
+import { displayCommentMentions } from "../../../shared/comment-mentions.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -331,6 +332,12 @@ export default defineEventHandler(async (event) => {
         )
     : [];
   const hydratedComments = await hydrateCommentAuthorNames(comments);
+  const commentMentions = new Map(
+    hydratedComments.map((comment) => [
+      comment.id,
+      displayCommentMentions(comment.mentionsJson),
+    ]),
+  );
   for (const comment of hydratedComments) {
     Reflect.deleteProperty(comment, "mentionsJson");
   }
@@ -522,6 +529,7 @@ export default defineEventHandler(async (event) => {
       authorEmail: c.authorEmail,
       authorName: c.authorName,
       content: c.content,
+      mentions: commentMentions.get(c.id) ?? [],
       videoTimestampMs: c.videoTimestampMs,
       emojiReactionsJson: c.emojiReactionsJson,
       resolved: Boolean(c.resolved),
