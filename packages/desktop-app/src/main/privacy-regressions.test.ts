@@ -398,4 +398,22 @@ describe("desktop passive-access regressions", () => {
     expect(whenReady).toContain("if (pendingDeepLink) {");
     expect(whenReady).toContain("handleDeepLink(pendingDeepLink);");
   });
+
+  it("registers development deep links against the current app path", () => {
+    const main = source("./index.ts");
+    const registration = between(
+      main,
+      "const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;",
+      "let pendingDeepLink: string | null = null;",
+    );
+
+    expect(registration).toContain(
+      "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [",
+    );
+    expect(registration).toContain("app.getAppPath(),");
+    expect(registration).not.toContain("process.argv[1]");
+    expect(registration).toContain(
+      "app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);",
+    );
+  });
 });

@@ -398,7 +398,7 @@ app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVe
 const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
-    path.resolve(process.argv[1]),
+    app.getAppPath(),
   ]);
 } else {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);

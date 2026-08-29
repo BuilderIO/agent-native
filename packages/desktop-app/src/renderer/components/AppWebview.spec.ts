@@ -27,6 +27,7 @@ import {
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
+  shouldShowDesktopIdentityRecovery,
   shouldUseDesktopIdentityGate,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
@@ -133,6 +134,41 @@ describe("Desktop identity lazy child synchronization", () => {
         eligible: true,
         active: false,
         enabled: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows child-local recovery when app session synchronization fails", () => {
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: false,
+        status: "failed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: false,
+        status: "sign-in-required",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: false,
+        showDesktopIdentityGate: false,
+        status: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: true,
+        status: "failed",
       }),
     ).toBe(false);
   });
@@ -972,6 +1008,9 @@ describe("AppWebview auth state", () => {
       "/_agent-native/auth/session",
     );
     expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "authenticated === true",
+    );
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },
@@ -984,6 +1023,33 @@ describe("AppWebview auth state", () => {
         "unauthenticated",
       ),
     ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { email: "user@example.com", status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: { email: "user@example.com" }, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: {}, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 200 }, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { ok: true, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
   });
 
   it("falls back only when the app does not expose the session endpoint", () => {

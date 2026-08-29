@@ -961,6 +961,51 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
     expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });
+
+  it("resets a hidden model when switching to Claude Code", async () => {
+    const onModelChange = vi.fn();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "openai",
+                label: "OpenAI",
+                models: ["gpt-5.6-sol"],
+                configured: true,
+              },
+              {
+                engine: "claude-cli",
+                label: "Claude Code",
+                models: ["claude-sonnet-5"],
+                configured: true,
+              },
+            ],
+            selectedModel: "gpt-5.6-sol",
+            selectedEngine: "openai",
+            selectedAgent: "claude-code",
+            onModelChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+
+    await act(async () => {});
+
+    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "claude-cli");
+  });
 });
 
 describe("TiptapComposer slash commands", () => {
