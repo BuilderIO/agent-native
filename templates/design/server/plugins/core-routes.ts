@@ -8,6 +8,7 @@ import { createCoreRoutesPlugin } from "@agent-native/core/server";
 // editor route is `design.$id.tsx` → `/design/:id`) and 404s — so an
 // "Open in Design" link for a connected external agent never opened the design.
 export default createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
   resolveOpenPath: ({ view, params }) => {
     if (params.designId) return `/design/${params.designId}`;
     // `editor`/unknown with no id: there is no bare `/editor` route — send to

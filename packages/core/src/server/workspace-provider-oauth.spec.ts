@@ -16,6 +16,7 @@ import {
   isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
+  workspaceProviderOAuthFlowInvalidReason,
   mergeWorkspaceOAuthValues,
   oauthFlowFailure,
   resolveWorkspaceProviderIdentity,
@@ -52,9 +53,9 @@ describe("workspace provider OAuth", () => {
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
   });
 
-  it("uses the root Google callback for every standalone managed provider", () => {
-    vi.stubEnv("APP_BASE_PATH", "");
-    vi.stubEnv("VITE_APP_BASE_PATH", "");
+  it("uses the root Google callback for every managed provider", () => {
+    vi.stubEnv("APP_BASE_PATH", "/calendar");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/calendar");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
@@ -181,6 +182,33 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthFlowValid({ ...valid, now: 2_001 })).toBe(
       false,
     );
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({ ...valid, now: 2_001 }),
+    ).toBe("flow expired");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        state: { ...state, flowId: undefined },
+      }),
+    ).toBe("state is missing, malformed, or has an invalid signature");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        state: { ...state, flowId: "another-flow" },
+      }),
+    ).toBe("state does not match the OAuth flow");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        flow: { ...flow, expiresAt: Number.NaN },
+      }),
+    ).toBe("flow expiry is invalid");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        flow: { ...flow, expiresAt: Number.POSITIVE_INFINITY },
+      }),
+    ).toBe("flow expiry is invalid");
   });
 
   it("preserves the provider in signed callback state", () => {

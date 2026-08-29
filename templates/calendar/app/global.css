@@ -36,9 +36,13 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
+  --conference: 212 70% 48%;
+  --conference-foreground: 0 0% 100%;
 }
 
 .dark {
+  --conference: 210 64% 53%;
+  --conference-foreground: 0 0% 100%;
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --card: 0 0% 15%;
@@ -142,4 +146,11 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Exposes the conference accent to Tailwind utilities the same way
+   `agent-native.css` exposes the shared shadcn tokens. */
+@theme inline {
+  --color-conference: hsl(var(--conference));
+  --color-conference-foreground: hsl(var(--conference-foreground));
 }

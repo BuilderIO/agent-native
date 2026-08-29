@@ -35,14 +35,12 @@ import { resolveSecret } from "./credential-provider.js";
 import {
   decodeOAuthState,
   encodeOAuthState,
-  getAppBasePath,
   getAppUrl,
   oauthErrorPage,
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
 } from "./google-oauth.js";
 import { runWithRequestContext } from "./request-context.js";
-import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 export type GenericWorkspaceOAuthProvider =
   | "figma"
@@ -104,10 +102,7 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
 export function shouldUseRootGoogleOAuthCallback(
   provider: GenericWorkspaceOAuthProvider,
 ): boolean {
-  return (
-    isGoogleWorkspaceOAuthProvider(provider) &&
-    (isWorkspaceOAuthCallbackRelayEnabled() || getAppBasePath() === "")
-  );
+  return isGoogleWorkspaceOAuthProvider(provider);
 }
 
 export async function hasWorkspaceProviderOAuthCredentials(
@@ -129,6 +124,33 @@ export interface WorkspaceProviderOAuthFlow {
   scope: WorkspaceProviderOAuthScope;
   salesforceLoginUrl?: string;
   expiresAt: number;
+}
+
+function isWorkspaceProviderOAuthFlow(
+  value: unknown,
+): value is WorkspaceProviderOAuthFlow {
+  const flow = record(value);
+  return Boolean(
+    flow &&
+    typeof flow.provider === "string" &&
+    SUPPORTED_PROVIDERS.has(flow.provider as GenericWorkspaceOAuthProvider) &&
+    typeof flow.flowId === "string" &&
+    flow.flowId.length > 0 &&
+    typeof flow.verifier === "string" &&
+    flow.verifier.length > 0 &&
+    typeof flow.redirectUri === "string" &&
+    flow.redirectUri.length > 0 &&
+    typeof flow.owner === "string" &&
+    flow.owner.length > 0 &&
+    (flow.orgId === undefined || typeof flow.orgId === "string") &&
+    typeof flow.appId === "string" &&
+    flow.appId.length > 0 &&
+    isWorkspaceProviderOAuthScope(flow.scope) &&
+    (flow.salesforceLoginUrl === undefined ||
+      typeof flow.salesforceLoginUrl === "string") &&
+    typeof flow.expiresAt === "number" &&
+    Number.isFinite(flow.expiresAt),
+  );
 }
 
 export function workspaceProviderOAuthPath(
@@ -224,6 +246,7 @@ export async function handleWorkspaceProviderOAuthStart(
     useRootGoogleCallback
       ? "/_agent-native/google/callback"
       : workspaceProviderOAuthPath(providerId, "callback"),
+    { allowRootCallback: useRootGoogleCallback },
   );
   if (!redirectUri) {
     return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
@@ -331,10 +354,15 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const flow = readStoredFlow(event, providerId);
-  if (!flow || !isWorkspaceProviderOAuthScope(flow.scope)) {
-    return oauthFlowFailure(event, 400, "OAuth state is invalid or expired.");
+  const storedFlow = readStoredFlow(event, providerId);
+  if (!storedFlow.flow) {
+    return oauthFlowFailure(
+      event,
+      400,
+      `OAuth flow cookie ${storedFlow.reason}.`,
+    );
   }
+  const flow = storedFlow.flow;
   const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
     flow.appId,
@@ -367,17 +395,19 @@ export async function handleWorkspaceProviderOAuthCallback(
   }
   deleteCookie(event, flowCookieName(providerId), { path: "/" });
   const state = decodeOAuthState(stateParam, "");
-  if (
-    !flow ||
-    !isWorkspaceProviderOAuthFlowValid({
-      flow,
-      state,
-      provider: providerId,
-      sessionEmail: session.email,
-      sessionOrgId: orgId,
-    })
-  ) {
-    return oauthFlowFailure(event, 400, "OAuth state is invalid or expired.");
+  const stateError = workspaceProviderOAuthFlowInvalidReason({
+    flow,
+    state,
+    provider: providerId,
+    sessionEmail: session.email,
+    sessionOrgId: orgId,
+  });
+  if (stateError) {
+    return oauthFlowFailure(
+      event,
+      400,
+      `OAuth state rejected: ${stateError}. Start the connection again.`,
+    );
   }
   const provider = requiredProvider(providerId);
   return runWithRequestContext(
@@ -981,16 +1011,69 @@ function requiredProvider(
 function readStoredFlow(
   event: H3Event,
   provider: GenericWorkspaceOAuthProvider,
-): WorkspaceProviderOAuthFlow | null {
+): { flow: WorkspaceProviderOAuthFlow | null; reason: string } {
   const encrypted = getCookie(event, flowCookieName(provider));
-  if (!encrypted) return null;
+  if (!encrypted) return { flow: null, reason: "is missing" };
+  let decrypted: string;
   try {
-    return JSON.parse(
-      decryptSecretValue(encrypted),
-    ) as WorkspaceProviderOAuthFlow;
+    decrypted = decryptSecretValue(encrypted);
   } catch {
-    return null;
+    return { flow: null, reason: "could not be decrypted" };
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decrypted);
+  } catch {
+    return { flow: null, reason: "is malformed" };
+  }
+  const parsedRecord = record(parsed);
+  if (parsedRecord && !isWorkspaceProviderOAuthScope(parsedRecord.scope)) {
+    return { flow: null, reason: "has an invalid scope" };
+  }
+  return isWorkspaceProviderOAuthFlow(parsed)
+    ? { flow: parsed, reason: "is valid" }
+    : { flow: null, reason: "is malformed" };
+}
+
+export function workspaceProviderOAuthFlowInvalidReason(input: {
+  flow: WorkspaceProviderOAuthFlow;
+  state: OAuthStatePayload;
+  provider: GenericWorkspaceOAuthProvider;
+  sessionEmail: string;
+  sessionOrgId?: string;
+  now?: number;
+}): string | undefined {
+  if (!Number.isFinite(input.flow.expiresAt)) {
+    return "flow expiry is invalid";
+  }
+  if (input.flow.expiresAt < (input.now ?? Date.now())) return "flow expired";
+  if (input.flow.provider !== input.provider) return "provider mismatch";
+  if (!input.state.flowId) {
+    return "state is missing, malformed, or has an invalid signature";
+  }
+  if (input.state.flowId !== input.flow.flowId) {
+    return "state does not match the OAuth flow";
+  }
+  if (input.state.redirectUri !== input.flow.redirectUri) {
+    return "redirect URI mismatch";
+  }
+  if (input.state.owner !== input.flow.owner) return "state owner mismatch";
+  if (input.state.scope !== input.flow.scope) return "state scope mismatch";
+  if (
+    input.state.provider !== undefined &&
+    input.state.provider !== input.provider
+  ) {
+    return "state provider mismatch";
+  }
+  if (input.sessionEmail !== input.flow.owner) return "session owner mismatch";
+  if (input.state.orgId !== input.flow.orgId) {
+    return "state organization mismatch";
+  }
+  if (input.sessionOrgId !== input.flow.orgId) {
+    return "session organization mismatch";
+  }
+  if (input.state.app !== input.flow.appId) return "state app mismatch";
+  return undefined;
 }
 
 export function isWorkspaceProviderOAuthFlowValid(input: {
@@ -1001,20 +1084,7 @@ export function isWorkspaceProviderOAuthFlowValid(input: {
   sessionOrgId?: string;
   now?: number;
 }): boolean {
-  return (
-    input.flow.expiresAt >= (input.now ?? Date.now()) &&
-    input.flow.provider === input.provider &&
-    input.state.flowId === input.flow.flowId &&
-    input.state.redirectUri === input.flow.redirectUri &&
-    input.state.owner === input.flow.owner &&
-    input.state.scope === input.flow.scope &&
-    (input.state.provider === undefined ||
-      input.state.provider === input.provider) &&
-    input.sessionEmail === input.flow.owner &&
-    input.state.orgId === input.flow.orgId &&
-    input.sessionOrgId === input.flow.orgId &&
-    input.state.app === input.flow.appId
-  );
+  return workspaceProviderOAuthFlowInvalidReason(input) === undefined;
 }
 
 export function canConnectWorkspaceProviderOAuth(

@@ -2502,7 +2502,6 @@ function workspaceOAuthCallbackRelayResponse(
   const provider = extractOAuthStateProvider(state);
   const isWorkspaceCallbackRelay = isWorkspaceOAuthCallbackRelayEnabled();
   const isStandaloneGoogleProviderCallback =
-    !basePath &&
     !isWorkspaceCallbackRelay &&
     normalizedPath === "/_agent-native/google/callback" &&
     isWorkspaceGoogleOAuthProvider(provider);
@@ -2535,7 +2534,7 @@ function workspaceOAuthCallbackRelayResponse(
   return new Response("", {
     status: 302,
     headers: {
-      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : ""}${providerCallbackPath}${search}`,
+      Location: `${isWorkspaceCallbackRelay ? `/${effectiveAppId}` : basePath || ""}${providerCallbackPath}${search}`,
     },
   });
 }
@@ -3700,6 +3699,7 @@ function createLocalDevAuthHandler(config?: BetterAuthConfig) {
         return { error: "Local development sign-in is unavailable" };
       }
       setFrameworkSessionCookie(event, session.token);
+      setFirstRunOnboardingCookie(event);
       await addSession(session.token, session.email);
       return authLoginResponse(event, session.token, session.email);
     } catch {
@@ -3792,6 +3792,7 @@ async function maybeAutoCreateDevSession(
     if (!result?.token) return null;
 
     setFrameworkSessionCookie(event, result.token);
+    setFirstRunOnboardingCookie(event);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
 
     // Emit the session cookie ON the 302 itself. Returning a bare
@@ -4025,7 +4026,7 @@ function isReadMethod(event: H3Event): boolean {
  * dev keeps the default `SameSite=Lax`; `None` requires Secure, and
  * `Partitioned` only takes effect alongside `Secure`.
  */
-function crossSiteCookieAttrs(event: H3Event): {
+export function crossSiteCookieAttrs(event: H3Event): {
   sameSite: "lax" | "none";
   secure: boolean;
   partitioned?: boolean;
@@ -4054,6 +4055,7 @@ function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
 function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     httpOnly: false,
     path: "/",
     maxAge: FIRST_RUN_ONBOARDING_MAX_AGE,
@@ -4063,6 +4065,7 @@ function setFirstRunOnboardingCookie(event: H3Event): void {
 function clearFirstRunOnboardingCookie(event: H3Event): void {
   deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
     ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
     path: "/",
   });
 }
@@ -5517,7 +5520,8 @@ async function mountBetterAuthRoutes(
       }
 
       if (
-        reqPath.includes("/sign-up/email") &&
+        (reqPath.includes("/sign-up/email") ||
+          reqPath.includes("/sign-in/email")) &&
         isResponse &&
         (response as Response).status >= 200 &&
         (response as Response).status < 300
@@ -5565,6 +5569,7 @@ async function mountBetterAuthRoutes(
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({
@@ -5993,6 +5998,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
         });
         if (result?.token) {
           setFrameworkSessionCookie(event, result.token);
+          setFirstRunOnboardingCookie(event);
           await addSession(result.token, email);
           if (isElectronRequest(event)) {
             await writeDesktopSso({

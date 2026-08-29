@@ -66,6 +66,7 @@ import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
 import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
+  stopGoogleDocsPoller,
   handlePushNotification,
   verifyGoogleDocsPushNotification,
 } from "./google-docs-poller.js";
@@ -882,6 +883,38 @@ export function createIntegrationsPlugin(
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+    let googleDocsPollerTransition: Promise<void> = Promise.resolve();
+    const runGoogleDocsPollerTransition = (
+      operation: () => Promise<void>,
+    ): Promise<void> => {
+      const previous = googleDocsPollerTransition;
+      let release!: () => void;
+      googleDocsPollerTransition = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return previous
+        .catch(() => undefined)
+        .then(operation)
+        .finally(release);
+    };
+    const createGoogleDocsPollerOptions = (event?: any) => {
+      const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
+      const baseUrl =
+        configuredBaseUrl || (event ? getBaseUrl(event) : undefined);
+      const webhookUrl = baseUrl
+        ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
+        : undefined;
+
+      return {
+        systemPrompt: baseSystemPrompt,
+        actions,
+        initialToolNames,
+        model: model ?? "",
+        apiKey: getApiKey(),
+        ownerEmail: "integration@google-docs",
+        webhookUrl,
+      };
+    };
 
     // Routes mounted under a platform's own name rather than reached through
     // the `/:platform/...` catch-all. The catch-all 404s a platform the
@@ -3147,6 +3180,14 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 401);
               return { ok: false, error: "unauthorized" };
             }
+            const config = await getIntegrationConfig(platform);
+            if (!config?.configData?.enabled) {
+              setResponseStatus(event, 404);
+              return {
+                ok: false,
+                error: `Integration ${platform} is not enabled`,
+              };
+            }
             handlePushNotification().catch((err) => {
               console.error("[google-docs] Push handler error:", err);
             });
@@ -3414,6 +3455,11 @@ export function createIntegrationsPlugin(
             "default",
             session?.email,
           );
+          if (platform === "google-docs") {
+            await runGoogleDocsPollerTransition(() =>
+              startGoogleDocsPoller(createGoogleDocsPollerOptions(event)),
+            );
+          }
           return { ok: true, platform, enabled: true };
         }
 
@@ -3428,6 +3474,9 @@ export function createIntegrationsPlugin(
             "default",
             session?.email,
           );
+          if (platform === "google-docs") {
+            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
+          }
           return { ok: true, platform, enabled: false };
         }
 
@@ -3519,7 +3568,7 @@ export function createIntegrationsPlugin(
       // processor killed mid-flight). No-ops gracefully if the queue table
       // hasn't been created yet on this deployment.
       startPendingTasksRetryJob({
-        webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+        webhookBaseUrl: getAppConfig().integrations.webhookBaseUrl,
       });
       startA2AContinuationRetryJob(adapterMap);
       startRemoteCommandsRetryJob();
@@ -3534,20 +3583,9 @@ export function createIntegrationsPlugin(
           // resolved. We pass it as a special option; the poller will attempt
           // to register a watch when the first request reveals the base URL,
           // or use the WEBHOOK_BASE_URL env var if set.
-          const baseUrl = process.env.WEBHOOK_BASE_URL;
-          const webhookUrl = baseUrl
-            ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
-            : undefined;
-
-          void startGoogleDocsPoller({
-            systemPrompt: baseSystemPrompt,
-            actions,
-            initialToolNames,
-            model: model ?? "",
-            apiKey: getApiKey(),
-            ownerEmail: "integration@google-docs",
-            webhookUrl,
-          });
+          void runGoogleDocsPollerTransition(() =>
+            startGoogleDocsPoller(createGoogleDocsPollerOptions()),
+          );
         }, 2000);
       }
     }

@@ -93,6 +93,30 @@ describe("SlideEditor render-phase safety", () => {
     );
   });
 
+  it("claims Delete before the deck-level slide shortcut when an object is selected", () => {
+    const selectionStart = source.indexOf("const slideElementSelected =");
+    const selectionEnd = source.indexOf(
+      "// Flow objects are promoted",
+      selectionStart,
+    );
+    expect(source.slice(selectionStart, selectionEnd)).toContain(
+      "!!selectedElementSelector",
+    );
+
+    const deleteStart = source.indexOf(
+      "// Delete/Backspace removes the selected slide content",
+    );
+    const deleteEnd = source.indexOf(
+      "/**\n   * Find the nearest meaningful element",
+      deleteStart,
+    );
+    const deleteBody = source.slice(deleteStart, deleteEnd);
+    expect(deleteBody).toContain(
+      'window.addEventListener("keydown", onKey, true)',
+    );
+    expect(deleteBody).toContain("e.stopPropagation()");
+  });
+
   it("ends native text editing before entering a multi-selection", () => {
     const start = source.indexOf("const applyMultiSelection");
     const end = source.indexOf("const clearMultiSelection", start);
@@ -115,6 +139,42 @@ describe("SlideEditor render-phase safety", () => {
     expect(pointerDownBody).toContain("const additive =");
     expect(pointerDownBody).toContain("const targetIsEditingBlock =");
     expect(pointerDownBody).toContain("exitInlineEdit();");
+  });
+
+  it("pastes plain clipboard text as a selected text box outside text editing", () => {
+    const pasteStart = source.indexOf("const pastePlainTextAsTextBox");
+    const pasteEnd = source.indexOf("const placeShapeAt", pasteStart);
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+
+    expect(pasteBody).toContain('getData("text/plain")');
+    expect(pasteBody).toContain("placeTextBoxAt(");
+    expect(pasteBody).toContain("selectElementForStyling(box, selector)");
+    expect(pasteBody).toContain(
+      'window.addEventListener("paste", onPaste, true)',
+    );
+    expect(pasteBody).toContain("text,\n        false,");
+    expect(pasteBody).toContain(
+      "const renderedHeight = Math.max(height, box.offsetHeight)",
+    );
+    expect(pasteBody).toContain(
+      "if (y > renderedMaxY) box.style.top = `${renderedMaxY}px`",
+    );
+    expect(pasteBody).toContain("box.style.maxHeight = `${slideHeight}px`");
+    expect(pasteBody).toContain('box.style.overflowY = "auto"');
+    expect(source).toContain('box.style.overflowWrap = "anywhere"');
+  });
+
+  it("lets HTML-only native paste beat a stale object clipboard", () => {
+    const pasteStart = source.indexOf("// Object paste waits");
+    const pasteEnd = source.indexOf(
+      "// Appearance clipboard shortcuts",
+      pasteStart,
+    );
+    const pasteBody = source.slice(pasteStart, pasteEnd);
+
+    expect(pasteBody).toContain('type.startsWith("text/")');
+    expect(pasteBody).toContain("e.clipboardData?.getData(type)?.length");
+    expect(pasteBody).toContain("if (hasNativeText) return;");
   });
 
   it("re-measures portaled selection chrome after the editor layout moves", () => {

@@ -271,7 +271,7 @@ describe("present-design-variants", () => {
         questions: [
           expect.objectContaining({
             id: "variant",
-            submitOnSelect: true,
+            submitOnSelect: false,
             allowOther: false,
             options: [
               expect.objectContaining({ label: "Pure White" }),

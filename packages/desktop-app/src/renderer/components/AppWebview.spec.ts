@@ -27,6 +27,7 @@ import {
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
+  shouldShowDesktopIdentityRecovery,
   shouldUseDesktopIdentityGate,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
@@ -137,9 +138,44 @@ describe("Desktop identity lazy child synchronization", () => {
     ).toBe(false);
   });
 
-  it("does not demote a verified workspace session when child sync fails", () => {
+  it("shows child-local recovery when app session synchronization fails", () => {
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: false,
+        status: "failed",
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: false,
+        status: "sign-in-required",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: false,
+        showDesktopIdentityGate: false,
+        status: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowDesktopIdentityRecovery({
+        eligible: true,
+        active: true,
+        showDesktopIdentityGate: true,
+        status: "failed",
+      }),
+    ).toBe(false);
+  });
+
+  it("reports a failed child sync to the shell-owned identity surface", () => {
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
-      "signed-in",
+      "failed",
     );
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
       "signed-in",
@@ -248,6 +284,48 @@ describe("Desktop identity activation", () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it("focuses an active webview for an explicit app-open request", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-calendar",
+      name: "Calendar",
+      icon: "calendar",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://calendar.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const props = {
+      app,
+      appConfig,
+      isActive: true,
+      theme: "dark" as const,
+    };
+
+    act(() => {
+      root.render(React.createElement(AppWebview, props));
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    const focus = vi.fn();
+    Object.defineProperty(webview!, "focus", {
+      configurable: true,
+      value: focus,
+    });
+
+    act(() => {
+      root.render(React.createElement(AppWebview, { ...props, focusNonce: 1 }));
+    });
+
+    expect(focus).toHaveBeenCalledOnce();
   });
 
   it("reveals a loaded tab without reloading it after switching away", async () => {
@@ -930,6 +1008,9 @@ describe("AppWebview auth state", () => {
       "/_agent-native/auth/session",
     );
     expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "authenticated === true",
+    );
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },
@@ -942,6 +1023,33 @@ describe("AppWebview auth state", () => {
         "unauthenticated",
       ),
     ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { email: "user@example.com", status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: { email: "user@example.com" }, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: {}, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 200 }, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { ok: true, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
   });
 
   it("falls back only when the app does not expose the session endpoint", () => {

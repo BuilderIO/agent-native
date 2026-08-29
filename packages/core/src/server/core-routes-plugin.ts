@@ -178,6 +178,7 @@ import {
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
+  getBuilderOAuthStoredScope,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
@@ -216,7 +217,10 @@ import {
   trackPluginInit,
 } from "./framework-request-handler.js";
 import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
-import { checkGoogleSignInCredential } from "./google-credential-check.js";
+import {
+  checkGoogleManagedCredential,
+  checkGoogleSignInCredential,
+} from "./google-credential-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -464,16 +468,19 @@ async function resolveAgentEngineStatusIdentity(
 }
 
 /**
- * A Builder grant is shared by everyone in the caller's org, so establishing,
- * overwriting, or revoking one requires org owner/admin authority. Returns the
- * authorized org id and a denial message (null when allowed). The org id is
- * captured at connect start so the grant is stored under the org that was
- * authorized, not one re-resolved after the OAuth round trip. Fails closed: an
- * unreadable owner/admin role is denied.
+ * Shared Builder grants stay org-scoped, but connect initiation can come from
+ * any authenticated member. Revocation still needs owner/admin authority.
+ * Capture the org id at connect start so the grant is stored under the org
+ * that was authorized, not one re-resolved after the OAuth round trip.
  */
-async function resolveBuilderOrgMutation(
+export async function resolveBuilderOrgMutation(
   event: H3Event,
-): Promise<{ orgId: string | null; deny: string | null }> {
+  options: { allowMemberInitiation?: boolean } = {},
+): Promise<{
+  orgId: string | null;
+  role: string | null;
+  deny: string | null;
+}> {
   let orgId: string | null = null;
   let role: string | null = null;
   try {
@@ -483,13 +490,22 @@ async function resolveBuilderOrgMutation(
   } catch {
     // coercion-ok: org is missing, it will fail closed
   }
+  if (options.allowMemberInitiation) {
+    if (orgId) return { orgId, role, deny: null };
+    return {
+      orgId,
+      role,
+      deny: "Only signed-in organization members can connect Builder.",
+    };
+  }
   if (role !== "owner" && role !== "admin") {
     return {
       orgId,
+      role,
       deny: "Only an organization owner or admin can change the shared Builder connection.",
     };
   }
-  return { orgId, deny: null };
+  return { orgId, role, deny: null };
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -1369,6 +1385,20 @@ export interface CoreRoutesPluginOptions {
   disablePing?: boolean;
   /** Disable the /_agent-native/health DB liveness + warmup probe. */
   disableHealth?: boolean;
+  /**
+   * Callback paths emitted by this app's Google OAuth health contract. The
+   * default is the shared framework callback; app-owned callbacks must opt in
+   * so fleet probes read the deployed app instead of guessing from a hostname.
+   */
+  googleOAuthCallbackPaths?: string[];
+  /** Whether the managed Google client is deployment- or user-scoped. */
+  googleOAuthCredentialMode?: "managed" | "user";
+  /**
+   * Whether this app exposes deployment-level Google workspace OAuth. Custom
+   * core-route plugins must declare this; the framework default declares that
+   * managed OAuth is not applicable.
+   */
+  googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
@@ -1409,6 +1439,23 @@ export interface CoreRoutesPluginOptions {
    * own browser-scoped agent session.
    */
   anonymousOwner?: BuilderAnonymousOwnerResolver;
+}
+
+const DEFAULT_GOOGLE_OAUTH_CALLBACK_PATH = "/_agent-native/google/callback";
+const GOOGLE_OAUTH_CALLBACK_PATH_PATTERN =
+  /^\/_agent-native\/[A-Za-z0-9._/-]+\/callback$/;
+
+function normalizeGoogleOAuthCallbackPaths(paths?: string[]): string[] {
+  const values = [...new Set(paths ?? [DEFAULT_GOOGLE_OAUTH_CALLBACK_PATH])];
+  if (
+    values.length === 0 ||
+    values.some((value) => !GOOGLE_OAUTH_CALLBACK_PATH_PATTERN.test(value))
+  ) {
+    throw new Error(
+      "googleOAuthCallbackPaths must contain /_agent-native/*/callback paths.",
+    );
+  }
+  return values;
 }
 
 interface LegacyCoreRouteInitSettings {
@@ -1597,6 +1644,13 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
+  const googleOAuthCallbackPaths = normalizeGoogleOAuthCallbackPaths(
+    options.googleOAuthCallbackPaths,
+  );
+  const googleOAuthCredentialMode =
+    options.googleOAuthCredentialMode ?? "managed";
+  const googleOAuthManagedConnection =
+    options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     // No-op when called from inside the bootstrap (auto-mount path).
@@ -1695,11 +1749,39 @@ export function createCoreRoutesPlugin(
           `${P}/health/google`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
-            const result = await checkGoogleSignInCredential();
+            const result =
+              event.url?.searchParams.get("client") === "managed"
+                ? googleOAuthManagedConnection === "not_applicable"
+                  ? {
+                      status: "unconfigured" as const,
+                      clientId: null,
+                      mismatchedPairs: false,
+                      credentialSource: "none" as const,
+                      reason:
+                        "this app does not expose deployment-level Google OAuth",
+                      checkedAt: Date.now(),
+                    }
+                  : googleOAuthCredentialMode === "user"
+                    ? {
+                        status: "unconfigured" as const,
+                        clientId: null,
+                        mismatchedPairs: false,
+                        credentialSource: "user" as const,
+                        reason:
+                          "user-scoped OAuth credentials are checked after authentication",
+                        checkedAt: Date.now(),
+                      }
+                    : await checkGoogleManagedCredential()
+                : await checkGoogleSignInCredential();
             // `invalid` is the fleet-wide outage shape: the deploy is up and
             // healthy while nobody can sign in. Page on it.
             if (result.status === "invalid") setResponseStatus(event, 503);
-            return result;
+            return {
+              ...result,
+              callbackPaths: googleOAuthCallbackPaths,
+              credentialMode: googleOAuthCredentialMode,
+              managedConnection: googleOAuthManagedConnection,
+            };
           }),
         );
         getH3App(nitroApp).use(
@@ -2384,7 +2466,10 @@ export function createCoreRoutesPlugin(
               > = null;
               let hasOAuthCustody = false;
               try {
-                hasOAuthCustody = await hasBuilderOAuthSession(userEmail);
+                hasOAuthCustody = await hasBuilderOAuthSession(
+                  userEmail,
+                  orgId,
+                );
               } catch {
                 return withConnectToken({
                   ...requestStatus,
@@ -2404,6 +2489,7 @@ export function createCoreRoutesPlugin(
                   oauthAccess = await resolveBuilderOAuthRequestAccess({
                     ownerEmail: userEmail,
                     requiredScope: BUILDER_OAUTH_SCOPE,
+                    orgId,
                   });
                 } catch {
                   oauthAccess = null;
@@ -2875,8 +2961,13 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
-          const { orgId: connectOrgId, deny: orgConnectDenied } =
-            await resolveBuilderOrgMutation(event);
+          const {
+            orgId: connectOrgId,
+            role: connectRole,
+            deny: orgConnectDenied,
+          } = await resolveBuilderOrgMutation(event, {
+            allowMemberInitiation: true,
+          });
           if (orgConnectDenied) {
             await trackBuilderLifecycle(
               event,
@@ -2896,7 +2987,7 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
               title: "Not allowed to connect Builder for this organization",
-              body: "Ask an organization owner or admin to connect Builder.",
+              body: orgConnectDenied,
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
@@ -2916,7 +3007,7 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
               orgId: connectOrgId,
-              role: null,
+              role: connectRole,
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
               expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
@@ -3487,11 +3578,27 @@ export function createCoreRoutesPlugin(
           // PKCE proves the callback belongs to this flow before its pending
           // row is consumed. Persist first so a transient credential-store
           // failure does not strand an otherwise valid pending flow.
+          let callbackRole: string | null = null;
+          if (pending.role === "owner" || pending.role === "admin") {
+            // Re-check authority after the external OAuth round trip. A role
+            // captured at connect start must not authorize a later org write.
+            const currentOrg = await resolveBuilderOrgMutation(event, {
+              allowMemberInitiation: true,
+            });
+            if (
+              currentOrg.orgId === pending.orgId &&
+              (currentOrg.role === "owner" || currentOrg.role === "admin")
+            ) {
+              callbackRole = currentOrg.role;
+            }
+          }
+          let credentialScope: "user" | "org" = "user";
           try {
-            await saveBuilderOAuthCredentials({
+            credentialScope = await saveBuilderOAuthCredentials({
               ownerEmail,
               orgId:
                 typeof pending.orgId === "string" ? pending.orgId : undefined,
+              role: callbackRole,
               credentials,
             });
           } catch {
@@ -3555,7 +3662,7 @@ export function createCoreRoutesPlugin(
             {
               ...builderConnectTrackingProperties(tracking),
               stage: "callback",
-              credential_scope: "user",
+              credential_scope: credentialScope,
             },
           );
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
@@ -3584,19 +3691,6 @@ export function createCoreRoutesPlugin(
           }
 
           try {
-            const hadOAuth = await hasBuilderOAuthSession(session.email);
-            // Revoking an org-scoped grant takes the connection offline for
-            // every member, so require org owner/admin before doing so.
-            if (hadOAuth) {
-              const { deny } = await resolveBuilderOrgMutation(event);
-              if (deny) {
-                setResponseStatus(event, 403);
-                return { error: deny };
-              }
-            }
-            const oauthResult = hadOAuth
-              ? await deleteBuilderOAuthSession(session.email)
-              : { localDeleted: false, remoteRevoked: false };
             const { deleteBuilderCredentials } =
               await import("./credential-provider.js");
             let orgId: string | null = null;
@@ -3609,9 +3703,30 @@ export function createCoreRoutesPlugin(
             } catch {
               // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
             }
+            const oauthScope = await getBuilderOAuthStoredScope(
+              session.email,
+              orgId,
+            );
+            const hadOAuth = oauthScope !== null;
+            // Revoking an org-scoped grant takes the connection offline for
+            // every member, so require org owner/admin before doing so.
+            if (oauthScope === "org") {
+              const { deny } = await resolveBuilderOrgMutation(event);
+              if (deny) {
+                setResponseStatus(event, 403);
+                return { error: deny };
+              }
+            }
+            const oauthResult = oauthScope
+              ? await deleteBuilderOAuthSession(
+                  session.email,
+                  oauthScope,
+                  orgId,
+                )
+              : { localDeleted: false, remoteRevoked: false };
             await deleteBuilderCredentials(
               session.email,
-              hadOAuth ? undefined : { orgId, role },
+              oauthScope ? undefined : { orgId, role },
             );
             await trackBuilderLifecycle(
               event,
@@ -4761,4 +4876,6 @@ export function createCoreRoutesPlugin(
  * export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
  * ```
  */
-export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin();
+export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
+});

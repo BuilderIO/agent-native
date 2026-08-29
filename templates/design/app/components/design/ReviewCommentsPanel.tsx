@@ -89,16 +89,16 @@ export function ReviewCommentsPanel({
           onValueChange={(value) => setScope(value as "screen" | "all")}
           className="w-full"
         >
-          <TabsList className="grid h-8 w-full grid-cols-2 rounded-md bg-muted p-0.5">
+          <TabsList className="grid min-h-[var(--design-control-height)] w-full grid-cols-2 rounded-md bg-muted p-0.5">
             <TabsTrigger
               value="screen"
-              className="design-sidebar-section-title h-7 px-2"
+              className="design-sidebar-section-title min-h-[var(--design-control-height)] px-2"
             >
               {t("review.thisScreen")}
             </TabsTrigger>
             <TabsTrigger
               value="all"
-              className="design-sidebar-section-title h-7 px-2"
+              className="design-sidebar-section-title min-h-[var(--design-control-height)] px-2"
             >
               {t("review.allScreens")}
             </TabsTrigger>
@@ -111,7 +111,7 @@ export function ReviewCommentsPanel({
           asChild
           variant="outline"
           size="sm"
-          className="mx-3 mt-3 h-8 shrink-0"
+          className="mx-2 mt-2 min-h-[var(--design-row-height)] shrink-0"
         >
           <a href={signInHref}>{t("review.signInToComment")}</a>
         </Button>

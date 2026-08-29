@@ -33,6 +33,7 @@ import {
   describeErrorWithCauses,
 } from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -244,6 +245,7 @@ class AISDKEngine implements AgentEngine {
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
     this.preserveCustomModels =
       provider === "ollama" ||
+      provider === "openrouter" ||
       (provider === "openai" && Boolean(config.baseUrl));
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
@@ -311,9 +313,10 @@ class AISDKEngine implements AgentEngine {
     }
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
+    const providerTools = limitProviderTools(opts.tools);
     const aiSdkTools =
-      opts.tools.length > 0
-        ? engineToolsToAISDK(opts.tools, jsonSchema, toolNameMap)
+      providerTools.length > 0
+        ? engineToolsToAISDK(providerTools, jsonSchema, toolNameMap)
         : undefined;
     const messages = engineMessagesToAISDK(opts.messages, {
       // Vision-capable provider translators (anthropic/openai/google/

@@ -22,8 +22,7 @@ export function shouldShowInboxZero({
   hasNextPage,
 }: InboxZeroState): boolean {
   return (
-    view === "inbox" &&
-    (!activeLabel || activeLabel === "important") &&
+    (view === "inbox" || Boolean(activeLabel)) &&
     hasEmailData &&
     !isLoading &&
     !isError &&

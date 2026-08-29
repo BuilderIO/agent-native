@@ -58,6 +58,7 @@ export interface McpIntegrationDialogProps {
   hasOrg: boolean;
   onCreateMcpServer: (args: CreateMcpServerArgs) => Promise<unknown>;
   onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReady?: boolean;
   oauthReturnPath?: string;
   onCreated?: () => void;
   integrations?: DefaultMcpIntegration[];
@@ -131,6 +132,7 @@ export function McpIntegrationDialog({
   hasOrg,
   onCreateMcpServer,
   onOAuthStart,
+  oauthReady = true,
   oauthReturnPath,
   onCreated,
   integrations,
@@ -294,6 +296,7 @@ export function McpIntegrationDialog({
     },
     options?: { scope?: McpServerScope },
   ) => {
+    if (!oauthReady) return;
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
@@ -463,6 +466,7 @@ export function McpIntegrationDialog({
       (candidate) => candidate.id === quickConnectIntegrationId,
     );
     if (!integration) return;
+    if (integration.authMode === "oauth" && !oauthReady) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
     quickConnectRef.current?.(integration);
   }, [
@@ -471,6 +475,7 @@ export function McpIntegrationDialog({
     mcpServersQuery.isError,
     mcpServersQuery.isSuccess,
     open,
+    oauthReady,
     quickConnectIntegrationId,
   ]);
 
@@ -482,6 +487,7 @@ export function McpIntegrationDialog({
       (candidate) => candidate.id === connectIntegrationId,
     );
     if (!integration) return;
+    if (integration.authMode === "oauth" && !oauthReady) return;
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
@@ -503,6 +509,7 @@ export function McpIntegrationDialog({
     mcpServersQuery.isError,
     mcpServersQuery.isSuccess,
     open,
+    oauthReady,
   ]);
 
   const connectPersonal = (integration: DefaultMcpIntegration) => {
@@ -1065,7 +1072,7 @@ export function McpIntegrationDialog({
                 <button
                   type="button"
                   onClick={connectCustomWithOAuth}
-                  disabled={!name.trim() || !url.trim() || busy}
+                  disabled={!oauthReady || !name.trim() || !url.trim() || busy}
                   aria-busy={busy}
                   className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
                 >
@@ -1081,7 +1088,7 @@ export function McpIntegrationDialog({
                     <button
                       type="button"
                       onClick={() => connectWithOAuth(selected)}
-                      disabled={busy}
+                      disabled={!oauthReady || busy}
                       aria-busy={busy}
                       className="inline-flex min-w-[132px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                     >
@@ -1096,7 +1103,7 @@ export function McpIntegrationDialog({
                 <button
                   type="button"
                   onClick={() => connectWithOAuth(selected)}
-                  disabled={!name.trim() || !url.trim() || busy}
+                  disabled={!oauthReady || !name.trim() || !url.trim() || busy}
                   aria-busy={busy}
                   className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                 >

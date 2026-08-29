@@ -1082,6 +1082,10 @@ const messages = {
       "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
     resume: "Retomar",
     discardRecording: "Descartar gravação",
+    restart: "Reiniciar gravação",
+    restartShortcut: "Reiniciar (⌥⇧R)",
+    restartQuestion: "Iniciar uma nova gravação?",
+    restartConfirm: "Reiniciar",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",

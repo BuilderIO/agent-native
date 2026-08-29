@@ -6,8 +6,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
-import type { AppConfig } from "@shared/app-registry";
-import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
+import {
+  IconDotsVertical,
+  IconMessageCircle,
+  IconPlus,
+  IconX,
+} from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 
 import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
@@ -17,12 +21,12 @@ import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 export interface DesktopTerminalPromptRequest extends AgentTerminalSubmitRequest {}
 
 interface DesktopTerminalSurfaceProps {
-  apps: readonly AppConfig[];
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
+  onNewUiTab?: () => void;
 }
 
 interface DesktopTerminalTab {
@@ -38,12 +42,12 @@ function createTerminalTab(number: number): DesktopTerminalTab {
 }
 
 export default function DesktopTerminalSurface({
-  apps,
   agent,
   theme,
   className,
   submitRequest,
   onPromptSubmitted,
+  onNewUiTab,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
@@ -161,6 +165,15 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+              {onNewUiTab ? (
+                <>
+                  <DropdownMenuItem onSelect={onNewUiTab}>
+                    <IconMessageCircle size={14} className="shrink-0" />
+                    New UI tab
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuItem onSelect={() => closeTab(activeTabId)}>
                 Close terminal
               </DropdownMenuItem>
@@ -187,7 +200,6 @@ export default function DesktopTerminalSurface({
             hidden={tab.id !== activeTabId}
           >
             <DesktopTerminalTabs
-              apps={apps}
               agent={agent}
               theme={theme}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}

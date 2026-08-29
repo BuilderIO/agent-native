@@ -27,7 +27,7 @@
   background-image: linear-gradient(
     100deg,
     transparent 30%,
-    hsl(var(--ui-foreground) / 0.12) 50%,
+    hsl(var(--ui-foreground) / 0.072) 50%,
     transparent 70%
   );
   background-position: 150% 0;
@@ -378,20 +378,6 @@
 
 .record-pill-mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-/* Collapsible pill segment: measured at natural width and animated between 0
-   and exact pixels (never max-width — a guessed value wastes the easing tail
-   and lands segments out of sync). Content is right-anchored so it slides as
-   a solid block instead of being wiped by the clip edge. */
-.record-pill-seg {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  overflow: hidden;
-  flex: none;
-  width: 0;
-  opacity: 0;
 }
 
 .record-pill-card-in {

@@ -578,6 +578,15 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
+    it("preserves arbitrary OpenRouter model ids", async () => {
+      const { resolveEnginePreservesCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEnginePreservesCustomModels({ name: "ai-sdk:openrouter" }),
+      ).resolves.toBe(true);
+    });
+
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
@@ -1377,12 +1386,30 @@ describe("AgentEngine registry", () => {
       const { builderEngine } =
         registerBuilderAndAnthropic(registerAgentEngine);
       const entry = getAgentEngineEntry("builder")!;
+      const identity = {
+        userEmail: "visitor@example.com",
+        orgId: "org-request",
+      };
 
       await expect(
-        isResolvedEngineUsableForRequest(builderEngine),
+        isResolvedEngineUsableForRequest(builderEngine, {
+          credentialIdentity: identity,
+        }),
       ).resolves.toBe(true);
-      await expect(isStoredEngineUsableForRequest(null, entry)).resolves.toBe(
-        true,
+      await expect(
+        isStoredEngineUsableForRequest(null, entry, {
+          credentialIdentity: identity,
+        }),
+      ).resolves.toBe(true);
+      expect(hasBuilderOAuthSession).toHaveBeenCalledWith(
+        identity.userEmail,
+        identity.orgId,
+      );
+      expect(resolveBuilderOAuthRequestAccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerEmail: identity.userEmail,
+          orgId: identity.orgId,
+        }),
       );
     });
 

@@ -341,6 +341,7 @@ export const recordingComments = table("recording_comments", {
   authorEmail: text("author_email").notNull(),
   authorName: text("author_name"),
   content: text("content").notNull(),
+  mentionsJson: text("mentions_json"),
   videoTimestampMs: integer("video_timestamp_ms").notNull().default(0),
   // JSON map of emoji -> [emails]
   emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),

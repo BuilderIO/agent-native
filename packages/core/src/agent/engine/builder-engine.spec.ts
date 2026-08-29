@@ -23,7 +23,9 @@ const credentialState = vi.hoisted(() => ({
 
 const oauthState = vi.hoisted(() => ({
   ownerEmail: undefined as string | undefined,
+  orgId: undefined as string | undefined,
   accessToken: null as string | null,
+  scope: undefined as "user" | "org" | undefined,
   stored: false,
   resolveAccess: vi.fn(),
   hasSession: vi.fn(),
@@ -81,6 +83,7 @@ vi.mock("../../server/builder-oauth.js", () => ({
 }));
 
 vi.mock("../../server/request-context.js", () => ({
+  getRequestOrgId: vi.fn(() => oauthState.orgId),
   getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
 }));
 
@@ -112,6 +115,14 @@ function jsonErrorResponse(status: number, body: unknown): Response {
   });
 }
 
+function makeTool(name: string) {
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
+}
+
 const BASE_OPTS: EngineStreamOptions = {
   model: CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
@@ -129,7 +140,9 @@ describe("createBuilderEngine", () => {
     credentialState.lane = "identity";
     credentialState.recordBuilderGatewayAuthFailure.mockClear();
     oauthState.ownerEmail = undefined;
+    oauthState.orgId = undefined;
     oauthState.accessToken = null;
+    oauthState.scope = undefined;
     oauthState.stored = false;
     oauthState.resolveAccess.mockReset().mockImplementation(async () =>
       oauthState.accessToken
@@ -137,6 +150,7 @@ describe("createBuilderEngine", () => {
             accessToken: oauthState.accessToken,
             ownerEmail: oauthState.ownerEmail,
             scopes: ["builder:ai:invoke"],
+            scope: oauthState.scope,
           }
         : null,
     );
@@ -202,6 +216,7 @@ describe("createBuilderEngine", () => {
     expect(oauthState.resolveAccess).toHaveBeenCalledWith({
       ownerEmail: "person@example.com",
       requiredScope: "builder:ai:invoke",
+      orgId: null,
     });
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://test.example/gateway/v1/messages");
@@ -863,6 +878,38 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).not.toHaveBeenCalled();
     expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
+  });
+
+  it("marks the OAuth grant in the request organization", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.orgId = "org-request";
+    oauthState.scope = "org";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(oauthState.hasSession).toHaveBeenCalledWith(
+      "person@example.com",
+      "org-request",
+    );
+    expect(oauthState.resolveAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-request" }),
+    );
+    expect(oauthState.markReconnect).toHaveBeenCalledWith(
+      "person@example.com",
+      "org",
+      "org-request",
+    );
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {
@@ -1870,6 +1917,32 @@ describe("createBuilderEngine", () => {
     const sentBody = (globalThis.fetch as any).mock.calls[0][1].body as string;
     expect(stop?.requestShape?.payloadBytes).toBe(
       new TextEncoder().encode(sentBody).length,
+    );
+  });
+
+  it("caps Builder provider tools at 128 and keeps tool-search", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: Array.from({ length: 129 }, (_, index) =>
+          makeTool(index === 128 ? "tool-search" : `tool-${index}`),
+        ),
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.tools).toHaveLength(128);
+    expect(body.tools.map((tool: { name: string }) => tool.name)).toContain(
+      "tool-search",
+    );
+    expect(body.tools.map((tool: { name: string }) => tool.name)).not.toContain(
+      "tool-127",
     );
   });
 

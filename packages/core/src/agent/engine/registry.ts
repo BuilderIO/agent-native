@@ -27,7 +27,10 @@ import {
   resolveSecret,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
@@ -269,7 +272,7 @@ export interface NormalizeModelOptions {
    * The settings actions call `normalizeModelForEngine` with a static registry
    * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
    * is only set on the engine INSTANCE created with an OpenAI-compatible
-   * `baseUrl`. They resolve the capability with
+   * `baseUrl` or the OpenRouter provider. They resolve the capability with
    * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
    * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
    * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
@@ -392,7 +395,9 @@ export function resolveDelegatedRunModel(
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
-  if (entry.name === "ai-sdk:ollama") return true;
+  if (entry.name === "ai-sdk:ollama" || entry.name === "ai-sdk:openrouter") {
+    return true;
+  }
   if (entry.name !== "ai-sdk:openai") return false;
   try {
     return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
@@ -773,12 +778,17 @@ async function builderOAuthLaneUsable(
 ): Promise<boolean | null> {
   const ownerEmail =
     identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
-  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail))) return null;
+  const orgId =
+    identity?.orgId !== undefined ? identity.orgId : getRequestOrgId();
+  const requestOrgId = orgId ?? null;
+  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail, requestOrgId)))
+    return null;
   try {
     return Boolean(
       await resolveBuilderOAuthRequestAccess({
         ownerEmail,
         requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: requestOrgId,
       }),
     );
   } catch {

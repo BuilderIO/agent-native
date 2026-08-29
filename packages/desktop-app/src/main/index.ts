@@ -398,7 +398,7 @@ app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVe
 const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
-    path.resolve(process.argv[1]),
+    app.getAppPath(),
   ]);
 } else {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
@@ -767,7 +767,11 @@ function getInjectionTargetForAppId(
 
 function resolveDesktopIdentityApp(
   appId: string,
-  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
+  options?: {
+    forCleanup?: boolean;
+    allowDisabled?: boolean;
+    appConfigs?: AppConfig[];
+  },
 ): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
 
@@ -802,6 +806,7 @@ function resolveDesktopIdentityApp(
     if (canonical && !isCanonical) return null;
     if (
       !isDesktopIdentityAppConfigEligible(configured, {
+        allowDisabled: appId === "dispatch" && isCanonical,
         canonical: isCanonical,
       })
     ) {
@@ -867,6 +872,10 @@ function listDesktopIdentityApps(
       }),
     )
     .filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+function resolveDesktopIdentityAuthority(): DesktopIdentityApp | null {
+  return resolveDesktopIdentityApp("dispatch", { allowDisabled: true });
 }
 
 function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
@@ -1344,7 +1353,7 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   }
   if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
-  await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   return broker?.getStatus() ?? "idle";
 });
 
@@ -1352,7 +1361,7 @@ ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
-  await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+  await broker.refreshStatus(resolveDesktopIdentityAuthority());
   return broker.isAvailable();
 });
 
@@ -1380,7 +1389,7 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
 
   const broker = ensureDesktopIdentityBroker();
   if (broker) {
-    await broker.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker.refreshStatus(resolveDesktopIdentityAuthority());
     mainWindow?.webContents.send(
       IPC.IDENTITY_STATUS_CHANGED,
       broker.getStatus(),
@@ -1535,7 +1544,7 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
   // persisted Builder session would load production once before switching.
   if (isDesktopSsoEnabled()) {
     const broker = ensureDesktopIdentityBroker();
-    await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
+    await broker?.refreshStatus(resolveDesktopIdentityAuthority());
   }
   return resolveDesktopEnvironmentLaneState();
 });
@@ -1584,10 +1593,15 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   const broker = ensureDesktopIdentityBroker();
   if (!broker) return false;
   const status = broker.getStatus();
+  if (status === "signed-in") {
+    const recovered = await broker.retryAppSessionFanout();
+    if (recovered) {
+      mainWindow?.webContents.send(IPC.IDENTITY_STATUS_CHANGED, "signed-in");
+    }
+    return recovered;
+  }
   if (status !== "sign-in-required" && status !== "failed") return false;
-  const identityApp =
-    resolveDesktopIdentityApp(activeAppId) ??
-    resolveDesktopIdentityApp("dispatch");
+  const identityApp = resolveDesktopIdentityAuthority();
   if (!identityApp) return false;
   return broker.signIn(identityApp.id);
 });
@@ -1669,7 +1683,10 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
     // Parent Google verification runs in the isolated identity window so its
     // browser-bound OAuth state remains in the same cookie partition. Magic
     // links may still complete through the system browser exchange path.
-    resolveApp: resolveDesktopIdentityApp,
+    resolveApp: (appId) =>
+      resolveDesktopIdentityApp(appId, {
+        allowDisabled: appId === "dispatch",
+      }),
     listApps: () => listDesktopIdentityApps(),
     openExternal: (url) => openExternalUrl(url),
     createWindow: (options) => new BrowserWindow(options),

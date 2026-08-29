@@ -81,7 +81,6 @@ describe("BrowserChatRoute", () => {
       storageKey: "dispatch",
       showHeader: false,
       showTabBar: false,
-      allowSettingsMode: false,
       composerPlaceholder: "Ask about this page…",
     });
   });

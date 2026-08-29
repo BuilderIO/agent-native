@@ -352,13 +352,11 @@ export function shouldShowNativeDesktopIntegrations(input: {
   appId: string;
   path?: string;
   appAuthState?: AppWebviewAuthState;
-  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
 }): boolean {
   return (
     input.appId === "dispatch" &&
     isNativeDesktopIntegrationsPath(input.path) &&
-    input.appAuthState === "authenticated" &&
-    input.desktopIdentityStatus === "signed-in"
+    input.appAuthState !== "unauthenticated"
   );
 }
 
@@ -651,7 +649,12 @@ interface CodeAgentsHubProps {
   workspaceAppList?: DesktopWorkspaceAppListResult;
   isActive?: boolean;
   openRequest?: { goalId?: string; runId?: string; nonce: number };
-  chatFirstAppOpenRequest?: { appId: string; path?: string; nonce: number };
+  chatFirstAppOpenRequest?: {
+    appId: string;
+    path?: string;
+    nonce: number;
+    focusNonce?: number;
+  };
   chatFirstPreviewRequest?: { appId: string; nonce: number };
   chatFirstPreviewStatus?: "starting" | "ready" | "error";
   chatFirstPreviewStatusMessage?: string;
@@ -664,6 +667,7 @@ interface CodeAgentsHubProps {
   ) => void;
   onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
   onChatFirstAppSelectionChange?: (appId?: string) => void;
+  onDesktopIdentitySyncFailure?: () => void;
 }
 
 type CodeAgentTranscriptSubscriptionBatch = {
@@ -699,6 +703,7 @@ export default function CodeAgentsHub({
   onLocalCodeChangeStarted,
   onChatFirstAppRemove,
   onChatFirstAppSelectionChange,
+  onDesktopIdentitySyncFailure,
 }: CodeAgentsHubProps) {
   const theme = useRendererTheme();
   useEffect(() => {
@@ -1102,10 +1107,33 @@ export default function CodeAgentsHub({
     setTerminalPromptRequest(null);
     setTerminalSessionStarted(true);
   }, []);
+  const setDesktopTerminalMode = useCallback(
+    (enabled: boolean, startSession = false) => {
+      const state = chatFirstSurfaceTabsStore.getSnapshot();
+      const activeTab = state.tabs.find(
+        (tab) => tab.id === state.activeTabId && tab.kind === "app",
+      );
+      const appTab = activeTab ?? state.tabs.find((tab) => tab.kind === "app");
+      if (appTab?.kind === "app") {
+        chatFirstSurfaceTabsStore.open({
+          ...appTab,
+          placement: enabled ? "side" : "main",
+        });
+      } else if (!enabled) {
+        setChatFirstSurfacePanelOpen(false);
+      }
+      writeDesktopTerminalPreferences({ enabled });
+      if (enabled && startSession) {
+        setTerminalPromptRequest(null);
+        setTerminalSessionStarted(true);
+      }
+    },
+    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
+  );
   const handleTerminalModeChange = useCallback(
     (enabled: boolean) => {
       const wasEnabled = terminalPreferences.enabled;
-      writeDesktopTerminalPreferences({ enabled });
+      setDesktopTerminalMode(enabled);
       if (wasEnabled && !enabled) {
         toast({
           title: "Terminal mode is off",
@@ -1121,7 +1149,15 @@ export default function CodeAgentsHub({
         });
       }
     },
-    [onOpenSettings, terminalPreferences.enabled],
+    [onOpenSettings, setDesktopTerminalMode, terminalPreferences.enabled],
+  );
+  const handleNewCliTab = useCallback(
+    () => setDesktopTerminalMode(true, true),
+    [setDesktopTerminalMode],
+  );
+  const handleNewUiTab = useCallback(
+    () => setDesktopTerminalMode(false),
+    [setDesktopTerminalMode],
   );
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
@@ -2651,7 +2687,6 @@ export default function CodeAgentsHub({
       if (tab.kind === "terminal") {
         return (
           <DesktopTerminalTabs
-            apps={apps}
             agent={terminalPreferences.agent}
             theme={theme}
             className="desktop-terminal-tabs--side-surface"
@@ -2671,15 +2706,19 @@ export default function CodeAgentsHub({
           tabId: tab.id,
           activeTabId: activeChatFirstSurfaceTab?.id,
         });
+        const shouldFocusRequestedTab =
+          isTabActive &&
+          chatFirstAppOpenRequest?.appId === tab.appId &&
+          chatFirstAppOpenRequest.path === tab.path;
         const appAuthState = appAuthStateByTab[tab.id];
         const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
         const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
           appId: surfaceApp.id,
           path: tab.path,
           appAuthState,
-          desktopIdentityStatus,
         });
         const nativeOAuthActive =
+          appAuthState !== "unauthenticated" &&
           surfaceApp.id === "dispatch" &&
           isNativeDesktopIntegrationsPath(tab.path) &&
           nativeOAuthActiveByTab[tab.id] === true;
@@ -2699,6 +2738,7 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                onOpenSettings={onOpenSettings}
                 desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
                   desktopIdentityStatus,
                 )}
@@ -2710,6 +2750,9 @@ export default function CodeAgentsHub({
                 isActive={isTabActive}
                 chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
                 toggleScopeId={tab.id}
+                onNewCliTab={handleNewCliTab}
+                onNewUiTab={handleNewUiTab}
+                newTabMode={terminalPreferences.enabled ? "cli" : "ui"}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <div
@@ -2735,6 +2778,12 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      focusNonce={
+                        shouldFocusRequestedTab
+                          ? chatFirstAppOpenRequest.focusNonce
+                          : undefined
+                      }
+                      showDesktopIdentityGate={false}
                       surfaceHidden={!showNativeIntegrationsGuest}
                       refreshKey={refreshKey}
                       theme={theme}
@@ -2755,9 +2804,15 @@ export default function CodeAgentsHub({
                           handleAppAuthStateChange(tab.id, "unauthenticated");
                         }
                       }}
-                      onDesktopIdentityStatusChange={(status) =>
-                        handleDesktopIdentityStatusChange(tab.id, status)
-                      }
+                      onDesktopIdentityStatusChange={(status) => {
+                        handleDesktopIdentityStatusChange(tab.id, status);
+                        if (
+                          surfaceApp.id === "dispatch" &&
+                          status === "failed"
+                        ) {
+                          onDesktopIdentitySyncFailure?.();
+                        }
+                      }}
                       onWebContentsIdChange={(webContentsId) =>
                         handleWebContentsIdChange(tab.id, webContentsId)
                       }
@@ -2773,6 +2828,7 @@ export default function CodeAgentsHub({
                       aria-hidden={nativeOAuthActive}
                     >
                       <DesktopIntegrationsPage
+                        appAuthState={appAuthState}
                         targetWebContentsId={webContentsIdByTab[tab.id]}
                         onOAuthActiveChange={(active) =>
                           handleNativeOAuthActiveChange(tab.id, active)
@@ -2815,12 +2871,16 @@ export default function CodeAgentsHub({
       handleAppAuthStateChange,
       handleWebContentsIdChange,
       handleNativeOAuthActiveChange,
+      handleNewCliTab,
       host,
       isActive,
       onLocalCodeChangeStarted,
+      onOpenSettings,
+      onDesktopIdentitySyncFailure,
       refreshKey,
       surfaceApps,
       terminalPreferences.agent,
+      terminalPreferences.enabled,
       theme,
       nativeOAuthActiveByTab,
       webContentsIdByTab,
@@ -2900,11 +2960,11 @@ export default function CodeAgentsHub({
           renderChatFirstChatSurface={
             showTerminalSurface ? (
               <DesktopTerminalSurface
-                apps={apps}
                 agent={terminalPreferences.agent}
                 theme={theme}
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
+                onNewUiTab={handleNewUiTab}
               />
             ) : undefined
           }
@@ -3057,8 +3117,14 @@ export default function CodeAgentsHub({
                 app={toAppDefinition(app)}
                 appConfig={app}
                 isActive={isActive}
+                showDesktopIdentityGate={false}
                 theme={theme}
                 urlParams={urlParams}
+                onDesktopIdentityStatusChange={(status) => {
+                  if (app.id === "dispatch" && status === "failed") {
+                    onDesktopIdentitySyncFailure?.();
+                  }
+                }}
                 // Shell key folded in: a lane change remounts every hosted
                 // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}

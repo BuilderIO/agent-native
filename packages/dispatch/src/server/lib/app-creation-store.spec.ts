@@ -563,6 +563,49 @@ describe("listWorkspaceApps", () => {
     ]);
   });
 
+  it("does not project manifest ownership over an empty SQL owner record", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "legacy-app",
+        name: "Legacy app",
+        path: "/legacy-app",
+        owner: "attacker@example.test",
+        createdBy: "attacker@example.test",
+      },
+    ]);
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        return {
+          rows: [
+            {
+              id: "legacy-app",
+              owner_email: "",
+              org_id: "org-123",
+              visibility: "org",
+            },
+          ],
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "legacy-app")).toMatchObject({
+      owner: null,
+    });
+  });
+
   it("projects exact custom SSO eligibility without exposing registry details", async () => {
     stubNoPendingContext();
     stubManifest([
