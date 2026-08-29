@@ -1735,13 +1735,30 @@ export class DesktopIdentityBroker {
         throw new Error(`Embed session returned ${response.status}`);
       }
       const targetCookies = await app.session.cookies.get({});
-      const sessionCookieNames = targetCookies
-        .filter(
-          (cookie) =>
-            cookieMatchesOrigin(cookie, app.origin) &&
-            app.cookieNames.includes(cookie.name),
-        )
-        .map((cookie) => cookie.name);
+      const sessionCookies = targetCookies.filter(
+        (cookie) =>
+          cookieMatchesOrigin(cookie, app.origin) &&
+          app.cookieNames.includes(cookie.name),
+      );
+      const sessionCookieNames = sessionCookies.map((cookie) => cookie.name);
+      // The embed redirect can leave a Partitioned cookie in the main-process
+      // fetch context. Mirror the allow-listed child cookies through the same
+      // app partition without a partition key so the WebView's page requests
+      // send the session too. Never copy the parent identity cookie here.
+      for (const cookie of sessionCookies) {
+        await app.session.cookies.set({
+          url: app.origin,
+          name: cookie.name,
+          value: cookie.value,
+          path: cookie.path || "/",
+          httpOnly: cookie.httpOnly,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite,
+          ...(cookie.expirationDate
+            ? { expirationDate: cookie.expirationDate }
+            : {}),
+        });
+      }
       console.info("[desktop identity] workspace app session response", {
         appId: app.id,
         responseOrigin: safeResponseOrigin(response.url),

@@ -47,7 +47,6 @@ import {
   type DesktopLocalAgentId,
 } from "../lib/desktop-local-agent-runtime.js";
 import type { AppWebviewAuthState } from "./AppWebview.js";
-const desktopChatQueryClient = createAgentNativeQueryClient();
 
 type DesktopChatModelGroup = {
   engine: string;
@@ -135,9 +134,7 @@ export function shouldShowDesktopAppChatSidebar(input: {
     return false;
   }
   if (input.desktopIdentityUnauthenticated) return false;
-  return !["sign-in-required", "failed"].includes(
-    input.desktopIdentityStatus ?? "idle",
-  );
+  return input.desktopIdentityStatus !== "sign-in-required";
 }
 
 type LocalCodeChangeState =
@@ -163,6 +160,9 @@ export default function DesktopAppChatShell({
   newTabMode = "ui",
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
+  const [desktopChatQueryClient] = useState(() =>
+    createAgentNativeQueryClient(),
+  );
   const shellRootRef = useRef<HTMLDivElement>(null);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [localAgentModels, setLocalAgentModels] = useState<

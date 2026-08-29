@@ -143,7 +143,6 @@ import DesktopTerminalSurface, {
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 import {
   initialMultiFrontierRunAutoContinue,
-  locksMultiFrontierMode,
   providerOperationFailureNotice,
   readNewerMultiFrontierSnapshot,
 } from "./multi-frontier-renderer-state.js";
@@ -667,7 +666,6 @@ interface CodeAgentsHubProps {
   ) => void;
   onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
   onChatFirstAppSelectionChange?: (appId?: string) => void;
-  onDesktopIdentitySyncFailure?: () => void;
 }
 
 type CodeAgentTranscriptSubscriptionBatch = {
@@ -703,7 +701,6 @@ export default function CodeAgentsHub({
   onLocalCodeChangeStarted,
   onChatFirstAppRemove,
   onChatFirstAppSelectionChange,
-  onDesktopIdentitySyncFailure,
 }: CodeAgentsHubProps) {
   const theme = useRendererTheme();
   useEffect(() => {
@@ -940,11 +937,8 @@ export default function CodeAgentsHub({
   const [multiFrontierNotices, setMultiFrontierNotices] = useState<
     MultiFrontierNotice[]
   >([]);
-  const [multiFrontierOpenDetailRequest, setMultiFrontierOpenDetailRequest] =
-    useState<{ detailId: string; nonce: number }>();
   const multiFrontierSequence = useRef(-1);
   const multiFrontierSettingsHydrated = useRef(false);
-  const multiFrontierDetailNonce = useRef(0);
   const multiFrontierNoticeNonce = useRef(0);
   const multiFrontierActivationTracked = useRef(false);
   const multiFrontierLastPhaseTelemetry = useRef("");
@@ -953,7 +947,6 @@ export default function CodeAgentsHub({
   >({});
   const activeMultiFrontierCollaborationId =
     multiFrontierState?.collaborationId;
-  const multiFrontierModeLocked = locksMultiFrontierMode(multiFrontierState);
 
   const openChatFirstApp = useCallback(
     (
@@ -1485,12 +1478,7 @@ export default function CodeAgentsHub({
   useEffect(() => {
     const tabCount = visibleChatFirstSurfaceTabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
-    if (!hasChatFirstActiveChat && !terminalPreferences.enabled) {
-      setChatFirstSurfacePanelOpen(false);
-    } else if (
-      tabCount > 0 &&
-      (previousTabCount === null || previousTabCount === 0)
-    ) {
+    if (tabCount > 0 && (previousTabCount === null || previousTabCount === 0)) {
       setChatFirstSurfacePanelOpen(true);
     } else if (
       tabCount === 0 &&
@@ -1500,12 +1488,7 @@ export default function CodeAgentsHub({
       setChatFirstSurfacePanelOpen(false);
     }
     previousChatFirstSurfaceTabCountRef.current = tabCount;
-  }, [
-    hasChatFirstActiveChat,
-    setChatFirstSurfacePanelOpen,
-    terminalPreferences.enabled,
-    visibleChatFirstSurfaceTabs.length,
-  ]);
+  }, [setChatFirstSurfacePanelOpen, visibleChatFirstSurfaceTabs.length]);
 
   useEffect(() => {
     if (!terminalPreferences.enabled) return;
@@ -1849,32 +1832,11 @@ export default function CodeAgentsHub({
           if (!disposed) appendProviderOperationFailure(providerId, "load");
         });
     }
-    void api
-      .list()
-      .then((snapshots) => {
-        if (disposed) return;
-        const recovered = snapshots.find(
-          (snapshot) => snapshot.phase === "paused",
-        );
-        if (!recovered) return;
-        applyMultiFrontierSnapshot(recovered);
-        multiFrontierSettingsHydrated.current = true;
-        setMultiFrontierRunAutoContinue(
-          recovered.autoContinueAfterAgreement ?? false,
-        );
-        setMultiFrontierMode(true);
-        multiFrontierDetailNonce.current += 1;
-        setMultiFrontierOpenDetailRequest({
-          detailId: recovered.collaborationId,
-          nonce: multiFrontierDetailNonce.current,
-        });
-      })
-      .catch(() => undefined);
     return () => {
       disposed = true;
       unsubscribeProviderStatus();
     };
-  }, [appendProviderOperationFailure, applyMultiFrontierSnapshot, isActive]);
+  }, [appendProviderOperationFailure, isActive]);
 
   useEffect(() => {
     if (!isActive || !activeMultiFrontierCollaborationId) return;
@@ -2020,7 +1982,7 @@ export default function CodeAgentsHub({
     [appendMultiFrontierNotice, applyMultiFrontierSnapshot],
   );
 
-  const multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
+  const _multiFrontierExtension = useMemo<CodeAgentsNewSessionExtension>(
     () => ({
       active: multiFrontierMode,
       disabled: multiFrontierBusy,
@@ -2031,24 +1993,12 @@ export default function CodeAgentsHub({
             permissionMode={permissionMode}
             subscriptions={multiFrontierSubscriptions}
             busy={multiFrontierBusy}
-            modeLocked={multiFrontierModeLocked}
             autoContinueAfterAgreement={multiFrontierRunAutoContinue}
             defaultAutoContinueAfterAgreement={
               multiFrontierDefaultSettings.autoContinueAfterAgreement
             }
             onModeChange={(mode) => {
-              if (mode === "multi-frontier") {
-                if (!multiFrontierMode) {
-                  setMultiFrontierRunAutoContinue(
-                    initialMultiFrontierRunAutoContinue(
-                      multiFrontierDefaultSettings,
-                    ),
-                  );
-                }
-                setMultiFrontierMode(true);
-                return;
-              }
-              if (multiFrontierModeLocked) return;
+              if (mode === "multi-frontier") return;
               setMultiFrontierMode(false);
               onPermissionModeChange(
                 mode === "plan" ? "read-only" : "full-auto",
@@ -2169,7 +2119,6 @@ export default function CodeAgentsHub({
       connectMultiFrontierSubscription,
       multiFrontierBusy,
       multiFrontierDefaultSettings.autoContinueAfterAgreement,
-      multiFrontierModeLocked,
       multiFrontierMode,
       multiFrontierNotices,
       multiFrontierRunAutoContinue,
@@ -2748,7 +2697,10 @@ export default function CodeAgentsHub({
                 desktopIdentityStatus={desktopIdentityStatus}
                 appAuthState={appAuthState}
                 isActive={isTabActive}
-                chatEnabled={shouldUseDesktopAppChatShell(tab.path)}
+                chatEnabled={
+                  shouldUseDesktopAppChatShell(tab.path) &&
+                  tab.placement !== "side"
+                }
                 toggleScopeId={tab.id}
                 onNewCliTab={handleNewCliTab}
                 onNewUiTab={handleNewUiTab}
@@ -2806,12 +2758,6 @@ export default function CodeAgentsHub({
                       }}
                       onDesktopIdentityStatusChange={(status) => {
                         handleDesktopIdentityStatusChange(tab.id, status);
-                        if (
-                          surfaceApp.id === "dispatch" &&
-                          status === "failed"
-                        ) {
-                          onDesktopIdentitySyncFailure?.();
-                        }
                       }}
                       onWebContentsIdChange={(webContentsId) =>
                         handleWebContentsIdChange(tab.id, webContentsId)
@@ -2876,7 +2822,6 @@ export default function CodeAgentsHub({
       isActive,
       onLocalCodeChangeStarted,
       onOpenSettings,
-      onDesktopIdentitySyncFailure,
       refreshKey,
       surfaceApps,
       terminalPreferences.agent,
@@ -2914,7 +2859,10 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            hasChatFirstActiveChat && !chatFirstAppTakesMain ? (
+            !showTerminalSurface &&
+            !chatFirstAllAppsOpen &&
+            !scheduledTasksOpen &&
+            !chatFirstAppTakesMain ? (
               <ChatFirstSurfacePanelToggle
                 open={chatFirstSurfacePanel.open}
                 onToggle={chatFirstSurfacePanel.toggle}
@@ -2965,6 +2913,7 @@ export default function CodeAgentsHub({
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
                 onNewUiTab={handleNewUiTab}
+                onOpenSidebar={() => setChatFirstSurfacePanelOpen(true)}
               />
             ) : undefined
           }
@@ -3109,8 +3058,6 @@ export default function CodeAgentsHub({
               </>
             </TooltipProvider>
           }
-          newSessionExtension={multiFrontierExtension}
-          openDetailRequest={multiFrontierOpenDetailRequest}
           renderAppSurface={({ app, urlParams, refreshKey: appRefreshKey }) => (
             <div className="code-agents-embedded-app-surface">
               <AppWebview
@@ -3120,11 +3067,6 @@ export default function CodeAgentsHub({
                 showDesktopIdentityGate={false}
                 theme={theme}
                 urlParams={urlParams}
-                onDesktopIdentityStatusChange={(status) => {
-                  if (app.id === "dispatch" && status === "failed") {
-                    onDesktopIdentitySyncFailure?.();
-                  }
-                }}
                 // Shell key folded in: a lane change remounts every hosted
                 // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}
@@ -3132,9 +3074,7 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {(hasChatFirstActiveChat || terminalPreferences.enabled) &&
-        chatFirstSurfacePanel.open &&
-        !chatFirstAppTakesMain ? (
+        {chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (
           <ChatFirstSurfacePanel
             width={chatFirstSurfaceResize.width}
             onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
@@ -3217,7 +3157,6 @@ export function MultiFrontierModeControl({
   permissionMode,
   subscriptions,
   busy,
-  modeLocked,
   autoContinueAfterAgreement,
   defaultAutoContinueAfterAgreement,
   onModeChange,
@@ -3230,7 +3169,6 @@ export function MultiFrontierModeControl({
   permissionMode: CodeAgentPermissionMode;
   subscriptions: Partial<Record<MultiFrontierProviderId, SubscriptionStatus>>;
   busy: boolean;
-  modeLocked: boolean;
   autoContinueAfterAgreement: boolean;
   defaultAutoContinueAfterAgreement: boolean;
   onModeChange: (mode: "plan" | "auto" | "multi-frontier") => void;
@@ -3246,11 +3184,7 @@ export function MultiFrontierModeControl({
       : "auto";
   return (
     <div className="code-agents-multi-frontier-control">
-      <Select
-        value={value}
-        disabled={busy || modeLocked}
-        onValueChange={onModeChange}
-      >
+      <Select value={value} disabled={busy} onValueChange={onModeChange}>
         <SelectTrigger
           className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"

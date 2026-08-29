@@ -8,6 +8,7 @@ import {
 } from "@agent-native/toolkit/ui";
 import {
   IconDotsVertical,
+  IconLayoutSidebarRightCollapse,
   IconMessageCircle,
   IconPlus,
   IconX,
@@ -27,6 +28,7 @@ interface DesktopTerminalSurfaceProps {
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
   onNewUiTab?: () => void;
+  onOpenSidebar?: () => void;
 }
 
 interface DesktopTerminalTab {
@@ -48,6 +50,7 @@ export default function DesktopTerminalSurface({
   submitRequest,
   onPromptSubmitted,
   onNewUiTab,
+  onOpenSidebar,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
@@ -165,6 +168,18 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+              {onOpenSidebar ? (
+                <>
+                  <DropdownMenuItem onSelect={onOpenSidebar}>
+                    <IconLayoutSidebarRightCollapse
+                      size={14}
+                      className="shrink-0"
+                    />
+                    Open sidebar
+                  </DropdownMenuItem>
+                  {onNewUiTab ? <DropdownMenuSeparator /> : null}
+                </>
+              ) : null}
               {onNewUiTab ? (
                 <>
                   <DropdownMenuItem onSelect={onNewUiTab}>

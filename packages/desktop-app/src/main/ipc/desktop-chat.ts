@@ -35,6 +35,11 @@ const RESTRICTED_REQUEST_HEADERS = new Set([
   "content-length",
   "cookie2",
 ]);
+const RESTRICTED_RESPONSE_HEADERS = new Set([
+  ...HOP_BY_HOP_HEADERS,
+  "content-encoding",
+  "content-length",
+]);
 const RELAY_FAILURE_MESSAGE =
   "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
 
@@ -192,6 +197,14 @@ export function shouldForwardRequestHeader(
   );
 }
 
+export function shouldForwardResponseHeader(
+  name: string,
+  value: string | string[] | undefined,
+  blockedHeaders: ReadonlySet<string> = RESTRICTED_RESPONSE_HEADERS,
+): boolean {
+  return shouldForwardRequestHeader(name, value, blockedHeaders);
+}
+
 function corsHeaders(request: IncomingMessage): Record<string, string> {
   const origin = requestHeaderValue(request.headers.origin) ?? "*";
   const requestedHeaders =
@@ -300,7 +313,7 @@ async function proxyRequest(
       ...corsHeaders(request),
     };
     for (const [name, value] of Object.entries(upstreamResponse.headers)) {
-      if (!HOP_BY_HOP_HEADERS.has(name) && value !== undefined) {
+      if (shouldForwardResponseHeader(name, value)) {
         headers[name] = value;
       }
     }
