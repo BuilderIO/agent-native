@@ -100,13 +100,13 @@ async function autosaveAnalyticsAfterAgentTurn(
     hasAnalyticsEdit(run, DASHBOARD_EDIT_TOOLS)
   ) {
     const { createDashboardRevisionSnapshot } =
-      await import("../lib/dashboards-store");
+      await import("../lib/dashboards-store.js");
     await createDashboardRevisionSnapshot(scope.id, ctx);
     return;
   }
   if (scope.type === "analysis" && hasAnalyticsEdit(run, ANALYSIS_EDIT_TOOLS)) {
     const { createAnalysisRevisionSnapshot } =
-      await import("../lib/dashboards-store");
+      await import("../lib/dashboards-store.js");
     await createAnalysisRevisionSnapshot(scope.id, ctx);
   }
 }

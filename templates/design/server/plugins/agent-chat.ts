@@ -61,6 +61,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "apply-tweaks",
   "apply-visual-edit",
   "create-file",
+  "detach-component-instance",
   "delete-file",
   "edit-design",
   "generate-design",
@@ -72,6 +73,7 @@ const DESIGN_EDIT_TOOLS = new Set([
   "rename-screen",
   "restore-design-version",
   "set-active-breakpoint",
+  "swap-component-instance",
   "update-design",
   "update-file",
 ]);
