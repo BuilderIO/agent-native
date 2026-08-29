@@ -340,6 +340,8 @@ describe("listDispatchUsageMetrics", () => {
       selectedAppId: "orders",
       byUser: [],
       recent: [],
+      monthlyByUser: [],
+      availableUsers: [],
     });
     expect(metrics.appAccess[0]).toMatchObject({
       id: "orders",
@@ -375,6 +377,110 @@ describe("listDispatchUsageMetrics", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      mocks.execute.mock.calls.some(([query]) => {
+        const sql = String((query as { sql?: string }).sql);
+        const args = (query as { args?: unknown[] }).args ?? [];
+        return sql.includes("org_id = ?") && args.includes("org-a");
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps weekly app adoption independent from a one-day lookback", async () => {
+    const now = Date.now();
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "member", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("ORDER BY created_at ASC")
+      ) {
+        return {
+          rows: [
+            {
+              created_at: now - 2 * 86_400_000,
+              owner_email: "owner@example.test",
+              app: "orders",
+              label: "create-order",
+              cost_cents_x100: 100,
+            },
+            {
+              created_at: now - 60 * 60_000,
+              owner_email: "member@example.test",
+              app: "orders",
+              label: "approve-order",
+              cost_cents_x100: 200,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 1,
+      scope: "app",
+      appId: "orders",
+    });
+
+    expect(metrics.appAccess[0]).toMatchObject({
+      usageCalls: 1,
+      dailyActiveUsers: 1,
+      weeklyActiveUsers: 2,
+    });
+    expect(metrics.appAccess[0].actionMetrics).toEqual([
+      expect.objectContaining({ key: "approve-order", calls: 1 }),
+    ]);
+  });
+
+  it("fails closed when app-scope organization membership cannot be read", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "orders",
+        name: "Orders",
+        path: "/orders",
+        status: "ready",
+        isDispatch: false,
+        owner: "owner@example.test",
+        visibility: "org",
+      },
+    ]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT email, role, joined_at")) {
+        throw new Error("org member lookup failed");
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      listDispatchUsageMetrics({ scope: "app", appId: "orders" }),
+    ).rejects.toThrow("org member lookup failed");
   });
 
   it("denies app adoption metrics to a non-owner workspace member", async () => {
