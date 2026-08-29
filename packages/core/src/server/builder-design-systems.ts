@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
@@ -23,6 +25,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
 const RETRYABLE_INDEX_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const INDEX_ATTEMPT_TIMEOUT_MS = 20_000;
 const INDEX_RETRY_DELAYS_MS = [600, 1800] as const;
 
 export interface BuilderDesignSystemIndexFile {
@@ -718,15 +721,19 @@ function delay(ms: number): Promise<void> {
 async function fetchBuilderDesignSystemIndex(
   url: string | URL,
   init: RequestInit,
+  idempotencyKey: string,
 ): Promise<Response> {
-  let response = await fetchWithTimeout(url, init);
+  const headers = new Headers(init.headers);
+  headers.set("Idempotency-Key", idempotencyKey);
+  const request = { ...init, headers };
+  let response = await fetchWithTimeout(url, request, INDEX_ATTEMPT_TIMEOUT_MS);
   for (const retryDelay of INDEX_RETRY_DELAYS_MS) {
     if (response.ok || !RETRYABLE_INDEX_STATUSES.has(response.status)) {
       return response;
     }
     if (response.body) await response.body.cancel();
     await delay(retryDelay);
-    response = await fetchWithTimeout(url, init);
+    response = await fetchWithTimeout(url, request, INDEX_ATTEMPT_TIMEOUT_MS);
   }
   return response;
 }
@@ -1277,6 +1284,7 @@ export async function indexBuilderDesignSystem(
     );
   }
   const credentials = await resolveBuilderDesignSystemCredentials();
+  const idempotencyKey = `agent-native-dsi-${randomUUID()}`;
   const index = await fetchBuilderDesignSystemIndex(
     makeBuilderDesignSystemUrl("index", credentials),
     {
@@ -1295,6 +1303,7 @@ export async function indexBuilderDesignSystem(
           : {}),
       }),
     },
+    idempotencyKey,
   );
   await assertOk(index, "Builder design-system indexing failed");
   const indexed = (await index.json()) as IndexResponse;

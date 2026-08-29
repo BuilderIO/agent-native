@@ -568,6 +568,11 @@ describe("Builder design-system helpers", () => {
     }
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const idempotencyKeys = fetchMock.mock.calls.map(([, init]) =>
+      new Headers(init?.headers).get("Idempotency-Key"),
+    );
+    expect(idempotencyKeys[0]).toMatch(/^agent-native-dsi-/);
+    expect(idempotencyKeys[1]).toBe(idempotencyKeys[0]);
   });
 
   it("does not retry permanent Builder indexing failures", async () => {
