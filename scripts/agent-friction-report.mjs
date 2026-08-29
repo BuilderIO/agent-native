@@ -74,8 +74,7 @@ const FEEDBACK_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
-const CREDENTIAL_NAMESPACE_SIGNAL =
-  String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
+const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
 const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
 // A bare namespace mention is routine documentation. Count it only when the
 // same sentence also says the repair was wrong or describes a repair action.
@@ -88,8 +87,14 @@ const CREDENTIAL_NAMESPACE_RE = new RegExp(
 );
 
 const CREDENTIAL_REGEX_CASES = [
-  [true, "Do not rotate the key because the mismatched pairs identify different clients."],
-  [true, "The GOOGLE_SIGN_IN_CLIENT_SECRET was repaired instead of the active provider pair."],
+  [
+    true,
+    "Do not rotate the key because the mismatched pairs identify different clients.",
+  ],
+  [
+    true,
+    "The GOOGLE_SIGN_IN_CLIENT_SECRET was repaired instead of the active provider pair.",
+  ],
   [true, "The mismatched pair was the wrong fix and changed nothing."],
   [false, "Check mismatched pairs before changing credentials."],
   [false, "GOOGLE_SIGN_IN_CLIENT_ID identifies the sign-in client."],
@@ -134,7 +139,8 @@ if (process.argv.includes("--self-test")) {
   );
   failures.push(
     ...CREDENTIAL_REGEX_CASES.filter(
-      ([expected, message]) => CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
+      ([expected, message]) =>
+        CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
     ),
   );
   if (failures.length > 0) {
