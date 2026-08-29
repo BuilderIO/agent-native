@@ -995,7 +995,13 @@ function isRetryableTargetMcpError(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : safeJson(error);
-  if (/\b(?:502|503|504)\b/.test(message)) return true;
+  if (
+    /^(?:MCP server\b.*?\bnot connected:\s+)?HTTP(?:\/\d+(?:\.\d+)?)?\s+(?:502|503|504)\b/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
   if (
     /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
       message,

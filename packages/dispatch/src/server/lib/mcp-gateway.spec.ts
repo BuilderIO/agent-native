@@ -1112,7 +1112,7 @@ describe("openGrantedDispatchMcpApp", () => {
     mocks.managerCallTool
       .mockRejectedValueOnce(
         new Error(
-          'MCP server "target" is not connected: HTTP 502 Bad Gateway <!DOCTYPE html><html><title>Cloudflare 502: Bad gateway</title></html>',
+          'MCP server "target" is not connected: HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.',
         ),
       )
       .mockResolvedValueOnce({
@@ -1145,6 +1145,29 @@ describe("openGrantedDispatchMcpApp", () => {
         "http://localhost:8086/_agent-native/embed/start?ticket=remote",
     });
     randomSpy.mockRestore();
+  });
+
+  it("does not retry an HTML 404 whose body mentions a gateway status", async () => {
+    mocks.managerCallTool.mockRejectedValueOnce(
+      new Error(
+        'MCP server "target" is not connected: HTTP 404: That URL returned a web page instead of an MCP response. Cloudflare HTTP 502 is unrelated.',
+      ),
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createGrantedDispatchMcpEmbedSession({
+            app: "analytics",
+            path: "/dashboards",
+          }),
+      ),
+    ).rejects.toThrow(/HTTP 404/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
   });
 
   it("returns the normal open URL when embed preminting fails", async () => {

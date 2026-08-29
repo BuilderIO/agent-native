@@ -88,6 +88,17 @@ describe("formatMcpConnectError", () => {
     );
   });
 
+  it("preserves typed HTTP status when formatting HTML responses", () => {
+    const error = Object.assign(
+      new Error("Error POSTing to endpoint: <!doctype html><html>502</html>"),
+      { data: { status: 502, statusText: "Bad Gateway" } },
+    );
+
+    expect(formatMcpConnectError(error)).toBe(
+      "HTTP 502: That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
   it("explains Streamable HTTP handshake failures", () => {
     expect(
       formatMcpConnectError("Streamable HTTP error: non-200 status code"),
