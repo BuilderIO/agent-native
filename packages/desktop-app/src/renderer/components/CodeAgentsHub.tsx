@@ -352,13 +352,11 @@ export function shouldShowNativeDesktopIntegrations(input: {
   appId: string;
   path?: string;
   appAuthState?: AppWebviewAuthState;
-  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
 }): boolean {
   return (
     input.appId === "dispatch" &&
     isNativeDesktopIntegrationsPath(input.path) &&
-    input.appAuthState === "authenticated" &&
-    input.desktopIdentityStatus === "signed-in"
+    input.appAuthState !== "unauthenticated"
   );
 }
 
@@ -2689,9 +2687,9 @@ export default function CodeAgentsHub({
           appId: surfaceApp.id,
           path: tab.path,
           appAuthState,
-          desktopIdentityStatus,
         });
         const nativeOAuthActive =
+          appAuthState !== "unauthenticated" &&
           surfaceApp.id === "dispatch" &&
           isNativeDesktopIntegrationsPath(tab.path) &&
           nativeOAuthActiveByTab[tab.id] === true;
@@ -2792,6 +2790,7 @@ export default function CodeAgentsHub({
                       aria-hidden={nativeOAuthActive}
                     >
                       <DesktopIntegrationsPage
+                        appAuthState={appAuthState}
                         targetWebContentsId={webContentsIdByTab[tab.id]}
                         onOAuthActiveChange={(active) =>
                           handleNativeOAuthActiveChange(tab.id, active)

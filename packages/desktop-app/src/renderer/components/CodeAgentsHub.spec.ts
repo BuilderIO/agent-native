@@ -614,35 +614,38 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(isNativeDesktopIntegrationsPath("/integrations/slack")).toBe(false);
   });
 
-  it("only exposes native integrations after both app and desktop auth are ready", () => {
+  it("exposes native integrations before guest auth finishes loading", () => {
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "unknown",
+      }),
+    ).toBe(true);
     expect(
       shouldShowNativeDesktopIntegrations({
         appId: "dispatch",
         path: "/integrations",
         appAuthState: "authenticated",
-        desktopIdentityStatus: "signed-in",
       }),
     ).toBe(true);
-    for (const desktopIdentityStatus of [
-      undefined,
-      "idle",
-      "checking",
-    ] as const) {
-      expect(
-        shouldShowNativeDesktopIntegrations({
-          appId: "dispatch",
-          path: "/integrations",
-          appAuthState: "authenticated",
-          desktopIdentityStatus,
-        }),
-      ).toBe(false);
-    }
     expect(
       shouldShowNativeDesktopIntegrations({
         appId: "dispatch",
         path: "/integrations",
         appAuthState: "unauthenticated",
-        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "calendar",
+        path: "/integrations",
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations/slack",
       }),
     ).toBe(false);
   });
