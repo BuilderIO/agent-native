@@ -83,6 +83,7 @@ vi.mock("../../server/builder-oauth.js", () => ({
 }));
 
 vi.mock("../../server/request-context.js", () => ({
+  getRequestContext: vi.fn(() => undefined),
   getRequestOrgId: vi.fn(() => oauthState.orgId),
   getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
 }));
