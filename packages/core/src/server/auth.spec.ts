@@ -7664,6 +7664,36 @@ describe("server/auth", () => {
     });
   });
 
+  describe("configured origin allowlist", () => {
+    it("shares exact trusted aliases with OAuth origin resolution", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_URL", "https://starter.agent-native.com");
+      vi.stubEnv(
+        "BETTER_AUTH_TRUSTED_ORIGINS",
+        " https://chat.agent-native.com,https://*.example.test,ftp://untrusted.example",
+      );
+      const { getOrigin } = await import("./google-oauth.js");
+      const { getConfiguredOriginAllowlist } =
+        await import("./origin-allowlist.js");
+
+      const allowlist = getConfiguredOriginAllowlist();
+      expect(allowlist).toContain("https://starter.agent-native.com");
+      expect(allowlist).toContain("https://chat.agent-native.com");
+      expect(allowlist).not.toContain("https://*.example.test");
+      expect(allowlist).not.toContain("ftp://untrusted.example");
+      expect(
+        getOrigin(
+          createMockEvent({
+            headers: {
+              host: "chat.agent-native.com",
+              "x-forwarded-proto": "https",
+            },
+          }),
+        ),
+      ).toBe("https://chat.agent-native.com");
+    });
+  });
+
   describe("getAppProductionUrl", () => {
     it("uses the workspace OAuth origin ahead of a loopback gateway", async () => {
       vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", "https://auth.agent.example");
