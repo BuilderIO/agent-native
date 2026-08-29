@@ -5195,9 +5195,7 @@ describe("server/auth", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
-      expect(response.headers.get("location")).toBe(
-        "/_agent-native/auth/magic-link/new-user?return=%2F",
-      );
+      expect(response.headers.get("location")).toBeNull();
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("set-auth-token")).toBe(
         "session_from_bearer",
@@ -5205,8 +5203,13 @@ describe("server/auth", () => {
       expect(cookies).toContain("an.session_token=session_from_bearer");
       expect(cookies).toContain("an_session=session_from_bearer");
       expect(cookies).toContain("SameSite=Lax");
+      expect(cookies).toContain("HttpOnly");
       expect(cookies).not.toContain("Partitioned");
-      expect(await response.text()).toContain(
+      const html = await response.text();
+      expect(html).toContain("document.cookie=");
+      expect(html).toContain("an_session=session_from_bearer");
+      expect(html).not.toContain("HttpOnly");
+      expect(html).toContain(
         'location.replace("/_agent-native/auth/magic-link/new-user?return=%2F")',
       );
     });
@@ -5294,6 +5297,7 @@ describe("server/auth", () => {
           : (response.headers.get("set-cookie") ?? "");
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
       expect(cookies).toContain(
         "__Secure-an.session_token=session_from_bearer",
       );
@@ -5301,6 +5305,10 @@ describe("server/auth", () => {
       expect(cookies).toContain("Secure");
       expect(cookies).toContain("SameSite=Lax");
       expect(cookies).not.toContain("Partitioned");
+      const html = await response.text();
+      expect(html).toContain("document.cookie=");
+      expect(html).toContain("an_session=session_from_bearer");
+      expect(html).toContain("Secure");
     });
 
     it("drops partitioned Better Auth cookies and persists the Lax token in sessions", async () => {
@@ -5398,11 +5406,13 @@ describe("server/auth", () => {
           : (response.headers.get("set-cookie") ?? "");
 
       expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
       expect(cookies).toContain("__Secure-an.session_token=ba_session_token");
       expect(cookies).toContain("an_session=ba_session_token");
       expect(cookies).toContain("SameSite=Lax");
       expect(cookies).not.toContain("Partitioned");
       expect(cookies).not.toContain("session_data=");
+      expect(await response.text()).toContain("document.cookie=");
       expect(mockExecute).toHaveBeenCalledWith({
         sql: "INSERT OR REPLACE INTO sessions (token, email, created_at) VALUES (?, ?, ?)",
         args: ["ba_session_token", "designer@example.com", expect.any(Number)],

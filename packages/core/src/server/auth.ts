@@ -4146,6 +4146,7 @@ function serializeMagicLinkSessionCookie(
   event: H3Event,
   name: string,
   token: string,
+  { httpOnly }: { httpOnly: boolean },
 ): string {
   // Top-level email clicks (and Brave Shields) reject SameSite=None; Partitioned
   // login cookies. Lax is enough: verify is always a first-party document GET.
@@ -4153,9 +4154,9 @@ function serializeMagicLinkSessionCookie(
     `${name}=${encodeURIComponent(token)}`,
     "Path=/",
     `Max-Age=${sessionMaxAge}`,
-    "HttpOnly",
     "SameSite=Lax",
   ];
+  if (httpOnly) parts.push("HttpOnly");
   const domain = getCookieDomain();
   if (domain) parts.push(`Domain=${domain}`);
   if (isHttpsRequest(event)) parts.push("Secure");
@@ -4165,17 +4166,25 @@ function serializeMagicLinkSessionCookie(
 function magicLinkVerifyContinuePage(
   location: string,
   cookies: string[],
-  setAuthToken?: string,
+  options?: { setAuthToken?: string; jsCookie?: string },
 ): Response {
   const safeLocation = escapeHtmlAttr(location);
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${safeLocation}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing in</title></head><body><p>Signing you in…</p><script>location.replace(${JSON.stringify(location)})</script></body></html>`;
+  const jsCookieStmt = options?.jsCookie
+    ? `document.cookie=${JSON.stringify(options.jsCookie)};`
+    : "";
+  // No Location header and no meta-refresh: Chrome treats 200+Location as a
+  // navigation redirect (HAR redirectURL, no onLoad) and never applies
+  // Set-Cookie or runs this document. Script sets a host-only Lax cookie
+  // first so the next hop still has a session if Set-Cookie was stripped.
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing in</title><script>${jsCookieStmt}location.replace(${JSON.stringify(location)})</script></head><body><p>Signing you in…</p><noscript><a href="${safeLocation}">Continue</a></noscript></body></html>`;
   const headers = new Headers({
     "cache-control": "no-store",
     "content-type": "text/html; charset=utf-8",
-    location,
     "referrer-policy": "no-referrer",
   });
-  if (setAuthToken) headers.set("set-auth-token", setAuthToken);
+  if (options?.setAuthToken) {
+    headers.set("set-auth-token", options.setAuthToken);
+  }
   const seen = new Set<string>();
   for (const cookie of cookies) {
     const name = cookie.split("=", 1)[0]?.trim();
@@ -4216,10 +4225,18 @@ function attachMissingMagicLinkSessionCookies(
         event,
         betterAuthSessionCookieName(event),
         token,
+        { httpOnly: true },
       ),
-      serializeMagicLinkSessionCookie(event, COOKIE_NAME, token),
+      serializeMagicLinkSessionCookie(event, COOKIE_NAME, token, {
+        httpOnly: true,
+      }),
     ],
-    response.headers.get("set-auth-token")?.trim(),
+    {
+      setAuthToken: response.headers.get("set-auth-token")?.trim(),
+      jsCookie: serializeMagicLinkSessionCookie(event, COOKIE_NAME, token, {
+        httpOnly: false,
+      }),
+    },
   );
 }
 
