@@ -123,6 +123,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
+import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import {
   normalizeWorkspaceAppAudience,
   workspaceAppAudienceFromEnv,
@@ -161,7 +162,10 @@ import {
   verifyBuilderConnectTokenAndGetOwner,
   verifyBuilderPreviewRelayStateForCallback,
 } from "./builder-browser.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "./cookie-namespace.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -346,6 +350,11 @@ export interface AuthOptions {
    */
   loginHtml?: string;
   /**
+   * Serve the configured auth document at the public root. Defaults to true
+   * when the auth plugin provides marketing or custom login content.
+   */
+  rootAuth?: boolean;
+  /**
    * Hide email/password forms on the built-in login page and show only the
    * Google sign-in button. Use this for templates (mail, calendar) where
    * Google connection is required anyway. Has no effect when `loginHtml`
@@ -461,6 +470,7 @@ export function getCookieDomain(): string | undefined {
 }
 
 export const COOKIE_NAME = AUTH_COOKIE_NAMESPACE.frameworkCookieName;
+export const SESSION_HINT_COOKIE = frameworkSessionHintCookieName(COOKIE_NAME);
 export const BETTER_AUTH_COOKIE_PREFIX =
   AUTH_COOKIE_NAMESPACE.betterAuthCookiePrefix;
 const AUTH_DISABLED_OPT_OUT_COOKIE = `${COOKIE_NAME}_auth_disabled_opt_out`;
@@ -559,16 +569,31 @@ async function enrichLegacySessionIdentity(
   };
 }
 
-function deleteCookieFromEveryScope(event: H3Event, name: string): void {
+function deleteCookieFromEveryScope(
+  event: H3Event,
+  name: string,
+  attributes: Parameters<typeof deleteCookie>[2] = {},
+): void {
   // Clear host-only cookies first. Then clear any configured domain scope so
   // stale shared cookies stop shadowing isolated app sessions.
-  deleteCookie(event, name, { path: "/" });
+  deleteCookie(event, name, { ...attributes, path: "/" });
   for (const domain of AUTH_COOKIE_NAMESPACE.frameworkCookieDomainsToClear) {
-    deleteCookie(event, name, { path: "/", domain });
+    deleteCookie(event, name, { ...attributes, path: "/", domain });
+  }
+}
+
+export function clearFrameworkSessionHintCookies(event: H3Event): void {
+  for (const name of frameworkSessionCookieNamesToClear()) {
+    deleteCookieFromEveryScope(
+      event,
+      frameworkSessionHintCookieName(name),
+      crossSiteCookieAttrs(event),
+    );
   }
 }
 
 export function clearFrameworkSessionCookies(event: H3Event): void {
+  clearFrameworkSessionHintCookies(event);
   for (const name of frameworkSessionCookieNamesToClear()) {
     deleteCookieFromEveryScope(event, name);
   }
@@ -1582,6 +1607,7 @@ interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
   authMode?: OnboardingHtmlOptions["authMode"];
+  rootAuth: boolean;
   publicPaths: string[];
   publicCorsPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
@@ -1736,10 +1762,20 @@ function getAuthOnboardingHtml(
 function getOnboardingLoginHtmlConfig(
   options: AuthOptions,
   authMode?: OnboardingHtmlOptions["authMode"],
-): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml" | "authMode"> {
-  if (options.loginHtml) return { loginHtml: options.loginHtml, authMode };
+): Pick<
+  AuthGuardConfig,
+  "loginHtml" | "getLoginHtml" | "authMode" | "rootAuth"
+> {
+  if (options.loginHtml) {
+    return {
+      loginHtml: options.loginHtml,
+      authMode,
+      rootAuth: options.rootAuth ?? true,
+    };
+  }
   return {
     authMode,
+    rootAuth: options.rootAuth ?? Boolean(options.marketing),
     loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
@@ -2926,16 +2962,22 @@ function desktopMagicLinkLandingPage(
   });
 }
 
-function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
-  const headCloseIdx = loginHtml.indexOf("</head>");
-  if (headCloseIdx === -1) return loginHtml;
+function injectLoginSocialImageMeta(
+  loginHtml: string,
+  event?: H3Event,
+): string {
+  const headCloseMatch = /<\/head\s*>/i.exec(loginHtml);
+  if (!headCloseMatch || headCloseMatch.index === undefined) return loginHtml;
+  const headCloseIdx = headCloseMatch.index;
 
   const hasAnySocialImage =
     LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
     LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
   const imageUrl = escapeHtmlAttr(
     withAgentNativeSocialImageCacheBuster(
-      getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+      event
+        ? getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH)
+        : `${getAppBasePath()}${AGENT_NATIVE_SOCIAL_IMAGE_PATH}`,
     ),
   );
   const tags: string[] = [];
@@ -2974,26 +3016,74 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
   );
 }
 
-function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
-  return new Response(
-    injectAnalyticsIntoHtml(
-      injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event),
-    ),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        // The sign-in document is part of the public server shell. Keep it on the
-        // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
-        // template roots do not invoke origin just to render anonymous login UI.
-        // The login markup reflects deployment-wide auth configuration; the
-        // analytics script is public build configuration, not user/session
-        // state. Never vary this per request by cookie or session.
-        ...resolveSsrCacheHeaders(),
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    },
+function injectHeadScript(html: string, script: string): string {
+  const headCloseMatch = /<\/head\s*>/i.exec(html);
+  if (headCloseMatch?.index !== undefined) {
+    return (
+      html.slice(0, headCloseMatch.index) +
+      script +
+      html.slice(headCloseMatch.index)
+    );
+  }
+
+  const headOpenMatch = /<head\b[^>]*>/i.exec(html);
+  if (headOpenMatch?.index !== undefined) {
+    const headEnd = headOpenMatch.index + headOpenMatch[0].length;
+    return html.slice(0, headEnd) + script + html.slice(headEnd);
+  }
+
+  const bodyOpenMatch = /<body\b[^>]*>/i.exec(html);
+  if (bodyOpenMatch?.index !== undefined) {
+    return (
+      html.slice(0, bodyOpenMatch.index) +
+      `<head>${script}</head>` +
+      html.slice(bodyOpenMatch.index)
+    );
+  }
+
+  const htmlOpenMatch = /<html\b[^>]*>/i.exec(html);
+  if (htmlOpenMatch?.index !== undefined) {
+    const htmlEnd = htmlOpenMatch.index + htmlOpenMatch[0].length;
+    return (
+      html.slice(0, htmlEnd) + `<head>${script}</head>` + html.slice(htmlEnd)
+    );
+  }
+
+  return `<!doctype html><html><head>${script}</head><body>${html}</body></html>`;
+}
+
+function loginHtmlResponse(
+  loginHtml: string,
+  event: H3Event,
+  options: {
+    includeRootAuthRedirect?: boolean;
+    requestIndependent?: boolean;
+  } = {},
+): Response {
+  let html = injectLoginSocialImageMeta(
+    injectBetaOptOutPersistence(loginHtml),
+    options.requestIndependent ? undefined : event,
   );
+  if (options.includeRootAuthRedirect) {
+    html = injectHeadScript(
+      html,
+      getSsrAuthRedirectScript(SESSION_HINT_COOKIE),
+    );
+  }
+  return new Response(injectAnalyticsIntoHtml(html), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      // The sign-in document is part of the public server shell. Keep it on the
+      // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
+      // template roots do not invoke origin just to render anonymous login UI.
+      // The login markup reflects deployment-wide auth configuration; the
+      // analytics script is public build configuration, not user/session
+      // state. Never vary this per request by cookie or session.
+      ...resolveSsrCacheHeaders(),
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
 }
 
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
@@ -3021,7 +3111,6 @@ function createAuthGuardFn(
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
     const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
-    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
     const p = stripAppBasePath(rawPath);
     const normalizedUrl = queryStart >= 0 ? `${p}${url.slice(queryStart)}` : p;
     const callbackRelay = workspaceOAuthCallbackRelayResponse(event);
@@ -3271,6 +3360,19 @@ function createAuthGuardFn(
     if (p === "/_agent-native/recap-image") {
       return;
     }
+
+    // The public home uses the same server-rendered auth surface as the
+    // framework sign-in entry. This is unconditional and does not inspect the
+    // request session, so the cached root document stays identical for every
+    // visitor; the head handoff handles existing sessions in the browser.
+    if (config.rootAuth && p === "/" && isHtmlDocumentRequest(event, p)) {
+      return loginHtmlResponse(config.loginHtml, event, {
+        includeRootAuthRedirect: true,
+        requestIndependent: true,
+      });
+    }
+
+    const loginHtml = config.getLoginHtml?.(event, rawPath) ?? config.loginHtml;
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
     // (share links, embeds) here with a `?return=<path>` query. The clean
@@ -4062,6 +4164,16 @@ function clearFirstRunOnboardingCookie(event: H3Event): void {
   });
 }
 
+function setFrameworkSessionHintCookie(event: H3Event): void {
+  setCookie(event, SESSION_HINT_COOKIE, "1", {
+    ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
+    httpOnly: false,
+    path: "/",
+    maxAge: sessionMaxAge,
+  });
+}
+
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   clearFrameworkSessionCookies(event);
   setCookie(event, COOKIE_NAME, token, {
@@ -4071,6 +4183,7 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
     path: "/",
     maxAge: sessionMaxAge,
   });
+  setFrameworkSessionHintCookie(event);
 }
 
 /**
@@ -5301,6 +5414,46 @@ async function mountBetterAuthRoutes(
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
 
+      if (
+        isSignOut &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 400
+      ) {
+        const stagedHeaders = event.res?.headers;
+        const stagedCookieCount = stagedHeaders
+          ? getSetCookieHeaders(stagedHeaders).length
+          : 0;
+        clearFrameworkSessionHintCookies(event);
+        if (stagedHeaders) {
+          for (const cookie of getSetCookieHeaders(stagedHeaders).slice(
+            stagedCookieCount,
+          )) {
+            (response as Response).headers.append("set-cookie", cookie);
+          }
+        }
+      }
+
+      if (
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 400 &&
+        extractSessionTokenFromSetCookies(response as Response)
+      ) {
+        const stagedHeaders = event.res?.headers;
+        const stagedCookieCount = stagedHeaders
+          ? getSetCookieHeaders(stagedHeaders).length
+          : 0;
+        setFrameworkSessionHintCookie(event);
+        if (stagedHeaders) {
+          for (const cookie of getSetCookieHeaders(stagedHeaders).slice(
+            stagedCookieCount,
+          )) {
+            (response as Response).headers.append("set-cookie", cookie);
+          }
+        }
+      }
+
       if (isMagicLinkVerification && isResponse) {
         logMagicLinkVerificationResponse(
           event,
@@ -5873,6 +6026,8 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (session) setFrameworkSessionHintCookie(event);
+      else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
     }),
   );
@@ -6075,6 +6230,8 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: "Method not allowed" };
       }
       const session = await getSession(event);
+      if (session) setFrameworkSessionHintCookie(event);
+      else clearFrameworkSessionHintCookies(event);
       return session ?? { error: "Not authenticated" };
     }),
   );
@@ -6132,6 +6289,11 @@ export async function autoMountAuth(
         );
         _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
         _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
+      }
+      if (options.rootAuth !== undefined) {
+        _authGuardConfig.rootAuth = options.rootAuth;
+      } else if (options.loginHtml || options.marketing) {
+        _authGuardConfig.rootAuth = true;
       }
       if (options.publicPaths) {
         _authGuardConfig.publicPaths = [
@@ -6237,6 +6399,7 @@ export async function autoMountAuth(
         : {
             getLoginHtml: () => getCustomAuthRequiredHtml(),
           }),
+      rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
