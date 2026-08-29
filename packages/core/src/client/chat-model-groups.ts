@@ -56,6 +56,11 @@ const HIDDEN_CHAT_MODEL_ENGINES = new Set([
   "ai-sdk:cohere",
 ]);
 
+const HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES = new Set([
+  "ai-sdk:google",
+  "ai-sdk:openrouter",
+]);
+
 function addCurrentModel(
   models: readonly string[],
   engineName: string,
@@ -197,6 +202,11 @@ function sortModelPickerEngines(
   return modelPickerEngineRank(a) - modelPickerEngineRank(b);
 }
 
+function shouldShowConfiguredGroup(group: EngineModelGroup): boolean {
+  if (group.configured) return true;
+  return !HIDDEN_UNCONFIGURED_CHAT_MODEL_ENGINES.has(group.engine);
+}
+
 export function buildChatModelGroups({
   engines,
   configuredKeys,
@@ -240,5 +250,6 @@ export function buildChatModelGroups({
             requiredEnvVars.some((key) => configured.has(key))),
       };
     })
-    .filter((group) => group.models.length > 0);
+    .filter((group) => group.models.length > 0)
+    .filter(shouldShowConfiguredGroup);
 }

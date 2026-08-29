@@ -207,6 +207,10 @@ async function mountWithCatalog(
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-selected-engine") ?? null,
+    modelOf: () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-model") ?? null,
     catalogOf: () =>
       el
         .querySelector("[data-testid='assistant-chat']")
@@ -590,6 +594,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
     expect(view.engineOf()).toBe("anthropic");
+    await view.cleanup();
+  });
+
+  it("heals a persisted selection when its provider is hidden as unconfigured", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:catalog-test",
+      JSON.stringify({ model: "z-ai/glm-5.2", engine: "ai-sdk:openrouter" }),
+    );
+    const view = await mountWithCatalog(
+      [
+        ...ANTHROPIC_ENGINES,
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      ["ANTHROPIC_API_KEY"],
+    );
+
+    expect(view.engineOf()).toBe("anthropic");
+    expect(view.modelOf()).toBe("claude-sonnet-5");
     await view.cleanup();
   });
 
