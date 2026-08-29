@@ -826,6 +826,16 @@ export interface AgentPanelProps extends Omit<
   onExitWideDrawer?: () => void;
   /** Route settings requests to a host-owned settings surface. */
   onOpenSettings?: (section?: string) => void;
+  /** Start a desktop-owned CLI tab from the chat sidebar menu. */
+  onNewCliTab?: () => void;
+  /** Return from a desktop-owned CLI tab to a UI chat tab. */
+  onNewUiTab?: () => void;
+  /** Select the mode used by the chat sidebar's new-tab affordances. */
+  newTabMode?: "ui" | "cli";
+  /** Host-owned label for the desktop CLI tab action. */
+  newCliTabLabel?: string;
+  /** Host-owned label for the desktop UI tab action. */
+  newUiTabLabel?: string;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
   /** Restore the previously active chat thread on mount. Default: true. */
@@ -998,6 +1008,11 @@ function AgentPanelInner({
   isWideDrawer,
   onExitWideDrawer,
   onOpenSettings,
+  onNewCliTab,
+  onNewUiTab,
+  newTabMode = "ui",
+  newCliTabLabel,
+  newUiTabLabel,
   storageKey,
   restoreActiveThread = true,
   scope,
@@ -1498,10 +1513,22 @@ function AgentPanelInner({
           />
         ) : null}
         {mode === "chat" && (
-          <IconTooltip content={t("agentPanel.newChat")}>
+          <IconTooltip
+            content={
+              newTabMode === "cli" && newCliTabLabel
+                ? newCliTabLabel
+                : t("agentPanel.newChat")
+            }
+          >
             <button
-              onClick={addTab}
-              aria-label={t("agentPanel.newChat")}
+              onClick={
+                newTabMode === "cli" && onNewCliTab ? onNewCliTab : addTab
+              }
+              aria-label={
+                newTabMode === "cli" && newCliTabLabel
+                  ? newCliTabLabel
+                  : t("agentPanel.newChat")
+              }
               className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconPlus size={14} />
@@ -1591,9 +1618,15 @@ function AgentPanelInner({
             ) : null}
             {onCollapse && mode === "chat" && (
               <>
-                <DropdownMenuItem onSelect={addTab}>
+                <DropdownMenuItem
+                  onSelect={
+                    newTabMode === "cli" && onNewUiTab ? onNewUiTab : addTab
+                  }
+                >
                   <IconPlus size={14} className="shrink-0" />
-                  {t("agentPanel.newChat")}
+                  {newTabMode === "cli"
+                    ? (newUiTabLabel ?? t("agentPanel.newChat"))
+                    : t("agentPanel.newChat")}
                 </DropdownMenuItem>
                 {(() => {
                   const activeTab = activeChatSessionId
@@ -1624,6 +1657,15 @@ function AgentPanelInner({
                 })()}
               </>
             )}
+            {mode === "chat" &&
+            newTabMode !== "cli" &&
+            onNewCliTab &&
+            newCliTabLabel ? (
+              <DropdownMenuItem onSelect={onNewCliTab}>
+                <IconTerminal2 size={14} className="shrink-0" />
+                {newCliTabLabel}
+              </DropdownMenuItem>
+            ) : null}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem
                 onSelect={(event) =>
@@ -3138,6 +3180,16 @@ export interface AgentSidebarProps {
   onFullscreenRequest?: () => void;
   /** Route settings requests to a host-owned settings surface. */
   onOpenSettings?: (section?: string) => void;
+  /** Start a desktop-owned CLI tab from the chat sidebar menu. */
+  onNewCliTab?: () => void;
+  /** Return from a desktop-owned CLI tab to a UI chat tab. */
+  onNewUiTab?: () => void;
+  /** Select the mode used by the chat sidebar's new-tab affordances. */
+  newTabMode?: "ui" | "cli";
+  /** Host-owned label for the desktop CLI tab action. */
+  newCliTabLabel?: string;
+  /** Host-owned label for the desktop UI tab action. */
+  newUiTabLabel?: string;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
   /** Identity used to route host-scoped sidebar toggle events. */
@@ -3208,6 +3260,11 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   onOpenSettings,
+  onNewCliTab,
+  onNewUiTab,
+  newTabMode = "ui",
+  newCliTabLabel,
+  newUiTabLabel,
   scope,
   toggleScopeId,
   isolateHistoryByScope = false,
@@ -4031,6 +4088,11 @@ export function AgentSidebar({
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
             onFullViewRequest={onFullscreenRequest}
             onOpenSettings={onOpenSettings}
+            onNewCliTab={onNewCliTab}
+            onNewUiTab={onNewUiTab}
+            newTabMode={newTabMode}
+            newCliTabLabel={newCliTabLabel}
+            newUiTabLabel={newUiTabLabel}
             storageKey={storageKey}
             restoreActiveThread={restoreActiveThread}
             scope={scope}

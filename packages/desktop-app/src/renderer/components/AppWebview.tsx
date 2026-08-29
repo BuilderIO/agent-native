@@ -174,7 +174,15 @@ export function buildGuestAuthStateProbeScript(): string {
       const hasSession = Boolean(
         record &&
           !Object.prototype.hasOwnProperty.call(record, "error") &&
-          (record.email || record.user || record.session),
+          record.authenticated !== false &&
+          (record.authenticated === true ||
+            typeof record.email === "string" ||
+            (record.user &&
+              typeof record.user === "object" &&
+              Object.keys(record.user).length > 0) ||
+            (record.session &&
+              typeof record.session === "object" &&
+              Object.keys(record.session).length > 0)),
       );
       return {
         authenticated: hasSession,
@@ -194,9 +202,12 @@ export function resolveAppWebviewAuthStateFromProbe(
   if (!result || typeof result !== "object") return "unknown";
   const probe = result as {
     authenticated?: unknown;
+    email?: unknown;
     invalidJson?: unknown;
     status?: unknown;
+    user?: unknown;
     url?: unknown;
+    session?: unknown;
   };
   if (probe.status === 401 || probe.status === 403) {
     return "unauthenticated";
@@ -211,11 +222,15 @@ export function resolveAppWebviewAuthStateFromProbe(
   if (probe.invalidJson === true) return "unknown";
   if (probe.authenticated === true) return "authenticated";
   if (probe.authenticated === false) return "unauthenticated";
-  const responseUrl =
-    typeof probe.url === "string"
-      ? resolveAppWebviewAuthState(probe.url)
-      : "unknown";
-  return responseUrl === "unknown" ? "unknown" : responseUrl;
+  const hasSessionEvidence =
+    typeof probe.email === "string" ||
+    (probe.user !== null &&
+      typeof probe.user === "object" &&
+      Object.keys(probe.user).length > 0) ||
+    (probe.session !== null &&
+      typeof probe.session === "object" &&
+      Object.keys(probe.session).length > 0);
+  return hasSessionEvidence ? "authenticated" : "unknown";
 }
 
 async function readAppWebviewAuthState(
@@ -281,6 +296,20 @@ export function shouldUseDesktopIdentityGate(input: {
   enabled: boolean | null;
 }): boolean {
   return input.eligible && input.active && input.enabled !== false;
+}
+
+export function shouldShowDesktopIdentityRecovery(input: {
+  eligible: boolean;
+  active: boolean;
+  showDesktopIdentityGate: boolean;
+  status: DesktopIdentityStatus | "checking";
+}): boolean {
+  return (
+    !input.showDesktopIdentityGate &&
+    input.eligible &&
+    input.active &&
+    input.status === "failed"
+  );
 }
 
 export function shouldSuppressDesktopSignInPrompt(
@@ -782,6 +811,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         eligible: desktopIdentityGateEligible,
         active: isActive,
         enabled: desktopIdentityEnabled,
+      });
+    const desktopIdentitySurfaceActive =
+      desktopIdentityGateActive ||
+      shouldShowDesktopIdentityRecovery({
+        eligible: desktopIdentityGateEligible,
+        active: isActive,
+        showDesktopIdentityGate,
+        status: desktopIdentityStatus,
       });
     const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
     const repairDesktopIdentitySession = useCallback(() => {
@@ -1835,7 +1872,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               flex: "1 1 auto",
               display:
                 error ||
-                (desktopIdentityGateActive && !desktopIdentitySessionReady)
+                (desktopIdentitySurfaceActive && !desktopIdentitySessionReady)
                   ? "none"
                   : "flex",
               flexDirection: "column",
@@ -1844,14 +1881,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         )}
 
         {isActive &&
-          desktopIdentityGateActive &&
+          desktopIdentitySurfaceActive &&
           !desktopIdentitySessionReady &&
           (desktopIdentityStatus === "idle" ||
             desktopIdentityStatus === "signed-in") && (
             <LoadingScreen app={app} slow={false} isDev={isDevMode} />
           )}
 
-        {desktopIdentityGateActive && (
+        {desktopIdentitySurfaceActive && (
           <DesktopIdentityGate
             appName={app.name}
             status={desktopIdentityStatus}
