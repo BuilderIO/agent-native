@@ -1037,10 +1037,30 @@ describe("AgentEngine registry", () => {
     ).toBe(true);
   });
 
+  it("accepts bundled optional packages with Netlify's runtime site marker", async () => {
+    vi.stubEnv("SITE_ID", "site");
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    expect(
+      isAgentEnginePackageInstalled({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        installPackage: "@agent-native/definitely-missing-ai-provider",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create: vi.fn() as any,
+      }),
+    ).toBe(true);
+  });
+
   it.each(["NETLIFY_LOCAL", "NETLIFY_DEV"])(
     "does not treat %s as a bundled runtime",
     async (localMarker) => {
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+      vi.stubEnv("SITE_ID", "site");
       vi.stubEnv(localMarker, "true");
       const { isAgentEnginePackageInstalled } = await import("./registry.js");
 
