@@ -102,6 +102,10 @@ export interface ChatRequestLog {
   count: number;
 }
 
+export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
+  return `Agent chat requests: ${JSON.stringify(log)}`;
+}
+
 /**
  * Record the model on every agent-chat POST this page makes.
  *
