@@ -22,7 +22,8 @@ vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
 }));
 
-vi.mock("./agent-engine-status-cache.js", () => ({
+vi.mock("./agent-engine-status-cache.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-engine-status-cache.js")>()),
   invalidateAgentEngineStatusLookups: (...args: any[]) =>
     mockInvalidateAgentEngineStatusLookups(...args),
 }));

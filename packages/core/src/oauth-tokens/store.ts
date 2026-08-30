@@ -6,6 +6,7 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { invalidateAgentEngineStatusLookups } from "../server/agent-engine-status-cache.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -269,7 +270,9 @@ export async function replaceOAuthTokensIfRevision(
       expectedStorageVersion,
     ],
   });
-  return result.rowsAffected === 1;
+  const replaced = result.rowsAffected === 1;
+  if (replaced && provider === "mcp") invalidateAgentEngineStatusLookups();
+  return replaced;
 }
 
 /** Delete only the exact credential revision the caller inspected. */
@@ -295,7 +298,9 @@ export async function deleteOAuthTokensIfRevision(
       expectedStorageVersion,
     ],
   });
-  return result.rowsAffected === 1;
+  const deleted = result.rowsAffected === 1;
+  if (deleted && provider === "mcp") invalidateAgentEngineStatusLookups();
+  return deleted;
 }
 
 /**
@@ -438,7 +443,10 @@ export async function saveOAuthTokens(
       Date.now(),
     ],
   });
-  if (result.rowsAffected === 1) return;
+  if (result.rowsAffected === 1) {
+    if (provider === "mcp") invalidateAgentEngineStatusLookups();
+    return;
+  }
 
   const { rows: conflict } = await client.execute({
     sql: `SELECT owner FROM ${table} WHERE provider = ? AND account_id = ?`,
@@ -471,12 +479,18 @@ export async function deleteOAuthTokens(
       sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ?${ownerClause}`,
       args,
     });
+    if (result.rowsAffected > 0 && provider === "mcp") {
+      invalidateAgentEngineStatusLookups();
+    }
     return result.rowsAffected;
   }
   const result = await client.execute({
     sql: `DELETE FROM ${table} WHERE provider = ?`,
     args: [provider],
   });
+  if (result.rowsAffected > 0 && provider === "mcp") {
+    invalidateAgentEngineStatusLookups();
+  }
   return result.rowsAffected;
 }
 
