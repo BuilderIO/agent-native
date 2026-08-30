@@ -160,14 +160,14 @@ export async function installOpenAiKey(
       timeout: 45_000,
     });
     const result = await page.evaluate(
-      async ([route, key]) => {
+      async ([route, key, baseUrl]) => {
         const response = await fetch(route, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             provider: "openai",
             value: key,
-            baseUrl: OPENAI_DEFAULT_BASE_URL,
+            baseUrl,
             scope: "user",
           }),
         });
@@ -176,7 +176,7 @@ export async function installOpenAiKey(
           body: (await response.text()).slice(0, 400),
         };
       },
-      [KEY_ROUTE, apiKey] as const,
+      [KEY_ROUTE, apiKey, OPENAI_DEFAULT_BASE_URL] as const,
     );
     return {
       installed: isConfirmedOpenAiKeyInstall(result),
