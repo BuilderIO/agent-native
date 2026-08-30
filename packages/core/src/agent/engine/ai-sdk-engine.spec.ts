@@ -745,6 +745,37 @@ describe("AISDKEngine OpenAI model selection", () => {
       }),
     );
   });
+
+  it("applies reasoning effort with tools on an explicit first-party endpoint", async () => {
+    const { streamText } = mockAiSdk();
+    const { provider, responsesModel } = mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://api.openai.com/v1",
+    });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [TEST_TOOL],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(engine.preserveCustomModels).toBe(false);
+    expect(provider).toHaveBeenCalledWith("gpt-5.5");
+    expect(provider.chat).not.toHaveBeenCalled();
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: responsesModel,
+        providerOptions: expect.objectContaining({
+          openai: expect.objectContaining({ reasoningEffort: "medium" }),
+        }),
+      }),
+    );
+  });
 });
 
 describe("AISDKEngine first-event deadline", () => {

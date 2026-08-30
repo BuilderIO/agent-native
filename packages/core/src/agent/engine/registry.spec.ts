@@ -2566,17 +2566,16 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
-    it("ignores scoped OpenAI endpoints for synthetic beta E2E traffic", async () => {
-      vi.stubEnv("OPENAI_BASE_URL", "https://deploy-gateway.example/v1");
+    it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
       vi.doMock("../../server/request-context.js", () => ({
-        getRequestContext: () => ({ isSyntheticTraffic: true }),
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
           if (key === "OPENAI_BASE_URL") {
-            return { key, value: "https://gateway.example/v1" };
+            return { key, value: "https://api.openai.com/v1" };
           }
           return null;
         });
@@ -2610,7 +2609,7 @@ describe("AgentEngine registry", () => {
 
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: "sk-e2e",
-        allowEnvFallback: false,
+        allowEnvFallback: true,
         baseUrl: "https://api.openai.com/v1",
       });
       expect(resolved).toBe(openAiEngine);

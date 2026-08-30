@@ -16,6 +16,7 @@ import type { BrowserContext } from "@playwright/test";
  */
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
 const OPENAI_E2E_MODEL = "gpt-5.6-luna";
@@ -71,10 +72,14 @@ export function isConfirmedOpenAiKeyInstall(
     const body = JSON.parse(result.body) as {
       ok?: unknown;
       key?: unknown;
+      baseUrlKey?: unknown;
       scope?: unknown;
     };
     return (
-      body.ok === true && body.key === "OPENAI_API_KEY" && body.scope === "user"
+      body.ok === true &&
+      body.key === "OPENAI_API_KEY" &&
+      body.baseUrlKey === "OPENAI_BASE_URL" &&
+      body.scope === "user"
     );
   } catch {
     return false; // coercion-ok: malformed response is explicitly unconfirmed
@@ -162,6 +167,7 @@ export async function installOpenAiKey(
           body: JSON.stringify({
             provider: "openai",
             value: key,
+            baseUrl: OPENAI_DEFAULT_BASE_URL,
             scope: "user",
           }),
         });

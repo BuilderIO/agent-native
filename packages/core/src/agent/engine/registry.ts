@@ -28,7 +28,6 @@ import {
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
 import {
-  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
@@ -36,8 +35,8 @@ import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
-  OPENAI_DEFAULT_BASE_URL,
   OPENAI_BASE_URL_ENV_VAR,
+  isCustomOpenAiBaseUrl,
 } from "./openai-compatible-endpoint.js";
 import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
@@ -402,7 +401,9 @@ export async function resolveEnginePreservesCustomModels(
   }
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
+    return isCustomOpenAiBaseUrl(
+      await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR),
+    );
   } catch {
     return false;
   }
@@ -751,15 +752,6 @@ function engineCreateConfig(
 async function resolveProviderBaseUrl(
   envVar: string,
 ): Promise<string | undefined> {
-  // The beta E2E lane validates and bills the direct OpenAI Responses API. Do
-  // not let a user/org endpoint override turn routing for synthetic traffic;
-  // normal requests must continue honoring their configured endpoint.
-  if (
-    envVar === OPENAI_BASE_URL_ENV_VAR &&
-    getRequestContext()?.isSyntheticTraffic === true
-  ) {
-    return OPENAI_DEFAULT_BASE_URL;
-  }
   const raw = await resolveSecret(envVar);
 
   if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
