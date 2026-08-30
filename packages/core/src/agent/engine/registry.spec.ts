@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
@@ -1212,6 +1212,10 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../org/context.js", () => ({
         resolveOrgIdForEmail: vi.fn().mockResolvedValue(null),
       }));
+    });
+
+    afterEach(() => {
+      vi.doUnmock("../../server/credential-provider.js");
     });
 
     it("selects builder from the Builder-credits pair alone on a hosted app", async () => {
