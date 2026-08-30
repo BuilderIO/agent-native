@@ -3,10 +3,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  agentEngineStatusIdentityKey,
-  invalidateAgentEngineStatusLookups,
   resolveAgentEngineStatus,
-  shareAgentEngineStatusLookup,
   type AgentEngineStatusDeps,
   type AgentEngineStatusResult,
 } from "./core-routes-plugin.js";
@@ -50,7 +47,6 @@ function createDeps(
 const originalAgentEngine = process.env.AGENT_ENGINE;
 
 afterEach(() => {
-  invalidateAgentEngineStatusLookups();
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
 });
@@ -71,6 +67,9 @@ describe("agent-engine/status route failure handling", () => {
     const body = handler.slice(0, handler.indexOf("${P}/track"));
 
     expect(body).toContain("setResponseStatus(event, 503)");
+    // A process-global in-flight lookup can outlive a credential write on a
+    // different serverless function instance and return the pre-write answer.
+    expect(body).not.toContain("shareAgentEngineStatusLookup");
     // The catch must not fabricate an authoritative negative answer.
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,
@@ -154,110 +153,5 @@ describe("resolveAgentEngineStatus", () => {
         createDeps({ readOpenAiBaseUrlConfigured: () => true }),
       ),
     ).resolves.toEqual({ configured: false, openAiBaseUrlConfigured: true });
-  });
-});
-
-describe("shareAgentEngineStatusLookup", () => {
-  const answer = (engine: string): AgentEngineStatusResult => ({
-    configured: true,
-    engine,
-  });
-
-  it("runs one lookup for concurrent probes of the same identity", async () => {
-    const key = agentEngineStatusIdentityKey("a@example.com", "org-1");
-    const gate = deferred<void>();
-    let runs = 0;
-    const compute = async () => {
-      runs += 1;
-      await gate.promise;
-      return answer("ai-sdk:openai");
-    };
-
-    const first = shareAgentEngineStatusLookup(key, compute);
-    const second = shareAgentEngineStatusLookup(key, compute);
-    gate.resolve();
-
-    await expect(first).resolves.toEqual(answer("ai-sdk:openai"));
-    await expect(second).resolves.toEqual(answer("ai-sdk:openai"));
-    expect(runs).toBe(1);
-  });
-
-  it("re-runs after the shared lookup settles so a removed provider is never reported stale", async () => {
-    const key = agentEngineStatusIdentityKey("a@example.com", "org-1");
-    let runs = 0;
-    const compute = async () => {
-      runs += 1;
-      return runs === 1 ? answer("ai-sdk:openai") : { configured: false };
-    };
-
-    await expect(shareAgentEngineStatusLookup(key, compute)).resolves.toEqual(
-      answer("ai-sdk:openai"),
-    );
-    await expect(shareAgentEngineStatusLookup(key, compute)).resolves.toEqual({
-      configured: false,
-    });
-    expect(runs).toBe(2);
-  });
-
-  it("does not let a provider write leave a pre-write lookup in flight", async () => {
-    const key = agentEngineStatusIdentityKey("a@example.com", "org-1");
-    const gate = deferred<void>();
-    let runs = 0;
-    const compute = async () => {
-      const attempt = ++runs;
-      await gate.promise;
-      return attempt === 1 ? { configured: false } : answer("ai-sdk:openai");
-    };
-
-    const stale = shareAgentEngineStatusLookup(key, compute);
-    invalidateAgentEngineStatusLookups();
-    const fresh = shareAgentEngineStatusLookup(key, compute);
-    gate.resolve();
-
-    await expect(stale).resolves.toEqual({ configured: false });
-    await expect(fresh).resolves.toEqual(answer("ai-sdk:openai"));
-    expect(runs).toBe(2);
-  });
-
-  it("never shares one identity's answer with another", async () => {
-    const gate = deferred<void>();
-    const shared = (email: string, orgId: string | undefined) =>
-      shareAgentEngineStatusLookup(
-        agentEngineStatusIdentityKey(email, orgId),
-        async () => {
-          await gate.promise;
-          return answer(`engine-for-${email}-${orgId ?? "none"}`);
-        },
-      );
-
-    const a = shared("a@example.com", "org-1");
-    const b = shared("b@example.com", "org-1");
-    const aOtherOrg = shared("a@example.com", "org-2");
-    const anonymous = shared("", undefined);
-    gate.resolve();
-
-    expect((await a).engine).toBe("engine-for-a@example.com-org-1");
-    expect((await b).engine).toBe("engine-for-b@example.com-org-1");
-    expect((await aOtherOrg).engine).toBe("engine-for-a@example.com-org-2");
-    expect((await anonymous).engine).toBe("engine-for--none");
-  });
-
-  it("does not let identity parts run together into one key", () => {
-    expect(agentEngineStatusIdentityKey("a@example.com", "org-1")).not.toBe(
-      agentEngineStatusIdentityKey("a@example.comorg-1", undefined),
-    );
-  });
-
-  it("drops the shared entry when the lookup fails", async () => {
-    const key = agentEngineStatusIdentityKey("c@example.com", undefined);
-    await expect(
-      shareAgentEngineStatusLookup(key, async () => {
-        throw new Error("db unavailable");
-      }),
-    ).rejects.toThrow("db unavailable");
-
-    await expect(
-      shareAgentEngineStatusLookup(key, async () => answer("ai-sdk:openai")),
-    ).resolves.toEqual(answer("ai-sdk:openai"));
   });
 });

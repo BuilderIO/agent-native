@@ -6,7 +6,6 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
-import { invalidateAgentEngineStatusLookups } from "../server/agent-engine-status-cache.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -271,7 +270,6 @@ export async function replaceOAuthTokensIfRevision(
     ],
   });
   const replaced = result.rowsAffected === 1;
-  if (replaced && provider === "mcp") invalidateAgentEngineStatusLookups();
   return replaced;
 }
 
@@ -299,7 +297,6 @@ export async function deleteOAuthTokensIfRevision(
     ],
   });
   const deleted = result.rowsAffected === 1;
-  if (deleted && provider === "mcp") invalidateAgentEngineStatusLookups();
   return deleted;
 }
 
@@ -444,7 +441,6 @@ export async function saveOAuthTokens(
     ],
   });
   if (result.rowsAffected === 1) {
-    if (provider === "mcp") invalidateAgentEngineStatusLookups();
     return;
   }
 
@@ -479,18 +475,12 @@ export async function deleteOAuthTokens(
       sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ?${ownerClause}`,
       args,
     });
-    if (result.rowsAffected > 0 && provider === "mcp") {
-      invalidateAgentEngineStatusLookups();
-    }
     return result.rowsAffected;
   }
   const result = await client.execute({
     sql: `DELETE FROM ${table} WHERE provider = ?`,
     args: [provider],
   });
-  if (result.rowsAffected > 0 && provider === "mcp") {
-    invalidateAgentEngineStatusLookups();
-  }
   return result.rowsAffected;
 }
 

@@ -122,17 +122,6 @@ import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import {
-  agentEngineStatusIdentityKey,
-  shareAgentEngineStatusLookup,
-  type AgentEngineStatusResult,
-} from "./agent-engine-status-cache.js";
-export {
-  agentEngineStatusIdentityKey,
-  invalidateAgentEngineStatusLookups,
-  shareAgentEngineStatusLookup,
-  type AgentEngineStatusResult,
-} from "./agent-engine-status-cache.js";
-import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
@@ -287,6 +276,15 @@ type AgentEngineStatusEntry = {
   supportedModels: readonly string[];
   requiredEnvVars: readonly string[];
 };
+
+export interface AgentEngineStatusResult {
+  configured: boolean;
+  engine?: string;
+  model?: string;
+  source?: "settings" | "env" | "app_secrets";
+  envVar?: string;
+  openAiBaseUrlConfigured?: boolean;
+}
 
 export interface AgentEngineStatusDeps<
   E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
@@ -3996,14 +3994,8 @@ export function createCoreRoutesPlugin(
           try {
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await shareAgentEngineStatusLookup(
-              agentEngineStatusIdentityKey(userEmail, orgId),
-              () =>
-                Promise.resolve(
-                  runWithRequestContext({ userEmail, orgId }, () =>
-                    resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
-                  ),
-                ),
+            return await runWithRequestContext({ userEmail, orgId }, () =>
+              resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
             );
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an
