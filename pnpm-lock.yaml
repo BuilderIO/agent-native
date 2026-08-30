@@ -4361,8 +4361,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/toolkit
       '@ai-sdk/openai':
-        specifier: ^4.0.51
-        version: 4.0.51(zod@4.4.3)
+        specifier: ^3.0.53
+        version: 3.0.74(zod@4.4.3)
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
