@@ -2567,6 +2567,7 @@ describe("AgentEngine registry", () => {
     });
 
     it("ignores scoped OpenAI endpoints for synthetic beta E2E traffic", async () => {
+      vi.stubEnv("OPENAI_BASE_URL", "https://deploy-gateway.example/v1");
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => ({ isSyntheticTraffic: true }),
         getRequestUserEmail: () => "steve@example.com",
@@ -2610,6 +2611,7 @@ describe("AgentEngine registry", () => {
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: "sk-e2e",
         allowEnvFallback: false,
+        baseUrl: "https://api.openai.com/v1",
       });
       expect(resolved).toBe(openAiEngine);
     });

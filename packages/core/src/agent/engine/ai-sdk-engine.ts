@@ -34,6 +34,7 @@ import {
 } from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
+import { OPENAI_DEFAULT_BASE_URL } from "./openai-compatible-endpoint.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -647,7 +648,9 @@ class AISDKEngine implements AgentEngine {
     // GPT reasoning models get the API OpenAI recommends. If someone points
     // the OpenAI provider at an OpenAI-compatible gateway, keep using Chat
     // Completions because many gateway base URLs do not implement Responses.
-    return this.provider === "openai" && this.baseUrl
+    return this.provider === "openai" &&
+      this.baseUrl &&
+      this.baseUrl !== OPENAI_DEFAULT_BASE_URL
       ? provider.chat(model)
       : provider(model);
   }

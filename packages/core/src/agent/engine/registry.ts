@@ -36,6 +36,7 @@ import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
   OLLAMA_BASE_URL_ENV_VAR,
+  OPENAI_DEFAULT_BASE_URL,
   OPENAI_BASE_URL_ENV_VAR,
 } from "./openai-compatible-endpoint.js";
 import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
@@ -757,7 +758,7 @@ async function resolveProviderBaseUrl(
     envVar === OPENAI_BASE_URL_ENV_VAR &&
     getRequestContext()?.isSyntheticTraffic === true
   ) {
-    return undefined;
+    return OPENAI_DEFAULT_BASE_URL;
   }
   const raw = await resolveSecret(envVar);
 

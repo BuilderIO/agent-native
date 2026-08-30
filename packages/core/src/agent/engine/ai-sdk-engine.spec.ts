@@ -536,6 +536,30 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
   });
 
+  it("keeps an explicit first-party endpoint on the Responses API path", async () => {
+    vi.stubEnv("OPENAI_BASE_URL", "https://deploy-gateway.example/v1");
+    const { streamText } = mockAiSdk();
+    const { createOpenAI, provider, responsesModel } = mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://api.openai.com/v1",
+    });
+
+    await drain(engine.stream(BASE_STREAM_OPTIONS));
+
+    expect(createOpenAI).toHaveBeenCalledWith({
+      apiKey: "sk-test",
+      baseURL: "https://api.openai.com/v1",
+    });
+    expect(provider).toHaveBeenCalledWith("gpt-5.5");
+    expect(provider.chat).not.toHaveBeenCalled();
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({ model: responsesModel }),
+    );
+  });
+
   it("never reaches the deploy key when env fallback is disabled", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-deploy");
     const { streamText } = mockAiSdk();

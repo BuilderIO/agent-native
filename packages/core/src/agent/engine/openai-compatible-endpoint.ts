@@ -1,4 +1,5 @@
 export const OPENAI_BASE_URL_ENV_VAR = "OPENAI_BASE_URL";
+export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 export const OLLAMA_BASE_URL_ENV_VAR = "OLLAMA_BASE_URL";
 
 export function normalizeProviderBaseUrl(value: string): string {
