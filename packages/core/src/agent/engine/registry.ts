@@ -156,9 +156,15 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
  */
 function isBundledServerlessRuntime(): boolean {
   const env = process.env;
+  if (
+    /^(1|true)$/i.test(env.NETLIFY_LOCAL ?? "") ||
+    /^(1|true)$/i.test(env.NETLIFY_DEV ?? "")
+  ) {
+    return false;
+  }
   // Nitro's Vercel/Netlify presets inline optional peers into the function
   // bundle; these platforms always set these markers.
-  if (env.VERCEL || env.NETLIFY) return true;
+  if (env.VERCEL || env.NETLIFY || env.NETLIFY_FUNCTION_NAME) return true;
   // Otherwise require direct evidence that this module is running from inside a
   // bundle output directory (Vercel's `/var/task`, Nitro's `.output/server`,
   // inlined `_libs`). This is the real signal that `require.resolve` cannot be
