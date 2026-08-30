@@ -8,6 +8,7 @@ import {
   signInJourney,
   type SignInJourney,
 } from "../../shared/sign-in-journey.js";
+import { isSyntheticTrafficValue } from "../../shared/test-traffic.js";
 
 export type AuthView =
   | "signup"
@@ -251,6 +252,17 @@ function trackAuth(
   name: string,
   properties: Record<string, unknown> = {},
 ): void {
+  if (
+    isSyntheticTrafficValue(
+      (
+        window as Window & {
+          __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: unknown;
+        }
+      ).__AGENT_NATIVE_SYNTHETIC_TRAFFIC__,
+    )
+  ) {
+    return;
+  }
   try {
     const config = (
       window as Window & {
