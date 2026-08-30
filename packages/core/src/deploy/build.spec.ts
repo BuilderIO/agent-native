@@ -208,6 +208,34 @@ describe("resolveNitroBuildReplacements", () => {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
   });
+
+  it("does not infer optional engine packages from a core-only app", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-core-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: { "@agent-native/core": "workspace:*" },
+        }),
+      );
+
+      const marker = JSON.parse(
+        JSON.parse(
+          resolveNitroBuildReplacements({}, undefined, projectCwd)[
+            "process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"
+          ],
+        ),
+      ) as string[];
+
+      expect(marker).toContain("@agent-native/core");
+      expect(marker).not.toContain("ai");
+      expect(marker).not.toContain("@ai-sdk/openai");
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("isCloudflareModulePreset", () => {
