@@ -36,6 +36,7 @@ import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
+  isCustomOpenAiBaseUrl,
 } from "./openai-compatible-endpoint.js";
 import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
@@ -400,7 +401,9 @@ export async function resolveEnginePreservesCustomModels(
   }
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
+    return isCustomOpenAiBaseUrl(
+      await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR),
+    );
   } catch {
     return false;
   }
