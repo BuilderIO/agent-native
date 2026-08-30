@@ -1235,7 +1235,7 @@ describe("AgentEngine registry", () => {
     });
 
     it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
-      process.env.AGENT_ENGINE = "builder";
+      vi.stubEnv("AGENT_ENGINE", "builder");
       vi.doUnmock("../../server/request-context.js");
       vi.doMock(
         "../../server/credential-provider.js",
