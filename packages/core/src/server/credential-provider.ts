@@ -1723,18 +1723,16 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
   const scopes: Array<{
     scope: "user" | "org" | "workspace";
     scopeId: string;
-  }> = [
-    { scope: "user", scopeId: email },
-    ...(orgId && !syntheticTraffic
-      ? ([
-          { scope: "org", scopeId: orgId },
-          { scope: "workspace", scopeId: orgId },
-        ] as const)
-      : []),
-    ...(!syntheticTraffic
-      ? [{ scope: "workspace", scopeId: `solo:${email}` }]
-      : []),
-  ];
+  }> = [{ scope: "user", scopeId: email }];
+  if (orgId && !syntheticTraffic) {
+    scopes.push(
+      { scope: "org", scopeId: orgId },
+      { scope: "workspace", scopeId: orgId },
+    );
+  }
+  if (!syntheticTraffic) {
+    scopes.push({ scope: "workspace", scopeId: `solo:${email}` });
+  }
   await Promise.all(
     scopes.map((s) => readAppSecrets({ keys, ...s }).catch(() => undefined)),
   );
