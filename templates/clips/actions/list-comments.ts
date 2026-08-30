@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
+import { displayCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
@@ -45,6 +46,7 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
+        mentions: displayCommentMentions(c.mentionsJson),
         videoTimestampMs: c.videoTimestampMs,
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),

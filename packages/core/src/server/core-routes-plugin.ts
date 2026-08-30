@@ -136,6 +136,7 @@ import {
   BUILDER_CONNECT_MODE_PARAM,
   BUILDER_AGENT_NATIVE_PROVISION_MODE,
   BUILDER_PROVISIONING_TOKEN_PARAM,
+  BUILDER_CONNECT_ATTEMPT_PARAM,
   BUILDER_CONNECT_STATE_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
@@ -153,6 +154,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
+  isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
@@ -178,6 +180,7 @@ import {
   BUILDER_OAUTH_SCOPE,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
+  getBuilderOAuthStoredScope,
   hasBuilderOAuthSession,
   resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
@@ -216,7 +219,10 @@ import {
   trackPluginInit,
 } from "./framework-request-handler.js";
 import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
-import { checkGoogleSignInCredential } from "./google-credential-check.js";
+import {
+  checkGoogleManagedCredential,
+  checkGoogleSignInCredential,
+} from "./google-credential-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -386,40 +392,6 @@ export async function resolveAgentEngineStatus<
   return { configured: false, openAiBaseUrlConfigured };
 }
 
-const _agentEngineStatusInFlight = new Map<
-  string,
-  Promise<AgentEngineStatusResult>
->();
-
-/**
- * Share one in-flight status resolution between concurrent probes of the same
- * identity. Several client surfaces probe this route on mount and the client
- * retries after its own timeout; without this each probe re-ran the whole
- * credential sweep. The entry is dropped as soon as the lookup settles, so a
- * joiner never sees an answer older than one lookup — no TTL, nothing to
- * invalidate when a provider is added or removed. The key carries the identity
- * that decides the answer, so no tenant can read another's result.
- */
-export function shareAgentEngineStatusLookup(
-  identityKey: string,
-  compute: () => Promise<AgentEngineStatusResult>,
-): Promise<AgentEngineStatusResult> {
-  const existing = _agentEngineStatusInFlight.get(identityKey);
-  if (existing) return existing;
-  const started = compute().finally(() => {
-    _agentEngineStatusInFlight.delete(identityKey);
-  });
-  _agentEngineStatusInFlight.set(identityKey, started);
-  return started;
-}
-
-export function agentEngineStatusIdentityKey(
-  userEmail: string | undefined,
-  orgId: string | undefined,
-): string {
-  return `${userEmail ?? ""}\u0000${orgId ?? ""}`;
-}
-
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
   return {
     readStoredEngine: async () =>
@@ -464,16 +436,19 @@ async function resolveAgentEngineStatusIdentity(
 }
 
 /**
- * A Builder grant is shared by everyone in the caller's org, so establishing,
- * overwriting, or revoking one requires org owner/admin authority. Returns the
- * authorized org id and a denial message (null when allowed). The org id is
- * captured at connect start so the grant is stored under the org that was
- * authorized, not one re-resolved after the OAuth round trip. Fails closed: an
- * unreadable owner/admin role is denied.
+ * Shared Builder grants stay org-scoped, but connect initiation can come from
+ * any authenticated member. Revocation still needs owner/admin authority.
+ * Capture the org id at connect start so the grant is stored under the org
+ * that was authorized, not one re-resolved after the OAuth round trip.
  */
-async function resolveBuilderOrgMutation(
+export async function resolveBuilderOrgMutation(
   event: H3Event,
-): Promise<{ orgId: string | null; deny: string | null }> {
+  options: { allowMemberInitiation?: boolean } = {},
+): Promise<{
+  orgId: string | null;
+  role: string | null;
+  deny: string | null;
+}> {
   let orgId: string | null = null;
   let role: string | null = null;
   try {
@@ -483,13 +458,22 @@ async function resolveBuilderOrgMutation(
   } catch {
     // coercion-ok: org is missing, it will fail closed
   }
+  if (options.allowMemberInitiation) {
+    if (orgId) return { orgId, role, deny: null };
+    return {
+      orgId,
+      role,
+      deny: "Only signed-in organization members can connect Builder.",
+    };
+  }
   if (role !== "owner" && role !== "admin") {
     return {
       orgId,
+      role,
       deny: "Only an organization owner or admin can change the shared Builder connection.",
     };
   }
-  return { orgId, deny: null };
+  return { orgId, role, deny: null };
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -1369,6 +1353,20 @@ export interface CoreRoutesPluginOptions {
   disablePing?: boolean;
   /** Disable the /_agent-native/health DB liveness + warmup probe. */
   disableHealth?: boolean;
+  /**
+   * Callback paths emitted by this app's Google OAuth health contract. The
+   * default is the shared framework callback; app-owned callbacks must opt in
+   * so fleet probes read the deployed app instead of guessing from a hostname.
+   */
+  googleOAuthCallbackPaths?: string[];
+  /** Whether the managed Google client is deployment- or user-scoped. */
+  googleOAuthCredentialMode?: "managed" | "user";
+  /**
+   * Whether this app exposes deployment-level Google workspace OAuth. Custom
+   * core-route plugins must declare this; the framework default declares that
+   * managed OAuth is not applicable.
+   */
+  googleOAuthManagedConnection?: "required" | "not_applicable";
   /** Disable the /_agent-native/application-state routes. */
   disableAppState?: boolean;
   /** Disable the /_agent-native/open deep-link route. */
@@ -1409,6 +1407,23 @@ export interface CoreRoutesPluginOptions {
    * own browser-scoped agent session.
    */
   anonymousOwner?: BuilderAnonymousOwnerResolver;
+}
+
+const DEFAULT_GOOGLE_OAUTH_CALLBACK_PATH = "/_agent-native/google/callback";
+const GOOGLE_OAUTH_CALLBACK_PATH_PATTERN =
+  /^\/_agent-native\/[A-Za-z0-9._/-]+\/callback$/;
+
+function normalizeGoogleOAuthCallbackPaths(paths?: string[]): string[] {
+  const values = [...new Set(paths ?? [DEFAULT_GOOGLE_OAUTH_CALLBACK_PATH])];
+  if (
+    values.length === 0 ||
+    values.some((value) => !GOOGLE_OAUTH_CALLBACK_PATH_PATTERN.test(value))
+  ) {
+    throw new Error(
+      "googleOAuthCallbackPaths must contain /_agent-native/*/callback paths.",
+    );
+  }
+  return values;
 }
 
 interface LegacyCoreRouteInitSettings {
@@ -1597,6 +1612,13 @@ export async function resolveOAuthCustodyBuilderKeyStatus(
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
+  const googleOAuthCallbackPaths = normalizeGoogleOAuthCallbackPaths(
+    options.googleOAuthCallbackPaths,
+  );
+  const googleOAuthCredentialMode =
+    options.googleOAuthCredentialMode ?? "managed";
+  const googleOAuthManagedConnection =
+    options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
     // No-op when called from inside the bootstrap (auto-mount path).
@@ -1695,11 +1717,39 @@ export function createCoreRoutesPlugin(
           `${P}/health/google`,
           defineEventHandler(async (event) => {
             setResponseHeader(event, "cache-control", "no-store");
-            const result = await checkGoogleSignInCredential();
+            const result =
+              event.url?.searchParams.get("client") === "managed"
+                ? googleOAuthManagedConnection === "not_applicable"
+                  ? {
+                      status: "unconfigured" as const,
+                      clientId: null,
+                      mismatchedPairs: false,
+                      credentialSource: "none" as const,
+                      reason:
+                        "this app does not expose deployment-level Google OAuth",
+                      checkedAt: Date.now(),
+                    }
+                  : googleOAuthCredentialMode === "user"
+                    ? {
+                        status: "unconfigured" as const,
+                        clientId: null,
+                        mismatchedPairs: false,
+                        credentialSource: "user" as const,
+                        reason:
+                          "user-scoped OAuth credentials are checked after authentication",
+                        checkedAt: Date.now(),
+                      }
+                    : await checkGoogleManagedCredential()
+                : await checkGoogleSignInCredential();
             // `invalid` is the fleet-wide outage shape: the deploy is up and
             // healthy while nobody can sign in. Page on it.
             if (result.status === "invalid") setResponseStatus(event, 503);
-            return result;
+            return {
+              ...result,
+              callbackPaths: googleOAuthCallbackPaths,
+              credentialMode: googleOAuthCredentialMode,
+              managedConnection: googleOAuthManagedConnection,
+            };
           }),
         );
         getH3App(nitroApp).use(
@@ -2333,6 +2383,10 @@ export function createCoreRoutesPlugin(
         return runWithRequestContext(
           { userEmail, orgId: orgId ?? undefined },
           async () => {
+            const requestUrl = getFrameworkRouteRequestUrl(event);
+            const connectAttemptId = requestUrl.searchParams.get(
+              BUILDER_CONNECT_ATTEMPT_PARAM,
+            );
             const projectId = await resolveBuilderBranchProjectId();
             const requestStatus = {
               ...envStatus,
@@ -2349,8 +2403,19 @@ export function createCoreRoutesPlugin(
               if (userEmail) {
                 const errKey = `builder-connect-error:${userEmail}`;
                 const errRow = await getSetting(errKey);
-                if (errRow && typeof errRow.message === "string") {
-                  await deleteSetting(errKey).catch(() => {});
+                const isCorrelatedProvisioningError =
+                  errRow?.code === "account_exists" &&
+                  typeof connectAttemptId === "string" &&
+                  errRow.attemptId === connectAttemptId;
+                const isLegacyConnectError = errRow?.code !== "account_exists";
+                if (
+                  errRow &&
+                  typeof errRow.message === "string" &&
+                  (isCorrelatedProvisioningError || isLegacyConnectError)
+                ) {
+                  if (isLegacyConnectError) {
+                    await deleteSetting(errKey).catch(() => {});
+                  }
                   return withConnectToken({
                     ...requestStatus,
                     configured: false,
@@ -2370,6 +2435,9 @@ export function createCoreRoutesPlugin(
                         typeof errRow.at === "number"
                           ? (errRow.at as number)
                           : Date.now(),
+                      ...(typeof errRow.code === "string"
+                        ? { code: errRow.code }
+                        : {}),
                     },
                   });
                 }
@@ -2384,7 +2452,10 @@ export function createCoreRoutesPlugin(
               > = null;
               let hasOAuthCustody = false;
               try {
-                hasOAuthCustody = await hasBuilderOAuthSession(userEmail);
+                hasOAuthCustody = await hasBuilderOAuthSession(
+                  userEmail,
+                  orgId,
+                );
               } catch {
                 return withConnectToken({
                   ...requestStatus,
@@ -2404,6 +2475,7 @@ export function createCoreRoutesPlugin(
                   oauthAccess = await resolveBuilderOAuthRequestAccess({
                     ownerEmail: userEmail,
                     requiredScope: BUILDER_OAUTH_SCOPE,
+                    orgId,
                   });
                 } catch {
                   oauthAccess = null;
@@ -2639,6 +2711,10 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/builder/connect`,
         defineEventHandler(async (event) => {
+          const requestUrl = getFrameworkRouteRequestUrl(event);
+          const connectAttemptId = requestUrl.searchParams.get(
+            BUILDER_CONNECT_ATTEMPT_PARAM,
+          );
           const ownerContext = await resolveBuilderOwnerContext(
             event,
             "connect",
@@ -2664,11 +2740,11 @@ export function createCoreRoutesPlugin(
                 title: "Sign in required",
                 body: "Builder OAuth is tied to a signed-in account. Sign in, then try Connect Builder again.",
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               },
             );
           }
 
-          const requestUrl = getFrameworkRouteRequestUrl(event);
           const connectToken = requestUrl.searchParams.get(
             BUILDER_CONNECT_PARAM,
           );
@@ -2708,6 +2784,7 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-error:${ownerEmail}`, {
               message: crossOriginMessage,
               at: Date.now(),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             }).catch(() => {});
             console.warn("[builder-connect] rejected cross-origin connect", {
               hasConnectToken: Boolean(connectToken),
@@ -2727,6 +2804,7 @@ export function createCoreRoutesPlugin(
               closeHint:
                 "Close this popup, refresh the app, and try Connect account again.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
 
@@ -2738,10 +2816,13 @@ export function createCoreRoutesPlugin(
               status: number,
               message: string,
               reason: string,
+              code?: string,
             ) => {
               await putSetting(`builder-connect-error:${ownerEmail}`, {
                 message,
                 at: Date.now(),
+                ...(code ? { code } : {}),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               }).catch(() => {});
               await trackBuilderLifecycle(
                 event,
@@ -2761,6 +2842,8 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(message, {
                 parentOrigin: getBuilderBrowserOriginForEvent(event),
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+                ...(code ? { code } : {}),
               });
             };
 
@@ -2831,13 +2914,24 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackPage(
                 `${parentOrigin}${getAppBasePath() || "/"}`,
-                { parentOrigin },
+                {
+                  parentOrigin,
+                  ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+                },
               );
             } catch (error) {
               console.error(
                 "[builder] Agent-Native account provisioning failed:",
                 error instanceof Error ? error.message : error,
               );
+              if (isBuilderAccountAlreadyExistsError(error)) {
+                return failProvisioning(
+                  409,
+                  "A Builder account already exists for this email. Log in to connect it.",
+                  "account_exists",
+                  "account_exists",
+                );
+              }
               return failProvisioning(
                 502,
                 "Couldn't create your Builder account. Try again or connect an existing account.",
@@ -2873,10 +2967,16 @@ export function createCoreRoutesPlugin(
               title: "Builder connection is unavailable here",
               body: "Open this app on its public HTTPS URL, then try again.",
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
-          const { orgId: connectOrgId, deny: orgConnectDenied } =
-            await resolveBuilderOrgMutation(event);
+          const {
+            orgId: connectOrgId,
+            role: connectRole,
+            deny: orgConnectDenied,
+          } = await resolveBuilderOrgMutation(event, {
+            allowMemberInitiation: true,
+          });
           if (orgConnectDenied) {
             await trackBuilderLifecycle(
               event,
@@ -2896,8 +2996,9 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
               title: "Not allowed to connect Builder for this organization",
-              body: "Ask an organization owner or admin to connect Builder.",
+              body: orgConnectDenied,
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
           // The standard OAuth client discovers Builder's protected-resource
@@ -2916,11 +3017,12 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
               orgId: connectOrgId,
-              role: null,
+              role: connectRole,
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
               expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
               tracking: connectTracking,
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
             await purgeExpiredBuilderConnectPendingStates().catch(() => 0); // coercion-ok: connect already persisted the new pending row; purge of abandoned rows must not fail OAuth start
             setCookie(
@@ -2960,6 +3062,7 @@ export function createCoreRoutesPlugin(
             await putSetting(`builder-connect-error:${ownerEmail}`, {
               message: msg,
               at: Date.now(),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             }).catch(() => {});
             setResponseStatus(event, 503);
             setResponseHeader(
@@ -2969,6 +3072,7 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(msg, {
               parentOrigin: getBuilderBrowserOriginForEvent(event),
+              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
             });
           }
           await trackBuilderLifecycle(
@@ -3229,6 +3333,9 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
           const requestUrl = getFrameworkRouteRequestUrl(event);
+          const requestConnectAttemptId = requestUrl.searchParams.get(
+            BUILDER_CONNECT_ATTEMPT_PARAM,
+          );
           const relayStateRaw = requestUrl.searchParams.get(
             BUILDER_RELAY_STATE_PARAM,
           );
@@ -3250,6 +3357,9 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder preview relay state is invalid or expired.",
+                requestConnectAttemptId
+                  ? { attemptId: requestConnectAttemptId }
+                  : undefined,
               );
             }
 
@@ -3271,7 +3381,12 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder didn't return credentials. Restart the connect flow from settings.",
-                { parentOrigin: relayParentOrigin },
+                {
+                  parentOrigin: relayParentOrigin,
+                  ...(requestConnectAttemptId
+                    ? { attemptId: requestConnectAttemptId }
+                    : {}),
+                },
               );
             }
 
@@ -3328,6 +3443,9 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(message, {
                 parentOrigin: relayParentOrigin,
+                ...(requestConnectAttemptId
+                  ? { attemptId: requestConnectAttemptId }
+                  : {}),
               });
             }
 
@@ -3338,7 +3456,12 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackPage(
               `${relayParentOrigin}${relayPayload.basePath || "/"}`,
-              { parentOrigin: relayParentOrigin },
+              {
+                parentOrigin: relayParentOrigin,
+                ...(requestConnectAttemptId
+                  ? { attemptId: requestConnectAttemptId }
+                  : {}),
+              },
             );
           }
 
@@ -3351,6 +3474,7 @@ export function createCoreRoutesPlugin(
             getCookie(event, BUILDER_CONNECT_STATE_COOKIE),
           );
           const parentOrigin = getBuilderBrowserOriginForEvent(event);
+          let callbackAttemptId = requestConnectAttemptId;
           const fail = async (
             status: number,
             message: string,
@@ -3362,6 +3486,7 @@ export function createCoreRoutesPlugin(
               await putSetting(`builder-connect-error:${ownerEmail}`, {
                 message,
                 at: Date.now(),
+                ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
               }).catch(() => {});
               await trackBuilderLifecycle(
                 event,
@@ -3382,6 +3507,7 @@ export function createCoreRoutesPlugin(
             );
             return createBuilderBrowserCallbackErrorPage(message, {
               parentOrigin,
+              ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
             });
           };
 
@@ -3399,6 +3525,11 @@ export function createCoreRoutesPlugin(
               "No active Builder connect flow found. Restart the connection from Settings.",
             );
           }
+
+          callbackAttemptId =
+            typeof pending.attemptId === "string"
+              ? pending.attemptId
+              : callbackAttemptId;
 
           const ownerEmail =
             typeof pending.ownerEmail === "string" ? pending.ownerEmail : null;
@@ -3487,11 +3618,27 @@ export function createCoreRoutesPlugin(
           // PKCE proves the callback belongs to this flow before its pending
           // row is consumed. Persist first so a transient credential-store
           // failure does not strand an otherwise valid pending flow.
+          let callbackRole: string | null = null;
+          if (pending.role === "owner" || pending.role === "admin") {
+            // Re-check authority after the external OAuth round trip. A role
+            // captured at connect start must not authorize a later org write.
+            const currentOrg = await resolveBuilderOrgMutation(event, {
+              allowMemberInitiation: true,
+            });
+            if (
+              currentOrg.orgId === pending.orgId &&
+              (currentOrg.role === "owner" || currentOrg.role === "admin")
+            ) {
+              callbackRole = currentOrg.role;
+            }
+          }
+          let credentialScope: "user" | "org" = "user";
           try {
-            await saveBuilderOAuthCredentials({
+            credentialScope = await saveBuilderOAuthCredentials({
               ownerEmail,
               orgId:
                 typeof pending.orgId === "string" ? pending.orgId : undefined,
+              role: callbackRole,
               credentials,
             });
           } catch {
@@ -3555,13 +3702,16 @@ export function createCoreRoutesPlugin(
             {
               ...builderConnectTrackingProperties(tracking),
               stage: "callback",
-              credential_scope: "user",
+              credential_scope: credentialScope,
             },
           );
           setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
           return createBuilderBrowserCallbackPage(
             `${parentOrigin}${getAppBasePath() || "/"}`,
-            { parentOrigin },
+            {
+              parentOrigin,
+              ...(callbackAttemptId ? { attemptId: callbackAttemptId } : {}),
+            },
           );
         }),
       );
@@ -3584,19 +3734,6 @@ export function createCoreRoutesPlugin(
           }
 
           try {
-            const hadOAuth = await hasBuilderOAuthSession(session.email);
-            // Revoking an org-scoped grant takes the connection offline for
-            // every member, so require org owner/admin before doing so.
-            if (hadOAuth) {
-              const { deny } = await resolveBuilderOrgMutation(event);
-              if (deny) {
-                setResponseStatus(event, 403);
-                return { error: deny };
-              }
-            }
-            const oauthResult = hadOAuth
-              ? await deleteBuilderOAuthSession(session.email)
-              : { localDeleted: false, remoteRevoked: false };
             const { deleteBuilderCredentials } =
               await import("./credential-provider.js");
             let orgId: string | null = null;
@@ -3609,9 +3746,30 @@ export function createCoreRoutesPlugin(
             } catch {
               // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
             }
+            const oauthScope = await getBuilderOAuthStoredScope(
+              session.email,
+              orgId,
+            );
+            const hadOAuth = oauthScope !== null;
+            // Revoking an org-scoped grant takes the connection offline for
+            // every member, so require org owner/admin before doing so.
+            if (oauthScope === "org") {
+              const { deny } = await resolveBuilderOrgMutation(event);
+              if (deny) {
+                setResponseStatus(event, 403);
+                return { error: deny };
+              }
+            }
+            const oauthResult = oauthScope
+              ? await deleteBuilderOAuthSession(
+                  session.email,
+                  oauthScope,
+                  orgId,
+                )
+              : { localDeleted: false, remoteRevoked: false };
             await deleteBuilderCredentials(
               session.email,
-              hadOAuth ? undefined : { orgId, role },
+              oauthScope ? undefined : { orgId, role },
             );
             await trackBuilderLifecycle(
               event,
@@ -3836,14 +3994,8 @@ export function createCoreRoutesPlugin(
           try {
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await shareAgentEngineStatusLookup(
-              agentEngineStatusIdentityKey(userEmail, orgId),
-              () =>
-                Promise.resolve(
-                  runWithRequestContext({ userEmail, orgId }, () =>
-                    resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
-                  ),
-                ),
+            return await runWithRequestContext({ userEmail, orgId }, () =>
+              resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
             );
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an
@@ -4761,4 +4913,6 @@ export function createCoreRoutesPlugin(
  * export { defaultCoreRoutesPlugin as default } from "@agent-native/core/server";
  * ```
  */
-export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin();
+export const defaultCoreRoutesPlugin: NitroPluginDef = createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "not_applicable",
+});

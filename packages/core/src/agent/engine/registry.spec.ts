@@ -449,6 +449,7 @@ describe("AgentEngine registry", () => {
 
     it("prefers a current app default model over the global model", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "owner@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -575,6 +576,15 @@ describe("AgentEngine registry", () => {
 
       await expect(
         resolveEnginePreservesCustomModels({ name: "ai-sdk:ollama" }),
+      ).resolves.toBe(true);
+    });
+
+    it("preserves arbitrary OpenRouter model ids", async () => {
+      const { resolveEnginePreservesCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEnginePreservesCustomModels({ name: "ai-sdk:openrouter" }),
       ).resolves.toBe(true);
     });
 
@@ -873,6 +883,7 @@ describe("AgentEngine registry", () => {
 
   it("resolveEngine honors a usable app default before the global setting", async () => {
     vi.doMock("../../server/request-context.js", () => ({
+      getRequestContext: () => undefined,
       getRequestUserEmail: () => "owner@example.com",
       getRequestOrgId: () => undefined,
     }));
@@ -1007,6 +1018,112 @@ describe("AgentEngine registry", () => {
     expect(detectEngineFromEnv()).toBeNull();
   });
 
+  it("accepts bundled optional packages on a Netlify function runtime", async () => {
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    expect(
+      isAgentEnginePackageInstalled({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        installPackage: "@agent-native/definitely-missing-ai-provider",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create: vi.fn() as any,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts bundled optional packages with Netlify's runtime site marker", async () => {
+    vi.stubEnv("SITE_ID", "site");
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    expect(
+      isAgentEnginePackageInstalled({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        installPackage: "@agent-native/definitely-missing-ai-provider",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create: vi.fn() as any,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses the build package marker instead of blessing undeclared packages", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+      JSON.stringify(["ai", "@ai-sdk/openai"]),
+    );
+    for (const marker of [
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "SITE_ID",
+      "VERCEL",
+    ]) {
+      vi.stubEnv(marker, "");
+    }
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    const baseEntry = {
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    };
+
+    expect(
+      isAgentEnginePackageInstalled({
+        ...baseEntry,
+        installPackage: "ai @ai-sdk/openai",
+      }),
+    ).toBe(true);
+    expect(
+      isAgentEnginePackageInstalled({
+        ...baseEntry,
+        installPackage: "ai @agent-native/definitely-missing-ai-provider",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["NETLIFY_LOCAL", "NETLIFY_DEV"])(
+    "does not treat %s as a bundled runtime",
+    async (localMarker) => {
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+      vi.stubEnv("SITE_ID", "site");
+      vi.stubEnv(
+        "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+        JSON.stringify(["ai", "@agent-native/definitely-missing-ai-provider"]),
+      );
+      vi.stubEnv(localMarker, "true");
+      const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+      expect(
+        isAgentEnginePackageInstalled({
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          description: "",
+          installPackage: "@agent-native/definitely-missing-ai-provider",
+          capabilities: {} as any,
+          defaultModel: "gpt-5.4",
+          supportedModels: [],
+          requiredEnvVars: [],
+          create: vi.fn() as any,
+        }),
+      ).toBe(false);
+    },
+  );
+
   it("registers the builder engine with both credential shapes", async () => {
     const { registerBuiltinEngines } = await import("./builtin.js");
     const { getAgentEngineEntry } = await import("./registry.js");
@@ -1073,6 +1190,7 @@ describe("AgentEngine registry", () => {
         deleteSetting: vi.fn(),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "visitor@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -1377,12 +1495,30 @@ describe("AgentEngine registry", () => {
       const { builderEngine } =
         registerBuilderAndAnthropic(registerAgentEngine);
       const entry = getAgentEngineEntry("builder")!;
+      const identity = {
+        userEmail: "visitor@example.com",
+        orgId: "org-request",
+      };
 
       await expect(
-        isResolvedEngineUsableForRequest(builderEngine),
+        isResolvedEngineUsableForRequest(builderEngine, {
+          credentialIdentity: identity,
+        }),
       ).resolves.toBe(true);
-      await expect(isStoredEngineUsableForRequest(null, entry)).resolves.toBe(
-        true,
+      await expect(
+        isStoredEngineUsableForRequest(null, entry, {
+          credentialIdentity: identity,
+        }),
+      ).resolves.toBe(true);
+      expect(hasBuilderOAuthSession).toHaveBeenCalledWith(
+        identity.userEmail,
+        identity.orgId,
+      );
+      expect(resolveBuilderOAuthRequestAccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerEmail: identity.userEmail,
+          orgId: identity.orgId,
+        }),
       );
     });
 
@@ -1454,6 +1590,7 @@ describe("AgentEngine registry", () => {
 
     it("returns null when no request user is set", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => undefined,
         getRequestOrgId: () => undefined,
       }));
@@ -1465,6 +1602,7 @@ describe("AgentEngine registry", () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
       try {
         vi.doMock("../../server/request-context.js", () => ({
+          getRequestContext: () => undefined,
           getRequestUserEmail: () => undefined,
           getRequestOrgId: () => undefined,
         }));
@@ -1479,6 +1617,7 @@ describe("AgentEngine registry", () => {
 
     it("returns null for the local-dev session", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "local@localhost",
         getRequestOrgId: () => undefined,
       }));
@@ -1488,6 +1627,7 @@ describe("AgentEngine registry", () => {
 
     it("surfaces an unreadable credential store instead of reporting no engine", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "tim@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1519,6 +1659,7 @@ describe("AgentEngine registry", () => {
 
     it("picks the Builder engine when the user has Builder keys in app_secrets", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -1566,6 +1707,7 @@ describe("AgentEngine registry", () => {
 
     it("picks the Builder engine when the active org has shared Builder credentials", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "member@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1636,6 +1778,7 @@ describe("AgentEngine registry", () => {
 
     it("picks the Builder engine from org credentials when the user has only a partial stale Builder row", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "member@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1694,6 +1837,7 @@ describe("AgentEngine registry", () => {
 
     it("resolveEngine routes to Builder when the user has Builder creds in app_secrets and no env-level keys", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -1754,6 +1898,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "member@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1827,6 +1972,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1902,6 +2048,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -1960,6 +2107,7 @@ describe("AgentEngine registry", () => {
 
     it("pairs an explicitly selected provider with its saved key when the caller has none", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2010,6 +2158,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2051,6 +2200,7 @@ describe("AgentEngine registry", () => {
     it("does not pass an unrelated active key to an env-selected provider", async () => {
       vi.stubEnv("AGENT_ENGINE", "ai-sdk:openai");
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2107,6 +2257,7 @@ describe("AgentEngine registry", () => {
       // key it carries (plugin `options.apiKey`) matches no stored secret, so
       // only the declared env var can prove it belongs to Anthropic.
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2146,6 +2297,7 @@ describe("AgentEngine registry", () => {
 
     it("keeps a declared key on the provider it was issued for", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2188,6 +2340,7 @@ describe("AgentEngine registry", () => {
         getSetting: vi.fn().mockResolvedValue(null),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => "builder_org",
       }));
@@ -2263,6 +2416,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2339,6 +2493,7 @@ describe("AgentEngine registry", () => {
         ),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2395,6 +2550,7 @@ describe("AgentEngine registry", () => {
         }),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2472,6 +2628,7 @@ describe("AgentEngine registry", () => {
 
     it("passes a scoped OpenAI-compatible endpoint into the OpenAI engine", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2511,6 +2668,55 @@ describe("AgentEngine registry", () => {
         apiKey: undefined,
         allowEnvFallback: true,
         baseUrl: "https://gateway.example/v1",
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+          if (key === "OPENAI_BASE_URL") {
+            return { key, value: "https://api.openai.com/v1" };
+          }
+          return null;
+        });
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({
+        engineOption: "ai-sdk:openai",
+        apiKey: "sk-e2e",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "sk-e2e",
+        allowEnvFallback: true,
+        baseUrl: "https://api.openai.com/v1",
       });
       expect(resolved).toBe(openAiEngine);
     });
@@ -2558,6 +2764,7 @@ describe("AgentEngine registry", () => {
 
     it("does not pass the scoped OpenAI endpoint into non-OpenAI engines", async () => {
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
@@ -2607,6 +2814,7 @@ describe("AgentEngine registry", () => {
         getSetting: vi.fn().mockResolvedValue(null),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
@@ -2670,6 +2878,7 @@ describe("AgentEngine registry", () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.OPENAI_API_KEY = "sk-deploy"; // guard:allow-env-credential — fixture: explicit app-level LLM engine selection can inherit hosted env
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
@@ -2735,6 +2944,7 @@ describe("AgentEngine registry", () => {
         deleteSetting: vi.fn(),
       }));
       vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => undefined,
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));

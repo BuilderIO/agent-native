@@ -13,7 +13,7 @@ import {
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
 } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,6 +25,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +51,7 @@ import {
   IconFlowNormal,
   IconFlowVertical,
   IconGap,
+  IconGapVertical,
   IconPaddingHorizontal,
   IconPaddingVertical,
   IconSizingFill,
@@ -395,6 +401,9 @@ export function AutoLayoutMatrix({
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
+  const canResizeToFit =
+    (availableChildSizing?.horizontal ?? SIZING_OPTIONS).includes("hug") &&
+    (availableChildSizing?.vertical ?? SIZING_OPTIONS).includes("hug");
 
   /** Apply a flow choice, coordinating display + direction + wrap. */
   const selectFlow = (flow: AutoLayoutFlow) => {
@@ -579,34 +588,51 @@ export function AutoLayoutMatrix({
           </InspectorGridCell>
           <InspectorGridCell span={1} ariaHidden />
           <InspectorGridCell span={4} className="flex justify-center">
-            {/* Resize-to-fit icon button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  disabled={disabled}
-                  aria-label={
-                    "Resize to fit" /* i18n-ignore inspector tooltip */
-                  }
-                  onClick={() => {
-                    onChildSizingChange("horizontal", "hug");
-                    onChildSizingChange("vertical", "hug");
-                  }}
-                  className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                >
-                  <IconArrowsDiagonalMinimize2 className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {"Resize to fit" /* i18n-ignore inspector tooltip */}
-              </TooltipContent>
-            </Tooltip>
+            {canResizeToFit ? (
+              /* Resize-to-fit only applies when both axes have measurable content. */
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    aria-label={
+                      "Resize to fit" /* i18n-ignore inspector tooltip */
+                    }
+                    onClick={() => {
+                      onChildSizingChange("horizontal", "hug");
+                      onChildSizingChange("vertical", "hug");
+                    }}
+                    className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  >
+                    <IconArrowsDiagonalMinimize2 className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {"Resize to fit" /* i18n-ignore inspector tooltip */}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </InspectorGridCell>
         </InspectorGrid>
 
-        {showChildLayoutControls && !isBlock ? (
+        {showChildLayoutControls &&
+        !isBlock &&
+        activeFlow === "grid" &&
+        value.grid ? (
+          <GridControls
+            value={value.grid}
+            onChange={onGridChange}
+            alignment={value.alignment}
+            alignmentMixed={value.alignmentMixed}
+            onAlignmentChange={onAlignmentChange}
+            direction={value.direction}
+            disabled={disabled}
+          />
+        ) : null}
+
+        {showChildLayoutControls && !isBlock && activeFlow !== "grid" ? (
           <InspectorGrid className="items-start">
             <InspectorGridCell span={28}>
               <div className="design-sidebar-property-group">
@@ -632,42 +658,34 @@ export function AutoLayoutMatrix({
             </InspectorGridCell>
 
             <InspectorGridCell span={28}>
-              {activeFlow === "grid" && value.grid ? (
-                <GridControls
-                  value={value.grid}
-                  onChange={onGridChange}
+              <div className="design-sidebar-property-group">
+                <ControlLabel>{copy.gap}</ControlLabel>
+                <GapField
+                  value={value.gap}
+                  mixed={value.gapMixed}
+                  onGapChange={onGapChange}
+                  onDistribute={onDistribute}
+                  onGapModeChange={onGapModeChange}
+                  label={copy.gap}
                   disabled={disabled}
+                  direction={value.direction}
+                  gapMode={value.spaceBetween ? "auto" : "fixed"}
+                  gapModeMixed={value.gapModeMixed}
                 />
-              ) : (
-                <div className="design-sidebar-property-group">
-                  <ControlLabel>{copy.gap}</ControlLabel>
-                  <GapField
-                    value={value.gap}
-                    mixed={value.gapMixed}
-                    onGapChange={onGapChange}
-                    onDistribute={onDistribute}
-                    onGapModeChange={onGapModeChange}
-                    label={copy.gap}
-                    disabled={disabled}
-                    direction={value.direction}
-                    gapMode={value.spaceBetween ? "auto" : "fixed"}
-                    gapModeMixed={value.gapModeMixed}
-                  />
-                  {activeFlow === "horizontal" ? (
-                    <label className="flex items-center gap-2 !text-[11px] text-foreground">
-                      <Checkbox
-                        checked={value.wrap === "wrap"}
-                        disabled={disabled}
-                        onCheckedChange={(checked) =>
-                          onWrapChange(checked === true ? "wrap" : "nowrap")
-                        }
-                        className="size-3.5 rounded-[3px] [&_svg]:size-3"
-                      />
-                      <span>{copy.wrap}</span>
-                    </label>
-                  ) : null}
-                </div>
-              )}
+                {activeFlow === "horizontal" ? (
+                  <label className="flex items-center gap-2 !text-[11px] text-foreground">
+                    <Checkbox
+                      checked={value.wrap === "wrap"}
+                      disabled={disabled}
+                      onCheckedChange={(checked) =>
+                        onWrapChange(checked === true ? "wrap" : "nowrap")
+                      }
+                      className="size-3.5 rounded-[3px] [&_svg]:size-3"
+                    />
+                    <span>{copy.wrap}</span>
+                  </label>
+                ) : null}
+              </div>
             </InspectorGridCell>
           </InspectorGrid>
         ) : null}
@@ -868,15 +886,28 @@ const ALIGNMENT_CELLS: Array<{
 // Sub-components
 // ─────────────────────────────────────────────────
 
+/**
+ * Grid tracks, gaps, and the advanced track/sizing popover. Takes the full
+ * inspector width — these fields truncate beside the 78px alignment column.
+ */
 function GridControls({
   value,
   onChange,
+  alignment,
+  alignmentMixed,
+  onAlignmentChange,
+  direction,
   disabled,
 }: {
   value: AutoLayoutGridValue;
   onChange?: (value: AutoLayoutGridValue, meta?: ScrubInputChangeMeta) => void;
+  alignment: AlignmentMatrixValue;
+  alignmentMixed?: boolean;
+  onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
+  direction: AutoLayoutDirection;
   disabled: boolean;
 }) {
+  const locked = disabled || !onChange;
   const update = (
     patch: Partial<AutoLayoutGridValue>,
     meta?: ScrubInputChangeMeta,
@@ -884,11 +915,235 @@ function GridControls({
 
   return (
     <div className="design-sidebar-property-group">
-      <ControlLabel>
-        {"Grid" /* i18n-ignore design inspector label */}
-      </ControlLabel>
-      <InspectorGrid layout="pair-flow">
-        <InspectorGridCell span={14}>
+      <InspectorGrid className="items-center">
+        <InspectorGridCell span={12}>
+          <ControlLabel>
+            {"Grid" /* i18n-ignore design inspector label */}
+          </ControlLabel>
+        </InspectorGridCell>
+        <InspectorGridCell span={16}>
+          <div className="flex items-center justify-between gap-1.5">
+            <ControlLabel>
+              {"Gap" /* i18n-ignore design inspector label */}
+            </ControlLabel>
+            <GridAdvancedPopover
+              value={value}
+              update={update}
+              alignment={alignment}
+              alignmentMixed={alignmentMixed}
+              onAlignmentChange={onAlignmentChange}
+              direction={direction}
+              disabled={locked}
+            />
+          </div>
+        </InspectorGridCell>
+      </InspectorGrid>
+      <InspectorGrid className="items-start">
+        <InspectorGridCell span={12}>
+          <GridTrackMatrix
+            columns={value.columns}
+            rows={value.rows}
+            mixed={Boolean(value.columnsMixed || value.rowsMixed)}
+            disabled={locked}
+            onChange={(columns, rows, meta) => update({ columns, rows }, meta)}
+          />
+        </InspectorGridCell>
+        <InspectorGridCell span={16}>
+          <div className="design-sidebar-property-group">
+            <GridGapField
+              icon={IconGap}
+              label={"Column gap" /* i18n-ignore design inspector label */}
+              value={value.columnGap}
+              mixed={value.columnGapMixed}
+              disabled={locked}
+              onChange={(columnGap, meta) => update({ columnGap }, meta)}
+            />
+            <GridGapField
+              icon={IconGapVertical}
+              label={"Row gap" /* i18n-ignore design inspector label */}
+              value={value.rowGap}
+              mixed={value.rowGapMixed}
+              disabled={locked}
+              onChange={(rowGap, meta) => update({ rowGap }, meta)}
+            />
+          </div>
+        </InspectorGridCell>
+      </InspectorGrid>
+    </div>
+  );
+}
+
+/** Largest track count the matrix itself can reach; the popover fields go higher. */
+const GRID_MATRIX_MAX = 6;
+
+function gridMatrixExtent(count: number): number {
+  return Math.min(GRID_MATRIX_MAX, Math.max(3, Math.round(count) + 1));
+}
+
+/**
+ * Figma's track picker: hover previews, clicking a cell sets columns × rows.
+ * A cell beyond the current counts is the affordance for growing the grid, so
+ * the matrix always renders one track more than is set.
+ */
+function GridTrackMatrix({
+  columns,
+  rows,
+  mixed,
+  disabled,
+  onChange,
+}: {
+  columns: number;
+  rows: number;
+  mixed: boolean;
+  disabled: boolean;
+  onChange: (columns: number, rows: number, meta: ScrubInputChangeMeta) => void;
+}) {
+  const [hovered, setHovered] = useState<{
+    columns: number;
+    rows: number;
+  } | null>(null);
+  const shown = hovered ?? { columns, rows };
+  const columnCount = gridMatrixExtent(Math.max(shown.columns, columns));
+  const rowCount = gridMatrixExtent(Math.max(shown.rows, rows));
+
+  return (
+    <div
+      className={cn(
+        "relative w-full max-w-[96px] select-none",
+        disabled && "pointer-events-none opacity-40",
+      )}
+      onPointerLeave={() => setHovered(null)}
+    >
+      <div
+        className="grid overflow-hidden rounded-md border border-border/70 bg-[var(--design-editor-control-bg)]"
+        style={{
+          gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+        }}
+      >
+        {Array.from({ length: columnCount * rowCount }, (_, index) => {
+          const cellColumn = (index % columnCount) + 1;
+          const cellRow = Math.floor(index / columnCount) + 1;
+          const covered =
+            cellColumn <= shown.columns && cellRow <= shown.rows && !mixed;
+          return (
+            <button
+              key={`${cellColumn}:${cellRow}`}
+              type="button"
+              aria-label={
+                `${cellColumn} × ${cellRow}` /* i18n-ignore design inspector label */
+              }
+              className={cn(
+                "aspect-square border-[0.5px] border-border/50",
+                covered
+                  ? "bg-[var(--design-editor-accent-color)]/25"
+                  : "bg-transparent hover:bg-foreground/10",
+              )}
+              onPointerEnter={() =>
+                setHovered({ columns: cellColumn, rows: cellRow })
+              }
+              onClick={() => {
+                setHovered(null);
+                onChange(cellColumn, cellRow, {
+                  source: "commit",
+                  phase: "commit",
+                });
+              }}
+            />
+          );
+        })}
+      </div>
+      <span
+        className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-[var(--design-editor-panel-bg)]/90 px-1 !text-[10px] tabular-nums text-foreground"
+        data-grid-track-readout
+      >
+        {mixed
+          ? "Mixed" /* i18n-ignore design mixed value */
+          : `${Math.round(shown.columns)} × ${Math.round(shown.rows)}`}
+      </span>
+    </div>
+  );
+}
+
+/** A compact grid gap field: [axis icon] value. */
+function GridGapField({
+  icon,
+  label,
+  value,
+  mixed,
+  disabled,
+  onChange,
+}: {
+  icon: (props: { className?: string }) => ReactNode;
+  label: string;
+  value: number;
+  mixed?: boolean;
+  disabled: boolean;
+  onChange: (value: number, meta: ScrubInputChangeMeta) => void;
+}) {
+  return (
+    <ScrubInput
+      label={label}
+      ariaLabel={label}
+      tooltipLabel={label}
+      icon={icon}
+      value={value}
+      mixed={mixed}
+      onChange={onChange}
+      unit="px"
+      min={0}
+      step={1}
+      precision={0}
+      disabled={disabled}
+      className="min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
+      labelClassName="h-7 w-6 shrink-0 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+      inputClassName="h-7 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+    />
+  );
+}
+
+/** Exact track counts, per-axis track sizing, and cell alignment. */
+function GridAdvancedPopover({
+  value,
+  update,
+  alignment,
+  alignmentMixed,
+  onAlignmentChange,
+  direction,
+  disabled,
+}: {
+  value: AutoLayoutGridValue;
+  update: (
+    patch: Partial<AutoLayoutGridValue>,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
+  alignment: AlignmentMatrixValue;
+  alignmentMixed?: boolean;
+  onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
+  direction: AutoLayoutDirection;
+  disabled: boolean;
+}) {
+  const settingsLabel = "Grid settings" /* i18n-ignore inspector tooltip */;
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={disabled}
+              aria-label={settingsLabel}
+              className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+            >
+              <IconAdjustmentsHorizontal className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{settingsLabel}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" sideOffset={6} className="w-56 space-y-2 p-3">
+        <div className="grid grid-cols-2 gap-1.5">
           <GridNumberField
             label={"Columns" /* i18n-ignore design inspector label */}
             value={value.columns}
@@ -896,10 +1151,8 @@ function GridControls({
             min={1}
             max={24}
             onChange={(columns, meta) => update({ columns }, meta)}
-            disabled={disabled || !onChange}
+            disabled={disabled}
           />
-        </InspectorGridCell>
-        <InspectorGridCell span={14}>
           <GridNumberField
             label={"Rows" /* i18n-ignore design inspector label */}
             value={value.rows}
@@ -907,55 +1160,43 @@ function GridControls({
             min={1}
             max={24}
             onChange={(rows, meta) => update({ rows }, meta)}
-            disabled={disabled || !onChange}
+            disabled={disabled}
           />
-        </InspectorGridCell>
-        <InspectorGridCell span={14}>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
           <GridTrackPicker
             label={"Column sizing" /* i18n-ignore design inspector label */}
             value={value.columnSizing}
             fixedSize={value.columnSize}
-            disabled={disabled || !onChange}
+            disabled={disabled}
             onChange={(columnSizing) => update({ columnSizing })}
             onFixedSizeChange={(columnSize, meta) =>
               update({ columnSize }, meta)
             }
           />
-        </InspectorGridCell>
-        <InspectorGridCell span={14}>
           <GridTrackPicker
             label={"Row sizing" /* i18n-ignore design inspector label */}
             value={value.rowSizing}
             fixedSize={value.rowSize}
-            disabled={disabled || !onChange}
+            disabled={disabled}
             onChange={(rowSizing) => update({ rowSizing })}
             onFixedSizeChange={(rowSize, meta) => update({ rowSize }, meta)}
           />
-        </InspectorGridCell>
-        <InspectorGridCell span={14}>
-          <GridNumberField
-            label={"Column gap" /* i18n-ignore design inspector label */}
-            value={value.columnGap}
-            mixed={value.columnGapMixed}
-            min={0}
-            unit="px"
-            onChange={(columnGap, meta) => update({ columnGap }, meta)}
-            disabled={disabled || !onChange}
+        </div>
+        <div className="space-y-1.5">
+          <ControlLabel>
+            {"Cell alignment" /* i18n-ignore design inspector label */}
+          </ControlLabel>
+          <CompactAlignmentMatrix
+            value={alignment}
+            mixed={alignmentMixed}
+            onChange={onAlignmentChange}
+            direction={direction}
+            disabled={disabled}
           />
-        </InspectorGridCell>
-        <InspectorGridCell span={14}>
-          <GridNumberField
-            label={"Row gap" /* i18n-ignore design inspector label */}
-            value={value.rowGap}
-            mixed={value.rowGapMixed}
-            min={0}
-            unit="px"
-            onChange={(rowGap, meta) => update({ rowGap }, meta)}
-            disabled={disabled || !onChange}
-          />
-        </InspectorGridCell>
-      </InspectorGrid>
-    </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -993,7 +1234,7 @@ function GridNumberField({
       precision={0}
       disabled={disabled}
       className="w-full min-w-0 gap-0 rounded-md bg-[var(--design-editor-control-bg)]"
-      labelClassName="h-6 w-6 justify-center overflow-hidden px-1 !text-[9px] text-muted-foreground [&>svg]:hidden"
+      labelClassName="h-6 max-w-[56px] justify-start overflow-hidden px-1.5 !text-[10px] text-muted-foreground [&>svg]:hidden"
       inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
     />
   );
@@ -1015,42 +1256,47 @@ function GridTrackPicker({
   onFixedSizeChange: (value: number, meta: ScrubInputChangeMeta) => void;
 }) {
   return (
-    <div className="flex h-6 w-full min-w-0 rounded-md bg-[var(--design-editor-control-bg)]">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
+    <div className="min-w-0 space-y-1">
+      <span className="block truncate !text-[10px] text-muted-foreground">
+        {label}
+      </span>
+      <div className="flex h-6 w-full min-w-0 rounded-md bg-[var(--design-editor-control-bg)]">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={disabled}
+              aria-label={label}
+              className="h-6 min-w-0 flex-1 justify-start rounded-md px-2 !text-[11px] font-normal capitalize"
+            >
+              {value}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {(["fill", "hug", "fixed", "custom"] as const).map((option) => (
+              <DropdownMenuItem key={option} onSelect={() => onChange(option)}>
+                <span className="capitalize">{option}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {value === "fixed" ? (
+          <ScrubInput
+            label={label}
+            ariaLabel={`${label} size`}
+            value={fixedSize}
+            onChange={onFixedSizeChange}
+            unit="px"
+            min={0}
+            precision={0}
             disabled={disabled}
-            aria-label={label}
-            className="h-6 min-w-0 flex-1 justify-start rounded-md px-2 !text-[11px] font-normal capitalize"
-          >
-            {value}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {(["fill", "hug", "fixed", "custom"] as const).map((option) => (
-            <DropdownMenuItem key={option} onSelect={() => onChange(option)}>
-              <span className="capitalize">{option}</span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {value === "fixed" ? (
-        <ScrubInput
-          label={label}
-          ariaLabel={`${label} size`}
-          value={fixedSize}
-          onChange={onFixedSizeChange}
-          unit="px"
-          min={0}
-          precision={0}
-          disabled={disabled}
-          className="h-6 w-14 min-w-0 gap-0"
-          labelClassName="hidden"
-          inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
-        />
-      ) : null}
+            className="h-6 w-14 min-w-0 gap-0"
+            labelClassName="hidden"
+            inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

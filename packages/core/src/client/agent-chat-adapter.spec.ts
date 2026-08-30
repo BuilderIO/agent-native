@@ -770,6 +770,42 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("sends the assistant-ui parent when regenerating a message", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-regenerate",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "try again" }],
+          },
+          {
+            id: "assistant-original",
+            role: "assistant",
+            content: [{ type: "text", text: "Original answer." }],
+          },
+        ],
+        unstable_parentId: "user-1",
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toMatchObject({
+      parentId: "user-1",
+      message: "try again",
+      threadId: "thread-regenerate",
+    });
+  });
+
   it("does not publish terminal cleanup after another run claims active state", async () => {
     vi.stubGlobal("sessionStorage", createMemoryStorage());
     const dispatchEvent = vi.fn();
@@ -2034,6 +2070,46 @@ describe("createAgentChatAdapter", () => {
       threadId: "thread-bg",
       trackInRunsTray: true,
     });
+  });
+
+  it("sends the run config's usage label with the chat request", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-label",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Enrich this record" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { usageLabel: "  crm:enrich-record  " },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.usageLabel).toBe("crm:enrich-record");
   });
 
   it("keeps recovery prompts from replacing the original user request", async () => {

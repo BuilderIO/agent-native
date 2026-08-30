@@ -1832,9 +1832,3 @@
 .plan-wf[data-skeleton="true"] {
   --radius: 7px;
 }
-
-@media (prefers-reduced-motion: no-preference) {
-  .plan-wf[data-skeleton="true"] {
-    animation: skeleton-pulse 2s ease-in-out infinite;
-  }
-}

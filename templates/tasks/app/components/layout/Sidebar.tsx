@@ -1,8 +1,7 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconCheckbox,
@@ -155,21 +154,9 @@ export function Sidebar({
                 : undefined
           }
         >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
+          <AgentNativeIcon
             aria-hidden="true"
-            width={28}
-            height={16}
-            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={28}
-            height={16}
-            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            className="h-3.5 w-6 shrink-0 text-sidebar-accent-foreground"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
@@ -225,8 +212,8 @@ export function Sidebar({
           className={cn(
             "grid gap-1",
             collapsed
-              ? "px-1 py-1"
-              : "border-t border-sidebar-border px-3 py-2",
+              ? "px-1 py-1 empty:hidden"
+              : "border-t border-sidebar-border px-3 py-2 empty:hidden",
           )}
         >
           {BOTTOM_NAV_ITEMS.map((item) => {

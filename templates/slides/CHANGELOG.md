@@ -3,6 +3,14 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-28
+
+### Fixed
+
+- Image position and size edits persist while dropped images finish uploading.
+- A slide containing a `<style>` block no longer renders empty on shared and presented links — the block and everything after it now survive.
+- Keep the standard app layout visible when a Slides workspace has no decks.
+
 ## 2026-08-27
 
 ### Added
@@ -15,6 +23,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Image fit controls now apply cover crops and let you choose their position.
 - Copying a slide in Slides now makes it available to paste into another deck.
 - PowerPoint exports now embed the deck's own fonts and pin every text box, so a deck opened in PowerPoint or moved into Google Slides keeps the type and layout it had in the editor.
 

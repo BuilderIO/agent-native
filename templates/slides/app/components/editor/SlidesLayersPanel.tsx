@@ -2,17 +2,9 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconGripVertical,
-  IconLayersSubtract,
   IconX,
 } from "@tabler/icons-react";
 import { useState, type DragEvent } from "react";
-
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 export interface SlidesLayerNode {
   id: string;
@@ -82,11 +74,12 @@ function LayerRow({
   return (
     <div
       role="treeitem"
+      aria-level={depth + 1}
       aria-expanded={children.length ? expanded : undefined}
       aria-selected={selected}
     >
       <div
-        className={`group flex min-h-9 items-center gap-1 rounded-md px-2 text-sm transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/60"} ${dragging ? "opacity-50" : ""}`}
+        className={`group flex h-8 items-center gap-1 rounded-[5px] px-2 text-xs text-foreground/90 transition-colors ${selected ? "bg-accent text-accent-foreground" : "hover:bg-accent hover:text-foreground"} ${dragging ? "opacity-50" : ""}`}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
         onDragOver={(event) => event.preventDefault()}
         onDragEnter={() => setDragging(true)}
@@ -96,14 +89,14 @@ function LayerRow({
         {children.length ? (
           <button
             type="button"
-            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            className="rounded-sm p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
             aria-label={expanded ? labels.collapse : labels.expand}
             onClick={() => setExpanded((value) => !value)}
           >
             {expanded ? (
-              <IconChevronDown size={15} />
+              <IconChevronDown size={16} />
             ) : (
-              <IconChevronRight size={15} />
+              <IconChevronRight size={16} />
             )}
           </button>
         ) : (
@@ -112,7 +105,7 @@ function LayerRow({
         <button
           type="button"
           draggable
-          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring"
           onDragStart={(event) => {
             event.dataTransfer.setData("text/plain", node.id);
             event.dataTransfer.effectAllowed = "move";
@@ -126,7 +119,7 @@ function LayerRow({
           }
         >
           <IconGripVertical
-            size={15}
+            size={14}
             className="shrink-0 text-muted-foreground/60"
             aria-hidden="true"
           />
@@ -162,31 +155,24 @@ export function SlidesLayersPanel({
 }: SlidesLayersPanelProps) {
   return (
     <aside
-      className="flex h-full w-64 flex-col border-l border-border bg-background"
+      className="flex h-full w-72 min-w-0 flex-col bg-background"
       aria-label={labels.title}
     >
-      <header className="flex h-11 items-center justify-between border-b border-border px-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <IconLayersSubtract size={16} aria-hidden="true" />
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+        <h2 className="text-sm font-semibold text-foreground">
           {labels.title}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={onClose}
-              aria-label={labels.close}
-            >
-              <IconX size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{labels.close}</TooltipContent>
-        </Tooltip>
+        </h2>
+        <button
+          type="button"
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onClose}
+          aria-label={labels.close}
+        >
+          <IconX className="size-4" />
+        </button>
       </header>
       <div
-        className="min-h-0 flex-1 overflow-y-auto p-2"
+        className="min-h-0 flex-1 overflow-y-auto py-2"
         role="tree"
         aria-label={labels.title}
       >

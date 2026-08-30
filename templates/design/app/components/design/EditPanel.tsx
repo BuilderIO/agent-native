@@ -141,6 +141,7 @@ import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
+  type ApplyLayoutFlowHandler,
   type StyleChangeHandler,
   type StyleChangeMeta,
   type StylesChangeHandler,
@@ -422,6 +423,11 @@ interface EditPanelProps {
    */
   /** Convert this container to freeform, pinning children where they render. */
   onDisableAutoLayout?: (nodeId: string) => void;
+  /**
+   * Apply a flex/grid flow to this container, reflowing its children into it.
+   * Only `"unsupported"` may fall back to writing the container styles alone.
+   */
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
@@ -1322,7 +1328,9 @@ function InspectorTabsHeader({
         </InspectorGridCell>
         <InspectorGridCell span={4}>
           <InspectorActionRail>
-            {activeTab === "design" && onInspectorGridDebugChange ? (
+            {import.meta.env.DEV &&
+            activeTab === "design" &&
+            onInspectorGridDebugChange ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1409,6 +1417,7 @@ function PageProperties({
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
             onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
+            allowDesignHistoryHotkeys
           />
         </PanelSection>
       ) : null}
@@ -1437,6 +1446,7 @@ function PageProperties({
           blendMode={styles.backgroundBlendMode || "normal"}
           onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
           supportsLayeredFills
+          allowDesignHistoryHotkeys
         />
         <PropSelect
           label={t("editPanel.labels.font")}
@@ -1753,6 +1763,7 @@ export const EditPanel = memo(function EditPanel({
   onCreateScreenFromPreset,
   onAlignSelection,
   onDisableAutoLayout,
+  onApplyLayoutFlow,
   onInteractionStateChange,
   availableInteractionStates,
   onEditCode,
@@ -2279,6 +2290,7 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     onDisableAutoLayout={onDisableAutoLayout}
+                    onApplyLayoutFlow={onApplyLayoutFlow}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
@@ -2467,7 +2479,9 @@ export const EditPanel = memo(function EditPanel({
         ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
-        {resolvedActiveTab === "design" && inspectorGridDebug ? (
+        {import.meta.env.DEV &&
+        resolvedActiveTab === "design" &&
+        inspectorGridDebug ? (
           <div
             className="design-inspector-grid-debug-overlay"
             data-inspector-grid-debug-overlay

@@ -29,6 +29,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -58,6 +59,9 @@ vi.mock("../server/db/index.js", () => ({
     assetLibraries: { id: "libraries.id" },
     assetCollections: { id: "collections.id" },
     assetGenerationPresets: { id: "presets.id" },
+    assetTemplates: { id: "templates.id", libraryId: "templates.library_id" },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
     assetGenerationRuns: { id: "runs.id" },
     assetGenerationSessions: { id: "sessions.id" },
     assetGenerationSessionItems: {},
@@ -255,6 +259,41 @@ describe("generate-image preset reference board", () => {
       mask: Buffer.from("mask"),
       resized: false,
     });
+  });
+
+  it("generates with one global template in two brand kits", async () => {
+    const globalTemplate = { ...preset({}), libraryId: null };
+    for (const libraryId of ["kit-a", "kit-b"]) {
+      const db = createDb([
+        [{ ...library, id: libraryId }],
+        [globalTemplate],
+        [],
+      ]);
+      getDbMock.mockReturnValue(db);
+      await expect(
+        generateImage.run({
+          libraryId,
+          templateId: "preset-1",
+          prompt: "Post",
+        }),
+      ).resolves.toBeDefined();
+    }
+  });
+
+  it("rejects an associated template for a different brand kit", async () => {
+    getDbMock.mockReturnValue(
+      createDb([
+        [{ ...library, id: "kit-b" }],
+        [{ ...preset({}), libraryId: "kit-a" }],
+      ]),
+    );
+    await expect(
+      generateImage.run({
+        libraryId: "kit-b",
+        templateId: "preset-1",
+        prompt: "Post",
+      }),
+    ).rejects.toThrow("Template is associated to a different brand kit.");
   });
 
   it("rejects required variable entries without a fill", async () => {

@@ -1,5 +1,29 @@
 # @agent-native/dispatch
 
+## 0.31.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 5820376: Use a monochrome Agent-Native mark in app sidebars.
+- ea6123a: Remove the legacy settings view from agent chat surfaces.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+- Updated dependencies [844fa10]
+- Updated dependencies [4af2889]
+- Updated dependencies
+- Updated dependencies [dcc9f89]
+- Updated dependencies [163dd55]
+- Updated dependencies [5b7a8ea]
+  - @agent-native/toolkit@0.18.0
+
+## 0.31.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.17.6
+
 ## 0.31.27
 
 ### Patch Changes
@@ -820,22 +844,5 @@
 
 - Updated dependencies [106af0e]
   - @agent-native/toolkit@0.13.0
-
-## 0.17.0
-
-### Minor Changes
-
-- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
-
-## 0.16.7
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

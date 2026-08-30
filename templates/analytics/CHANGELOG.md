@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-08-28
+
+### Improved
+
+- Analytics loading placeholders now use a smooth whole-surface shine
+- Sidebar branding uses a monochrome Agent-Native mark.
+
 ## 2026-08-27
 
 ### Added
@@ -16,6 +23,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Show Analytics's own registered flags in fleet feature flag management.
 - Analytics exports now show a direct download in chat and reject failed responses
 
 ## 2026-08-26

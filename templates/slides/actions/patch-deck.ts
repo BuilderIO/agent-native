@@ -27,6 +27,10 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
+import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
   type SourceImportMetadata,
@@ -43,6 +47,11 @@ import {
   hashSlideContent,
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -769,7 +778,7 @@ export default defineAction({
         requireElementPaths: isAgentCaller,
       });
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.updatedAt = now;
 
       const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
@@ -905,7 +914,23 @@ export default defineAction({
       }
 
       await db.transaction(async (tx: any) => {
-        await tx
+        if (isAgentCaller && row.ownerEmail) {
+          await createDeckVersionSnapshot(
+            {
+              id: row.id,
+              title: row.title ?? "Untitled",
+              data: row.data ?? "",
+              ownerEmail: row.ownerEmail,
+            },
+            {
+              force: true,
+              chatContext: deckVersionChatContextFromAction(ctx),
+              label: "Before deck patch",
+              db: tx,
+            },
+          );
+        }
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             title: sqlTitle,
@@ -913,7 +938,8 @@ export default defineAction({
             designSystemId: sqlDesignSystemId,
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "deck patch");
         if (generationRecord) {
           await recordGenerationCreativeContext(
             {

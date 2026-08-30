@@ -384,6 +384,63 @@ const messages = {
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
+    aiFilter: {
+      title: "Filtre IA",
+      subtitle: "Un libellé réversible qui apprend de vos décisions.",
+      lunaBadge: "Luna si disponible",
+      toggle: "Activer le filtre IA",
+      autoFilterTitle: "Filtrer automatiquement avec une confiance élevée",
+      autoFilterDescription:
+        "Déplacez seulement les correspondances évidentes hors de la boîte de réception ; examinez le reste ici.",
+      autoFilterToggle: "Filtrer automatiquement les messages très probables",
+      thresholdLabel: "Seuil de confiance du filtrage automatique",
+      labelName: "Libellé Gmail",
+      labelHelp:
+        "agent-native-filtered reste visible dans Gmail et les autres clients. Ce n’est pas le Spam de Gmail.",
+      reviewLabel: "Examiner les messages filtrés",
+      instructionsTitle: "Instructions",
+      instructionCount: "{{count}} instruction(s)",
+      instructionPlaceholder:
+        "ex. Les objets comme « question pour vous, Steve » ne sont pas souhaités",
+      addInstruction: "Ajouter",
+      noInstructions: "Aucune instruction pour le moment.",
+      instructionExample:
+        "Essayez « les messages de campagnes politiques ne sont pas souhaités ».",
+      toggleInstruction: "Activer l’instruction : {{instruction}}",
+      deleteInstruction: "Supprimer l’instruction",
+      activityTitle: "Activité récente",
+      suggestionCount: "{{count}} à examiner",
+      viewAll: "Tout afficher",
+      noActivity: "Aucune activité du filtre IA pour le moment.",
+      unknownSender: "Expéditeur inconnu",
+      noSubject: "(sans objet)",
+      filterTitle: "Filtrer avec l’IA",
+      keepTitle: "Garder dans la boîte de réception",
+      filterDescription:
+        "Cela archivera {{count}} conversation(s) et ajoutera le libellé agent-native-filtered.",
+      keepDescription:
+        "Cela restaurera {{count}} conversation(s) dans la boîte de réception et apprendra au filtre.",
+      labelNote:
+        "Ajoute le libellé agent-native-filtered et archive la conversation. Vous pouvez annuler à tout moment.",
+      learningNote:
+        "Garde le message dans la boîte de réception et apprend au filtre à ne pas répéter l’erreur.",
+      rememberLabel: "Mémoriser pour les futurs messages (facultatif)",
+      correctLabel: "Que doit-il apprendre ? (facultatif)",
+      rememberPlaceholder:
+        "ex. Les messages similaires de campagnes politiques ne sont pas souhaités",
+      correctPlaceholder:
+        "ex. Cet expéditeur est un client ; garder ses futurs messages dans la boîte de réception",
+      commentHint:
+        "Votre note devient une règle modifiable ou un exemple d’apprentissage.",
+      filterButton: "Filtrer",
+      keepButton: "Garder",
+      filteredToast: "{{count}} conversation(s) filtrée(s).",
+      keptToast:
+        "{{count}} conversation(s) gardée(s) dans la boîte de réception.",
+      actionFailed: "Impossible de mettre à jour le filtre IA.",
+      settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
+      instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+    },
     draftQueue: {
       title: "Cola de borradores",
       queueDraft: "Poner borrador en cola",
@@ -569,6 +626,7 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
+    aiFilter: "Filtre IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",

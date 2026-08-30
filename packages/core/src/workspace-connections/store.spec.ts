@@ -439,6 +439,7 @@ describe("workspace connection store", () => {
       await import("../server/request-context.js");
     const {
       listWorkspaceConnections,
+      listWorkspaceConnectionsForUser,
       listWorkspaceConnectionsForApp,
       normalizeWorkspaceConnectionAllowedUsers,
       resolveWorkspaceConnectionForApp,
@@ -491,6 +492,14 @@ describe("workspace connection store", () => {
     expect(
       managementConnections.map((connection) => connection.id).sort(),
     ).toEqual(["conn-user-alice", "conn-user-bob", "conn-user-open"]);
+
+    const bobVisibleConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => listWorkspaceConnectionsForUser({ provider: "slack" }),
+    );
+    expect(
+      bobVisibleConnections.map((connection) => connection.id).sort(),
+    ).toEqual(["conn-user-bob", "conn-user-open"]);
 
     const bobConnections = await runWithRequestContext(
       { userEmail: "bob@example.com", orgId: "org-1" },

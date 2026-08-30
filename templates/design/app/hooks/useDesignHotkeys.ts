@@ -285,6 +285,20 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+export function isDesignHistoryHotkeyTarget(target: EventTarget | null) {
+  if (!target || typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("[data-design-history-hotkeys]"));
+}
+
+function isDesignHistoryHotkey(event: KeyboardEvent) {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")
+  );
+}
+
 /** Chat bodies and panel labels are selectable but not editable targets, so the
  * editable guard never sees them. Canvas layers live in the preview iframe and
  * produce no parent-document range, so this cannot mask a real layer copy. */
@@ -362,7 +376,11 @@ export function useDesignHotkeys(props: UseDesignHotkeysProps) {
       if (
         current.ignoreEditableTargets !== false &&
         isDesignHotkeyEditableTarget(event.target) &&
-        !isShowKeyboardShortcutsHotkey(event)
+        !isShowKeyboardShortcutsHotkey(event) &&
+        !(
+          isDesignHistoryHotkey(event) &&
+          isDesignHistoryHotkeyTarget(event.target)
+        )
       ) {
         return;
       }

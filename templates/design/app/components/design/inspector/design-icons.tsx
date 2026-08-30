@@ -9,6 +9,7 @@
 export {
   IconTextSize as IconText,
   IconSpacingHorizontal as IconGap,
+  IconSpacingVertical as IconGapVertical,
   IconSpacingHorizontal as IconPaddingHorizontal,
   IconSpacingVertical as IconPaddingVertical,
   IconLayoutColumns as IconFlowHorizontal,

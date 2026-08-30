@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import type { DocumentProperty } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
@@ -305,5 +307,25 @@ describe("blockFieldsRenderState", () => {
     ];
     const state = blockFieldsRenderState({ loaded: true, blockFields: fields });
     expect(state.kind).toBe("multi");
+  });
+});
+
+describe("property-query failure UI", () => {
+  it("renders an explicit retry state instead of treating a failed query as loading", () => {
+    // The component owns the query because it must keep stale placeholder data
+    // from selecting a writable storage target. A query error takes precedence
+    // over that loading gate and must therefore never render `primaryEditor`.
+    // This focused source assertion keeps the render boundary covered without
+    // coupling the state-machine unit tests to React Query setup.
+    const source = readFileSync(
+      new URL("./DocumentBlockFields.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('data-block-fields-state="error"');
+    expect(source).toContain("<QueryErrorState");
+    expect(source).toContain("onRetry={() => globalThis.location.reload()}");
+    expect(source.indexOf("if (query.isError)")).toBeLessThan(
+      source.indexOf("const loaded = isLoadedForDocument"),
+    );
   });
 });

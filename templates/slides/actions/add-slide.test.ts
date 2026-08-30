@@ -14,12 +14,13 @@ const whereSelectFn = vi.fn(async () => [
   {
     id: "deck-1",
     data: JSON.stringify(deckData),
+    updatedAt: "2026-01-01T00:00:00.000Z",
   },
 ]);
 const fromFn = vi.fn(() => ({ where: whereSelectFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
@@ -113,10 +114,13 @@ vi.mock("./patch-deck.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => ({ and: args }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 

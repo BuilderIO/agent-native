@@ -11,7 +11,10 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import {
+  buildSignInReturnHref,
+  DefaultSpinner,
+} from "@agent-native/core/client/ui";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -927,11 +930,7 @@ export default function RecordingPage() {
   if (!recordingId) return null;
 
   if (playerDataQ.isLoading || playerDataForbidden) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-background">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
+    return <DefaultSpinner />;
   }
 
   if (playerDataQ.isError || !recording) {
@@ -941,11 +940,7 @@ export default function RecordingPage() {
         ? `/r/${recordingId}`
         : window.location.pathname + window.location.search;
     if (sessionLoading) {
-      return (
-        <div className="flex items-center justify-center h-screen w-full bg-background">
-          <Spinner className="h-8 w-8" />
-        </div>
-      );
+      return <DefaultSpinner />;
     }
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">

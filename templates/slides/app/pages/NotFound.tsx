@@ -21,7 +21,7 @@ export default function NotFound() {
           {t("notFound.message")}
         </p>
         <Link
-          to="/"
+          to="/home"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent hover:bg-accent text-sm text-foreground/70 transition-colors"
         >
           <IconArrowLeft className="w-4 h-4" />

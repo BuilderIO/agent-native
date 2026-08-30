@@ -28,7 +28,7 @@ export default defineEventHandler((event) => {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "Content-Type,Accept",
+    "Content-Type,Accept,Idempotency-Key",
   );
 
   if (getMethod(event) === "OPTIONS") {

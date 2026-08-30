@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
+import type { Deck } from "../context/DeckContext";
 import {
   getSlideClipboardStorageKey,
   normalizeSlideClipboard,
@@ -9,8 +14,15 @@ import {
 } from "../lib/slide-clipboard";
 import {
   isSlideClipboardStillArmed,
+  isSourceImportedDeck,
   SLIDE_CLIPBOARD_ARM_WINDOW_MS,
+  syncSlideContentSnapshots,
 } from "./DeckEditor";
+
+const deckEditorSource = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
+  "utf8",
+);
 
 function createStorage(initial?: Record<string, string>) {
   const values = new Map(Object.entries(initial ?? {}));
@@ -45,6 +57,88 @@ describe("isSlideClipboardStillArmed", () => {
 
   it("is never armed when nothing has been copied", () => {
     expect(isSlideClipboardStillArmed(null, Date.now())).toBe(false);
+  });
+});
+
+describe("slide paste fallback", () => {
+  it("cancels for HTML-only native paste events", () => {
+    const pasteStart = deckEditorSource.indexOf("const handlePaste = () =>");
+    const pasteEnd = deckEditorSource.indexOf(
+      "// Resolve the active slide from URL/deck state.",
+      pasteStart,
+    );
+    const pasteBody = deckEditorSource.slice(pasteStart, pasteEnd);
+
+    expect(pasteBody).toContain(
+      "window.clearTimeout(slidePasteFallbackRef.current)",
+    );
+    expect(pasteBody).toContain("slidePasteFallbackRef.current = null");
+    expect(pasteBody).not.toContain("hasText");
+    expect(pasteBody).not.toContain("hasImage");
+  });
+
+  it("owns fallback cleanup by slide lifecycle, not ordinary rerenders", () => {
+    expect(deckEditorSource).toContain(`
+  useEffect(() => {
+    return () => {
+      if (slidePasteFallbackRef.current !== null) {
+        window.clearTimeout(slidePasteFallbackRef.current);
+        slidePasteFallbackRef.current = null;
+      }
+    };
+  }, [activeSlideId, id]);`);
+  });
+});
+
+describe("source-imported deck structure", () => {
+  it("recognizes source-preserving import metadata", () => {
+    expect(
+      isSourceImportedDeck({
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pptx",
+          slides: [],
+        },
+      } as unknown as Deck),
+    ).toBe(true);
+  });
+
+  it("does not block ordinary or malformed deck metadata", () => {
+    expect(isSourceImportedDeck(null)).toBe(false);
+    expect(isSourceImportedDeck(undefined)).toBe(false);
+    expect(
+      isSourceImportedDeck({
+        sourceImport: { mode: "source-preserving", format: "pptx" },
+      } as unknown as Deck),
+    ).toBe(false);
+  });
+});
+
+describe("syncSlideContentSnapshots", () => {
+  it("adopts an inactive slide update without losing a queued local edit", () => {
+    const latestContent = new Map<string, string>();
+    const renderedContent = new Map<string, string>();
+    const initialSlides = [
+      { id: "slide-a", content: "A initial" },
+      { id: "slide-b", content: "B initial" },
+    ];
+
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+    latestContent.set("slide-a", "A queued local edit");
+    syncSlideContentSnapshots(initialSlides, latestContent, renderedContent);
+
+    expect(latestContent.get("slide-a")).toBe("A queued local edit");
+
+    syncSlideContentSnapshots(
+      [
+        { id: "slide-a", content: "A intervening update" },
+        { id: "slide-b", content: "B initial" },
+      ],
+      latestContent,
+      renderedContent,
+    );
+
+    expect(latestContent.get("slide-a")).toBe("A intervening update");
   });
 });
 

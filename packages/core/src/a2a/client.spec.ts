@@ -1,6 +1,11 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+import {
+  SYNTHETIC_TRAFFIC_BETA_E2E,
+  SYNTHETIC_TRAFFIC_HEADER,
+} from "../shared/test-traffic.js";
 import {
   A2AClient,
   A2ATaskTerminalError,
@@ -84,6 +89,61 @@ describe("A2AClient", () => {
       .filter(([, init]) => init?.method === "POST")
       .map(([url]) => url);
     expect(postUrls).toEqual(["https://agent.test/a2a"]);
+  });
+
+  it("carries trusted transport headers on A2A requests", async () => {
+    let requestHeaders: HeadersInit | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requestHeaders = init?.headers;
+        return completedResponse(
+          JSON.parse(String(init?.body)),
+          "transport header ok",
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: false,
+        transportHeaders: {
+          [SYNTHETIC_TRAFFIC_HEADER]: SYNTHETIC_TRAFFIC_BETA_E2E,
+        },
+      }),
+    ).resolves.toBe("transport header ok");
+
+    expect(new Headers(requestHeaders).get(SYNTHETIC_TRAFFIC_HEADER)).toBe(
+      SYNTHETIC_TRAFFIC_BETA_E2E,
+    );
+  });
+
+  it("inherits the synthetic marker for direct A2A clients", async () => {
+    let requestHeaders: HeadersInit | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requestHeaders = init?.headers;
+        return completedResponse(
+          JSON.parse(String(init?.body)),
+          "request-context marker ok",
+        );
+      }),
+    );
+
+    await runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      new A2AClient("https://agent.test/_agent-native/a2a").sendAndWait(
+        {
+          role: "user",
+          parts: [{ type: "text", text: "hello" }],
+        },
+        { timeoutMs: 1_000 },
+      ),
+    );
+
+    expect(new Headers(requestHeaders).get(SYNTHETIC_TRAFFIC_HEADER)).toBe(
+      SYNTHETIC_TRAFFIC_BETA_E2E,
+    );
   });
 
   it("falls back to /a2a when the agent-native endpoint is absent", async () => {

@@ -155,6 +155,7 @@ export type EmailTrackingStats = {
 /** Identifiers for actions available in the mobile bottom bar */
 export type MobileActionId =
   | "archive"
+  | "aiFilter"
   | "trash"
   | "star"
   | "reply"
@@ -185,6 +186,7 @@ export type AutomationRule = {
   id: string;
   ownerEmail: string;
   domain: "mail" | "calendar";
+  kind?: "automation" | "ai-filter";
   name: string;
   condition: string;
   actions: AutomationAction[];

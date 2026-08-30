@@ -2,6 +2,9 @@
 import {
   generateTabId,
   AgentChatSurface,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
@@ -403,6 +406,7 @@ import {
   updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import {
@@ -493,6 +497,7 @@ import { runAddScreen } from "./design-editor/commands/add-screen";
 import { runAlignSelection } from "./design-editor/commands/align-selection";
 import { runApplyDesignEditorCommand } from "./design-editor/commands/apply-design-editor-command";
 import { runApplyFileContentUpdate } from "./design-editor/commands/apply-file-content-update";
+import { runApplyLayoutFlow } from "./design-editor/commands/apply-layout-flow";
 import { runApplyLocalContentUpdate } from "./design-editor/commands/apply-local-content-update";
 import { runApplyPendingVisualStylesWithAgent } from "./design-editor/commands/apply-pending-visual-styles-with-agent";
 import { runApplyToSource } from "./design-editor/commands/apply-to-source";
@@ -953,6 +958,34 @@ function DesignEditor() {
     () => (id ? ({ type: "design" as const, id } as const) : null),
     [id],
   );
+  const designChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!designChatScope) return undefined;
+    const designId = designChatScope.id;
+    return {
+      list: {
+        action: "list-design-versions",
+        args: { designId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-design-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          designId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [designChatScope]);
   const {
     link: detectedFigmaComposerLink,
     onComposerTextChange: handleComposerTextChange,
@@ -3552,14 +3585,20 @@ function DesignEditor() {
     },
     [creativeContextState, t],
   );
-  const resolvePromptDesignSystemId = useCallback(
-    () =>
-      design?.designSystemId ??
-      defaultSystem?.id ??
-      designSystems[0]?.id ??
-      null,
-    [defaultSystem?.id, design?.designSystemId, designSystems],
-  );
+  const resolvePromptDesignSystemId = useCallback(() => {
+    if (design?.designSystemId) return design.designSystemId;
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  }, [defaultSystem, design?.designSystemId, designSystems]);
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined
@@ -7721,7 +7760,9 @@ function DesignEditor() {
   const resolvedReviewPanelProps = useMemo<
     Omit<ReviewPanelProps, "className"> | undefined
   >(() => {
-    if (!id || !activeFile) return undefined;
+    // The Builder shell has no persisted Design action surface, so exposing
+    // Run audit there only produces the shell's "API is disabled" error.
+    if (!id || !activeFile || shellMode) return undefined;
     const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
       findings: reviewMatchesActiveFile ? reviewFindings : [],
@@ -7748,6 +7789,7 @@ function DesignEditor() {
     reviewAuditedAt,
     reviewFileId,
     reviewFindings,
+    shellMode,
   ]);
 
   const dispatchReviewFeedbackToAgent = useCallback(
@@ -11458,6 +11500,53 @@ function DesignEditor() {
       return true;
     },
     [applyLocalContentUpdate],
+  );
+
+  // The inspector's Flow control owns the same conversion Shift+A does, so it
+  // reflows the children too — writing display:grid/flex alone leaves them
+  // absolutely positioned and the new layout never renders.
+  const handleApplyLayoutFlow = useCallback(
+    (nodeId: string | null, containerStyles: Record<string, string>) => {
+      const content = getFreshActiveContent();
+      // A merged multi-selection has no single sourceId, so the inspector
+      // cannot name its targets: resolve them from the selection itself, and
+      // hand a selection that reaches beyond this file to the style path
+      // rather than reflowing only the half that lives here.
+      const selectedNodeIds = content
+        ? getActiveFileSelectedNodeIds(content)
+        : [];
+      const selectedFileIds = new Set(files.map((file) => file.id));
+      const selectableLayerIds = selectedLayerIdsState.filter(
+        (layerId) => !layerId.startsWith("__") && !selectedFileIds.has(layerId),
+      );
+      if (
+        selectableLayerIds.length > 1 &&
+        selectedNodeIds.length !== selectableLayerIds.length
+      ) {
+        return "unsupported" as const;
+      }
+      const targetIds =
+        selectedNodeIds.length > 0 ? selectedNodeIds : nodeId ? [nodeId] : [];
+      return runApplyLayoutFlow(
+        {
+          applyLocalContentUpdate,
+          canEditDesign,
+          getFreshActiveContent,
+          t,
+        },
+        targetIds,
+        containerStyles,
+      );
+    },
+    [
+      applyLocalContentUpdate,
+      canEditDesign,
+      files,
+      getActiveFileSelectedNodeIds,
+      getFreshActiveContent,
+      selectedLayerIdsState,
+      t,
+    ],
   );
 
   // Figma parity: turning auto layout off must leave a freeform container.
@@ -18062,6 +18151,9 @@ function DesignEditor() {
       // multi-id array through the single-id onPick signature, so a
       // shift-held pick must leave the current selection alone rather than
       // clobber it to a wrong singleton.
+      if (!shiftKeyHeldRef.current) {
+        setOverviewSelectedScreenIds([pickedId]);
+      }
       setSelectedLayerIdsState((current) =>
         computeOverviewScreenPickSelectionIds({
           pickedId,
@@ -18096,9 +18188,17 @@ function DesignEditor() {
           reflowOverviewScreensForBreakpoints([
             ...new Set([...persisted, widthPx]),
           ]);
+        })
+        .catch((error) => {
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.addBreakpoint"),
+          });
         });
     },
-    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints],
+    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints, t],
   );
   const handleBreakpointBarAdd = useCallback(
     (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
@@ -18305,7 +18405,7 @@ function DesignEditor() {
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
   useEffect(() => {
-    if (!id) void navigate("/");
+    if (!id) void navigate("/home");
   }, [id, navigate]);
 
   // ── Early returns and derived render values ────────────────────────────────
@@ -18345,7 +18445,7 @@ function DesignEditor() {
             variant="default"
             className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
           >
-            <Link to="/">
+            <Link to="/home">
               <IconArrowLeft className="size-4 rtl:-scale-x-100" />
               {t("designEditor.backToDesigns")}
             </Link>
@@ -18442,7 +18542,7 @@ function DesignEditor() {
         }}
       >
         <DropdownMenuItem asChild>
-          <Link to="/">
+          <Link to="/home">
             <IconArrowLeft className="mr-2 h-4 w-4" />
             {t("designEditor.backToDesigns")}
           </Link>
@@ -19198,12 +19298,16 @@ function DesignEditor() {
       ? handleCreateScreenFromPreset
       : undefined,
     zoom,
-    inspectorGridDebug: editorPreferences.inspectorGridDebug,
-    onInspectorGridDebugChange: (inspectorGridDebug: boolean) =>
-      setEditorPreferences({
-        ...editorPreferences,
-        inspectorGridDebug,
-      }),
+    inspectorGridDebug: import.meta.env.DEV
+      ? editorPreferences.inspectorGridDebug
+      : false,
+    onInspectorGridDebugChange: import.meta.env.DEV
+      ? (inspectorGridDebug: boolean) =>
+          setEditorPreferences({
+            ...editorPreferences,
+            inspectorGridDebug,
+          })
+      : undefined,
     activeTab: activeInspectorTab,
     onActiveTabChange: setActiveInspectorTab,
     tweaks,
@@ -19245,6 +19349,7 @@ function DesignEditor() {
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
+    onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
     onEditCode: handleShaderEditCode,
   };
@@ -19401,6 +19506,7 @@ function DesignEditor() {
                       t("chat.suggestionMobile"),
                     ]}
                     scope={designChatScope}
+                    chatHistory={designChatHistory}
                     showScopeBadge={false}
                     showHeader={false}
                     showTabBar={false}

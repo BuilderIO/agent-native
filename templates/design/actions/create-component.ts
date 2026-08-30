@@ -39,6 +39,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -245,7 +246,7 @@ export default defineAction({
       .optional()
       .describe("Design file id; defaults to index.html"),
   }),
-  run: async ({ designId, nodeId, selector, name, fileId }) => {
+  run: async ({ designId, nodeId, selector, name, fileId }, context) => {
     if (!nodeId && !selector) {
       throw new Error(
         "Provide either nodeId or selector for the element to promote.",
@@ -277,6 +278,7 @@ export default defineAction({
     }
 
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [

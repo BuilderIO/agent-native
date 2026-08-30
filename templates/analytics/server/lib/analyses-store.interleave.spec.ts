@@ -133,6 +133,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getRequestRunContext: () => undefined,
   recordChange: () => undefined,
 }));
 
