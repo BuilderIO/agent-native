@@ -1,5 +1,10 @@
 import type { H3Event } from "h3";
 
+import {
+  OLLAMA_BASE_URL_ENV_VAR,
+  OPENAI_BASE_URL_ENV_VAR,
+  PROVIDER_ENV_VARS,
+} from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import {
   getRequiredSecret,
@@ -7,9 +12,15 @@ import {
   type SecretScope,
 } from "../secrets/register.js";
 import { writeAppSecret } from "../secrets/storage.js";
+import { invalidateAgentEngineStatusLookups } from "./agent-engine-status-cache.js";
 import { getSession } from "./auth.js";
 
 const KEY_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const AGENT_ENGINE_STATUS_KEYS = new Set([
+  ...PROVIDER_ENV_VARS,
+  OPENAI_BASE_URL_ENV_VAR,
+  OLLAMA_BASE_URL_ENV_VAR,
+]);
 
 export type ScopedKeySaveRequestScope =
   | "app"
@@ -216,6 +227,9 @@ export async function saveKeyValuesToScopedSecrets(
       scope,
       scopeId,
     });
+    if (AGENT_ENGINE_STATUS_KEYS.has(entry.key)) {
+      invalidateAgentEngineStatusLookups();
+    }
     rows.push({ key: entry.key, scope, scopeId });
   }
 

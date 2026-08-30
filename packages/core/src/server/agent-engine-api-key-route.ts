@@ -275,10 +275,12 @@ export function createAgentEngineApiKeyHandler() {
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
+      invalidateAgentEngineStatusLookups();
       await clearProviderCredentialAuthFailure({
         key: payload.key,
         value: payload.value,
       });
+      invalidateAgentEngineStatusLookups();
     }
 
     if (payload.baseUrl) {
@@ -291,6 +293,7 @@ export function createAgentEngineApiKeyHandler() {
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
+      invalidateAgentEngineStatusLookups();
     } else if (payload.clearBaseUrl) {
       await deleteAppSecret({
         key:
@@ -300,9 +303,6 @@ export function createAgentEngineApiKeyHandler() {
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
-    }
-
-    if (payload.value || payload.baseUrl || payload.clearBaseUrl) {
       invalidateAgentEngineStatusLookups();
     }
 

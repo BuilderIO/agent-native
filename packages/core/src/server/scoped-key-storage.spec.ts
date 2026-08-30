@@ -4,6 +4,7 @@ const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockGetRequiredSecret = vi.fn();
 const mockWriteAppSecret = vi.fn();
+const mockInvalidateAgentEngineStatusLookups = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
@@ -19,6 +20,11 @@ vi.mock("../secrets/register.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
+}));
+
+vi.mock("./agent-engine-status-cache.js", () => ({
+  invalidateAgentEngineStatusLookups: (...args: any[]) =>
+    mockInvalidateAgentEngineStatusLookups(...args),
 }));
 
 import {
@@ -39,6 +45,28 @@ describe("saveKeyValuesToScopedSecrets", () => {
     });
     mockGetRequiredSecret.mockReturnValue(undefined);
     mockWriteAppSecret.mockResolvedValue("sec_1");
+  });
+
+  it("invalidates status after each provider secret write", async () => {
+    await saveKeyValuesToScopedSecrets(event, [
+      { key: "OPENAI_API_KEY", value: "sk-example" },
+    ]);
+
+    expect(mockInvalidateAgentEngineStatusLookups).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates before a later partial save can fail", async () => {
+    mockWriteAppSecret
+      .mockResolvedValueOnce("sec_1")
+      .mockRejectedValueOnce(new Error("database unavailable"));
+
+    await expect(
+      saveKeyValuesToScopedSecrets(event, [
+        { key: "OPENAI_API_KEY", value: "sk-first" },
+        { key: "ANTHROPIC_API_KEY", value: "sk-second" },
+      ]),
+    ).rejects.toThrow("database unavailable");
+    expect(mockInvalidateAgentEngineStatusLookups).toHaveBeenCalledTimes(1);
   });
 
   it("saves arbitrary keys to the current user by default", async () => {

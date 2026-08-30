@@ -5,6 +5,7 @@ const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
 const mockWriteAppSecret = vi.fn();
+const mockDeleteAppSecret = vi.fn();
 const mockClearProviderCredentialAuthFailure = vi.fn();
 
 vi.mock("./auth.js", () => ({
@@ -17,7 +18,7 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: unknown[]) => mockWriteAppSecret(...args),
-  deleteAppSecret: vi.fn(),
+  deleteAppSecret: (...args: unknown[]) => mockDeleteAppSecret(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -144,6 +145,54 @@ describe("agent engine api-key route helpers", () => {
       key: "OPENAI_API_KEY",
       scope: "user",
     });
+    const fresh = shareAgentEngineStatusLookup(key, compute);
+    resolveGate();
+
+    await expect(stale).resolves.toEqual({ configured: false });
+    await expect(fresh).resolves.toEqual({
+      configured: true,
+      engine: "ai-sdk:openai",
+    });
+    expect(runs).toBe(2);
+  });
+
+  it("invalidates after a key write even if the endpoint write fails", async () => {
+    mockGetSession.mockResolvedValue({ email: "alice@example.test" });
+    mockWriteAppSecret
+      .mockResolvedValueOnce("secret-id")
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    const key = agentEngineStatusIdentityKey("alice@example.test", undefined);
+    let resolveGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resolveGate = resolve;
+    });
+    let runs = 0;
+    const compute = async () => {
+      const attempt = ++runs;
+      await gate;
+      return attempt === 1
+        ? { configured: false }
+        : { configured: true, engine: "ai-sdk:openai" };
+    };
+    const stale = shareAgentEngineStatusLookup(key, compute);
+
+    const event = {
+      req: new Request("http://localhost/_agent-native/agent-engine/api-key", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai",
+          apiKey: "sk-example",
+          baseUrl: "https://gateway.example/v1",
+          scope: "user",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      res: { headers: new Headers(), status: 200 },
+    };
+
+    await expect(
+      createAgentEngineApiKeyHandler()(event as any),
+    ).rejects.toThrow("database unavailable");
     const fresh = shareAgentEngineStatusLookup(key, compute);
     resolveGate();
 
