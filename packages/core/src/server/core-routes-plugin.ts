@@ -122,6 +122,17 @@ import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
 import {
+  agentEngineStatusIdentityKey,
+  shareAgentEngineStatusLookup,
+  type AgentEngineStatusResult,
+} from "./agent-engine-status-cache.js";
+export {
+  agentEngineStatusIdentityKey,
+  invalidateAgentEngineStatusLookups,
+  shareAgentEngineStatusLookup,
+  type AgentEngineStatusResult,
+} from "./agent-engine-status-cache.js";
+import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
@@ -277,15 +288,6 @@ type AgentEngineStatusEntry = {
   requiredEnvVars: readonly string[];
 };
 
-export interface AgentEngineStatusResult {
-  configured: boolean;
-  engine?: string;
-  model?: string;
-  source?: "settings" | "env" | "app_secrets";
-  envVar?: string;
-  openAiBaseUrlConfigured?: boolean;
-}
-
 export interface AgentEngineStatusDeps<
   E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
 > {
@@ -390,40 +392,6 @@ export async function resolveAgentEngineStatus<
   }
 
   return { configured: false, openAiBaseUrlConfigured };
-}
-
-const _agentEngineStatusInFlight = new Map<
-  string,
-  Promise<AgentEngineStatusResult>
->();
-
-/**
- * Share one in-flight status resolution between concurrent probes of the same
- * identity. Several client surfaces probe this route on mount and the client
- * retries after its own timeout; without this each probe re-ran the whole
- * credential sweep. The entry is dropped as soon as the lookup settles, so a
- * joiner never sees an answer older than one lookup — no TTL, nothing to
- * invalidate when a provider is added or removed. The key carries the identity
- * that decides the answer, so no tenant can read another's result.
- */
-export function shareAgentEngineStatusLookup(
-  identityKey: string,
-  compute: () => Promise<AgentEngineStatusResult>,
-): Promise<AgentEngineStatusResult> {
-  const existing = _agentEngineStatusInFlight.get(identityKey);
-  if (existing) return existing;
-  const started = compute().finally(() => {
-    _agentEngineStatusInFlight.delete(identityKey);
-  });
-  _agentEngineStatusInFlight.set(identityKey, started);
-  return started;
-}
-
-export function agentEngineStatusIdentityKey(
-  userEmail: string | undefined,
-  orgId: string | undefined,
-): string {
-  return `${userEmail ?? ""}\u0000${orgId ?? ""}`;
 }
 
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {

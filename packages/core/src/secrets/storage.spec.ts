@@ -11,6 +11,8 @@ import {
 
 import { decryptSharedSecretValue } from "./crypto.js";
 
+const mockInvalidateAgentEngineStatusLookups = vi.fn();
+
 // A stable encryption key so values round-trip deterministically and the
 // crypto layer never falls through to the cwd-derived fallback (which would
 // warn on every run).
@@ -52,6 +54,12 @@ async function loadStorageWithSqlite() {
     isPostgres: () => false,
     isProductionServerlessFunctionRuntime: () => false,
   }));
+  vi.doMock("../server/agent-engine-status-cache.js", async () => ({
+    ...(await vi.importActual<
+      typeof import("../server/agent-engine-status-cache.js")
+    >("../server/agent-engine-status-cache.js")),
+    invalidateAgentEngineStatusLookups: mockInvalidateAgentEngineStatusLookups,
+  }));
   const mod = await import("./storage.js");
   return { sqlite, mod };
 }
@@ -66,6 +74,7 @@ describe("secrets storage bootstrap", () => {
   afterEach(() => {
     vi.resetModules();
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("../server/agent-engine-status-cache.js");
   });
 
   it("reads on the hot path without schema probes or DDL", async () => {
@@ -232,6 +241,17 @@ describe("secrets storage CRUD (real sqlite)", () => {
     sqlite.close();
     vi.resetModules();
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("../server/agent-engine-status-cache.js");
+  });
+
+  it("invalidates status after shared engine credentials are written or deleted", async () => {
+    mockInvalidateAgentEngineStatusLookups.mockClear();
+
+    await mod.writeAppSecret({ ...userRef, value: "sk-live-credential" });
+    expect(mockInvalidateAgentEngineStatusLookups).toHaveBeenCalledTimes(1);
+
+    await expect(mod.deleteAppSecret(userRef)).resolves.toBe(true);
+    expect(mockInvalidateAgentEngineStatusLookups).toHaveBeenCalledTimes(2);
   });
 
   it("encrypts the value at rest and round-trips the plaintext", async () => {

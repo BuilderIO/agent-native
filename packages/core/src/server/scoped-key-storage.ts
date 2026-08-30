@@ -7,6 +7,10 @@ import {
   type SecretScope,
 } from "../secrets/register.js";
 import { writeAppSecret } from "../secrets/storage.js";
+import {
+  invalidateAgentEngineStatusLookups,
+  isAgentEngineStatusCredentialKey,
+} from "./agent-engine-status-cache.js";
 import { getSession } from "./auth.js";
 
 const KEY_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -216,6 +220,9 @@ export async function saveKeyValuesToScopedSecrets(
       scope,
       scopeId,
     });
+    if (isAgentEngineStatusCredentialKey(entry.key)) {
+      invalidateAgentEngineStatusLookups();
+    }
     rows.push({ key: entry.key, scope, scopeId });
   }
 
