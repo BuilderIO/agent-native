@@ -52,6 +52,7 @@ const requiredKeys = [
   "triage.riskValues.high",
   "triage.source",
   "triage.sourcePlaceholder",
+  "triage.author",
   "triage.sourceValues.slack",
   "triage.statusValues.received",
   "triage.feedbackTitle",
@@ -59,9 +60,14 @@ const requiredKeys = [
   "triage.evidenceDescription",
   "triage.actionsTakenDescription",
   "factoryRoute.auditTab",
+  "factoryRoute.auditAutomationLabel",
+  "factoryRoute.auditAutomationAll",
   "factoryRoute.auditGuardsLabel",
   "factoryRoute.auditTrace",
   "factoryRoute.factorySettings",
+  "factoryRoute.createAutomation",
+  "factoryRoute.automationInboxLimit",
+  "factoryRoute.automationWorkLimit",
 ] as const;
 
 function readKey(source: Record<string, any>, key: string) {

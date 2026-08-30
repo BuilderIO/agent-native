@@ -2,7 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { resolveConnectorSecret } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
@@ -21,19 +20,21 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { createAiServicesGitReadClient } from "../server/triage/ai-services-git.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import {
   metadataString,
   parseTriageMetadata,
   serializeTriageMetadata,
+  triageItemAuthor,
 } from "../server/triage/metadata.js";
 import {
   babysitFingerprint,
+  babysitOutOfScopeClause,
   DEFAULT_BABYSIT_BOT_AUTHORS,
+  formatBabysitAuditSummary,
   reconcileBabysitState,
-  shouldBabysitBuilderBotPullRequest,
+  shouldRequestBabysitWork,
 } from "../server/triage/pr-babysit.js";
 import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 
@@ -42,27 +43,17 @@ const MIN_COMMENT_INTERVAL_MS = 90_000;
 const BUILDER_BOT_REQUEST =
   "@builderio-bot look at latest PR feedback and fix anything you agree with. Be skeptical. Reply to every comment (directly on the comment thread of each comment) if you fixed it or not and why. then check back every 2 minutes on a loop and see if any new feedback posted, until at least 20 minutes go by without any new feedback posted we want to address, including making sure CI passes too and no merge conflicts (make sure code is mergeable)";
 
-function requiredAiServicesEnv(
-  name: "BUILDER_AI_SERVICES_URL" | "BUILDER_PROJECT_ID",
-): string {
-  const value =
-    name === "BUILDER_AI_SERVICES_URL"
-      ? process.env.BUILDER_AI_SERVICES_URL // guard:allow-env-credential - non-secret deployment endpoint
-      : process.env.BUILDER_PROJECT_ID; // guard:allow-env-credential - non-secret deployment project id
-  if (!value) throw new Error(`${name} is required for PR babysitting.`);
-  return value;
-}
-
 function parseTimestamp(value: string | undefined): number | null {
   if (!value) return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function updateBabysitMetadata(
+async function updateBabysitItem(
   itemId: string,
   orgId: string,
   patch: Record<string, unknown>,
+  status?: string,
 ): Promise<void> {
   const db = getDb();
   const item = (
@@ -85,6 +76,7 @@ async function updateBabysitMetadata(
       .set({
         metadataJson: serializeTriageMetadata(metadata),
         updatedAt: new Date().toISOString(),
+        ...(status ? { status } : {}),
       })
       .where(
         and(
@@ -99,13 +91,18 @@ async function updateBabysitMetadata(
 
 export default defineAction({
   description:
-    "Watch one builder-io-bot pull request, post the bounded feedback-fix request when CI, mergeability, or review feedback needs work, and stop after 20 quiet minutes. The action never merges or approves.",
+    "Watch one pull request using GitHub review and CI evidence, post the bounded feedback-fix request when that evidence needs work, and stop after 20 quiet minutes. Pass inScope true only when this factory's prompt says the pull request should be babysat. inScope false records a skip and removes the item from the review window. Never merges or approves. Use propose-pr-babysit-status for a read-only proposal.",
   schema: z.object({
     itemId: z.string().min(1),
     factoryId: factoryIdSchema.optional(),
+    inScope: z
+      .boolean()
+      .describe(
+        "True when this factory's prompt says to babysit this pull request. False records a skip and takes the item out of needsReview.",
+      ),
   }),
   http: false,
-  run: async ({ itemId, factoryId: factoryIdInput }, context) => {
+  run: async ({ itemId, factoryId: factoryIdInput, inScope }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -132,13 +129,41 @@ export default defineAction({
     if (
       item.source !== "github" ||
       !item.repository ||
-      !item.pullRequestNumber
+      !item.pullRequestNumber ||
+      !inScope
     ) {
-      return {
-        ok: true,
-        action: "skipped",
-        reason: "Item is not a pull request.",
-      };
+      const author = triageItemAuthor(item.metadataJson);
+      const reason = formatBabysitAuditSummary(
+        item.pullRequestNumber,
+        inScope
+          ? "skipped; item is not a pull request."
+          : babysitOutOfScopeClause(author),
+      );
+      await updateBabysitItem(
+        itemId,
+        orgId,
+        {
+          prBabysitState: "out-of-scope",
+          prBabysitLastCheckedAt: new Date().toISOString(),
+        },
+        "needs_manual",
+      );
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "babysit-factory-pull-request",
+          kind: "decision",
+          status: "skipped",
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          summary: reason,
+          details: { inScope, author },
+        },
+        factoryId,
+      );
+      return { ok: true, action: "skipped", reason };
     }
 
     const configuredRepository = (
@@ -161,26 +186,39 @@ export default defineAction({
       item.pullRequestNumber,
     );
     if (pullRequest.state !== "open" || pullRequest.draft) {
-      await updateBabysitMetadata(itemId, orgId, {
-        prBabysitState: "closed-or-draft",
-        prBabysitLastCheckedAt: new Date().toISOString(),
-      });
+      await updateBabysitItem(
+        itemId,
+        orgId,
+        {
+          prBabysitState: "closed-or-draft",
+          prBabysitLastCheckedAt: new Date().toISOString(),
+        },
+        "needs_manual",
+      );
+      const reason = formatBabysitAuditSummary(
+        item.pullRequestNumber,
+        "skipped; pull request is closed or a draft.",
+      );
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
         {
-          action: "babysit-agent-native-pull-request",
-          kind: "governance",
+          action: "babysit-factory-pull-request",
+          kind: "decision",
           status: "skipped",
           itemId,
           source: "github",
           sourceUrl: item.sourceUrl,
-          summary: "Skipped because the pull request is closed or a draft.",
-          details: { state: pullRequest.state, draft: pullRequest.draft },
+          summary: reason,
+          details: {
+            author: pullRequest.userLogin,
+            state: pullRequest.state,
+            draft: pullRequest.draft,
+          },
         },
         factoryId,
       );
-      return { ok: true, action: "skipped", reason: "PR is closed or draft." };
+      return { ok: true, action: "skipped", reason };
     }
 
     const ownerOwnedArea = detectOwnerOwnedArea([
@@ -189,56 +227,47 @@ export default defineAction({
       pullRequest.body,
     ]);
     if (ownerOwnedArea) {
-      await updateBabysitMetadata(itemId, orgId, {
-        prBabysitState: "owner-managed",
-        prBabysitOwnerArea: ownerOwnedArea,
-        prBabysitLastCheckedAt: new Date().toISOString(),
-      });
+      await updateBabysitItem(
+        itemId,
+        orgId,
+        {
+          prBabysitState: "owner-managed",
+          prBabysitOwnerArea: ownerOwnedArea,
+          prBabysitLastCheckedAt: new Date().toISOString(),
+        },
+        "needs_manual",
+      );
+      const reason = formatBabysitAuditSummary(
+        item.pullRequestNumber,
+        `skipped; ${ownerOwnedArea} is owner-managed.`,
+      );
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
         {
-          action: "babysit-agent-native-pull-request",
-          kind: "governance",
+          action: "babysit-factory-pull-request",
+          kind: "decision",
           status: "skipped",
           itemId,
           source: "github",
           sourceUrl: item.sourceUrl,
-          summary: `${ownerOwnedArea} is owner-managed; no bot feedback was posted.`,
-          details: { ownerOwnedArea },
+          summary: reason,
+          details: { author: pullRequest.userLogin, ownerOwnedArea },
         },
         factoryId,
       );
       return {
         ok: true,
         action: "skipped",
-        reason: `${ownerOwnedArea} is owner-managed.`,
+        reason,
       };
     }
 
-    const privateKey = await resolveConnectorSecret(
-      "BUILDER_PRIVATE_KEY",
-      userEmail,
-      { orgId },
+    const snapshot = await github.getPullRequestEvidence(
+      repository,
+      item.pullRequestNumber,
+      pullRequest.headSha,
     );
-    if (!privateKey) {
-      throw new Error(
-        "BUILDER_PRIVATE_KEY is required to read PR feedback for babysitting.",
-      );
-    }
-    const snapshot = await createAiServicesGitReadClient({
-      baseUrl: requiredAiServicesEnv("BUILDER_AI_SERVICES_URL"),
-      authorization: `Bearer ${privateKey.startsWith("bpk-") ? privateKey : `bpk-${privateKey}`}`,
-    }).fetchPullRequest({
-      projectId: requiredAiServicesEnv("BUILDER_PROJECT_ID"),
-      repo: item.repository,
-      pullRequestNumber: item.pullRequestNumber,
-    });
-    if (snapshot.headSha !== pullRequest.headSha) {
-      throw new Error(
-        `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
-      );
-    }
 
     const proposal = reconcileBabysitState({
       comments: snapshot.comments,
@@ -254,8 +283,7 @@ export default defineAction({
       ...proposal,
       isClean: proposal.isClean && !unresolvedReviewState,
     };
-    const needsBabysit = shouldBabysitBuilderBotPullRequest({
-      author: pullRequest.userLogin,
+    const needsBabysit = shouldRequestBabysitWork({
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
       snapshot: signal,
@@ -264,17 +292,21 @@ export default defineAction({
       context,
       { userEmail, orgId },
       {
-        action: "babysit-agent-native-pull-request",
-        kind: "governance",
+        action: "babysit-factory-pull-request",
+        kind: "decision",
         status: needsBabysit ? "success" : "skipped",
         itemId,
         source: "github",
         sourceUrl: item.sourceUrl,
-        summary: needsBabysit
-          ? "Review feedback, CI, or mergeability needs Builder attention."
-          : "The pull request is clean and needs no Builder feedback request.",
+        summary: formatBabysitAuditSummary(
+          item.pullRequestNumber,
+          needsBabysit
+            ? "needs Builder attention for review feedback, CI, or mergeability."
+            : "is clean; no Builder feedback request.",
+        ),
         details: {
-          headSha: snapshot.headSha,
+          author: pullRequest.userLogin,
+          headSha: pullRequest.headSha,
           checks: snapshot.checks.length,
           comments: snapshot.comments.length,
           unresolvedReviewState,
@@ -289,7 +321,7 @@ export default defineAction({
     const nowIso = now.toISOString();
     const metadata = parseTriageMetadata(item.metadataJson);
     const fingerprint = babysitFingerprint({
-      headSha: snapshot.headSha,
+      headSha: pullRequest.headSha,
       mergeable: pullRequest.mergeable,
       mergeableState: pullRequest.mergeableState,
       snapshot: signal,
@@ -301,7 +333,7 @@ export default defineAction({
     );
     const previousState = metadataString(metadata, "prBabysitState");
     if (!needsBabysit) {
-      await updateBabysitMetadata(itemId, orgId, {
+      await updateBabysitItem(itemId, orgId, {
         prBabysitState: "clean",
         prBabysitLastCheckedAt: nowIso,
         prBabysitFingerprint: fingerprint,
@@ -323,7 +355,7 @@ export default defineAction({
       (lastCommentAt === null ||
         now.getTime() - lastCommentAt >= MIN_COMMENT_INTERVAL_MS);
     if (!shouldPost || quietForMs >= QUIET_PERIOD_MS) {
-      await updateBabysitMetadata(itemId, orgId, {
+      await updateBabysitItem(itemId, orgId, {
         prBabysitState: quietForMs >= QUIET_PERIOD_MS ? "quiet" : "waiting",
         prBabysitFingerprint: fingerprint,
         prBabysitQuietSinceAt: new Date(quietSince).toISOString(),
@@ -345,17 +377,24 @@ export default defineAction({
       context,
       { userEmail, orgId },
       {
-        action: "babysit-agent-native-pull-request",
+        action: "babysit-factory-pull-request",
         kind: "external_action",
         itemId,
         source: "github",
         sourceUrl: comment.htmlUrl,
-        summary: "Posted the bounded feedback-fix request to builder-io-bot.",
-        details: { commentUrl: comment.htmlUrl, quietForMinutes: 0 },
+        summary: formatBabysitAuditSummary(
+          item.pullRequestNumber,
+          "posted the bounded feedback-fix request.",
+        ),
+        details: {
+          author: pullRequest.userLogin,
+          commentUrl: comment.htmlUrl,
+          quietForMinutes: 0,
+        },
       },
       factoryId,
     );
-    await updateBabysitMetadata(itemId, orgId, {
+    await updateBabysitItem(itemId, orgId, {
       prBabysitState: "active",
       prBabysitFingerprint: fingerprint,
       prBabysitQuietSinceAt: new Date(quietSince).toISOString(),

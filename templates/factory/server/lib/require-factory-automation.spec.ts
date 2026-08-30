@@ -67,6 +67,39 @@ describe("requireFactoryAutomation", () => {
     getDbMock.mockReturnValue(factoryLookupDb(true));
   });
 
+  it("accepts a blank Slack job by source frontmatter", async () => {
+    listAutomationDefinitionsMock.mockResolvedValue([
+      {
+        name: `factories/${factoryId}/factory-slack-custom`,
+        resource: {
+          id: "resource-factory-slack-custom",
+          path: `jobs/factories/${factoryId}/factory-slack-custom.md`,
+          content: "---\ndomain: factory\nsource: slack\n---\n",
+        },
+        meta: {
+          domain: "factory",
+          orgId: "org-1",
+          runAs: "creator" as const,
+          createdBy: teammateEmail,
+        },
+      },
+    ]);
+    await expect(
+      requireFactoryAutomation(
+        {
+          caller: "automation",
+          automation: {
+            triggerId: "resource-factory-slack-custom",
+            triggerName: `factories/${factoryId}/factory-slack-custom`,
+          },
+        },
+        { userEmail: teammateEmail, orgId: "org-1" },
+        "sourcePolling",
+        factoryId,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it("accepts a nested Factory Slack job created by a teammate", async () => {
     await expect(
       requireFactoryAutomation(
@@ -111,12 +144,15 @@ describe("requireFactoryAutomation", () => {
   });
 
   it("rejects a nested name that is not a Factory source automation", async () => {
+    listAutomationDefinitionsMock.mockResolvedValue([
+      nestedJob("not-a-factory-job"),
+    ]);
     await expect(
       requireFactoryAutomation(
         {
           caller: "automation",
           automation: {
-            triggerId: "resource-nested",
+            triggerId: "resource-not-a-factory-job",
             triggerName: `factories/${factoryId}/not-a-factory-job`,
           },
         },

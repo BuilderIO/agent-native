@@ -105,6 +105,7 @@ const messages = {
     empty: "Noch keine Beobachtungen.",
     risk: "Risiko",
     status: "Status",
+    author: "Autor",
     coverage: "Abdeckung",
     reason: "Grund",
     evidence: "Nachweis",
@@ -178,7 +179,6 @@ const messages = {
       "Geschützte Kategorien bleiben immer blockiert: Identität, Zugangsdaten, Migrationen, Zahlungen, Sicherheit und veröffentlichbare Pakete.",
     saveRule: "Regel speichern",
     ruleSaved: "Regel gespeichert.",
-    approvalError: "Die Genehmigung konnte nicht gestartet werden.",
   },
   factoryRoute: {
     newStep: "Neuer Schritt",
@@ -211,6 +211,15 @@ const messages = {
     createFactorySuccess: "Factory erstellt",
     createFactoryFailed: "Factory konnte nicht erstellt werden",
     createFactoryNameRequired: "Name ist erforderlich",
+    createFactoryNameDescription:
+      "Wird in der Factory-Liste und im Header angezeigt.",
+    createFactoryDescriptionHelp:
+      "Optional. Hilft Menschen und dem Agenten, diese Factory zu erkennen.",
+    createFactoryCancelDescription: "Zurück zur Liste, ohne zu speichern.",
+    createFactorySubmitDescription:
+      "Factory mit leerem Automatisierungen-Tab erstellen.",
+    builderSlackUserIdDescription:
+      "Slack-Mitglieds-ID für Builder-Pings. Sieht aus wie U01234567.",
     selectFactory: "Factory auswählen",
     backToFactories: "Zurück zu den Factorys",
     workspaceIntegrations: "Arbeitsbereich-Integrationen",
@@ -233,7 +242,6 @@ const messages = {
     inboxDescription: "Eingehende Belege vor autonomer Arbeit.",
     selectObservation:
       "Wähle eine Beobachtung, um ihren Pfad und ihr Feedback zu prüfen.",
-    approveAndStart: "Genehmigen und starten",
     rulesDescription:
       "Jede Regel bleibt im Shadow-Modus, bis sie bewusst hochgestuft wird.",
     editRule: "Triage-Regel bearbeiten",
@@ -286,6 +294,8 @@ const messages = {
     auditLoadError: "Der Ausführungs-Audit konnte nicht geladen werden.",
     auditEmpty: "Es wurden noch keine Automatisierungsläufe aufgezeichnet.",
     auditRuns: "Letzte Läufe",
+    auditAutomationLabel: "Automatisierung",
+    auditAutomationAll: "Alle",
     auditEventsShort: "Ereignisse",
     auditActionsShort: "Aktionen",
     auditRunDetail: "Für diesen Lauf aufgezeichnete Belege und Entscheidungen.",
@@ -364,10 +374,95 @@ const messages = {
     automationsTitle: "Automatisierungen",
     automationsDescription: "Factory-Prompts planen und ausführen.",
     automationsLoading: "Automatisierungen werden geladen...",
-    automationsEmpty: "Noch keine Automatisierungen konfiguriert.",
+    automationsEmpty:
+      "Noch keine Automatisierungen. Erstellen Sie eine für Slack, GitHub oder Sentry.",
+    createAutomation: "Automatisierung erstellen",
+    createAutomationDescription:
+      "Fügen Sie jeweils einen Job hinzu. Quelle, Ziel und Limits gehören zum Job.",
+    createAutomationCancel: "Abbrechen",
+    createAutomationCancelDescription:
+      "Schließen, ohne einen Job zu erstellen.",
+    createAutomationSubmit: "Erstellen",
+    createAutomationSubmitDescription:
+      "Diesen Job im Automatisierungen-Tab speichern.",
+    automationCreated: "Automatisierung erstellt",
+    automationCreateFailed: "Automatisierung konnte nicht erstellt werden.",
+    automationSource: "Quelle",
+    automationSourceDescription: "Wählen Sie, wo dieser Job liest.",
+    automationSourceSlackHint: "Kanalnachrichten und Threads.",
+    automationSourceGithubHint: "Issues und Pull Requests.",
+    automationSourceSentryHint: "Offene Fehler.",
+    automationSlackChannel: "Slack-Kanal-ID",
+    automationSlackChannelDescription:
+      "Kanal, den dieser Job abfragt. Beginnt mit C.",
+    automationRepository: "GitHub-Repository",
+    automationRepositoryDescription: "owner/repo, das dieser Job abfragt.",
+    automationSentryOrg: "Sentry-Organisation",
+    automationSentryOrgDescription: "Sentry-Org-Slug für diesen Job.",
+    automationSentryProject: "Sentry-Projekt",
+    automationSentryProjectDescription: "Sentry-Projekt-Slug für diesen Job.",
+    automationConnectSlack: "Slack verbinden",
+    automationConnectGithub: "GitHub verbinden",
+    automationConnectSentry: "Sentry verbinden",
+    automationConnectDescription:
+      "Öffnen Sie die Workspace-Integrationen, verbinden Sie die Quelle und kehren Sie zurück.",
+    automationAuthors: "Autoren",
+    automationAuthorsDescription:
+      "Optional. Filtern Sie nach Slack-Mitglieds-IDs oder numerischen GitHub-Benutzer-IDs, nicht nach Namen.",
+    automationAuthorNone: "Alle",
+    automationAuthorInclude: "Einschließen",
+    automationAuthorExclude: "Ausschließen",
+    automationAuthorAdd: "Hinzufügen",
+    automationAuthorRemove: "Autoren-ID entfernen",
+    automationAuthorIdsDescription:
+      "Einschließen braucht mindestens eine ID. Ausschließen listet Personen zum Überspringen.",
+    automationAuthorSlackPlaceholder: "U01234567",
+    automationAuthorGithubPlaceholder: "123456",
+    automationScheduleModeDescription:
+      "Wie oft dieser Job läuft. Tägliche Pläne brauchen eine Zeitzone.",
+    automationEveryMinutes: "Alle {{count}} Min.",
+    automationScheduleDaily: "Einmal täglich",
+    automationDailyTime: "Uhrzeit",
+    automationDailyTimeDescription: "Uhrzeit für den täglichen Lauf.",
+    automationTimezoneDescription: "Nur für tägliche Pläne.",
+    automationStartFrom: "Mit Vorlage starten",
+    automationStartFromDescription:
+      "Optionale Vorlage. Füllt nur Prompt und Standard-Limits.",
+    automationCardIdentityTitle: "Automatisierungsjob",
+    automationCardIdentityDescription: "Wo dieser Job liest.",
+    automationCardRunTitle: "Lauf",
+    automationCardRunDescription:
+      "Name, Ziel, wer enthalten ist und wie oft es läuft.",
+    automationCardPromptTitle: "Anweisungen",
+    automationCardPromptDescription:
+      "Factory fügt Leitplanken ein. Der Prompt sagt, was zu tun ist.",
+    automationTemplateBlank: "Leer",
+    automationTemplateSlackFeedback: "Slack-Feedback",
+    automationTemplateGithubIssues: "GitHub-Issues",
+    automationTemplatePrGovernance: "PR-Governance",
+    automationTemplatePrBabysit: "PR-Babysit",
+    automationTemplateSentryErrors: "Sentry-Fehler",
+    automationInboxLimit: "Zum Posteingang hinzufügen",
+    automationInboxLimitDescription:
+      "Neue Einträge, die dieser Lauf hinzufügen darf. Maximal 50.",
+    automationWorkLimit: "In diesem Lauf bearbeiten",
+    automationWorkLimitDescription:
+      "Einträge, die list-triage-items diesem Job zurückgeben darf. Maximal 10.",
+    automationGuardrails: "Leitplanken",
+    automationGuardrailsDescription:
+      "Von Factory eingefügt. Der Prompt kann diese Regeln nicht ändern.",
+    automationGuardrailsSummary:
+      "Fügt bis zu {{inbox}} hinzu · bearbeitet {{work}} pro Lauf",
+    automationGuardrailsPlaceholder: "Factory fügt hier Scope und Limits ein.",
+    automationPromptDescription:
+      "Was dieser Lauf tun soll, zusätzlich zu den Leitplanken oben.",
+    automationDisplayNameDescription:
+      "Wird in der Automatisierungsliste angezeigt.",
+    automationModelDescription: "Modell, das dieser geplante Job verwendet.",
+    automationEnabledDescription: "Wenn aus, läuft der Zeitplan nicht.",
     automationEnabled: "Aktiv",
     automationDisabled: "Deaktiviert",
-    automationEditorTitle: "Automatisierungseditor",
+    automationEditorTitle: "Automatisierungsjob-Editor",
     automationEditorDescription: "Prompt, Modell und Zeitplan konfigurieren.",
     automationTrigger: "Auslöser",
     automationEvent: "Ereignis",
@@ -379,7 +474,7 @@ const messages = {
     automationModelPlaceholder: "Zum Beispiel gpt-5",
     automationSchedule: "Zeitplan",
     automationSchedulePlaceholder: "Zum Beispiel werktags um 09:00 Uhr",
-    automationEnabledLabel: "Automatisierung ist aktiviert",
+    automationEnabledLabel: "Diese Automatisierung aktivieren",
     automationPrompt: "Prompt",
     automationLastUpdated: "zuletzt aktualisiert",
     automationPromptPlaceholder: "Was soll Factory bei der Ausführung tun?",

@@ -20,8 +20,6 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
-
 const workspaceSchema = z.enum(["primary", "secondary"]);
 
 export default defineAction({
@@ -201,10 +199,6 @@ export default defineAction({
       }
       throw error;
     }
-
-    await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-      enabled: false,
-    });
 
     return {
       ok: true,

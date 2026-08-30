@@ -3,6 +3,10 @@ import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
 import { getDb } from "../db/index.js";
 import {
+  inferAutomationSource,
+  type FactoryAutomationSource,
+} from "./factory-automation-config.js";
+import {
   factoryAutomationLeafName,
   readAutomationFactoryId,
   requireExistingFactory,
@@ -18,8 +22,6 @@ const FACTORY_AUTOMATION_NAMES = {
   governance: new Set(["factory-pr-governance"]),
   prBabysit: new Set(["factory-pr-babysit"]),
   sourcePolling: new Set(["factory-slack-feedback", "factory-sentry-errors"]),
-  // Separate from sourcePolling so PR babysit/governance can refresh GitHub
-  // without inheriting Slack or Sentry poll access.
   githubPolling: new Set([
     "factory-github-issues",
     "factory-pr-governance",
@@ -28,6 +30,20 @@ const FACTORY_AUTOMATION_NAMES = {
 } as const;
 
 export type FactoryAutomationRole = keyof typeof FACTORY_AUTOMATION_NAMES;
+
+function sourceAllowsRole(
+  role: FactoryAutomationRole,
+  source: FactoryAutomationSource | null,
+): boolean {
+  if (!source) return false;
+  if (role === "sourcePolling")
+    return source === "slack" || source === "sentry";
+  if (role === "githubPolling") return source === "github";
+  if (role === "builderDispatch") {
+    return source === "slack" || source === "sentry" || source === "github";
+  }
+  return source === "github";
+}
 
 function governedAutomationError(
   role: FactoryAutomationRole,
@@ -61,13 +77,10 @@ export async function requireFactoryAutomation(
     throw new Error("This action is only available to Factory automations.");
   }
   const lineage = context.automation;
-  const expectedNames = FACTORY_AUTOMATION_NAMES[role];
-  if (
-    !lineage ||
-    !expectedNames.has(factoryAutomationLeafName(lineage.triggerName))
-  ) {
-    throw governedAutomationError(role, lineage?.triggerName, "role");
+  if (!lineage) {
+    throw governedAutomationError(role, undefined, "role");
   }
+  const leafName = factoryAutomationLeafName(lineage.triggerName);
 
   const definition = (
     await listAutomationDefinitions(
@@ -88,6 +101,16 @@ export async function requireFactoryAutomation(
     !definition.meta.createdBy?.trim()
   ) {
     throw governedAutomationError(role, lineage.triggerName, "definition");
+  }
+  const source = inferAutomationSource(
+    definition.name,
+    definition.resource.content,
+  );
+  if (
+    !FACTORY_AUTOMATION_NAMES[role].has(leafName) &&
+    !sourceAllowsRole(role, source)
+  ) {
+    throw governedAutomationError(role, lineage.triggerName, "role");
   }
   if (
     expectedFactoryId &&

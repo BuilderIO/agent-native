@@ -15,9 +15,9 @@ const TAB_OWNED_PARAMS: Record<WorkspaceTab, readonly string[]> = {
   inbox: ["itemId", "status", "risk", "range", "source"],
   rules: [],
   settings: [],
-  automations: ["automationId"],
+  automations: ["automationId", "createAutomation"],
   agents: [],
-  audit: ["auditRunId"],
+  audit: ["auditRunId", "automation", "range"],
   history: [],
 };
 

@@ -7,6 +7,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   IconAlertCircle,
@@ -21,8 +22,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
+import {
+  emptyAutomationForm,
+  formAuthorFilter,
+  formatDailyTime,
+  parseDailyTime,
+  persistAuthorFilter,
+  type AutomationAuthorMode,
+  type AutomationSource,
+  type FactoryAutomationFormState,
+} from "@/components/factory/factory-automation-form";
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
+import { FactoryAutomationFields } from "@/components/factory/FactoryAutomationFields";
 import {
   FactoryCanvas,
   type FactoryCanvasGraph,
@@ -35,7 +48,6 @@ import { FactorySettingsView } from "@/components/factory/FactorySettingsView";
 import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -109,6 +121,24 @@ type FactoryAutomation = {
   condition?: string | null;
   canUpdate?: boolean;
   updatedAt?: string | number | null;
+  source?: AutomationSource;
+  template?: FactoryAutomationFormState["template"];
+  slackWorkspace?: "primary" | "secondary";
+  slackChannelId?: string | null;
+  slackChannelName?: string | null;
+  repository?: string | null;
+  sentryOrgSlug?: string | null;
+  sentryProjectSlug?: string | null;
+  sentryEnvironment?: string | null;
+  authorMode?: AutomationAuthorMode;
+  authorIds?: string[];
+  scheduleMode?: FactoryAutomationFormState["scheduleMode"];
+  intervalMinutes?: FactoryAutomationFormState["intervalMinutes"];
+  dailyHour?: number;
+  dailyMinute?: number;
+  inboxLimit?: number;
+  workLimit?: number;
+  guardrails?: string;
   runs?: FactoryAutomationRun[] | null;
   pastRuns?: FactoryAutomationRun[] | null;
 };
@@ -863,6 +893,7 @@ function AutomationsView({
     setQueuedRuns({});
   }, [factoryId]);
   const selectedId = searchParams.get("automationId");
+  const createOpen = searchParams.get("createAutomation") === "1";
   const automationsQuery = useActionQuery<FactoryAutomation[]>(
     "list-factory-automations",
     { factoryId },
@@ -908,6 +939,22 @@ function AutomationsView({
     return { ...automation, model: automation.model?.trim() || "auto" };
   }
 
+  function setCreateOpen(open: boolean) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (open) {
+          next.set("createAutomation", "1");
+          next.delete("automationId");
+        } else {
+          next.delete("createAutomation");
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
   function selectAutomation(id: string) {
     const nextAutomation = automations.find(
       (automation) => automation.id === id,
@@ -917,6 +964,7 @@ function AutomationsView({
       (current) => {
         const next = new URLSearchParams(current);
         next.set("automationId", id);
+        next.delete("createAutomation");
         return next;
       },
       { replace: true },
@@ -944,6 +992,8 @@ function AutomationsView({
         current.model === nextDraft.model &&
         current.schedule === nextDraft.schedule &&
         current.enabled === nextDraft.enabled &&
+        current.inboxLimit === nextDraft.inboxLimit &&
+        current.workLimit === nextDraft.workLimit &&
         current.updatedAt === nextDraft.updatedAt
       ) {
         return current;
@@ -977,6 +1027,9 @@ function AutomationsView({
   async function saveAutomation() {
     if (!draft) return;
     try {
+      const daily = parseDailyTime(
+        formatDailyTime(draft.dailyHour ?? 9, draft.dailyMinute ?? 0),
+      );
       await saveMutation.mutateAsync({
         factoryId,
         automationId: draft.id,
@@ -984,8 +1037,23 @@ function AutomationsView({
         displayName: draft.displayName,
         prompt: draft.prompt ?? draft.body ?? "",
         model: draft.model ?? "",
-        schedule: draft.schedule ?? "",
         enabled: draft.enabled,
+        slackWorkspace: draft.slackWorkspace,
+        slackChannelId: draft.slackChannelId ?? "",
+        slackChannelName: draft.slackChannelName ?? "",
+        repository: draft.repository ?? "",
+        sentryOrgSlug: draft.sentryOrgSlug ?? "",
+        sentryProjectSlug: draft.sentryProjectSlug ?? "",
+        sentryEnvironment: draft.sentryEnvironment ?? "",
+        authorMode: draft.authorMode,
+        authorIds: draft.authorIds ?? [],
+        scheduleMode: draft.scheduleMode,
+        intervalMinutes: draft.intervalMinutes,
+        dailyHour: daily.dailyHour,
+        dailyMinute: daily.dailyMinute,
+        timezone: draft.timezone ?? undefined,
+        inboxLimit: draft.inboxLimit,
+        workLimit: draft.workLimit,
       });
       await automationsQuery.refetch();
       toast.success(t("factoryRoute.automationSaved"));
@@ -1029,17 +1097,39 @@ function AutomationsView({
     }
   }
 
+  if (createOpen) {
+    return (
+      <div className="mx-auto w-full max-w-3xl space-y-4 p-4 lg:p-6">
+        <CreateFactoryAutomationView
+          factoryId={factoryId}
+          onCancel={() => setCreateOpen(false)}
+          onCreated={(automationId) => {
+            void automationsQuery.refetch();
+            selectAutomation(automationId);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 p-4 lg:p-6">
       <div className="grid gap-4 lg:grid-cols-[minmax(220px,.35fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              {t("factoryRoute.automationsTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {t("factoryRoute.automationsDescription")}
-            </p>
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="text-base">
+                {t("factoryRoute.automationsTitle")}
+              </CardTitle>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+              >
+                <IconPlus className="size-4" />
+                {t("factoryRoute.createAutomation")}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {automationsQuery.isLoading ? (
@@ -1047,9 +1137,14 @@ function AutomationsView({
                 {t("factoryRoute.automationsLoading")}
               </p>
             ) : automations.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">
-                {t("factoryRoute.automationsEmpty")}
-              </p>
+              <div className="grid gap-3 p-4">
+                <p className="text-sm text-muted-foreground">
+                  {t("factoryRoute.automationsEmpty")}
+                </p>
+                <Button type="button" onClick={() => setCreateOpen(true)}>
+                  {t("factoryRoute.createAutomation")}
+                </Button>
+              </div>
             ) : (
               <div
                 className="grid gap-1.5 p-2"
@@ -1081,8 +1176,17 @@ function AutomationsView({
                         {automation.displayName}
                       </span>
                       <span className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                        {running && (
+                        {running ? (
                           <IconLoader2 className="size-3 animate-spin motion-reduce:animate-none" />
+                        ) : (
+                          <span
+                            className={`size-1.5 shrink-0 rounded-full ${
+                              automation.enabled
+                                ? "bg-emerald-500"
+                                : "bg-destructive"
+                            }`}
+                            aria-hidden
+                          />
                         )}
                         {running
                           ? t("factoryRoute.automationRunning")
@@ -1098,7 +1202,7 @@ function AutomationsView({
           </CardContent>
         </Card>
 
-        <Card
+        <div
           id="factory-automation-panel"
           role="tabpanel"
           aria-labelledby={
@@ -1106,18 +1210,14 @@ function AutomationsView({
               ? `factory-automation-tab-${activeAutomationId}`
               : undefined
           }
+          className="grid min-w-0 content-start gap-6"
         >
-          <CardHeader className="sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-base">
-                {t("factoryRoute.automationEditorTitle")}
-              </CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("factoryRoute.automationEditorDescription")}
-              </p>
-            </div>
-            {draft && (
-              <div className="flex gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">
+              {t("factoryRoute.automationEditorTitle")}
+            </h2>
+            {draft ? (
+              <div className="flex shrink-0 gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -1147,201 +1247,170 @@ function AutomationsView({
                   {t("factoryRoute.saveAutomation")}
                 </Button>
               </div>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-5 pt-5">
-            {!draft ? (
-              <p className="text-sm text-muted-foreground">
-                {t("factoryRoute.selectAutomation")}
-              </p>
-            ) : (
-              <>
-                <div className="grid gap-1.5">
-                  <Label htmlFor="factory-automation-display-name">
-                    {t("factoryRoute.automationDisplayName")}
-                  </Label>
-                  <Input
-                    id="factory-automation-display-name"
-                    value={draft.displayName}
-                    onChange={(event) =>
-                      setDraft({ ...draft, displayName: event.target.value })
-                    }
-                    placeholder={t(
-                      "factoryRoute.automationDisplayNamePlaceholder",
-                    )}
-                    disabled={draft.canUpdate === false}
-                  />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="factory-automation-model">
-                      {t("factoryRoute.automationModel")}
-                    </Label>
-                    <select
-                      id="factory-automation-model"
-                      value={draft.model ?? ""}
-                      onChange={(event) =>
-                        setDraft({ ...draft, model: event.target.value })
-                      }
-                      disabled={modelsLoading && modelOptions.length === 0}
-                      className="h-9 rounded-md border bg-card px-3 text-sm"
-                    >
-                      <option value="auto">{autoModelLabel}</option>
-                      {draft.model &&
-                        draft.model !== "auto" &&
-                        !modelOptions.some(
-                          (option) => option.value === draft.model,
-                        ) && (
-                          <option value={draft.model}>
-                            Configured / {formatModelName(draft.model)}
+            ) : null}
+          </div>
+          {!draft ? (
+            <p className="text-sm text-muted-foreground">
+              {t("factoryRoute.selectAutomation")}
+            </p>
+          ) : (
+            <>
+              <FactoryAutomationFields
+                form={automationToForm(draft)}
+                onChange={(next) => {
+                  const authors = persistAuthorFilter(
+                    next.authorFilter,
+                    next.authorIds,
+                  );
+                  setDraft({
+                    ...draft,
+                    displayName: next.displayName,
+                    slackWorkspace: next.slackWorkspace,
+                    slackChannelId: next.slackChannelId,
+                    slackChannelName: next.slackChannelName,
+                    repository: next.repository,
+                    sentryOrgSlug: next.sentryOrgSlug,
+                    sentryProjectSlug: next.sentryProjectSlug,
+                    sentryEnvironment: next.sentryEnvironment,
+                    authorMode: authors.authorMode,
+                    authorIds: authors.authorIds,
+                    scheduleMode: next.scheduleMode,
+                    intervalMinutes: next.intervalMinutes,
+                    dailyHour: parseDailyTime(next.dailyTime).dailyHour,
+                    dailyMinute: parseDailyTime(next.dailyTime).dailyMinute,
+                    timezone: next.timezone,
+                    inboxLimit: next.inboxLimit,
+                    workLimit: next.workLimit,
+                    prompt: next.prompt,
+                    enabled: next.enabled,
+                  });
+                }}
+                showName
+                showSource={false}
+                showDestination
+                showAuthors
+                showSchedule
+                showLimits
+                showEnabled
+                showGuardrails
+                showPrompt
+                guardrails={draft.guardrails ?? ""}
+                disabled={draft.canUpdate === false}
+                modelControl={
+                  <SettingsRow
+                    label={t("factoryRoute.automationModel")}
+                    description={t("factoryRoute.automationModelDescription")}
+                    control={
+                      <select
+                        id="factory-automation-model"
+                        aria-label={t("factoryRoute.automationModel")}
+                        value={draft.model ?? ""}
+                        onChange={(event) =>
+                          setDraft({ ...draft, model: event.target.value })
+                        }
+                        disabled={modelsLoading && modelOptions.length === 0}
+                        className="h-9 w-full rounded-md border bg-card px-3 text-sm sm:w-64"
+                      >
+                        <option value="auto">{autoModelLabel}</option>
+                        {draft.model &&
+                          draft.model !== "auto" &&
+                          !modelOptions.some(
+                            (option) => option.value === draft.model,
+                          ) && (
+                            <option value={draft.model}>
+                              Configured / {formatModelName(draft.model)}
+                            </option>
+                          )}
+                        {modelOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
-                        )}
-                      {modelOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor="factory-automation-schedule">
-                      {t("factoryRoute.automationSchedule")}
-                    </Label>
-                    <Input
-                      id="factory-automation-schedule"
-                      value={draft.schedule ?? ""}
-                      onChange={(event) =>
-                        setDraft({ ...draft, schedule: event.target.value })
+                        ))}
+                      </select>
+                    }
+                  />
+                }
+              />
+              <SettingsGroup variant="soft" title={t("factoryRoute.pastRuns")}>
+                {(draft.runs ?? draft.pastRuns ?? []).length === 0 ? (
+                  <SettingsRow label={t("factoryRoute.pastRunsEmpty")} />
+                ) : (
+                  (draft.runs ?? draft.pastRuns ?? []).map((run, index) => (
+                    <SettingsRow
+                      key={run.id ?? `${draft.id}-run-${index}`}
+                      label={run.status ?? "-"}
+                      description={run.error || undefined}
+                      control={
+                        <span className="text-sm text-muted-foreground">
+                          {formatAutomationDate(run.startedAt)}
+                        </span>
                       }
-                      placeholder={t(
-                        "factoryRoute.automationSchedulePlaceholder",
-                      )}
-                    />
-                  </div>
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={draft.enabled}
-                    onCheckedChange={(checked) =>
-                      setDraft({ ...draft, enabled: checked === true })
-                    }
-                    disabled={draft.canUpdate === false}
-                  />
-                  {t("factoryRoute.automationEnabledLabel")}
-                </label>
-                <div className="grid gap-2 rounded-md bg-muted/60 p-3 text-sm md:grid-cols-3">
-                  <div>
-                    <span className="block text-xs text-muted-foreground">
-                      {t("factoryRoute.automationTrigger")}
-                    </span>
-                    <span>{draft.triggerType ?? "-"}</span>
-                  </div>
-                  <div>
-                    <span className="block text-xs text-muted-foreground">
-                      {t("factoryRoute.automationEvent")}
-                    </span>
-                    <span>{draft.event ?? "-"}</span>
-                  </div>
-                  <div>
-                    <span className="block text-xs text-muted-foreground">
-                      {t("factoryRoute.automationTimezone")}
-                    </span>
-                    <span>{draft.timezone ?? "-"}</span>
-                  </div>
-                </div>
-                <div className="grid gap-1.5">
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <Label htmlFor="factory-automation-prompt">
-                      {t("factoryRoute.automationPrompt")}
-                    </Label>
-                    {draft.updatedAt ? (
-                      <span className="capitalize text-xs text-muted-foreground">
-                        {t("factoryRoute.automationLastUpdated")}{" "}
-                        <time
-                          dateTime={new Date(draft.updatedAt).toISOString()}
-                          title={formatAutomationDate(draft.updatedAt)}
+                    >
+                      {run.threadId ? (
+                        <a
+                          className="inline-flex items-center text-xs text-muted-foreground underline-offset-4 hover:underline"
+                          href={`/chat/${encodeURIComponent(run.threadId)}`}
+                          onClick={(event) => {
+                            if (
+                              event.metaKey ||
+                              event.ctrlKey ||
+                              event.shiftKey ||
+                              event.altKey ||
+                              event.button !== 0
+                            ) {
+                              return;
+                            }
+                            event.preventDefault();
+                            requestAgentChatThreadOpen({
+                              threadId: run.threadId!,
+                            });
+                          }}
                         >
-                          {formatInboxDateTime(draft.updatedAt)}
-                        </time>
-                      </span>
-                    ) : null}
-                  </div>
-                  <Textarea
-                    id="factory-automation-prompt"
-                    value={draft.prompt ?? draft.body ?? ""}
-                    onChange={(event) =>
-                      setDraft({ ...draft, prompt: event.target.value })
-                    }
-                    placeholder={t("factoryRoute.automationPromptPlaceholder")}
-                    rows={12}
-                  />
-                  <p className="text-right text-xs text-muted-foreground">
-                    {t("factoryRoute.promptEditorHint")}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-muted/20 p-3 shadow-sm">
-                  <h3 className="text-sm font-medium">
-                    {t("factoryRoute.pastRuns")}
-                  </h3>
-                  {(draft.runs ?? draft.pastRuns ?? []).length === 0 ? (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {t("factoryRoute.pastRunsEmpty")}
-                    </p>
-                  ) : (
-                    <div className="mt-3 grid gap-2">
-                      {(draft.runs ?? draft.pastRuns ?? []).map(
-                        (run, index) => (
-                          <div
-                            key={run.id ?? `${draft.id}-run-${index}`}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-card px-3 py-2 text-sm shadow-sm"
-                          >
-                            <span className="font-medium">
-                              {run.status ?? "-"}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {formatAutomationDate(run.startedAt)}
-                            </span>
-                            {run.threadId && (
-                              <a
-                                className="inline-flex items-center text-xs text-muted-foreground underline-offset-4 hover:underline"
-                                href={`/chat/${encodeURIComponent(run.threadId)}`}
-                                onClick={(event) => {
-                                  if (
-                                    event.metaKey ||
-                                    event.ctrlKey ||
-                                    event.shiftKey ||
-                                    event.altKey ||
-                                    event.button !== 0
-                                  ) {
-                                    return;
-                                  }
-                                  event.preventDefault();
-                                  requestAgentChatThreadOpen({
-                                    threadId: run.threadId!,
-                                  });
-                                }}
-                              >
-                                {t("factoryRoute.automationOpenThread")}
-                              </a>
-                            )}
-                            {run.error && (
-                              <span className="basis-full text-xs text-destructive">
-                                {run.error}
-                              </span>
-                            )}
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                          {t("factoryRoute.automationOpenThread")}
+                        </a>
+                      ) : null}
+                    </SettingsRow>
+                  ))
+                )}
+              </SettingsGroup>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function automationToForm(
+  automation: FactoryAutomation,
+): FactoryAutomationFormState {
+  const source = automation.source ?? "slack";
+  return {
+    ...emptyAutomationForm(source),
+    displayName: automation.displayName,
+    source,
+    template: automation.template ?? "blank",
+    slackWorkspace: automation.slackWorkspace ?? "primary",
+    slackChannelId: automation.slackChannelId ?? "",
+    slackChannelName: automation.slackChannelName ?? "",
+    repository: automation.repository ?? "",
+    sentryOrgSlug: automation.sentryOrgSlug ?? "",
+    sentryProjectSlug: automation.sentryProjectSlug ?? "",
+    sentryEnvironment: automation.sentryEnvironment ?? "",
+    authorFilter: formAuthorFilter(automation.authorMode, automation.authorIds),
+    authorIds: automation.authorIds ?? [],
+    scheduleMode: automation.scheduleMode ?? "interval",
+    intervalMinutes: automation.intervalMinutes ?? 5,
+    dailyTime: formatDailyTime(
+      automation.dailyHour ?? 9,
+      automation.dailyMinute ?? 0,
+    ),
+    timezone: automation.timezone ?? emptyAutomationForm().timezone,
+    inboxLimit: automation.inboxLimit ?? 25,
+    workLimit: automation.workLimit ?? (source === "slack" ? 5 : 3),
+    prompt: automation.prompt ?? automation.body ?? "",
+    enabled: automation.enabled,
+  };
 }
 
 function formatAutomationDate(value: string | number | null | undefined) {

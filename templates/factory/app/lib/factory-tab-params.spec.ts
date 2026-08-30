@@ -35,6 +35,31 @@ describe("retainFactoryTabParams", () => {
     expect(next.get("status")).toBeNull();
   });
 
+  it("keeps audit filters and drops inbox filters", () => {
+    const current = new URLSearchParams(
+      "factoryId=f1&tab=inbox&itemId=i1&status=failed&range=today&automation=factory-pr-babysit&auditRunId=r1",
+    );
+    const next = retainFactoryTabParams(current, "audit");
+    expect(next.get("tab")).toBe("audit");
+    expect(next.get("auditRunId")).toBe("r1");
+    expect(next.get("automation")).toBe("factory-pr-babysit");
+    expect(next.get("range")).toBe("today");
+    expect(next.get("itemId")).toBeNull();
+    expect(next.get("status")).toBeNull();
+  });
+
+  it("keeps create automation on Automations and drops it elsewhere", () => {
+    const current = new URLSearchParams(
+      "factoryId=f1&tab=automations&createAutomation=1&automationId=a1",
+    );
+    const automations = retainFactoryTabParams(current, "automations");
+    expect(automations.get("createAutomation")).toBe("1");
+    expect(automations.get("automationId")).toBe("a1");
+    expect(
+      retainFactoryTabParams(current, "settings").get("createAutomation"),
+    ).toBeNull();
+  });
+
   it("drops inbox filters when leaving Inbox", () => {
     const current = new URLSearchParams(
       "factoryId=f1&status=failed&risk=high&range=7d&source=slack&itemId=i1",

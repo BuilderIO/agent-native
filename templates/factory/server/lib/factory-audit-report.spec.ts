@@ -70,7 +70,7 @@ describe("projectFactoryAuditReport", () => {
         event({
           id: "dec-1",
           itemId,
-          action: "start-builder-for-item",
+          action: "dispatch-factory-item",
           kind: "decision",
           status: "skipped",
           summary: "Owner-managed UX request; keep manual.",
@@ -148,7 +148,7 @@ describe("projectFactoryAuditReport", () => {
         event({
           id: "dec",
           itemId,
-          action: "start-builder-for-item",
+          action: "dispatch-factory-item",
           kind: "decision",
           status: "success",
           summary: "Reproducible stuck multi-turn flow.",
@@ -187,6 +187,95 @@ describe("projectFactoryAuditReport", () => {
       "Slack API error: missing_scope",
     );
     expect(report.trace[0]?.summary).toMatch(/No new Slack feedback/);
+  });
+
+  it("shows babysit decisions as held items", () => {
+    const itemId = "item-pr-3917";
+    const report = projectFactoryAuditReport(
+      [
+        event({
+          id: "poll-pr",
+          itemId,
+          action: "poll-github-sources",
+          kind: "observed",
+          source: "github",
+          sourceUrl: "https://github.com/example/repo/pull/3917",
+          summary: "Fix inbox filters",
+          createdAt: "2026-08-28T23:00:00.000Z",
+        }),
+        event({
+          id: "scan-pr",
+          action: "list-triage-items",
+          kind: "read",
+          source: "github",
+          summary: "Loaded 3 review candidates.",
+          createdAt: "2026-08-28T23:00:05.000Z",
+          details: {
+            purpose: "review_candidates",
+            count: 3,
+            itemIds: [itemId],
+          },
+        }),
+        event({
+          id: "babysit-pr",
+          itemId,
+          action: "babysit-factory-pull-request",
+          kind: "decision",
+          status: "skipped",
+          source: "github",
+          sourceUrl: "https://github.com/example/repo/pull/3917",
+          summary: "#3917 skipped; author steve8708 is out of scope.",
+          createdAt: "2026-08-28T23:00:08.000Z",
+          details: { inScope: false, author: "steve8708" },
+        }),
+      ],
+      [
+        {
+          id: itemId,
+          title: "Fix inbox filters",
+          summary: null,
+          source: "github",
+          sourceUrl: "https://github.com/example/repo/pull/3917",
+        },
+      ],
+    );
+
+    expect(report.counts).toEqual({
+      newlyObserved: 1,
+      scanned: 1,
+      investigated: 1,
+      held: 1,
+      dispatched: 0,
+      failed: 0,
+    });
+    expect(report.items[0]?.outcome).toBe("held");
+    expect(report.items[0]?.rationale).toBe(
+      "#3917 skipped; author steve8708 is out of scope.",
+    );
+  });
+
+  it("counts only item-scoped poll observations as new", () => {
+    const report = projectFactoryAuditReport([
+      event({
+        id: "rollup",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Polled 46 open pull requests.",
+        createdAt: "2026-08-28T23:00:00.000Z",
+      }),
+      event({
+        id: "changed-pr",
+        itemId: "item-pr-1",
+        action: "poll-github-sources",
+        kind: "observed",
+        source: "github",
+        summary: "Fix inbox filters",
+        createdAt: "2026-08-28T23:00:01.000Z",
+      }),
+    ]);
+    expect(report.counts.newlyObserved).toBe(1);
+    expect(report.trace[0]?.summary).toBe("Polled 46 open pull requests.");
   });
 
   it("records a batched list scan as one trace step", () => {

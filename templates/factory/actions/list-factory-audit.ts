@@ -12,6 +12,11 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import {
+  decodeAuditCursor,
+  encodeAuditCursor,
+  isAuditRunAfterCursor,
+} from "../server/lib/audit-cursor.js";
 import { projectFactoryAuditReport } from "../server/lib/factory-audit-report.js";
 import {
   factoryIdSchema,
@@ -19,12 +24,16 @@ import {
   orgFactoryRunFilter,
   readAutomationDisplayName,
   readAutomationFactoryId,
+  resolveAutomationDisplayName,
 } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
+
+/** Max runs `listAutomationRuns` will return; enough for merge-paging. */
+const AUTOMATION_RUN_FETCH_LIMIT = 100;
 
 export default defineAction({
   description:
@@ -33,32 +42,56 @@ export default defineAction({
   schema: z.object({
     factoryId: factoryIdSchema,
     automation: z.string().trim().min(1).optional(),
+    startedAfter: z.string().trim().min(1).optional(),
+    cursor: z.string().trim().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ factoryId, automation, limit }, context) => {
+  run: async (
+    { factoryId, automation, startedAfter, cursor, limit },
+    context,
+  ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    let startedAfterMs: number | null = null;
+    if (startedAfter) {
+      startedAfterMs = Date.parse(startedAfter);
+      if (!Number.isFinite(startedAfterMs)) {
+        throw new Error("startedAfter is unreadable.");
+      }
+    }
+    const decodedCursor = cursor ? decodeAuditCursor(cursor) : null;
+
     const definitions = await listAutomationDefinitions(
       { userEmail, orgId, appId: "factory" },
       "organization",
     );
     const factoryDefinitions = definitions.filter(
-      ({ meta, name, resource }) =>
+      ({ meta, resource }) =>
         meta.domain === "factory" &&
         readAutomationFactoryId(meta, resource.content, resource.path) ===
-          factoryId &&
-        (!automation || name === automation),
+          factoryId,
     );
+    const automations = factoryDefinitions
+      .map(({ name, resource }) => ({
+        name,
+        displayName: resolveAutomationDisplayName(name, resource.content),
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+    const scopedDefinitions = automation
+      ? factoryDefinitions.filter(({ name }) => name === automation)
+      : factoryDefinitions;
+
     const runGroups = await Promise.all(
-      factoryDefinitions.map(async ({ name, resource }) => {
+      scopedDefinitions.map(async ({ name, resource }) => {
         const runs = await listAutomationRuns({
           owners: [resource.owner],
           automation: name,
           appId: "factory",
-          limit,
+          limit: AUTOMATION_RUN_FETCH_LIMIT,
         });
         // Absent must stay distinguishable from a stored label so the client
         // can derive its own fallback instead of rendering the nested path.
@@ -68,9 +101,36 @@ export default defineAction({
     );
     const entries = runGroups
       .flat()
-      .sort((a, b) => b.run.startedAt - a.run.startedAt);
-    const boundedEntries = entries.slice(0, limit);
-    const runIds = boundedEntries
+      .filter(({ run }) => {
+        if (startedAfterMs !== null && run.startedAt < startedAfterMs) {
+          return false;
+        }
+        if (
+          decodedCursor &&
+          !isAuditRunAfterCursor(
+            { startedAt: run.startedAt, id: run.id },
+            decodedCursor,
+          )
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const byStarted = b.run.startedAt - a.run.startedAt;
+        if (byStarted !== 0) return byStarted;
+        return a.run.id.localeCompare(b.run.id);
+      });
+    const pageEntries = entries.slice(0, limit);
+    const hasMore = entries.length > limit;
+    const nextCursor =
+      hasMore && pageEntries.length > 0
+        ? encodeAuditCursor({
+            startedAt: pageEntries[pageEntries.length - 1]!.run.startedAt,
+            id: pageEntries[pageEntries.length - 1]!.run.id,
+          })
+        : null;
+    const runIds = pageEntries
       .map(({ run }) => run.runId)
       .filter((runId): runId is string => Boolean(runId));
 
@@ -157,7 +217,7 @@ export default defineAction({
       : [];
 
     return {
-      runs: boundedEntries.map(({ run, displayName }) => {
+      runs: pageEntries.map(({ run, displayName }) => {
         const mappedEvents = (eventsByRun.get(run.runId ?? "") ?? []).map(
           (event) => ({
             id: event.id,
@@ -196,7 +256,10 @@ export default defineAction({
           trace: report.trace,
         };
       }),
-      count: boundedEntries.length,
+      automations,
+      count: pageEntries.length,
+      hasMore,
+      nextCursor,
     };
   },
 });

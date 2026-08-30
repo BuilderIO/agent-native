@@ -28,6 +28,26 @@ describe("Factory route factory switching", () => {
       /useEffect\(\(\) => \{\s*setQueuedRuns\(\{\}\);\s*\}, \[factoryId\]\);/,
     );
   });
+
+  it("opens create automation from the createAutomation query param", () => {
+    const source = readSource();
+    expect(source).toContain(
+      'const createOpen = searchParams.get("createAutomation") === "1"',
+    );
+    expect(source).toContain('next.set("createAutomation", "1")');
+    expect(source).toContain('next.delete("createAutomation")');
+  });
+
+  it("keeps the automation editor flush without a wrapping card", () => {
+    const source = readSource();
+    expect(source).toContain('id="factory-automation-panel"');
+    expect(source).toContain('className="grid min-w-0 content-start gap-6"');
+    expect(source).toContain("automationEditorTitle");
+    expect(source).toContain("text-lg font-semibold");
+    expect(source).toContain("showSource={false}");
+    expect(source).toContain("bg-emerald-500");
+    expect(source).toContain('title={t("factoryRoute.pastRuns")}');
+  });
 });
 
 describe("Factory route tabs", () => {

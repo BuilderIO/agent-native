@@ -105,6 +105,7 @@ const messages = {
     empty: "Aucune observation pour le moment.",
     risk: "Risque",
     status: "État",
+    author: "Auteur",
     coverage: "Couverture",
     reason: "Motif",
     evidence: "Preuve",
@@ -180,7 +181,6 @@ const messages = {
       "Les catégories protégées restent toujours bloquées : identité, identifiants, migrations, paiements, sécurité et paquets publiables.",
     saveRule: "Enregistrer la règle",
     ruleSaved: "Règle enregistrée.",
-    approvalError: "Impossible de démarrer l’approbation.",
   },
   factoryRoute: {
     newStep: "Nouvelle étape",
@@ -213,6 +213,14 @@ const messages = {
     createFactorySuccess: "Factory créée",
     createFactoryFailed: "Impossible de créer la factory",
     createFactoryNameRequired: "Le nom est requis",
+    createFactoryNameDescription: "Affiché dans la liste et l’en-tête.",
+    createFactoryDescriptionHelp:
+      "Facultatif. Aide les personnes et l’agent à reconnaître cette factory.",
+    createFactoryCancelDescription: "Revenir à la liste sans enregistrer.",
+    createFactorySubmitDescription:
+      "Créer la factory avec un onglet Automatisations vide.",
+    builderSlackUserIdDescription:
+      "Identifiant membre Slack pour le ping Builder. Ressemble à U01234567.",
     selectFactory: "Sélectionner une factory",
     backToFactories: "Retour aux factories",
     workspaceIntegrations: "Intégrations de l’espace de travail",
@@ -236,7 +244,6 @@ const messages = {
       "Les éléments observés entrent dans la factory avant le travail autonome.",
     selectObservation:
       "Sélectionnez une observation pour inspecter son parcours et ses retours.",
-    approveAndStart: "Approuver et démarrer",
     rulesDescription:
       "Chaque règle reste en mode shadow jusqu’à sa promotion volontaire.",
     editRule: "Modifier la règle de triage",
@@ -291,6 +298,8 @@ const messages = {
     auditLoadError: "Impossible de charger l'audit des exécutions.",
     auditEmpty: "Aucune exécution n'a encore été enregistrée.",
     auditRuns: "Exécutions récentes",
+    auditAutomationLabel: "Automatisation",
+    auditAutomationAll: "Toutes",
     auditEventsShort: "événements",
     auditActionsShort: "actions",
     auditRunDetail:
@@ -369,10 +378,97 @@ const messages = {
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",
-    automationsEmpty: "Aucune automatisation configurée.",
+    automationsEmpty:
+      "Aucune automatisation. Créez-en une depuis Slack, GitHub ou Sentry.",
+    createAutomation: "Créer une automatisation",
+    createAutomationDescription:
+      "Ajoutez un job à la fois. Source, destination et limites vivent sur le job.",
+    createAutomationCancel: "Annuler",
+    createAutomationCancelDescription: "Fermer sans créer de job.",
+    createAutomationSubmit: "Créer",
+    createAutomationSubmitDescription:
+      "Enregistrer ce job dans l’onglet Automatisations.",
+    automationCreated: "Automatisation créée",
+    automationCreateFailed: "Impossible de créer l’automatisation.",
+    automationSource: "Origine",
+    automationSourceDescription: "Choisissez d’où ce job lit.",
+    automationSourceSlackHint: "Messages et fils du canal.",
+    automationSourceGithubHint: "Issues et pull requests.",
+    automationSourceSentryHint: "Erreurs non résolues.",
+    automationSlackChannel: "Identifiant du canal Slack",
+    automationSlackChannelDescription:
+      "Canal interrogé par ce job. Commence par C.",
+    automationRepository: "Dépôt GitHub",
+    automationRepositoryDescription: "owner/repo interrogé par ce job.",
+    automationSentryOrg: "Organisation Sentry",
+    automationSentryOrgDescription: "Slug d’organisation Sentry pour ce job.",
+    automationSentryProject: "Projet Sentry",
+    automationSentryProjectDescription: "Slug de projet Sentry pour ce job.",
+    automationConnectSlack: "Connecter Slack",
+    automationConnectGithub: "Connecter GitHub",
+    automationConnectSentry: "Connecter Sentry",
+    automationConnectDescription:
+      "Ouvrez les intégrations de l’espace pour connecter cette source, puis revenez.",
+    automationAuthors: "Auteurs",
+    automationAuthorsDescription:
+      "Facultatif. Filtrez par identifiants membre Slack ou identifiants numériques GitHub, pas par noms.",
+    automationAuthorNone: "Tout le monde",
+    automationAuthorInclude: "Inclure",
+    automationAuthorExclude: "Exclure",
+    automationAuthorAdd: "Ajouter",
+    automationAuthorRemove: "Retirer l’identifiant d’auteur",
+    automationAuthorIdsDescription:
+      "Inclure exige au moins un identifiant. Exclure liste les personnes à ignorer.",
+    automationAuthorSlackPlaceholder: "U01234567",
+    automationAuthorGithubPlaceholder: "123456",
+    automationScheduleModeDescription:
+      "Fréquence d’exécution. Les plannings quotidiens ont aussi besoin d’un fuseau.",
+    automationEveryMinutes: "Toutes les {{count}} min",
+    automationScheduleDaily: "Une fois par jour",
+    automationDailyTime: "Heure",
+    automationDailyTimeDescription: "Heure locale de l’exécution quotidienne.",
+    automationTimezoneDescription:
+      "Utilisé uniquement pour les plannings quotidiens.",
+    automationStartFrom: "Partir d’un modèle",
+    automationStartFromDescription:
+      "Modèle facultatif. Remplit seulement le prompt et les limites par défaut.",
+    automationCardIdentityTitle: "Tâche d’automatisation",
+    automationCardIdentityDescription: "D’où cette tâche lit.",
+    automationCardRunTitle: "Exécution",
+    automationCardRunDescription:
+      "Nom, destination, qui elle inclut et à quelle fréquence elle s’exécute.",
+    automationCardPromptTitle: "Instructions",
+    automationCardPromptDescription:
+      "Factory injecte les garde-fous. Le prompt dit quoi faire.",
+    automationTemplateBlank: "Vide",
+    automationTemplateSlackFeedback: "Retour Slack",
+    automationTemplateGithubIssues: "Issues GitHub",
+    automationTemplatePrGovernance: "Gouvernance PR",
+    automationTemplatePrBabysit: "Suivi PR",
+    automationTemplateSentryErrors: "Erreurs Sentry",
+    automationInboxLimit: "Ajouter à la boîte",
+    automationInboxLimitDescription:
+      "Nouveaux éléments que cette exécution peut ajouter. Maximum 50.",
+    automationWorkLimit: "Traiter cette exécution",
+    automationWorkLimitDescription:
+      "Éléments que list-triage-items peut renvoyer à ce job. Maximum 10.",
+    automationGuardrails: "Garde-fous",
+    automationGuardrailsDescription:
+      "Injectés par Factory. Le prompt ne peut pas changer ces règles.",
+    automationGuardrailsSummary:
+      "Ajoute jusqu’à {{inbox}} · traite {{work}} par exécution",
+    automationGuardrailsPlaceholder:
+      "Factory injectera ici le périmètre et les limites.",
+    automationPromptDescription:
+      "Ce que cette exécution doit faire, en plus des garde-fous ci-dessus.",
+    automationDisplayNameDescription:
+      "Affiché dans la liste des automatisations.",
+    automationModelDescription: "Modèle utilisé par ce job planifié.",
+    automationEnabledDescription:
+      "Si désactivé, le planning ne se déclenche pas.",
     automationEnabled: "Activée",
     automationDisabled: "Désactivée",
-    automationEditorTitle: "Éditeur d’automatisation",
+    automationEditorTitle: "Éditeur de tâche d’automatisation",
     automationEditorDescription:
       "Configurez le prompt, le modèle et le planning.",
     automationTrigger: "Déclencheur",
@@ -385,7 +481,7 @@ const messages = {
     automationModelPlaceholder: "Par exemple, gpt-5",
     automationSchedule: "Planning",
     automationSchedulePlaceholder: "Par exemple, chaque jour ouvré à 9 h",
-    automationEnabledLabel: "L’automatisation est activée",
+    automationEnabledLabel: "Activer cette automatisation",
     automationPrompt: "Prompt",
     automationLastUpdated: "dernière mise à jour",
     automationPromptPlaceholder:

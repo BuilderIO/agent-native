@@ -41,16 +41,12 @@ describe("FactoryInboxView", () => {
     expect(source).toContain("IconScale");
     expect(source).toContain("IconPlayerPlay");
     expect(source).toContain("{!selectedId ?");
-    expect(source).toContain("canStartFactoryApproval");
     expect(source).toContain("SlackThreadPane");
-    expect(source).toContain("InboxApproveButton");
     expect(source).toContain("InboxFeedbackSection");
     expect(source).toContain("ms-6 border-s border-border ps-3");
-    const approveAt = source.indexOf("<InboxApproveButton");
     const reasonAt = source.indexOf("{reason ? (");
     const feedbackAt = source.indexOf("<InboxFeedbackSection");
-    expect(approveAt).toBeGreaterThan(-1);
-    expect(reasonAt).toBeGreaterThan(approveAt);
+    expect(reasonAt).toBeGreaterThan(-1);
     expect(feedbackAt).toBeGreaterThan(reasonAt);
     expect(source).not.toContain("pairActionsToMessages");
     expect(source).not.toContain("SlackPairedDetail");
@@ -62,8 +58,9 @@ describe("FactoryInboxView", () => {
     expect(source).not.toContain(
       "lg:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.4fr)]",
     );
+    expect(source).toContain('t("triage.author")');
+    expect(source).toContain("item.author");
     expect(source).toContain("resolveInboxSourceUrl");
-    expect(source).toContain('t("triage.approvalError")');
     expect(source).toContain('t("triage.feedbackError")');
     expect(source).toContain("triage.statusValues.");
     expect(source).toContain('t("triage.untitled")');

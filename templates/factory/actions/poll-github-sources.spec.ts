@@ -24,6 +24,10 @@ vi.mock("../server/lib/factory-automation-repair.js", () => ({
   repairFactoryAutomationsFromConfig: vi.fn(),
 }));
 
+vi.mock("../server/lib/factory-automation-caller.js", () => ({
+  readCallingFactoryAutomation: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("../server/triage/github-client.js", () => ({
   createGitHubClient: vi.fn(),
 }));

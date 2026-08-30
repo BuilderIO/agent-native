@@ -96,6 +96,8 @@ function toEnvelope(
     threadTs,
     metadata: {
       messageTs: message.ts,
+      authorId: message.user ?? null,
+      author: message.user ?? null,
       ...userLabelsForMessage(message, userLabels),
     },
     coverage:

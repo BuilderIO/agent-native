@@ -14,12 +14,13 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 vi.mock("../server/triage/audit.js", () => ({
   recordFactoryAudit: vi.fn(),
 }));
-vi.mock("../server/triage/builder-executor.js", () => ({
-  startBuilderRun: vi.fn(),
+vi.mock("../server/triage/github-client.js", () => ({
+  createGitHubClient: vi.fn(),
 }));
 vi.mock("../server/triage/ids.js", () => ({ stableId: vi.fn() }));
 vi.mock("../server/triage/metadata.js", () => ({
   metadataBoolean: vi.fn(),
+  metadataString: vi.fn(),
   parseTriageMetadata: vi.fn(),
   serializeTriageMetadata: vi.fn(),
 }));
@@ -38,11 +39,36 @@ import {
   ownerOwnedAreaValuesForItem,
   recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
+  githubBotDispatchText,
+  parseFactoryGitHubIssueNumber,
   replyTextForItem,
   requireBuilderSlackUserId,
-} from "./start-builder-for-item.js";
+} from "./dispatch-factory-item.js";
+import action from "./dispatch-factory-item.js";
 
-describe("start-builder-for-item Slack handoff", () => {
+describe("dispatch-factory-item schema guidance", () => {
+  it("describes clearBug and productUxImplications as orthogonal axes", () => {
+    const shape = (
+      action as {
+        schema: {
+          shape: {
+            clearBug: { description?: string };
+            productUxImplications: { description?: string };
+          };
+        };
+      }
+    ).schema.shape;
+    expect(shape.clearBug.description).toMatch(/visual\/UI defects/i);
+    expect(shape.productUxImplications.description).toMatch(
+      /Leave false for concrete reproducible bugs/i,
+    );
+    expect(shape.productUxImplications.description).toMatch(
+      /do not set true just because the report mentions UI or UX/i,
+    );
+  });
+});
+
+describe("dispatch-factory-item Slack handoff", () => {
   it("uses a Slack user-id mention, asks for /address-feedback, and carries repeat links", () => {
     const text = replyTextForItem(
       { id: "item-primary", sourceUrl: "https://slack.example/primary" },
@@ -71,6 +97,39 @@ describe("start-builder-for-item Slack handoff", () => {
     expect(() => requireBuilderSlackUserId("@builder.io")).toThrow(
       /Factory settings/,
     );
+  });
+
+  it("parses a GitHub issue number and writes an @builderio-bot request", () => {
+    expect(
+      parseFactoryGitHubIssueNumber({
+        externalId: "BuilderIO/agent-native#88",
+        sourceUrl: null,
+      }),
+    ).toBe(88);
+    expect(
+      parseFactoryGitHubIssueNumber({
+        externalId: "sentry-1",
+        sourceUrl: "https://github.com/builder/factory/issues/12",
+      }),
+    ).toBe(12);
+    expect(() =>
+      parseFactoryGitHubIssueNumber({
+        externalId: "sentry-1",
+        sourceUrl: null,
+      }),
+    ).toThrow(/issue number/);
+
+    const text = githubBotDispatchText({
+      itemId: "item-sentry",
+      sourceUrl: "https://sentry.example/issues/9",
+      reason: "Repeated TypeError on export",
+      clearErrorReport: "TypeError: cannot read map",
+    });
+    expect(text).toContain("@builderio-bot");
+    expect(text).toContain("/address-feedback");
+    expect(text).toContain("item-sentry");
+    expect(text).toContain("https://sentry.example/issues/9");
+    expect(text).toContain("TypeError: cannot read map");
   });
 
   it("blocks related items that are already clustered or started", () => {

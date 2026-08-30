@@ -19,8 +19,8 @@ const readTriageConfigRowMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
 const removeFactoryAutomationResourcesMock = vi.hoisted(() => vi.fn());
-const ensureFactoryAutomationsMock = vi.hoisted(() => vi.fn());
-const listEnabledFactoryAutomationNamesMock = vi.hoisted(() => vi.fn());
+const snapshotFactoryAutomationsMock = vi.hoisted(() => vi.fn());
+const restoreFactoryAutomationSnapshotsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -51,9 +51,16 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
 
 vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
   removeFactoryAutomationResources: removeFactoryAutomationResourcesMock,
-  ensureFactoryAutomations: ensureFactoryAutomationsMock,
-  listEnabledFactoryAutomationNames: listEnabledFactoryAutomationNamesMock,
+  snapshotFactoryAutomations: snapshotFactoryAutomationsMock,
+  restoreFactoryAutomationSnapshots: restoreFactoryAutomationSnapshotsMock,
 }));
+
+const existingSnapshots = [
+  {
+    path: "jobs/factories/support-triage/factory-slack-feedback.md",
+    content: "---\nenabled: true\n---\n",
+  },
+];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -76,10 +83,8 @@ beforeEach(() => {
     slackChannelId: "C123",
   });
   removeFactoryAutomationResourcesMock.mockResolvedValue(undefined);
-  ensureFactoryAutomationsMock.mockResolvedValue(undefined);
-  listEnabledFactoryAutomationNamesMock.mockResolvedValue(
-    new Set(["factory-slack-feedback"]),
-  );
+  snapshotFactoryAutomationsMock.mockResolvedValue(existingSnapshots);
+  restoreFactoryAutomationSnapshotsMock.mockResolvedValue(undefined);
 });
 
 describe("delete-factory", () => {
@@ -117,9 +122,15 @@ describe("delete-factory", () => {
       name: "Support triage",
       verified: true,
     });
+    expect(snapshotFactoryAutomationsMock).toHaveBeenCalledWith(
+      "member@example.com",
+      "org-1",
+      "support-triage",
+    );
     expect(removeFactoryAutomationResourcesMock).toHaveBeenCalledWith(
       "org-1",
       "support-triage",
+      "member@example.com",
     );
     expect(deletedTables).toEqual([
       factoryDefinitions,
@@ -174,13 +185,9 @@ describe("delete-factory", () => {
         { userEmail: "member@example.com", orgId: "org-1" },
       ),
     ).rejects.toThrow("database unavailable");
-    expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
-      "member@example.com",
+    expect(restoreFactoryAutomationSnapshotsMock).toHaveBeenCalledWith(
       "org-1",
-      "support-triage",
-      {
-        enabledNames: new Set(["factory-slack-feedback"]),
-      },
+      existingSnapshots,
     );
   });
 
@@ -199,13 +206,9 @@ describe("delete-factory", () => {
       ),
     ).rejects.toThrow("scheduler unavailable");
     expect(transaction).not.toHaveBeenCalled();
-    expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
-      "member@example.com",
+    expect(restoreFactoryAutomationSnapshotsMock).toHaveBeenCalledWith(
       "org-1",
-      "support-triage",
-      {
-        enabledNames: new Set(["factory-slack-feedback"]),
-      },
+      existingSnapshots,
     );
   });
 
@@ -243,13 +246,9 @@ describe("delete-factory", () => {
         { userEmail: "member@example.com", orgId: "org-1" },
       ),
     ).rejects.toThrow("changed before deletion");
-    expect(ensureFactoryAutomationsMock).toHaveBeenCalledWith(
-      "member@example.com",
+    expect(restoreFactoryAutomationSnapshotsMock).toHaveBeenCalledWith(
       "org-1",
-      "support-triage",
-      {
-        enabledNames: new Set(["factory-slack-feedback"]),
-      },
+      existingSnapshots,
     );
   });
 
@@ -290,6 +289,6 @@ describe("delete-factory", () => {
       verified: false,
       verificationError: "database unavailable",
     });
-    expect(ensureFactoryAutomationsMock).not.toHaveBeenCalled();
+    expect(restoreFactoryAutomationSnapshotsMock).not.toHaveBeenCalled();
   });
 });

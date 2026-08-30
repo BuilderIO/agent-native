@@ -1,5 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
+import { isLocalDatabase } from "@agent-native/core/db";
 import { getEmailReadiness } from "@agent-native/core/server";
+import { listWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -26,6 +28,18 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const emailReadiness = await getEmailReadiness();
+    const localFallback = isLocalDatabase();
+    const [slackConnections, githubConnections, sentryConnections] =
+      await Promise.all([
+        listWorkspaceConnectionsForApp({ appId: "factory", provider: "slack" }),
+        listWorkspaceConnectionsForApp({ appId: "factory", provider: "github" }),
+        listWorkspaceConnectionsForApp({ appId: "factory", provider: "sentry" }),
+      ]);
+    const connections = {
+      slack: localFallback || slackConnections.length > 0,
+      github: localFallback || githubConnections.length > 0,
+      sentry: localFallback || sentryConnections.length > 0,
+    };
     const row = await readTriageConfigRow(getDb(), orgId, factoryId);
     if (!row) {
       return {
@@ -47,6 +61,7 @@ export default defineAction({
         automationFailureAlertsEnabled: true,
         automationFailureAlertEmail: null,
         emailReadiness,
+        connections,
       };
     }
     return {
@@ -58,6 +73,7 @@ export default defineAction({
       automationFailureAlertsEnabled: row.automationFailureAlertsEnabled === 1,
       automationFailureAlertEmail: row.automationFailureAlertEmail,
       emailReadiness,
+      connections,
     };
   },
 });

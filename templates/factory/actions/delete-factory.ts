@@ -25,9 +25,9 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import {
-  ensureFactoryAutomations,
-  listEnabledFactoryAutomationNames,
   removeFactoryAutomationResources,
+  restoreFactoryAutomationSnapshots,
+  snapshotFactoryAutomations,
 } from "../server/plugins/factory-scheduler-job.js";
 
 export default defineAction({
@@ -53,7 +53,7 @@ export default defineAction({
       throw new Error("Factory name confirmation does not match.");
     }
 
-    const enabledNames = await listEnabledFactoryAutomationNames(
+    const snapshots = await snapshotFactoryAutomations(
       userEmail,
       orgId,
       factoryId,
@@ -63,7 +63,7 @@ export default defineAction({
     try {
       // Remove schedules before SQL so no new run can start; restore both if
       // either step fails so a partial cleanup cannot disable a surviving Factory.
-      await removeFactoryAutomationResources(orgId, factoryId);
+      await removeFactoryAutomationResources(orgId, factoryId, userEmail);
       await db.transaction(async (tx) => {
         const deleted = await tx
           .delete(factoryDefinitions)
@@ -114,9 +114,7 @@ export default defineAction({
       });
     } catch (error) {
       try {
-        await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-          enabledNames,
-        });
+        await restoreFactoryAutomationSnapshots(orgId, snapshots);
       } catch (repairError) {
         throw new Error(
           `Factory deletion failed and its automations could not be restored. Deletion error: ${
@@ -146,9 +144,7 @@ export default defineAction({
     }
     if (remaining) {
       try {
-        await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-          enabledNames,
-        });
+        await restoreFactoryAutomationSnapshots(orgId, snapshots);
       } catch (repairError) {
         throw new Error(
           `Factory still exists and its automations could not be restored. Restore error: ${

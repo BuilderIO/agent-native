@@ -5,6 +5,8 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageItems, triageDecisions } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
+import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
 import {
   factoryIdSchema,
   orgFactoryDecisionFilter,
@@ -24,11 +26,15 @@ import {
   triageRiskSchema,
   triageSourceSchema,
 } from "../server/triage/contracts.js";
+import {
+  triageItemAuthor,
+  triageItemAuthorId,
+} from "../server/triage/metadata.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
 export default defineAction({
   description:
-    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Results are scoped to the active workspace and include the latest shadow decision summary. Optional status, source, risk, and updatedAfter (ISO timestamp) filters narrow the queue. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
+    "List the Factory observation queue. Returns { items, nextCursor, hasMore }. Each item includes author when the source stored one. Results are scoped to the active workspace and include the latest shadow decision summary. Optional status, source, risk, and updatedAfter (ISO timestamp) filters narrow the queue. Scheduled reviewers must pass needsReview true with a bounded source and limit so unchanged items are not re-reviewed; iterate the items array.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     status: triageItemStatusSchema.optional(),
@@ -57,6 +63,23 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const calling = await readCallingFactoryAutomation(context, {
+      userEmail,
+      orgId,
+    });
+    const workLimit =
+      context?.caller === "automation"
+        ? (calling?.config.workLimit ?? 3)
+        : limit;
+    const effectiveLimit =
+      context?.caller === "automation" ? Math.min(limit, workLimit) : limit;
+    const fetchLimit =
+      context?.caller === "automation" &&
+      calling &&
+      calling.config.source === "github" &&
+      calling.config.authorIds.length > 0
+        ? Math.min(100, Math.max(effectiveLimit * 10, effectiveLimit))
+        : effectiveLimit;
     const parsedCursor = cursor ? decodeInboxCursor(cursor) : null;
     const updatedAfterBound = parseUpdatedAfter(updatedAfter);
     const db = getDb();
@@ -94,9 +117,23 @@ export default defineAction({
         ),
       )
       .orderBy(desc(triageItems.updatedAt), desc(triageItems.id))
-      .limit(limit + 1);
-    const page = rows.slice(0, limit);
-    const hasMore = rows.length > limit;
+      .limit(fetchLimit + 1);
+    let page = rows.slice(0, fetchLimit);
+    if (
+      context?.caller === "automation" &&
+      calling &&
+      calling.config.source === "github"
+    ) {
+      page = page.filter((item) =>
+        authorMatchesFilter(
+          triageItemAuthorId(item.metadataJson),
+          calling.config.authorMode,
+          calling.config.authorIds,
+        ),
+      );
+    }
+    const hasMore = rows.length > fetchLimit || page.length > effectiveLimit;
+    page = page.slice(0, effectiveLimit);
     const last = page[page.length - 1];
 
     const pageIds = page.map((item) => item.id);
@@ -137,6 +174,7 @@ export default defineAction({
         repository: item.repository,
         pullRequestNumber: item.pullRequestNumber,
         headSha: item.headSha,
+        author: triageItemAuthor(item.metadataJson) || null,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         userLabels: readStoredUserLabels(item.metadataJson),
@@ -168,7 +206,7 @@ export default defineAction({
           : `Loaded ${listedItems.length} recent ${source ?? "queue"} ${noun}.`,
         details: {
           purpose,
-          limit,
+          limit: effectiveLimit,
           count: listedItems.length,
           needsReview,
           status: status ?? null,

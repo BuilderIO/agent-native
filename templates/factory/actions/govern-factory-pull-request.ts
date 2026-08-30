@@ -2,7 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
-import { resolveConnectorSecret } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
 import {
   triageDecisions,
@@ -27,7 +26,6 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { createAiServicesGitReadClient } from "../server/triage/ai-services-git.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import {
   GitHubRequestError,
@@ -58,17 +56,6 @@ function hasUsableChangedFiles(
       (file) => typeof file === "string" && file.trim().length > 0,
     )
   );
-}
-
-function requiredAiServicesEnv(
-  name: "BUILDER_AI_SERVICES_URL" | "BUILDER_PROJECT_ID",
-): string {
-  const value =
-    name === "BUILDER_AI_SERVICES_URL"
-      ? process.env.BUILDER_AI_SERVICES_URL // guard:allow-env-credential - non-secret deployment endpoint
-      : process.env.BUILDER_PROJECT_ID; // guard:allow-env-credential - non-secret deployment project id
-  if (!value) throw new Error(`${name} is required for PR governance.`);
-  return value;
 }
 
 async function hasVerifiedFactoryRun(input: {
@@ -131,7 +118,7 @@ async function hasVerifiedFactoryRun(input: {
 
 export default defineAction({
   description:
-    "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
+    "Govern one pull request in this factory's repository after fetching bounded GitHub review, CI, and changed-file evidence. Auto-approve only under the current review-prs membership, Liam trust, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
@@ -220,20 +207,6 @@ export default defineAction({
           : "Pull request is not open and is excluded before evidence review.",
       };
     }
-    const privateKey = await resolveConnectorSecret(
-      "BUILDER_PRIVATE_KEY",
-      userEmail,
-      { orgId },
-    );
-    if (!privateKey)
-      throw new Error(
-        "BUILDER_PRIVATE_KEY is required to read PR review evidence.",
-      );
-    const projectId = requiredAiServicesEnv("BUILDER_PROJECT_ID");
-    const aiServicesGit = createAiServicesGitReadClient({
-      baseUrl: requiredAiServicesEnv("BUILDER_AI_SERVICES_URL"),
-      authorization: `Bearer ${privateKey.startsWith("bpk-") ? privateKey : `bpk-${privateKey}`}`,
-    });
     const reconcileClaim = async (headSha: string, reason: string) => {
       if (!itemId) return;
       await getDb().transaction(async (tx) => {
@@ -263,19 +236,17 @@ export default defineAction({
           .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       });
     };
-    const snapshot = await aiServicesGit.fetchPullRequest({
-      projectId,
-      repo,
-      pullRequestNumber,
-    });
-    if (snapshot.headSha !== pullRequest.headSha) {
-      throw new Error(
-        `PR evidence is stale: GitHub reports ${pullRequest.headSha}, ai-services reports ${snapshot.headSha}.`,
-      );
-    }
+    const [snapshot, changedFiles] = await Promise.all([
+      github.getPullRequestEvidence(
+        repository,
+        pullRequestNumber,
+        pullRequest.headSha,
+      ),
+      github.listPullRequestChangedFiles(repository, pullRequestNumber),
+    ]);
     const blockingReviewStatesClean = !hasCurrentBlockingPullRequestReview(
       snapshot.reviews,
-      snapshot.headSha,
+      pullRequest.headSha,
     );
     const safetyFindingsClean =
       !snapshot.commentsTruncated &&
@@ -284,7 +255,7 @@ export default defineAction({
     try {
       currentApprovals = currentPullRequestApprovals(
         snapshot.reviews,
-        snapshot.headSha,
+        pullRequest.headSha,
       );
     } catch (error) {
       const message =
@@ -292,16 +263,16 @@ export default defineAction({
           ? error.message
           : "unknown approval evidence error";
       await reconcileClaim(
-        snapshot.headSha,
+        pullRequest.headSha,
         `Approval evidence could not be verified: ${message}. Reconciliation is required before approval.`,
       );
       throw error;
     }
     const currentApproval = currentApprovals[0] ?? null;
-    if (!hasUsableChangedFiles(snapshot.changedFiles)) {
+    if (!hasUsableChangedFiles(changedFiles)) {
       const missingFilesReason =
         "Changed-file evidence is missing or invalid; approval requires reconciliation before retrying.";
-      await reconcileClaim(snapshot.headSha, missingFilesReason);
+      await reconcileClaim(pullRequest.headSha, missingFilesReason);
       await getDb()
         .update(triageItems)
         .set({
@@ -316,7 +287,7 @@ export default defineAction({
         context,
         { userEmail, orgId },
         {
-          action: "govern-agent-native-pull-request",
+          action: "govern-factory-pull-request",
           kind: "governance",
           status: "skipped",
           itemId: itemId ?? null,
@@ -355,18 +326,18 @@ export default defineAction({
           const message =
             error instanceof Error ? error.message : "unknown GitHub error";
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             `Live GitHub state could not be revalidated during approval recovery: ${message}. Reconciliation is required before approval.`,
           );
           throw error;
         }
         if (
-          livePullRequest.headSha !== snapshot.headSha ||
+          livePullRequest.headSha !== pullRequest.headSha ||
           livePullRequest.state !== "open" ||
           livePullRequest.draft
         ) {
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             "Live GitHub pull-request state changed during approval recovery; reconciliation is required before approval.",
           );
           return {
@@ -378,13 +349,13 @@ export default defineAction({
         }
         previouslyFinalized =
           existingItem.status === "auto_approved" &&
-          existingMetadata.autoApprovalHeadSha === snapshot.headSha &&
+          existingMetadata.autoApprovalHeadSha === pullRequest.headSha &&
           typeof existingMetadata.autoApprovalUrl === "string";
         const decisionId = stableId(
           "pr-governance",
           orgId,
           itemId,
-          snapshot.headSha,
+          pullRequest.headSha,
         );
         if (previouslyFinalized) {
           await getDb()
@@ -422,8 +393,8 @@ export default defineAction({
           currentAuthorMembership.isMember &&
           blockingReviewStatesClean &&
           safetyFindingsClean &&
-          hasUsableChangedFiles(snapshot.changedFiles) &&
-          !isUltraScaryChange(snapshot.changedFiles)
+          hasUsableChangedFiles(changedFiles) &&
+          !isUltraScaryChange(changedFiles)
         ) {
           recoveredApproval = await getDb().transaction(async (tx) => {
             const recovered = await tx
@@ -455,7 +426,7 @@ export default defineAction({
             const metadata = parseTriageMetadata(latestItem.metadataJson);
             metadata.autoApprovedAt = new Date().toISOString();
             metadata.autoApprovalUrl = attributedApprovalUrl;
-            metadata.autoApprovalHeadSha = snapshot.headSha;
+            metadata.autoApprovalHeadSha = pullRequest.headSha;
             await tx
               .update(triageItems)
               .set({
@@ -472,7 +443,7 @@ export default defineAction({
             context,
             { userEmail, orgId },
             {
-              action: "govern-agent-native-pull-request",
+              action: "govern-factory-pull-request",
               kind: "external_action",
               status: "success",
               itemId,
@@ -503,7 +474,7 @@ export default defineAction({
             and(
               eq(
                 triageDecisions.id,
-                stableId("pr-governance", orgId, itemId, snapshot.headSha),
+                stableId("pr-governance", orgId, itemId, pullRequest.headSha),
               ),
               eq(triageDecisions.itemId, itemId),
               eq(triageDecisions.orgId, orgId),
@@ -536,7 +507,6 @@ export default defineAction({
     }
 
     const checksPassed =
-      snapshot.coverage === "complete" &&
       snapshot.checks.length > 0 &&
       snapshot.checks.every((check) => check.state === "passed");
     const reviewFeedback = reconcileBabysitState({
@@ -569,7 +539,7 @@ export default defineAction({
       repository: repo,
       title: pullRequest.title,
       summary: pullRequest.body,
-      changedFiles: snapshot.changedFiles,
+      changedFiles: changedFiles,
       clearBug,
       productUxImplications,
       checksPassed,
@@ -585,7 +555,7 @@ export default defineAction({
       context,
       { userEmail, orgId },
       {
-        action: "govern-agent-native-pull-request",
+        action: "govern-factory-pull-request",
         kind: "governance",
         status: "skipped",
         itemId: itemId ?? null,
@@ -625,7 +595,7 @@ export default defineAction({
         "pr-governance",
         orgId,
         itemId,
-        snapshot.headSha,
+        pullRequest.headSha,
       );
       await getDb().transaction(async (tx) => {
         const inserted = await tx
@@ -738,24 +708,33 @@ export default defineAction({
 
     if (itemId) {
       let postClaimSnapshot: Awaited<
-        ReturnType<typeof aiServicesGit.fetchPullRequest>
+        ReturnType<typeof github.getPullRequestEvidence>
       >;
+      let postClaimChangedFiles: readonly string[];
+      let postClaimPullRequest = pullRequest;
       try {
-        postClaimSnapshot = await aiServicesGit.fetchPullRequest({
-          projectId,
-          repo,
+        postClaimPullRequest = await github.getPullRequestSummary(
+          repository,
           pullRequestNumber,
-        });
-        if (postClaimSnapshot.headSha !== snapshot.headSha) {
+        );
+        if (postClaimPullRequest.headSha !== pullRequest.headSha) {
           throw new Error(
-            `PR evidence changed after approval claim: expected ${snapshot.headSha}, received ${postClaimSnapshot.headSha}.`,
+            `PR evidence changed after approval claim: expected ${pullRequest.headSha}, received ${postClaimPullRequest.headSha}.`,
           );
         }
+        [postClaimSnapshot, postClaimChangedFiles] = await Promise.all([
+          github.getPullRequestEvidence(
+            repository,
+            pullRequestNumber,
+            postClaimPullRequest.headSha,
+          ),
+          github.listPullRequestChangedFiles(repository, pullRequestNumber),
+        ]);
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "unknown evidence error";
         await reconcileClaim(
-          snapshot.headSha,
+          pullRequest.headSha,
           `Post-claim PR evidence could not be verified: ${message}. Reconciliation is required before approval.`,
         );
         throw error;
@@ -763,7 +742,7 @@ export default defineAction({
       const postClaimBlockingReviewStatesClean =
         !hasCurrentBlockingPullRequestReview(
           postClaimSnapshot.reviews,
-          postClaimSnapshot.headSha,
+          pullRequest.headSha,
         );
       const postClaimSafetyFindingsClean =
         !postClaimSnapshot.commentsTruncated &&
@@ -771,9 +750,9 @@ export default defineAction({
           postClaimSnapshot.reviews,
           postClaimSnapshot.comments,
         );
-      if (!hasUsableChangedFiles(postClaimSnapshot.changedFiles)) {
+      if (!hasUsableChangedFiles(postClaimChangedFiles)) {
         await reconcileClaim(
-          snapshot.headSha,
+          pullRequest.headSha,
           "Changed-file evidence disappeared after approval claim; reconciliation is required before approval.",
         );
         return {
@@ -784,7 +763,6 @@ export default defineAction({
         };
       }
       const postClaimChecksPassed =
-        postClaimSnapshot.coverage === "complete" &&
         postClaimSnapshot.checks.length > 0 &&
         postClaimSnapshot.checks.every((check) => check.state === "passed");
       const postClaimReviewFeedback = reconcileBabysitState({
@@ -809,9 +787,9 @@ export default defineAction({
         author: pullRequest.userLogin,
         authorId: pullRequest.userId,
         repository: repo,
-        title: postClaimSnapshot.title,
-        summary: postClaimSnapshot.summary,
-        changedFiles: postClaimSnapshot.changedFiles,
+        title: postClaimPullRequest.title,
+        summary: postClaimPullRequest.body,
+        changedFiles: postClaimChangedFiles,
         clearBug,
         productUxImplications,
         checksPassed: postClaimChecksPassed,
@@ -824,7 +802,7 @@ export default defineAction({
       });
       if (!postClaimGovernance.autoApprove) {
         await reconcileClaim(
-          snapshot.headSha,
+          pullRequest.headSha,
           `Post-claim PR evidence no longer satisfies the approval gates: ${postClaimGovernance.reason}`,
         );
         return {
@@ -838,7 +816,7 @@ export default defineAction({
       try {
         postClaimApprovals = currentPullRequestApprovals(
           postClaimSnapshot.reviews,
-          postClaimSnapshot.headSha,
+          pullRequest.headSha,
         );
       } catch (error) {
         const message =
@@ -846,7 +824,7 @@ export default defineAction({
             ? error.message
             : "unknown approval evidence error";
         await reconcileClaim(
-          snapshot.headSha,
+          pullRequest.headSha,
           `Post-claim approval evidence could not be verified: ${message}. Reconciliation is required before approval.`,
         );
         throw error;
@@ -864,7 +842,7 @@ export default defineAction({
               and(
                 eq(
                   triageDecisions.id,
-                  stableId("pr-governance", orgId, itemId, snapshot.headSha),
+                  stableId("pr-governance", orgId, itemId, pullRequest.headSha),
                 ),
                 eq(triageDecisions.itemId, itemId),
                 eq(triageDecisions.orgId, orgId),
@@ -905,7 +883,7 @@ export default defineAction({
       const metadata = parseTriageMetadata(item.metadataJson);
       const previouslyApproved =
         item.status === "auto_approved" &&
-        metadata.autoApprovalHeadSha === snapshot.headSha &&
+        metadata.autoApprovalHeadSha === pullRequest.headSha &&
         typeof metadata.autoApprovalUrl === "string";
       if (previouslyApproved) approvalUrl = metadata.autoApprovalUrl as string;
       if (!previouslyApproved) {
@@ -919,18 +897,18 @@ export default defineAction({
           const message =
             error instanceof Error ? error.message : "unknown GitHub error";
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             `Live GitHub state could not be revalidated: ${message}. Reconciliation is required before approval.`,
           );
           throw error;
         }
         if (
-          livePullRequest.headSha !== snapshot.headSha ||
+          livePullRequest.headSha !== pullRequest.headSha ||
           livePullRequest.state !== "open" ||
           livePullRequest.draft
         ) {
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             "Live GitHub pull-request state changed after review; reconciliation is required before approval.",
           );
           return {
@@ -942,23 +920,27 @@ export default defineAction({
         }
         let finalReviewSnapshot;
         try {
-          finalReviewSnapshot = await aiServicesGit.fetchPullRequest({
-            projectId,
-            repo,
+          const finalPullRequest = await github.getPullRequestSummary(
+            repository,
             pullRequestNumber,
-          });
-          if (finalReviewSnapshot.headSha !== snapshot.headSha) {
+          );
+          if (finalPullRequest.headSha !== pullRequest.headSha) {
             throw new Error(
-              `PR review evidence changed before approval: expected ${snapshot.headSha}, received ${finalReviewSnapshot.headSha}.`,
+              `PR review evidence changed before approval: expected ${pullRequest.headSha}, received ${finalPullRequest.headSha}.`,
             );
           }
+          finalReviewSnapshot = await github.getPullRequestEvidence(
+            repository,
+            pullRequestNumber,
+            finalPullRequest.headSha,
+          );
         } catch (error) {
           const message =
             error instanceof Error
               ? error.message
               : "unknown review evidence error";
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             `Review evidence could not be revalidated before approval: ${message}. Reconciliation is required before approval.`,
           );
           throw error;
@@ -967,7 +949,7 @@ export default defineAction({
         try {
           finalApprovals = currentPullRequestApprovals(
             finalReviewSnapshot.reviews,
-            finalReviewSnapshot.headSha,
+            pullRequest.headSha,
           );
         } catch (error) {
           const message =
@@ -975,7 +957,7 @@ export default defineAction({
               ? error.message
               : "unknown approval evidence error";
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             `Approval evidence could not be revalidated before approval: ${message}. Reconciliation is required before approval.`,
           );
           throw error;
@@ -984,7 +966,7 @@ export default defineAction({
           finalApprovals.length > 0 ||
           hasCurrentBlockingPullRequestReview(
             finalReviewSnapshot.reviews,
-            finalReviewSnapshot.headSha,
+            pullRequest.headSha,
           ) ||
           finalReviewSnapshot.commentsTruncated ||
           hasActiveCredibleSafetyFinding(
@@ -993,7 +975,7 @@ export default defineAction({
           )
         ) {
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             "Review evidence changed before approval; reconciliation is required before retrying.",
           );
           return {
@@ -1007,7 +989,7 @@ export default defineAction({
           "pr-governance",
           orgId,
           itemId,
-          snapshot.headSha,
+          pullRequest.headSha,
         );
         let approval: Awaited<ReturnType<typeof github.approvePullRequest>>;
         try {
@@ -1019,7 +1001,7 @@ export default defineAction({
               : governance.ownerException
                 ? `Factory auto-approved under decision ${decisionId}; verified ${governance.ownerException} owner exception; ordinary check and review states remain recorded.`
                 : `Factory auto-approved under decision ${decisionId}; verified BuilderIO membership; ordinary check and review states remain recorded.`,
-            snapshot.headSha,
+            pullRequest.headSha,
           );
         } catch (error) {
           if (error instanceof GitHubRequestError) {
@@ -1046,7 +1028,7 @@ export default defineAction({
                           "pr-governance",
                           orgId,
                           itemId,
-                          snapshot.headSha,
+                          pullRequest.headSha,
                         ),
                       ),
                       eq(triageDecisions.itemId, itemId),
@@ -1071,7 +1053,7 @@ export default defineAction({
                   context,
                   { userEmail, orgId },
                   {
-                    action: "govern-agent-native-pull-request",
+                    action: "govern-factory-pull-request",
                     kind: "external_action",
                     status: "error",
                     itemId,
@@ -1102,14 +1084,14 @@ export default defineAction({
           const message =
             error instanceof Error ? error.message : "unknown GitHub error";
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             `Live GitHub state could not be revalidated after approval: ${message}. Reconciliation is required before finalizing.`,
           );
           throw error;
         }
-        if (postApprovalPullRequest.headSha !== snapshot.headSha) {
+        if (postApprovalPullRequest.headSha !== pullRequest.headSha) {
           await reconcileClaim(
-            snapshot.headSha,
+            pullRequest.headSha,
             "The pull request changed after approval was posted; reconciliation is required before finalizing.",
           );
           return {
@@ -1132,7 +1114,7 @@ export default defineAction({
         const latestMetadata = parseTriageMetadata(latestItem.metadataJson);
         latestMetadata.autoApprovedAt = new Date().toISOString();
         latestMetadata.autoApprovalUrl = approval.htmlUrl;
-        latestMetadata.autoApprovalHeadSha = snapshot.headSha;
+        latestMetadata.autoApprovalHeadSha = pullRequest.headSha;
         await getDb()
           .update(triageItems)
           .set({
@@ -1148,7 +1130,7 @@ export default defineAction({
             and(
               eq(
                 triageDecisions.id,
-                stableId("pr-governance", orgId, itemId, snapshot.headSha),
+                stableId("pr-governance", orgId, itemId, pullRequest.headSha),
               ),
               eq(triageDecisions.itemId, itemId),
               eq(triageDecisions.orgId, orgId),
@@ -1167,7 +1149,7 @@ export default defineAction({
       context,
       { userEmail, orgId },
       {
-        action: "govern-agent-native-pull-request",
+        action: "govern-factory-pull-request",
         kind: "external_action",
         itemId: itemId ?? null,
         source: "github",

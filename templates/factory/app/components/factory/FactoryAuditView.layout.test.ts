@@ -43,4 +43,22 @@ describe("FactoryAuditView outcome-first audit", () => {
       "lg:grid-cols-[minmax(240px,.4fr)_minmax(0,1fr)]",
     );
   });
+
+  it("filters and paginates recent runs like Inbox", () => {
+    const source = readViewSource();
+    expect(source).toContain("setAuditFilter");
+    expect(source).toContain('t("factoryRoute.auditAutomationLabel")');
+    expect(source).toContain('t("triage.rangeLabel")');
+    expect(source).toContain("goToNextPage");
+    expect(source).toContain("goToPreviousPage");
+    expect(source).toContain('behavior: "smooth"');
+    expect(source).toContain("shouldScrollOnSelectRef");
+    const runListIdx = source.indexOf('className="factory-audit-run-list"');
+    const filtersIdx = source.indexOf("runListFilters");
+    const rangeFilterIdx = source.indexOf('id="factory-audit-range-filter"');
+    expect(runListIdx).toBeGreaterThan(-1);
+    expect(filtersIdx).toBeGreaterThan(-1);
+    expect(rangeFilterIdx).toBeGreaterThan(-1);
+    expect(source.indexOf("{runListFilters}")).toBeGreaterThan(runListIdx);
+  });
 });

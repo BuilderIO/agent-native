@@ -16,16 +16,22 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
+import { parseGitHubRepositoryRef } from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import {
+  githubIssueReaction,
+  parseOptionalReaction,
+} from "../server/lib/source-reaction.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
-import { startBuilderRun } from "../server/triage/builder-executor.js";
+import { createGitHubClient } from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
   metadataBoolean,
+  metadataString,
   parseTriageMetadata,
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
@@ -37,7 +43,7 @@ import {
 
 /** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
 const REPLY_INSTRUCTION =
-  "please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; an 👀 reaction or this handoff alone is not completion.";
+  "please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; a reaction or this handoff alone is not completion.";
 const plaintextBuilderReplyPrefix =
   "@builder.io please run /address-feedback in the repo to address this feedback.";
 const legacyReplyTextPrefix = "@builderio please fix this in a reply.";
@@ -156,6 +162,40 @@ export function replyTextForItem(
     .join("\n");
 }
 
+export const GITHUB_BOT_REQUEST =
+  "@builderio-bot please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the linked evidence, and fix the owning boundary. Please send a PR when ready.";
+
+export function parseFactoryGitHubIssueNumber(input: {
+  externalId: string | null;
+  sourceUrl: string | null;
+}): number {
+  const fromExternal = /#(\d+)$/.exec(input.externalId?.trim() ?? "");
+  if (fromExternal) return Number(fromExternal[1]);
+  const fromUrl = /\/issues\/(\d+)(?:[/?#]|$)/.exec(input.sourceUrl ?? "");
+  if (fromUrl) return Number(fromUrl[1]);
+  throw new Error("GitHub issue item is missing an issue number.");
+}
+
+export function githubBotDispatchText(input: {
+  itemId: string;
+  sourceUrl: string | null;
+  reason: string;
+  clearErrorReport?: string;
+  relatedItems?: RelatedFeedbackItem[];
+}): string {
+  return [
+    GITHUB_BOT_REQUEST,
+    `Factory item: ${input.itemId}`,
+    input.sourceUrl ? `Source: ${input.sourceUrl}` : "",
+    input.reason ? `Why this is a clear bug: ${input.reason}` : "",
+    input.clearErrorReport ? `Error report:\n${input.clearErrorReport}` : "",
+    relatedFeedbackSummary(input.relatedItems ?? []),
+    "Include the Factory item id and source link in the pull request description.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function relatedFeedbackSummary(relatedItems: RelatedFeedbackItem[]): string {
   if (relatedItems.length === 0) return "";
   return [
@@ -242,13 +282,30 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Start the governed clear-bug Builder flow for a Factory item, or record a skip with a reason when clearBug is false. Slack items stay in-thread: this action adds 👀 and pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Tag Builder for a Factory item, or record a skip when clearBug is false. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Pass optional reaction (an emoji name such as robot_face) to mark the item source when that provider can; omit it to add no reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
-    clearBug: z.boolean(),
+    clearBug: z
+      .boolean()
+      .describe(
+        "True when the item is a concrete, reproducible defect with enough evidence to investigate (including visual/UI defects such as a duplicate control, broken layout, or incorrect state). False for feature requests, vague questions, and incomplete threads.",
+      ),
     reason: z.string().trim().min(1).max(4_000),
-    productUxImplications: z.boolean().default(false),
+    productUxImplications: z
+      .boolean()
+      .default(false)
+      .describe(
+        "True only when a human must choose product or design direction with no single correct fix (prioritization, new feature, taste, or “should we…”). Leave false for concrete reproducible bugs, including visual/UI defects. True holds the item for manual ownership and does not tag Builder — do not set true just because the report mentions UI or UX.",
+      ),
     clearErrorReport: z.string().trim().max(8_000).optional(),
+    reaction: z
+      .string()
+      .trim()
+      .max(50)
+      .optional()
+      .describe(
+        "Emoji name to add on the item source when that provider can, for example robot_face. Omit to add no reaction.",
+      ),
     relatedItemIds: z
       .array(z.string().trim().min(1))
       .max(10)
@@ -265,10 +322,12 @@ export default defineAction({
       reason,
       productUxImplications,
       clearErrorReport,
+      reaction,
       relatedItemIds,
     },
     context,
   ) => {
+    const reactionName = parseOptionalReaction(reaction);
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -408,7 +467,7 @@ export default defineAction({
       context,
       { userEmail, orgId },
       {
-        action: "start-builder-for-item",
+        action: "dispatch-factory-item",
         kind: "decision",
         factoryId,
         itemId,
@@ -463,11 +522,10 @@ export default defineAction({
         .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)))
         .limit(1)
     )[0];
-    const retryableSlackRun =
-      isSlack &&
+    const retryableRun =
       existing &&
       (existing.status === "failed" || existing.status === "cancelled");
-    if (existing && !retryableSlackRun) {
+    if (existing && !retryableRun) {
       return {
         ok: true,
         started: true,
@@ -478,7 +536,7 @@ export default defineAction({
     }
 
     await db.transaction(async (tx) => {
-      if (retryableSlackRun) {
+      if (retryableRun) {
         await tx
           .update(triageRuns)
           .set({
@@ -500,7 +558,7 @@ export default defineAction({
           id: runId,
           itemId,
           source: item.source,
-          provider: isSlack ? "bot-tag" : "builder-http",
+          provider: "bot-tag",
           dedupeKey,
           approvalEmail: null,
           status: "submitted",
@@ -576,23 +634,28 @@ export default defineAction({
             );
           }
         }
-        for (const feedbackItem of [item, ...relatedItems]) {
-          const reactionState = await slack.getEyesReaction(
-            workspace,
-            feedbackItem.channelId!,
-            feedbackItem.threadTs!,
-          );
-          const reaction = reactionState.eyesPresent
-            ? { added: false, already_present: true }
-            : await slack.addEyesReaction(
-                workspace,
-                feedbackItem.channelId!,
-                feedbackItem.threadTs!,
-              );
-          await writeMetadata(feedbackItem.id, orgId, {
-            slackEyesReactedAt: new Date().toISOString(),
-            slackEyesReactionAlreadyPresent: reaction.already_present,
-          });
+        if (reactionName) {
+          for (const feedbackItem of [item, ...relatedItems]) {
+            const reactionState = await slack.hasReaction(
+              workspace,
+              feedbackItem.channelId!,
+              feedbackItem.threadTs!,
+              reactionName,
+            );
+            const applied = reactionState.present
+              ? { added: false, already_present: true }
+              : await slack.addReaction(
+                  workspace,
+                  feedbackItem.channelId!,
+                  feedbackItem.threadTs!,
+                  reactionName,
+                );
+            await writeMetadata(feedbackItem.id, orgId, {
+              slackReactedAt: new Date().toISOString(),
+              slackReactionName: reactionName,
+              slackReactionAlreadyPresent: applied.already_present,
+            });
+          }
         }
         const hasBuilderReply = thread.messages.some((message) =>
           messageHasBuilderHandoff(message.text, builderSlackUserId),
@@ -692,7 +755,7 @@ export default defineAction({
           context,
           { userEmail, orgId },
           {
-            action: "start-builder-for-item",
+            action: "dispatch-factory-item",
             kind: "external_action",
             factoryId,
             itemId,
@@ -717,44 +780,89 @@ export default defineAction({
         };
       }
 
-      const result = await startBuilderRun({
-        runId,
+      if (item.source !== "github_issue" && item.source !== "sentry") {
+        throw new Error(
+          `Factory can only tag Builder from Slack, a GitHub issue, or Sentry. Received ${item.source}.`,
+        );
+      }
+      const config = await readTriageConfigRow(db, orgId, factoryId);
+      if (!config?.repository) {
+        throw new Error(
+          "Configure a Factory GitHub repository before tagging @builderio-bot.",
+        );
+      }
+      const repositoryRef =
+        item.source === "github_issue" && item.repository
+          ? item.repository
+          : item.source === "github_issue" && item.externalId?.includes("#")
+            ? item.externalId.slice(0, item.externalId.lastIndexOf("#"))
+            : config.repository;
+      const repository = parseGitHubRepositoryRef(repositoryRef);
+      const github = createGitHubClient({ ownerEmail: userEmail, orgId });
+      const dispatchBody = githubBotDispatchText({
         itemId,
-        ownerEmail: userEmail,
-        orgId,
-        repository: item.repository,
-        summary: item.summary,
         sourceUrl: item.sourceUrl,
-        instructions: [
-          "Run /address-feedback in the repository and read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant. Inspect all linked evidence and repeat reports, then fix the smallest owning boundary and verify it before opening the PR.",
-          reason,
-          clearErrorReport ? `Error report:\n${clearErrorReport}` : "",
-          relatedFeedbackSummary(relatedItems),
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
+        reason,
+        clearErrorReport,
+        relatedItems,
       });
+      const storedIssueNumber = Number(
+        metadataString(metadata, "githubDispatchIssueNumber"),
+      );
+      let issueNumber =
+        Number.isInteger(storedIssueNumber) && storedIssueNumber > 0
+          ? storedIssueNumber
+          : item.source === "github_issue"
+            ? parseFactoryGitHubIssueNumber({
+                externalId: item.externalId,
+                sourceUrl: item.sourceUrl,
+              })
+            : null;
+      let issueUrl = metadataString(metadata, "githubDispatchIssueUrl") ?? null;
+      if (issueNumber == null) {
+        const created = await github.createIssue(repository, {
+          title: item.title,
+          body: dispatchBody,
+        });
+        issueNumber = created.number;
+        issueUrl = created.htmlUrl;
+        await writeMetadata(itemId, orgId, {
+          githubDispatchIssueNumber: String(created.number),
+          githubDispatchIssueUrl: created.htmlUrl,
+        });
+      } else {
+        const comment = await github.createIssueComment(
+          repository,
+          issueNumber,
+          dispatchBody,
+        );
+        issueUrl = comment.htmlUrl;
+        await writeMetadata(itemId, orgId, {
+          githubDispatchIssueNumber: String(issueNumber),
+          githubDispatchIssueUrl: issueUrl,
+        });
+      }
+      const githubReaction = githubIssueReaction(reactionName);
+      if (githubReaction) {
+        await github.addIssueReaction(repository, issueNumber, githubReaction);
+      }
       await db
         .update(triageRuns)
         .set({
           status: "acknowledged",
-          providerTaskId: result.providerTaskId ?? null,
+          providerTaskId: String(issueNumber),
           progressLogJson: JSON.stringify([
             { at: now, state: "submitted", reason },
             {
               at: new Date().toISOString(),
               state: "acknowledged",
               reason:
-                "Builder accepted the fire-and-forget request; waiting for the signed callback.",
+                "Tagged @builderio-bot on the GitHub issue; waiting for a pull request.",
             },
           ]),
           heartbeatAt: new Date().toISOString(),
         })
         .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
-      await writeMetadata(itemId, orgId, {
-        builderProviderTaskId: result.providerTaskId ?? null,
-        builderBranchName: result.branchName,
-      });
       await db
         .update(triageItems)
         .set({
@@ -766,18 +874,20 @@ export default defineAction({
         context,
         { userEmail, orgId },
         {
-          action: "start-builder-for-item",
+          action: "dispatch-factory-item",
           kind: "external_action",
           factoryId,
           itemId,
           source: item.source,
-          sourceUrl: item.sourceUrl,
-          summary: "Submitted the clear bug to Builder.",
+          sourceUrl: issueUrl ?? item.sourceUrl,
+          summary:
+            "Tagged @builderio-bot on a GitHub issue and requested a PR.",
           details: {
-            provider: "builder-http",
+            provider: "bot-tag",
             runId,
             factoryRunId: runId,
-            providerTaskId: result.providerTaskId ?? null,
+            githubIssueNumber: issueNumber,
+            githubIssueUrl: issueUrl,
           },
         },
       );
@@ -786,7 +896,9 @@ export default defineAction({
         started: true,
         deduplicated: false,
         runId,
-        provider: "builder-http",
+        provider: "bot-tag",
+        githubIssueNumber: issueNumber,
+        githubIssueUrl: issueUrl,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -803,7 +915,7 @@ export default defineAction({
         context,
         { userEmail, orgId },
         {
-          action: "start-builder-for-item",
+          action: "dispatch-factory-item",
           kind: "external_action",
           factoryId,
           itemId,
@@ -812,7 +924,7 @@ export default defineAction({
           status: "error",
           summary: `Builder dispatch failed: ${message}`,
           details: {
-            provider: isSlack ? "bot-tag" : "builder-http",
+            provider: "bot-tag",
             runId,
             factoryRunId: runId,
           },

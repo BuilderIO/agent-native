@@ -41,7 +41,7 @@ const checkSchema: z.ZodType<PullRequestCheckObservation> = z.object({
 
 export default defineAction({
   description:
-    "Ingest one read-only GitHub pull-request observation from the existing ai-services boundary into Factory. This action records evidence only and never writes to GitHub.",
+    "Ingest one read-only GitHub pull-request observation into Factory. This action records evidence only and never writes to GitHub.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),

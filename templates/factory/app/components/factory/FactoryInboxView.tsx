@@ -18,7 +18,6 @@ import {
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { useSearchParams } from "react-router";
 
-import { canStartFactoryApproval } from "@/components/factory/inbox-approve";
 import {
   INBOX_RANGES,
   INBOX_RISKS,
@@ -62,6 +61,7 @@ type InboxListItem = {
   status?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  author?: string | null;
   reason?: string | null;
   userLabels?: Record<string, string>;
 };
@@ -187,7 +187,6 @@ export function FactoryInboxView({
     },
   );
   const feedbackMutation = useActionMutation("record-triage-feedback");
-  const approveMutation = useActionMutation("approve-factory-item");
   const builderSlackUserId =
     slackQuery.data?.builderSlackUserId ??
     configQuery.data?.builderSlackUserId ??
@@ -383,6 +382,9 @@ export function FactoryInboxView({
                         <span className="min-w-0">
                           <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
                             {formatInboxSource(item.source ?? item.sourceName)}
+                            {item.author?.trim()
+                              ? ` · ${item.author.trim()}`
+                              : ""}
                           </span>
                           <span className="mt-0.5 block truncate text-sm font-medium">
                             <SlackMrkdwn
@@ -491,7 +493,6 @@ export function FactoryInboxView({
                   setVerdict={setVerdict}
                   feedbackNote={feedbackNote}
                   setFeedbackNote={setFeedbackNote}
-                  approveMutation={approveMutation}
                   feedbackMutation={feedbackMutation}
                 />
               )}
@@ -515,7 +516,6 @@ function InboxDetailPane({
   setVerdict,
   feedbackNote,
   setFeedbackNote,
-  approveMutation,
   feedbackMutation,
 }: {
   factoryId: string;
@@ -529,16 +529,6 @@ function InboxDetailPane({
   setVerdict: (value: Verdict) => void;
   feedbackNote: string;
   setFeedbackNote: (value: string) => void;
-  approveMutation: {
-    mutate: (input: {
-      factoryId: string;
-      itemId: string;
-      decisionId: string;
-      confirm: true;
-    }) => void;
-    isPending: boolean;
-    isError: boolean;
-  };
   feedbackMutation: {
     mutate: (input: {
       factoryId: string;
@@ -566,11 +556,17 @@ function InboxDetailPane({
   const events = item.events ?? [];
   const runs = item.runs ?? [];
   const slack = isSlackSource(source);
+  const author = (item.author ?? listItem?.author)?.trim() || null;
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <TriageStatusPill status={item.status ?? listItem?.status} />
+        {author ? (
+          <span className="text-xs text-muted-foreground">
+            {t("triage.author")}: {author}
+          </span>
+        ) : null}
         {sourceUrl && (
           <a
             href={sourceUrl}
@@ -583,14 +579,6 @@ function InboxDetailPane({
           </a>
         )}
       </div>
-
-      <InboxApproveButton
-        factoryId={factoryId}
-        item={item}
-        latestDecision={latestDecision}
-        approveMutation={approveMutation}
-        t={t}
-      />
 
       {reason ? (
         <div className="rounded-md bg-muted/40 py-2">
@@ -738,58 +726,6 @@ function SlackMessageCard({
         />
       </div>
     </article>
-  );
-}
-
-function InboxApproveButton({
-  factoryId,
-  item,
-  latestDecision,
-  approveMutation,
-  t,
-}: {
-  factoryId: string;
-  item: InboxDetail;
-  latestDecision: InboxDecision | undefined;
-  approveMutation: {
-    mutate: (input: {
-      factoryId: string;
-      itemId: string;
-      decisionId: string;
-      confirm: true;
-    }) => void;
-    isPending: boolean;
-    isError: boolean;
-  };
-  t: ReturnType<typeof useT>;
-}) {
-  const canApprove = canStartFactoryApproval({
-    hasDecision: Boolean(latestDecision),
-    itemStatus: item.status,
-    runs: item.runs ?? [],
-  });
-  return (
-    <div className="space-y-2">
-      <Button
-        size="sm"
-        onClick={() => {
-          if (!latestDecision || !canApprove) return;
-          approveMutation.mutate({
-            factoryId,
-            itemId: inboxItemId(item),
-            decisionId: latestDecision.decisionId,
-            confirm: true,
-          });
-        }}
-        disabled={!canApprove || approveMutation.isPending}
-      >
-        <IconPlayerPlay className="size-4" />
-        {t("factoryRoute.approveAndStart")}
-      </Button>
-      {approveMutation.isError ? (
-        <p className="text-sm text-destructive">{t("triage.approvalError")}</p>
-      ) : null}
-    </div>
   );
 }
 
