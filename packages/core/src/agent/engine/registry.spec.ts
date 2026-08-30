@@ -1230,6 +1230,79 @@ describe("AgentEngine registry", () => {
       expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
     });
 
+    it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
+      process.env.AGENT_ENGINE = "builder";
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({ isSyntheticTraffic: true }),
+        getRequestUserEmail: () => "visitor@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          canUseDeployCredentialFallbackForRequest: () => false,
+          getProviderCredentialAuthFailure: vi.fn(async () => null),
+          resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+            privateKey: null,
+            publicKey: null,
+            lookupFailed: false,
+            lane: null,
+          })),
+          resolveBuilderGatewayCredentialsDetailed: vi.fn(async () => ({
+            privateKey: null,
+            publicKey: null,
+            lookupFailed: false,
+            lane: null,
+          })),
+          resolveSecret: vi.fn(async (key: string) =>
+            key === "OPENAI_API_KEY" ? "sk-openai-user" : null,
+          ),
+        }),
+      );
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const builderCreate = vi.fn().mockReturnValue({
+        name: "builder",
+        stream: vi.fn(),
+      } as any);
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "builder-model",
+        supportedModels: ["builder-model"],
+        requiredEnvVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.6-luna",
+        supportedModels: ["gpt-5.6-luna"],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({});
+
+      expect(resolved).toBe(openAiEngine);
+      expect(builderCreate).not.toHaveBeenCalled();
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "sk-openai-user",
+        allowEnvFallback: false,
+      });
+    });
+
     it("does not select builder from a gateway token without its space id", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
