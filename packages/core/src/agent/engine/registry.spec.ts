@@ -1232,11 +1232,7 @@ describe("AgentEngine registry", () => {
 
     it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
       process.env.AGENT_ENGINE = "builder";
-      vi.doMock("../../server/request-context.js", () => ({
-        getRequestContext: () => ({ isSyntheticTraffic: true }),
-        getRequestUserEmail: () => "visitor@example.com",
-        getRequestOrgId: () => undefined,
-      }));
+      vi.doUnmock("../../server/request-context.js");
       vi.doMock(
         "../../server/credential-provider.js",
         async (importOriginal) => ({
@@ -1265,6 +1261,8 @@ describe("AgentEngine registry", () => {
 
       const { registerAgentEngine, resolveEngine } =
         await import("./registry.js");
+      const { runWithRequestContext } =
+        await import("../../server/request-context.js");
       const builderCreate = vi.fn().mockReturnValue({
         name: "builder",
         stream: vi.fn(),
@@ -1293,7 +1291,10 @@ describe("AgentEngine registry", () => {
         create: openAiCreate,
       });
 
-      const resolved = await resolveEngine({});
+      const resolved = await runWithRequestContext(
+        { userEmail: "visitor@example.com", isSyntheticTraffic: true },
+        () => resolveEngine({}),
+      );
 
       expect(resolved).toBe(openAiEngine);
       expect(builderCreate).not.toHaveBeenCalled();
