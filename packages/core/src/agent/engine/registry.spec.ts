@@ -1018,6 +1018,25 @@ describe("AgentEngine registry", () => {
     expect(detectEngineFromEnv()).toBeNull();
   });
 
+  it("accepts bundled optional packages on a Netlify function runtime", async () => {
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    expect(
+      isAgentEnginePackageInstalled({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        installPackage: "@agent-native/definitely-missing-ai-provider",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create: vi.fn() as any,
+      }),
+    ).toBe(true);
+  });
+
   it("registers the builder engine with both credential shapes", async () => {
     const { registerBuiltinEngines } = await import("./builtin.js");
     const { getAgentEngineEntry } = await import("./registry.js");
