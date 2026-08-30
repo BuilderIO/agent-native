@@ -16,10 +16,6 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
-import {
-  invalidateAgentEngineStatusLookups,
-  isAgentEngineStatusCredentialKey,
-} from "../server/agent-engine-status-cache.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
@@ -229,9 +225,6 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
       sql: `${upsertSql} RETURNING id`,
       args: upsertArgs,
     });
-    if (isAgentEngineStatusCredentialKey(key)) {
-      invalidateAgentEngineStatusLookups();
-    }
     return String(rows[0]?.id ?? id);
   }
 
@@ -241,9 +234,6 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   // relying on it. The row is guaranteed to exist at this point, so this is
   // a plain lookup rather than a TOCTOU-prone gate on the write itself.
   await client.execute({ sql: upsertSql, args: upsertArgs });
-  if (isAgentEngineStatusCredentialKey(key)) {
-    invalidateAgentEngineStatusLookups();
-  }
   const { rows } = await client.execute({
     sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
@@ -698,8 +688,5 @@ export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
     sql: `DELETE FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?`,
     args: [scope, scopeId, key],
   });
-  if (rowsAffected > 0 && isAgentEngineStatusCredentialKey(key)) {
-    invalidateAgentEngineStatusLookups();
-  }
   return rowsAffected > 0;
 }
