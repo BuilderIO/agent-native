@@ -165,6 +165,9 @@ function isBundledServerlessRuntime(): boolean {
   // Nitro's Vercel/Netlify presets inline optional peers into the function
   // bundle; these platforms always set these markers.
   if (env.VERCEL || env.NETLIFY || env.NETLIFY_FUNCTION_NAME) return true;
+  // Netlify documents SITE_ID as a runtime marker, while NETLIFY is primarily
+  // a build-time variable and may be absent once the Function executes.
+  if (env.SITE_ID) return true; // guard:allow-env-credential - Netlify runtime host marker, not a credential.
   // Otherwise require direct evidence that this module is running from inside a
   // bundle output directory (Vercel's `/var/task`, Nitro's `.output/server`,
   // inlined `_libs`). This is the real signal that `require.resolve` cannot be
