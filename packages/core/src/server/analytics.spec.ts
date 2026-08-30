@@ -112,6 +112,9 @@ describe("wrapWithAnalytics", () => {
       "https://www.googletagmanager.com/gtag/js?id=G-UNITTEST123",
     );
     expect(html).toContain(`gtag('config',"G-UNITTEST123")`);
+    expect(html).toContain(
+      'window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!=="beta-e2e"',
+    );
     expect(html.indexOf("googletagmanager.com")).toBeLessThan(
       html.indexOf("</head>"),
     );
@@ -146,6 +149,9 @@ describe("wrapWithAnalytics", () => {
 
     expect(html).toContain("https://www.googletagmanager.com/gtm.js?id='+i+dl");
     expect(html).toContain('"GTM-UNIT123"');
+    expect(html).toContain(
+      'window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!=="beta-e2e"',
+    );
     expect(html).toContain(
       "https://www.googletagmanager.com/ns.html?id=GTM-UNIT123",
     );
