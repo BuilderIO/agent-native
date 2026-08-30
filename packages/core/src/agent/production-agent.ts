@@ -536,6 +536,7 @@ export async function getOwnerApiKey(
   if (!ownerEmail) return undefined;
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const refs: Array<{
@@ -543,12 +544,12 @@ export async function getOwnerApiKey(
       scopeId: string;
     }> = [{ scope: "user", scopeId: ownerEmail }];
     const orgId = getRequestOrgId();
-    if (orgId) {
+    if (orgId && !syntheticTraffic) {
       refs.push(
         { scope: "org", scopeId: orgId },
         { scope: "workspace", scopeId: orgId },
       );
-    } else {
+    } else if (!syntheticTraffic) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of refs) {
@@ -568,8 +569,11 @@ export async function getOwnerApiKey(
       }
     }
   } catch {
-    // app_secrets table not ready — fall through to legacy lookup.
+    // app_secrets table not ready — only non-synthetic traffic may fall through
+    // to legacy lookup. A synthetic run must never bill an alternate key.
+    if (syntheticTraffic) return undefined;
   }
+  if (syntheticTraffic) return undefined;
   try {
     const { getSetting } = await import("../settings/store.js");
     const stored = await getSetting(`user-api-key:${provider}:${ownerEmail}`);

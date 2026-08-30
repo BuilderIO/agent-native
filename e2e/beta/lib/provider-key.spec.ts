@@ -5,6 +5,7 @@ import type { BrowserContext } from "@playwright/test";
 
 import {
   installOpenAiKey,
+  isConfirmedOpenAiEngineStatus,
   isConfirmedOpenAiKeyInstall,
   validateOpenAiKey,
 } from "./provider-key";
@@ -38,6 +39,30 @@ test("requires the user-scoped OpenAI install response contract", () => {
   );
 });
 
+test("requires the runtime status to name configured OpenAI", () => {
+  assert.equal(
+    isConfirmedOpenAiEngineStatus({
+      status: 200,
+      body: '{"configured":true,"engine":"ai-sdk:openai"}',
+    }),
+    true,
+  );
+  assert.equal(
+    isConfirmedOpenAiEngineStatus({
+      status: 200,
+      body: '{"configured":true,"engine":"builder"}',
+    }),
+    false,
+  );
+  assert.equal(
+    isConfirmedOpenAiEngineStatus({
+      status: 200,
+      body: '{"configured":false,"engine":"ai-sdk:openai"}',
+    }),
+    false,
+  );
+});
+
 test("passes the canonical endpoint through the browser evaluation boundary", async () => {
   let evaluateArgs: readonly unknown[] | undefined;
   const page = {
@@ -47,6 +72,10 @@ test("passes the canonical endpoint through the browser evaluation boundary", as
       return {
         status: 200,
         body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+        runtimeStatus: {
+          status: 200,
+          body: '{"configured":true,"engine":"ai-sdk:openai"}',
+        },
       };
     },
     async close() {},
@@ -66,9 +95,40 @@ test("passes the canonical endpoint through the browser evaluation boundary", as
   assert.equal(result.installed, true);
   assert.deepEqual(evaluateArgs, [
     "/_agent-native/agent-engine/api-key",
+    "/_agent-native/agent-engine/status",
     "sk-example-dedicated",
     "https://api.openai.com/v1",
   ]);
+});
+
+test("does not treat a successful write as an installed key when runtime is missing it", async () => {
+  const page = {
+    async goto() {},
+    async evaluate() {
+      return {
+        status: 200,
+        body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+        runtimeStatus: {
+          status: 200,
+          body: '{"configured":false}',
+        },
+      };
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  const result = await installOpenAiKey(
+    context,
+    "https://beta.example.test",
+    "sk-example-dedicated",
+  );
+
+  assert.equal(result.installed, false);
 });
 
 test("validates the model execution path, not only the models listing", async () => {

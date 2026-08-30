@@ -802,6 +802,22 @@ describe("resolveBuilderCredential", () => {
     );
   });
 
+  it("does not fall through to shared app secrets for synthetic traffic", async () => {
+    mockGetRequestContext.mockReturnValue({ isSyntheticTraffic: true });
+    mockGetRequestUserEmail.mockReturnValue("e2e@example.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ scope }: any) =>
+      scope === "org"
+        ? { value: "shared-key", last4: "-key", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveSecret("OPENAI_API_KEY")).resolves.toBeNull();
+    expect(mockReadAppSecret.mock.calls.map((call) => call[0].scope)).toEqual([
+      "user",
+    ]);
+  });
+
   it("uses app-provided email env keys for signed-in production shared-database users", async () => {
     process.env.NODE_ENV = "production";
     process.env.SENDGRID_API_KEY = "sendgrid-deploy-key";
