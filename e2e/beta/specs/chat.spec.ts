@@ -13,6 +13,7 @@ import {
   installSidebarRuntimeTrace,
   MISSING_FINAL_RESPONSE,
   readSidebarRuntimeTrace,
+  readComposerRuntimeState,
   sendPromptAndAwaitTurn,
   watchChatRequests,
 } from "../lib/chat";
@@ -141,10 +142,16 @@ for (const site of sites) {
             waitUntil: "domcontentloaded",
             timeout: 45_000,
           });
-          await expect(
-            page.locator(COMPOSER.input).first(),
-            `${site.host} did not restore the composer after reloading a completed chat`,
-          ).toBeVisible({ timeout: 60_000 });
+          try {
+            await expect(
+              page.locator(COMPOSER.input).first(),
+              `${site.host} did not restore the composer after reloading a completed chat`,
+            ).toBeVisible({ timeout: 60_000 });
+          } catch (error) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+            );
+          }
           await expect
             .poll(
               async () => {
