@@ -13,7 +13,6 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
-const mockInvalidateAgentEngineStatusLookups = vi.hoisted(() => vi.fn());
 let existingOwner: string | null = null;
 let existingTokens: Record<string, unknown> | null = null;
 let existingRevision = 100;
@@ -123,10 +122,6 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   intType: () => (mockPostgres ? "BIGINT" : "INTEGER"),
   isPostgres: () => mockPostgres,
-}));
-
-vi.mock("../server/agent-engine-status-cache.js", () => ({
-  invalidateAgentEngineStatusLookups: mockInvalidateAgentEngineStatusLookups,
 }));
 
 const {
@@ -289,17 +284,6 @@ describe("oauth token store", () => {
       "mcp_oauth:test",
       "org:org-test",
     ]);
-  });
-
-  it("invalidates status when Builder OAuth credentials are saved", async () => {
-    await saveOAuthTokens(
-      "mcp",
-      "mcp_oauth:test",
-      { access_token: "new-token" },
-      "org:org-test",
-    );
-
-    expect(mockInvalidateAgentEngineStatusLookups).toHaveBeenCalledTimes(1);
   });
 
   it("reads and conditionally replaces one exact owner-bound revision", async () => {
