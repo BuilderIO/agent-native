@@ -85,7 +85,7 @@ test.describe("slides -> analytics delegation", () => {
       // the assertion inspects the delegated-agent row, not just the final
       // answer that remains visible when the details are closed.
       const workSummary = page.getByRole("button", {
-        name: /^Worked for\b/i,
+        name: /^Worked(?: for\b)?/i,
       });
       await expect(workSummary).toBeVisible({ timeout: 20_000 });
       await workSummary.click();
