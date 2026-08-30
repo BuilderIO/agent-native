@@ -7,6 +7,7 @@ import {
   type AgentEngineStatusDeps,
   type AgentEngineStatusResult,
 } from "./core-routes-plugin.js";
+import { runWithRequestContext } from "./request-context.js";
 
 type TestEntry = {
   name: string;
@@ -20,6 +21,13 @@ const openAiEntry: TestEntry = {
   defaultModel: "gpt-5",
   supportedModels: ["gpt-5"],
   requiredEnvVars: ["OPENAI_API_KEY"],
+};
+
+const builderEntry: TestEntry = {
+  name: "builder",
+  defaultModel: "gpt-5",
+  supportedModels: ["gpt-5"],
+  requiredEnvVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
 };
 
 function deferred<T>() {
@@ -153,5 +161,29 @@ describe("resolveAgentEngineStatus", () => {
         createDeps({ readOpenAiBaseUrlConfigured: () => true }),
       ),
     ).resolves.toEqual({ configured: false, openAiBaseUrlConfigured: true });
+  });
+
+  it("lets synthetic checks fall through an unusable deploy engine to user secrets", async () => {
+    process.env.AGENT_ENGINE = "builder";
+
+    const result = await runWithRequestContext(
+      { isSyntheticTraffic: true },
+      () =>
+        resolveAgentEngineStatus(
+          createDeps({
+            lookupEntry: (name) =>
+              name === "builder" ? builderEntry : openAiEntry,
+            isStoredEngineUsable: (stored) =>
+              (stored as { engine?: string }).engine !== "builder",
+            detectFromUserSecrets: async () => openAiEntry,
+          }),
+        ),
+    );
+
+    expect(result).toMatchObject({
+      configured: true,
+      engine: "ai-sdk:openai",
+      source: "app_secrets",
+    });
   });
 });
