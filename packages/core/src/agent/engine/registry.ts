@@ -28,6 +28,7 @@ import {
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
@@ -749,6 +750,15 @@ function engineCreateConfig(
 async function resolveProviderBaseUrl(
   envVar: string,
 ): Promise<string | undefined> {
+  // The beta E2E lane validates and bills the direct OpenAI Responses API. Do
+  // not let a user/org endpoint override turn routing for synthetic traffic;
+  // normal requests must continue honoring their configured endpoint.
+  if (
+    envVar === OPENAI_BASE_URL_ENV_VAR &&
+    getRequestContext()?.isSyntheticTraffic === true
+  ) {
+    return undefined;
+  }
   const raw = await resolveSecret(envVar);
 
   if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {

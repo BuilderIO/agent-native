@@ -2566,6 +2566,54 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("ignores scoped OpenAI endpoints for synthetic beta E2E traffic", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestContext: () => ({ isSyntheticTraffic: true }),
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+          if (key === "OPENAI_BASE_URL") {
+            return { key, value: "https://gateway.example/v1" };
+          }
+          return null;
+        });
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({
+        engineOption: "ai-sdk:openai",
+        apiKey: "sk-e2e",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "sk-e2e",
+        allowEnvFallback: false,
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
     it("does not replace an unreadable endpoint with deploy configuration", async () => {
       vi.doMock("../../server/credential-provider.js", () => ({
         assertCredentialStoreReadable: vi.fn(),
