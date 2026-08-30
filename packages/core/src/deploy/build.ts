@@ -35,6 +35,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { PROVIDER_PACKAGES } from "../agent/engine/ai-sdk-engine.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -2675,6 +2676,10 @@ const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
 ] as const;
 const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
   "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+const BUILT_IN_ENGINE_RUNTIME_PACKAGE_NAMES = [
+  "ai",
+  ...Object.values(PROVIDER_PACKAGES),
+];
 
 function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
   const manifest = readPackageManifest(projectCwd);
@@ -2690,6 +2695,28 @@ function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
     }
     for (const packageName of Object.keys(dependencies)) {
       packageNames.add(packageName);
+    }
+  }
+  if (!packageNames.has("@agent-native/core")) {
+    return [...packageNames].sort();
+  }
+  let coreEntry: string;
+  try {
+    coreEntry = createRequire(path.join(projectCwd, "package.json")).resolve(
+      "@agent-native/core",
+    );
+  } catch {
+    return [...packageNames].sort();
+  }
+
+  const requireFromCore = createRequire(coreEntry);
+  for (const packageName of BUILT_IN_ENGINE_RUNTIME_PACKAGE_NAMES) {
+    try {
+      requireFromCore.resolve(packageName);
+      packageNames.add(packageName);
+    } catch {
+      // coercion-ok: an absent optional engine peer is typed absence.
+      // An optional engine peer is absent from this app's installed runtime.
     }
   }
   return [...packageNames].sort();

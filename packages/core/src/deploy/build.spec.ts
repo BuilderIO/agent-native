@@ -2,7 +2,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -204,6 +204,44 @@ describe("resolveNitroBuildReplacements", () => {
           JSON.stringify(["@ai-sdk/openai", "ai", "optional-provider"]),
         ),
       );
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("includes engine packages resolved through the core runtime", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-core-"),
+    );
+    try {
+      const coreLink = path.join(
+        projectCwd,
+        "node_modules",
+        "@agent-native",
+        "core",
+      );
+      fs.mkdirSync(path.dirname(coreLink), { recursive: true });
+      fs.symlinkSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
+        coreLink,
+        "dir",
+      );
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: { "@agent-native/core": "workspace:*" },
+        }),
+      );
+
+      const marker = JSON.parse(
+        JSON.parse(
+          resolveNitroBuildReplacements({}, undefined, projectCwd)[
+            "process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"
+          ],
+        ),
+      ) as string[];
+
+      expect(marker).toEqual(expect.arrayContaining(["ai", "@ai-sdk/openai"]));
     } finally {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }
