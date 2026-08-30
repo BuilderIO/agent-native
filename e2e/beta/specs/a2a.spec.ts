@@ -81,6 +81,15 @@ test.describe("slides -> analytics delegation", () => {
 
       chat.assertOnlyLuna();
 
+      // Completed tool work is collapsed by default. Open the disclosure so
+      // the assertion inspects the delegated-agent row, not just the final
+      // answer that remains visible when the details are closed.
+      const workSummary = page.getByRole("button", {
+        name: /^Worked for\b/i,
+      });
+      await expect(workSummary).toBeVisible({ timeout: 20_000 });
+      await workSummary.click();
+
       const transcript = await renderedText(
         page,
         "beta.slides delegation transcript",
