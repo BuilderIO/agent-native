@@ -2,7 +2,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
-import { fileURLToPath, pathToFileURL } from "url";
+import { pathToFileURL } from "url";
 
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -209,23 +209,11 @@ describe("resolveNitroBuildReplacements", () => {
     }
   });
 
-  it("includes engine packages resolved through the core runtime", () => {
+  it("does not infer optional engine packages from a core-only app", () => {
     const projectCwd = fs.mkdtempSync(
       path.join(process.cwd(), ".tmp-engine-package-core-"),
     );
     try {
-      const coreLink = path.join(
-        projectCwd,
-        "node_modules",
-        "@agent-native",
-        "core",
-      );
-      fs.mkdirSync(path.dirname(coreLink), { recursive: true });
-      fs.symlinkSync(
-        path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
-        coreLink,
-        "dir",
-      );
       fs.writeFileSync(
         path.join(projectCwd, "package.json"),
         JSON.stringify({
@@ -241,7 +229,9 @@ describe("resolveNitroBuildReplacements", () => {
         ),
       ) as string[];
 
-      expect(marker).toEqual(expect.arrayContaining(["ai", "@ai-sdk/openai"]));
+      expect(marker).toContain("@agent-native/core");
+      expect(marker).not.toContain("ai");
+      expect(marker).not.toContain("@ai-sdk/openai");
     } finally {
       fs.rmSync(projectCwd, { recursive: true, force: true });
     }

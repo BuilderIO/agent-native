@@ -17,6 +17,7 @@
     "@agent-native/core": "workspace:*",
     "@agent-native/dispatch": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@ai-sdk/openai": "^4.0.51",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
     "@openrouter/ai-sdk-provider": "^2.9.1",
