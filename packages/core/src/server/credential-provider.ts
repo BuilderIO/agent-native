@@ -1716,21 +1716,23 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
   const email = getRequestUserEmail();
   if (!email || keys.length === 0) return;
   const { readAppSecrets } = await import("../secrets/storage.js");
-  const orgId =
-    getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const orgId = syntheticTraffic
+    ? undefined
+    : getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
   const scopes: Array<{
     scope: "user" | "org" | "workspace";
     scopeId: string;
-  }> = [
-    { scope: "user", scopeId: email },
-    ...(orgId
-      ? ([
-          { scope: "org", scopeId: orgId },
-          { scope: "workspace", scopeId: orgId },
-        ] as const)
-      : []),
-    { scope: "workspace", scopeId: `solo:${email}` },
-  ];
+  }> = [{ scope: "user", scopeId: email }];
+  if (orgId && !syntheticTraffic) {
+    scopes.push(
+      { scope: "org", scopeId: orgId },
+      { scope: "workspace", scopeId: orgId },
+    );
+  }
+  if (!syntheticTraffic) {
+    scopes.push({ scope: "workspace", scopeId: `solo:${email}` });
+  }
   await Promise.all(
     scopes.map((s) => readAppSecrets({ keys, ...s }).catch(() => undefined)),
   );
@@ -1915,6 +1917,7 @@ export async function resolveSecretDetailed(
 ): Promise<{ value: string | null; lookupFailed: boolean; cause?: unknown }> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
+  const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
   let lookupFailed = false;
   let cause: unknown;
   if (email) {
@@ -1935,6 +1938,10 @@ export async function resolveSecretDetailed(
         }
         return { value: userSecret.value, lookupFailed: false };
       }
+
+      // The beta suite writes one user-scoped credential and must never turn a
+      // rejected or missing test key into a charge against a shared scope.
+      if (syntheticTraffic) return NOT_FOUND;
 
       // Mirrors resolveScopedBuilderCredential: a transient org_members read
       // failure makes getOrgContext report no org, which would otherwise hide
