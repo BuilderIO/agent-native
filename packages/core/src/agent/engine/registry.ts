@@ -29,6 +29,7 @@ import {
 } from "../../server/credential-provider.js";
 import {
   getRequestOrgId,
+  getRequestContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
@@ -1309,16 +1310,25 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(
-        await engineCreateConfigForEntry(
-          entry,
-          apiKey,
-          undefined,
-          "automatic",
-          apiKeyEnvVar,
+      // Synthetic checks cannot use deploy-wide credentials, but may validate
+      // the dedicated user-scoped credential they install for the request.
+      const canUseConfiguredEngine =
+        getRequestContext()?.isSyntheticTraffic !== true ||
+        (await isStoredEngineUsableForRequest({ engine: entry.name }, entry, {
           credentialIdentity,
-        ),
-      );
+        }));
+      if (canUseConfiguredEngine) {
+        return entry.create(
+          await engineCreateConfigForEntry(
+            entry,
+            apiKey,
+            undefined,
+            "automatic",
+            apiKeyEnvVar,
+            credentialIdentity,
+          ),
+        );
+      }
     }
   }
 

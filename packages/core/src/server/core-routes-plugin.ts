@@ -334,16 +334,19 @@ export async function resolveAgentEngineStatus<
   const configuredEngine = getAppConfig().agent.engine;
   const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
   if (envEntry) {
-    if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
+    if (await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)) {
+      return {
+        configured: true,
+        engine: envEntry.name,
+        model: envEntry.defaultModel ?? DEFAULT_MODEL,
+        source: "env",
+        envVar: "AGENT_ENGINE",
+        openAiBaseUrlConfigured,
+      };
+    }
+    if (getRequestContext()?.isSyntheticTraffic !== true) {
       return { configured: false, openAiBaseUrlConfigured };
-    return {
-      configured: true,
-      engine: envEntry.name,
-      model: envEntry.defaultModel ?? DEFAULT_MODEL,
-      source: "env",
-      envVar: "AGENT_ENGINE",
-      openAiBaseUrlConfigured,
-    };
+    }
   }
 
   // Stored provider selections win over an existing Builder connection, so
