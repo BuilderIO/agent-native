@@ -27,7 +27,7 @@ use screencapturekit::stream::{
     configuration::SCStreamConfiguration, content_filter::SCContentFilter,
     output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, sc_stream::SCStream,
 };
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -5188,6 +5188,17 @@ fn start_screencapturekit_recording(
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
 ) -> Result<NativeFullscreenSession, String> {
+    // A prior stop that hit `SCK_STOP_TIMEOUT` leaves its `stop_capture()`
+    // call running on a detached thread, still holding that stream's lock,
+    // with no signal of when (or whether) it finishes. Starting a new
+    // capture while one is outstanding risks the exact OS-level contention
+    // this bounding exists to avoid, so refuse and let the caller retry
+    // shortly instead of silently racing it.
+    if pending_capture_stop_workers() > 0 {
+        return Err(
+            "A previous recording is still shutting down. Wait a moment and try again.".to_string(),
+        );
+    }
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
@@ -5463,13 +5474,24 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "macos")]
+static PENDING_CAPTURE_STOP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "macos")]
+pub(crate) fn pending_capture_stop_workers() -> usize {
+    PENDING_CAPTURE_STOP_WORKERS.load(Ordering::SeqCst)
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
 where
     F: FnOnce() -> Result<(), String> + Send + 'static,
 {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    PENDING_CAPTURE_STOP_WORKERS.fetch_add(1, Ordering::SeqCst);
     std::thread::spawn(move || {
-        let _ = tx.send(stop());
+        let result = stop();
+        PENDING_CAPTURE_STOP_WORKERS.fetch_sub(1, Ordering::SeqCst);
+        let _ = tx.send(result);
     });
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
@@ -5512,6 +5534,34 @@ mod bounded_capture_stop_tests {
         );
         assert!(result.unwrap_err().contains("timed out"));
         assert!(started.elapsed() < Duration::from_millis(250));
+    }
+
+    #[test]
+    fn tracks_a_timed_out_worker_until_it_actually_finishes() {
+        use super::pending_capture_stop_workers;
+        let baseline = pending_capture_stop_workers();
+        let result = run_bounded_capture_stop(
+            || {
+                std::thread::sleep(Duration::from_millis(200));
+                Ok(())
+            },
+            Duration::from_millis(20),
+        );
+        assert!(result.unwrap_err().contains("timed out"));
+        assert!(
+            pending_capture_stop_workers() > baseline,
+            "a timed-out stop must stay counted as outstanding — the caller \
+             gave up waiting, but the worker (and the lock it holds) is still alive"
+        );
+        let deadline = Instant::now() + Duration::from_millis(1000);
+        while pending_capture_stop_workers() > baseline && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            pending_capture_stop_workers(),
+            baseline,
+            "the counter must drop back once the worker's stop() call actually returns"
+        );
     }
 }
 

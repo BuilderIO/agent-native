@@ -3399,10 +3399,17 @@ export function App({
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    if (recordingStopFinalizingRef.current) {
+      console.warn(
+        "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
+      );
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      return null;
+    }
     if (
-      (recorder ||
-        recordingFlowGateRef.current ||
-        recordingStopFinalizingRef.current) &&
+      (recorder || recordingFlowGateRef.current) &&
       !options?.ignoreActiveRecorder
     ) {
       console.warn(
@@ -3764,6 +3771,17 @@ export function App({
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
       emit("clips:countdown-cancel").catch(() => {});
+      return;
+    }
+    if (recordingStopFinalizingRef.current) {
+      // The shortcut's start call below passes `ignoreActiveRecorder: true`
+      // (it intentionally bypasses the recorder/gate check so a restart can
+      // reuse it), which would otherwise let it start a new native capture
+      // while the previous one is still finalizing.
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      invoke("show_popover").catch(() => {});
       return;
     }
 
