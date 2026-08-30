@@ -79,6 +79,8 @@ export interface AgentEngineEntry {
 
 const _registry = new Map<string, AgentEngineEntry>();
 const _packageAvailabilityCache = new Map<string, boolean>();
+const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
+  "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
 
 /**
  * Register a custom agent engine. Called at server startup (e.g., from a
@@ -144,9 +146,11 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
  * bundle and are therefore NOT resolvable via `require.resolve` — even though
  * the dynamic `import()` the engine uses to load them still works.
  *
- * Deliberately narrow. The Nitro Vercel/Netlify presets (which agent-native's
- * own `deploy` command emits) inline optional peers and always set these env
- * markers, so they are a reliable signal. Other serverless runtimes — a
+ * Deliberately narrow. Deploy builds provide package-specific evidence because
+ * these runtime markers may be absent once a Function executes. When that
+ * marker is absent, the Nitro Vercel/Netlify presets (which agent-native's own
+ * `deploy` command emits) inline optional peers and these env markers remain a
+ * fallback signal. Other serverless runtimes — a
  * container on Cloud Run / Google Cloud Functions (`K_SERVICE` /
  * `FUNCTION_TARGET`), or a plain AWS Lambda — commonly ship a real
  * `node_modules` where `require.resolve` is authoritative; there a resolve miss
@@ -156,12 +160,7 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
  */
 function isBundledServerlessRuntime(): boolean {
   const env = process.env;
-  if (
-    /^(1|true)$/i.test(env.NETLIFY_LOCAL ?? "") ||
-    /^(1|true)$/i.test(env.NETLIFY_DEV ?? "")
-  ) {
-    return false;
-  }
+  if (isLocalNetlifyRuntime()) return false;
   // Nitro's Vercel/Netlify presets inline optional peers into the function
   // bundle; these platforms always set these markers.
   if (env.VERCEL || env.NETLIFY || env.NETLIFY_FUNCTION_NAME) return true;
@@ -183,6 +182,37 @@ function isBundledServerlessRuntime(): boolean {
   }
 }
 
+function isLocalNetlifyRuntime(): boolean {
+  const env = process.env;
+  return (
+    /^(1|true)$/i.test(env.NETLIFY_LOCAL ?? "") ||
+    /^(1|true)$/i.test(env.NETLIFY_DEV ?? "")
+  );
+}
+
+function resolveBuildBundledEnginePackages(): Set<string> | undefined {
+  const marker = getAppConfig().agent.buildEnginePackages;
+  if (marker === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(marker);
+  } catch {
+    throw new Error(
+      `[agent-engine] ${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR} is not valid JSON.`,
+    );
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((packageName) => typeof packageName !== "string")
+  ) {
+    throw new Error(
+      `[agent-engine] ${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR} must be a JSON array of package names.`,
+    );
+  }
+  return new Set(parsed);
+}
+
 function canResolvePackage(packageName: string): boolean {
   const cached = _packageAvailabilityCache.get(packageName);
   if (cached !== undefined) return cached;
@@ -194,12 +224,21 @@ function canResolvePackage(packageName: string): boolean {
     // Bundled serverless runtimes (e.g. Nitro on Vercel/Netlify) inline optional
     // provider packages into the function bundle, so require.resolve cannot find
     // them even though the dynamic `import()` the engine actually uses to load
-    // them works. Treat them as available there and let the engine's own import
-    // be the real gate — it already fails with a clear "pnpm add …" message when
-    // the package is genuinely missing. Without this, every engine-usability
-    // gate rejects the AI-SDK engines at runtime and the agent silently falls
-    // back to the native Anthropic engine.
-    available = isBundledServerlessRuntime();
+    // them works. New deploys use the build marker below as package-specific
+    // evidence; older deploys retain the narrow platform/path fallback. Without
+    // either signal, every engine-usability gate rejects the AI-SDK engines at
+    // runtime and the agent silently falls back to the native Anthropic engine.
+    const bundledPackages = isLocalNetlifyRuntime()
+      ? undefined
+      : resolveBuildBundledEnginePackages();
+    if (bundledPackages) {
+      // New deploys provide package-specific build evidence. Older deploys do
+      // not have the marker, so retain their platform/path fallback until they
+      // are naturally replaced by a build carrying it.
+      available = bundledPackages.has(packageName);
+    } else if (isBundledServerlessRuntime()) {
+      available = true;
+    }
   }
   _packageAvailabilityCache.set(packageName, available);
   return available;

@@ -1056,11 +1056,55 @@ describe("AgentEngine registry", () => {
     ).toBe(true);
   });
 
+  it("uses the build package marker instead of blessing undeclared packages", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+      JSON.stringify(["ai", "@ai-sdk/openai"]),
+    );
+    for (const marker of [
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "SITE_ID",
+      "VERCEL",
+    ]) {
+      vi.stubEnv(marker, "");
+    }
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    const baseEntry = {
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    };
+
+    expect(
+      isAgentEnginePackageInstalled({
+        ...baseEntry,
+        installPackage: "ai @ai-sdk/openai",
+      }),
+    ).toBe(true);
+    expect(
+      isAgentEnginePackageInstalled({
+        ...baseEntry,
+        installPackage: "ai @agent-native/definitely-missing-ai-provider",
+      }),
+    ).toBe(false);
+  });
+
   it.each(["NETLIFY_LOCAL", "NETLIFY_DEV"])(
     "does not treat %s as a bundled runtime",
     async (localMarker) => {
       vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
       vi.stubEnv("SITE_ID", "site");
+      vi.stubEnv(
+        "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+        JSON.stringify(["ai", "@agent-native/definitely-missing-ai-provider"]),
+      );
       vi.stubEnv(localMarker, "true");
       const { isAgentEnginePackageInstalled } = await import("./registry.js");
 

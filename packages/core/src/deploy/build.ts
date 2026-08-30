@@ -2669,6 +2669,31 @@ const PACKAGE_DEPENDENCY_FIELDS = [
   "devDependencies",
   "peerDependencies",
 ];
+const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+] as const;
+const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
+  "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+
+function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
+  const manifest = readPackageManifest(projectCwd);
+  const packageNames = new Set<string>();
+  for (const field of RUNTIME_PACKAGE_DEPENDENCY_FIELDS) {
+    const dependencies = manifest?.[field];
+    if (
+      !dependencies ||
+      typeof dependencies !== "object" ||
+      Array.isArray(dependencies)
+    ) {
+      continue;
+    }
+    for (const packageName of Object.keys(dependencies)) {
+      packageNames.add(packageName);
+    }
+  }
+  return [...packageNames].sort();
+}
 
 // Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
 // and 32-bit-arm prebuilds of these native packages are ~100MB that can never
@@ -5330,6 +5355,7 @@ function createBrowserOnlyServerStubPlugin() {
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
+  projectCwd: string = cwd,
 ): Record<string, string> {
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
@@ -5370,6 +5396,14 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    // Nitro's serverless bundle inlines optional provider packages into
+    // relative chunks. The deployed Function cannot use require.resolve to
+    // see those chunks, so carry the app's runtime dependency boundary into
+    // the bundle as positive package evidence.
+    [`process.env.${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR}`]:
+      JSON.stringify(
+        JSON.stringify(resolveDeclaredRuntimePackageNames(projectCwd)),
+      ),
     // Whether the recurring-jobs scheduled function exists is decided HERE, by
     // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
     // a pipeline that sets the kill switch only for the build leaves no runtime
