@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   agentEngineStatusIdentityKey,
+  invalidateAgentEngineStatusLookups,
   resolveAgentEngineStatus,
   shareAgentEngineStatusLookup,
   type AgentEngineStatusDeps,
@@ -49,6 +50,7 @@ function createDeps(
 const originalAgentEngine = process.env.AGENT_ENGINE;
 
 afterEach(() => {
+  invalidateAgentEngineStatusLookups();
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
 });
@@ -194,6 +196,26 @@ describe("shareAgentEngineStatusLookup", () => {
     await expect(shareAgentEngineStatusLookup(key, compute)).resolves.toEqual({
       configured: false,
     });
+    expect(runs).toBe(2);
+  });
+
+  it("does not let a provider write leave a pre-write lookup in flight", async () => {
+    const key = agentEngineStatusIdentityKey("a@example.com", "org-1");
+    const gate = deferred<void>();
+    let runs = 0;
+    const compute = async () => {
+      const attempt = ++runs;
+      await gate.promise;
+      return attempt === 1 ? { configured: false } : answer("ai-sdk:openai");
+    };
+
+    const stale = shareAgentEngineStatusLookup(key, compute);
+    invalidateAgentEngineStatusLookups();
+    const fresh = shareAgentEngineStatusLookup(key, compute);
+    gate.resolve();
+
+    await expect(stale).resolves.toEqual({ configured: false });
+    await expect(fresh).resolves.toEqual(answer("ai-sdk:openai"));
     expect(runs).toBe(2);
   });
 

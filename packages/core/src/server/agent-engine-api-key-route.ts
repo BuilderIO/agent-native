@@ -14,6 +14,7 @@ import {
 } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
+import { invalidateAgentEngineStatusLookups } from "./agent-engine-status-cache.js";
 import { getSession } from "./auth.js";
 import { clearProviderCredentialAuthFailure } from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
@@ -299,6 +300,10 @@ export function createAgentEngineApiKeyHandler() {
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
       });
+    }
+
+    if (payload.value || payload.baseUrl || payload.clearBaseUrl) {
+      invalidateAgentEngineStatusLookups();
     }
 
     return {
