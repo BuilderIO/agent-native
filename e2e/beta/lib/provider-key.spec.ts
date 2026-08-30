@@ -6,7 +6,7 @@ import { isConfirmedOpenAiKeyInstall, validateOpenAiKey } from "./provider-key";
 test("requires the user-scoped OpenAI install response contract", () => {
   const valid = {
     status: 200,
-    body: '{"ok":true,"key":"OPENAI_API_KEY","scope":"user"}',
+    body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
   };
   assert.equal(isConfirmedOpenAiKeyInstall(valid), true);
   assert.equal(
@@ -19,7 +19,14 @@ test("requires the user-scoped OpenAI install response contract", () => {
   assert.equal(
     isConfirmedOpenAiKeyInstall({
       status: 200,
-      body: '{"ok":true,"key":"OPENAI_API_KEY","scope":"org"}',
+      body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"org"}',
+    }),
+    false,
+  );
+  assert.equal(
+    isConfirmedOpenAiKeyInstall({
+      status: 200,
+      body: '{"ok":true,"key":"OPENAI_API_KEY","scope":"user"}',
     }),
     false,
   );

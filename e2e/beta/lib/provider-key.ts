@@ -6,7 +6,9 @@ import type { BrowserContext } from "@playwright/test";
  * The key is written at **user** scope, against the e2e account only. That is
  * the whole point of a separate key: every luna turn this suite runs bills to a
  * credential nobody else uses, so the spend is attributable and can carry its
- * own limit.
+ * own limit. The compatible endpoint is cleared in the same write so the
+ * runtime uses the direct OpenAI path validated below, rather than a stale
+ * user-scoped gateway URL.
  *
  * Two things this must never do, both of which would charge real users:
  *   - a site-level OPENAI_API_KEY env var, which every visitor to that beta
@@ -71,10 +73,14 @@ export function isConfirmedOpenAiKeyInstall(
     const body = JSON.parse(result.body) as {
       ok?: unknown;
       key?: unknown;
+      baseUrlKey?: unknown;
       scope?: unknown;
     };
     return (
-      body.ok === true && body.key === "OPENAI_API_KEY" && body.scope === "user"
+      body.ok === true &&
+      body.key === "OPENAI_API_KEY" &&
+      body.baseUrlKey === "OPENAI_BASE_URL" &&
+      body.scope === "user"
     );
   } catch {
     return false; // coercion-ok: malformed response is explicitly unconfirmed
@@ -162,6 +168,7 @@ export async function installOpenAiKey(
           body: JSON.stringify({
             provider: "openai",
             value: key,
+            clearBaseUrl: true,
             scope: "user",
           }),
         });
