@@ -53,6 +53,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
@@ -379,6 +380,11 @@ function AgentDiscovery({
         type="application/agent-native+json"
         id="clips-agent-context"
         dangerouslySetInnerHTML={{ __html: safeJsonForHtml(payload) }}
+      />
+      <ClipAgentWebMcp
+        recordingId={recording.id}
+        agentContextUrl={agentContextUrl}
+        recordingStatus={recording.status}
       />
     </>
   );

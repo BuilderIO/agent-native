@@ -14,6 +14,7 @@ import {
 
 import {
   buildAgentApiUrls,
+  CLIPS_WEBMCP_DISCOVERY,
   getAgentClipReadiness,
 } from "../../../shared/agent-context.js";
 import { isLoomEmbedBackedRecording } from "../../../shared/loom.js";
@@ -58,6 +59,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
   return {
     type: "agent-native.clip.transcript",
+    webmcp: CLIPS_WEBMCP_DISCOVERY,
     recording: {
       id: recording.id,
       title: recording.title,
@@ -87,6 +89,7 @@ export default defineEventHandler(async (event: H3Event) => {
       segmentCount: agentSegments.length,
     },
     instructions: [
+      "If this clip page is open in a WebMCP-capable browser, list its page tools before using the transcript or frame tools.",
       ...(agentReadiness.instruction ? [agentReadiness.instruction] : []),
       ...transcriptStatusInstructions(transcript),
     ],

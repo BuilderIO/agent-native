@@ -249,6 +249,23 @@ field may wrap that URL with instructions to fetch transcripts, frames, and
 browser diagnostics, but it should still point agents at the context response so
 they can fetch only the visual context they need.
 
+When a `/share/:id`, `/embed/:id`, or public `/r/:id` page is open in a
+WebMCP-capable browser, the page also registers these read-only tools:
+
+| WebMCP tool | Purpose |
+| --- | --- |
+| `clips-get-context` | Clip metadata, readiness, transcript status, and fallback URLs |
+| `clips-get-transcript` | Timestamped transcript segments, with optional time bounds |
+| `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
+
+Agents should list the current page tools immediately before calling one. The
+frame tool returns an image URL and `mimeType: image/jpeg`; fetch that URL as an
+image rather than expecting WebMCP to carry binary bytes. WebMCP is progressive
+enhancement and page-local: if the browser cannot expose it, use the existing
+`agentContextUrl`, `apis.transcript`, and `apis.frame` URLs above. These URLs,
+password handling, scoped `agent_access` tokens, and legacy `t` token support
+remain the fallback contract.
+
 ## View counting
 
 Clips counts **human views** and **agent views** separately. The two live in

@@ -44,7 +44,9 @@ function stripAppBasePath(pathname: string): string {
 }
 
 function clipIdFromPath(pathname: string): string | null {
-  const match = stripAppBasePath(pathname).match(/^\/(?:share|r)\/([^/]+)\/?$/);
+  const match = stripAppBasePath(pathname).match(
+    /^\/(?:share|r|embed)\/([^/]+)\/?$/,
+  );
   if (!match?.[1]) return null;
   try {
     return decodeURIComponent(match[1]);

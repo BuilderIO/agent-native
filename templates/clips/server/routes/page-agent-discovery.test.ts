@@ -114,8 +114,22 @@ describe("Clips page agent discovery", () => {
       html.indexOf("<body>"),
     );
     expect(html).toContain('id="clips-agent-context"');
+    expect(html).toContain("clips-get-transcript");
     expect(response.headers.get("cache-control")).toBe("public, max-age=60");
     expect(response.headers.get("content-length")).toBeNull();
+  });
+
+  it("puts transcript discovery metadata in the head of embed links", async () => {
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/embed/rec-1",
+      query: {},
+    })) as Response;
+    const html = await response.text();
+
+    expect(html).toContain(
+      'href="https://clips.example.com/api/agent-context.json?id=rec-1"',
+    );
+    expect(html).toContain("clips-get-frame");
   });
 
   it("does not duplicate the discovery script already rendered by /share", async () => {
