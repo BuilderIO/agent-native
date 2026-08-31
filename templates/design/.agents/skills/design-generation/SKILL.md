@@ -329,6 +329,14 @@ Skip the questions entirely when:
   design; or
 - the user says "decide for me," "surprise me," "just build it," or similar.
 
+The turn that opens `show-design-questions` already checked Creative Context
+and any published Brand DNA before this skill loads, and the directives it
+built name exactly which topics (form factor, aesthetic direction,
+features/content, interactions/polish, exploring variations) are already
+answered. Never re-ask a topic those directives list as covered, and never
+skip a topic they don't — a single unrelated context member (a doc, a spec)
+must not suppress a question it has no bearing on.
+
 Asking on every prompt is as much a failure mode as never asking: a detailed
 prompt that already answers the obvious questions should generate
 immediately, and a design already in flight should not be interrupted with a
