@@ -317,6 +317,33 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("waits for default plugin bootstrap before the root route falls through", async () => {
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
   it("holds framework requests before already-registered middleware runs", async () => {
     let release!: () => void;
     let pluginsReady = false;
