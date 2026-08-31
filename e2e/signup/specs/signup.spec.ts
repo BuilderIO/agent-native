@@ -62,7 +62,10 @@ async function readBetterAuthSession(page: Page) {
 }
 
 function assertSession(session: SessionResult, email: string, label: string) {
-  expect(session.status, `${label} returned HTTP ${session.status}`).toBe(200);
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
   expect(
     (session.body as { email?: unknown }).email,
     `${label} did not identify the canary account`,
@@ -74,7 +77,10 @@ function assertBetterAuthSession(
   email: string,
   label: string,
 ) {
-  expect(session.status, `${label} returned HTTP ${session.status}`).toBe(200);
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
   expect(
     (session.body as { user?: { email?: unknown } }).user?.email,
     `${label} did not identify the canary account`,
