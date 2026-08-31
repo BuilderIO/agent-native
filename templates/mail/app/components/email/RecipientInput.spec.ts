@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, it, expect } from "vitest";
 
 import {
@@ -90,6 +92,27 @@ describe("parse/serialize round-trip", () => {
   it("parses and re-serializes a recipient list", () => {
     expect(serializeRecipients(parseRecipients("a@x.com,  b@y.com , "))).toBe(
       "a@x.com, b@y.com",
+    );
+  });
+});
+
+describe("recipient chip cursors", () => {
+  // `cursor` inherits, so the draggable chip's `cursor-grab` reached the
+  // remove and alias buttons inside it and they hovered as grab instead of
+  // pointer. The chip body stays the drag surface; the buttons opt out.
+  it("keeps the pointer cursor on the buttons inside a draggable chip", () => {
+    const source = readFileSync(
+      new URL("./RecipientInput.tsx", import.meta.url),
+      "utf8",
+    );
+    const chipButtons = source.match(/className="[^"]*\bml-0\.5\b[^"]*"/g);
+
+    expect(chipButtons).toHaveLength(2);
+    for (const className of chipButtons ?? []) {
+      expect(className).toContain("cursor-pointer");
+    }
+    expect(source).toContain(
+      'className="flex cursor-pointer items-center gap-1 text-indigo-200',
     );
   });
 });

@@ -1231,12 +1231,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         }
                         onDragEnd={handleTabDragEnd}
                         className={cn(
-                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none",
+                          "flex items-center gap-1.5 whitespace-nowrap px-2.5 py-1 text-[13px] select-none cursor-pointer",
                           tab.isActive
                             ? "text-foreground font-semibold"
                             : "text-muted-foreground font-medium hover:text-foreground/80",
                           isDragging && "opacity-40",
-                          canDrag && "cursor-grab",
                         )}
                       >
                         {tab.color && (

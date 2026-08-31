@@ -52,6 +52,17 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("[pinnedLabels, updateSettings],");
   });
 
+  // Repro: pinned tabs (Starred, Sent, Forums, user labels) are reorderable,
+  // and `canDrag && "cursor-grab"` made hovering a tab show the open-hand
+  // grab cursor. Clicking navigates, so the tab has to read as a link;
+  // reorder is the secondary gesture and does not own the resting cursor.
+  it("keeps the pointer cursor on reorderable top-bar tabs", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("text-[13px] select-none cursor-pointer");
+    expect(source).not.toContain("cursor-grab");
+  });
+
   it("keeps pinned tab dragging aligned with the displayed pin order", () => {
     const source = appLayoutSource();
 

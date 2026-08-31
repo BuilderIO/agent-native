@@ -716,7 +716,7 @@ export function RecipientInput({
               >
                 <button
                   type="button"
-                  className="flex items-center gap-1 text-indigo-200 hover:text-indigo-100 transition-colors"
+                  className="flex cursor-pointer items-center gap-1 text-indigo-200 hover:text-indigo-100 transition-colors"
                   onClick={(e) => {
                     const anchor = e.currentTarget.closest("span");
                     if (alias && anchor instanceof HTMLElement) {
@@ -737,7 +737,7 @@ export function RecipientInput({
                 <button
                   type="button"
                   onClick={() => removeRecipient(i)}
-                  className="ml-0.5 rounded-sm p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                  className="ml-0.5 cursor-pointer rounded-sm p-0.5 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
                 >
                   <IconX className="size-2.5" />
                 </button>
@@ -761,7 +761,7 @@ export function RecipientInput({
               <button
                 type="button"
                 onClick={() => removeRecipient(i)}
-                className="ml-0.5 rounded-sm p-0.5 hover:bg-foreground/10 transition-colors"
+                className="ml-0.5 cursor-pointer rounded-sm p-0.5 hover:bg-foreground/10 transition-colors"
               >
                 <IconX className="size-2.5" />
               </button>
