@@ -551,6 +551,7 @@ export default defineAction({
       openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
       internalBuilderMember: internalMember.isMember,
       factoryTriggered,
+      checksCoverage: snapshot.checksCoverage,
     });
 
     await recordFactoryAudit(
@@ -803,6 +804,7 @@ export default defineAction({
         openNonDraft: pullRequest.state === "open" && !pullRequest.draft,
         internalBuilderMember: postClaimInternalMember.isMember,
         factoryTriggered,
+        checksCoverage: postClaimSnapshot.checksCoverage,
       });
       if (!postClaimGovernance.autoApprove) {
         await reconcileClaim(

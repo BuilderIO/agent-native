@@ -9,6 +9,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 
 vi.mock("../server/lib/provider-credentials", () => ({
+  BUILDER_ANALYTICS_CREDENTIAL_KEYS: ["BUILDER_PUBLIC_KEY"],
   resolveAnalyticsProviderCredential: mocks.resolveAnalyticsProviderCredential,
 }));
 

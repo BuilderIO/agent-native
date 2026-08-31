@@ -2,7 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
+import {
+  BUILDER_ANALYTICS_CREDENTIAL_KEYS,
+  resolveAnalyticsProviderCredential,
+} from "../server/lib/provider-credentials";
 
 const BUILDER_CONTENT_API_URL =
   "https://cdn.builder.io/api/v3/content/blog-article";
@@ -107,7 +110,7 @@ export async function listBuilderBlogArticles(
 ): Promise<BuilderBlogArticle[]> {
   const credential = await resolveAnalyticsProviderCredential({
     provider: "builder",
-    keys: ["BUILDER_PUBLIC_KEY"],
+    keys: BUILDER_ANALYTICS_CREDENTIAL_KEYS,
     ctx: requestContext(context),
   });
   if (!credential) {

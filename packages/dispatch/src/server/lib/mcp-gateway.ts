@@ -99,6 +99,31 @@ function boundedDispatchAskAppWaitMs(raw: unknown): number {
   );
 }
 
+async function dispatchAskAppIdempotencyKey(
+  target: DispatchMcpAccessibleApp,
+  message: string,
+): Promise<string> {
+  const requestId = getRequestContext()?.mcpRequestId;
+  if (!requestId) return `ask-app:${globalThis.crypto.randomUUID()}`;
+
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({
+        requestId,
+        app: target.id,
+        targetUrl: target.url,
+        message,
+      }),
+    ),
+  );
+  let hex = "";
+  for (const byte of new Uint8Array(digest)) {
+    hex += byte.toString(16).padStart(2, "0");
+  }
+  return `ask-app:v1:${hex}`;
+}
+
 function isTerminalDispatchTask(task: Task): boolean {
   return DISPATCH_ASK_APP_TERMINAL_STATES.has(String(task.status.state));
 }
@@ -812,6 +837,10 @@ export async function askGrantedDispatchMcpApp(
     orgSecret: orgSecret ?? undefined,
     deadline: submissionDeadline,
   });
+  const idempotencyKey = await dispatchAskAppIdempotencyKey(
+    target,
+    trimmedMessage,
+  );
   const task = await client.send(
     {
       role: "user",
@@ -820,7 +849,7 @@ export async function askGrantedDispatchMcpApp(
     {
       async: true,
       metadata,
-      idempotencyKey: `ask-app:${globalThis.crypto.randomUUID()}`,
+      idempotencyKey,
       deadlineMs: submissionDeadline,
     },
   );
