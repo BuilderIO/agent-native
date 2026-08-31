@@ -89,6 +89,13 @@ describe("deriveAppIdentity", () => {
     expect(
       resolveAppHomePath({
         ...base,
+        packageName: "test-standalone",
+        sourceTemplate: "chat",
+      }),
+    ).toBe("/home");
+    expect(
+      resolveAppHomePath({
+        ...base,
         packageName: "mail",
         slug: "mail",
         homePath: "/inbox",
