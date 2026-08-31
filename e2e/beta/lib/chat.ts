@@ -204,20 +204,45 @@ export const COMPOSER = {
   model: '[data-agent-composer-slot="model-button"]',
 } as const;
 
+/**
+ * Apps may keep responsive composer trees mounted together. Browser actions
+ * must target the rendered tree, not whichever hidden tree happens to come
+ * first in the DOM.
+ */
+export const VISIBLE_COMPOSER = {
+  input: `${COMPOSER.input}:visible`,
+  send: `${COMPOSER.send}:visible`,
+  stop: `${COMPOSER.stop}:visible`,
+  model: `${COMPOSER.model}:visible`,
+} as const;
+
 export async function readComposerRuntimeState(page: Page): Promise<unknown> {
   return page.evaluate(() => {
-    const input = document.querySelector<HTMLElement>(
-      '[data-agent-composer-slot="editor-input"]',
+    const inputs = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[data-agent-composer-slot="editor-input"]',
+      ),
     );
-    const send = document.querySelector<HTMLButtonElement>(
-      '[data-agent-composer-slot="send-button"]',
+    const sends = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      ),
     );
+    const isVisible = (element: Element): boolean => {
+      const style = window.getComputedStyle(element);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        element.getClientRects().length > 0
+      );
+    };
+    const input = inputs.find(isVisible) ?? inputs[0];
+    const send = sends.find(isVisible) ?? sends[0];
     const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
     return {
       href: window.location.href,
-      inputCount: document.querySelectorAll(
-        '[data-agent-composer-slot="editor-input"]',
-      ).length,
+      inputCount: inputs.length,
+      visibleInputCount: inputs.filter(isVisible).length,
       input: input
         ? {
             textContent: input.textContent,
@@ -227,6 +252,8 @@ export async function readComposerRuntimeState(page: Page): Promise<unknown> {
             active: document.activeElement === input,
           }
         : null,
+      sendCount: sends.length,
+      visibleSendCount: sends.filter(isVisible).length,
       send: send
         ? {
             disabled: send.disabled,
@@ -290,14 +317,14 @@ export async function sendPromptAndAwaitTurn(
   prompt: string,
   { turnTimeoutMs = 180_000 }: { turnTimeoutMs?: number } = {},
 ): Promise<void> {
-  const input = page.locator(COMPOSER.input).first();
+  const input = page.locator(VISIBLE_COMPOSER.input).first();
   await input.waitFor({ state: "visible", timeout: 60_000 });
   await input.click();
   // The composer is a ProseMirror surface; `fill()` does not produce the input
   // events it needs to enable the send button.
   await input.pressSequentially(prompt, { delay: 8 });
 
-  const send = page.locator(COMPOSER.send).first();
+  const send = page.locator(VISIBLE_COMPOSER.send).first();
   await send.waitFor({ state: "visible", timeout: 30_000 });
   try {
     await send.click();
@@ -307,7 +334,7 @@ export async function sendPromptAndAwaitTurn(
     );
   }
 
-  const stop = page.locator(COMPOSER.stop).first();
+  const stop = page.locator(VISIBLE_COMPOSER.stop).first();
   // A turn short enough to finish before the stop button paints is still a
   // completed turn, so a missed appearance is not itself a failure.
   await stop

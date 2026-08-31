@@ -8,11 +8,11 @@ import {
 } from "../lib/authed";
 import {
   assertNoChatFailure,
-  COMPOSER,
   formatChatRequestDiagnostics,
   MISSING_FINAL_RESPONSE,
   readComposerRuntimeState,
   sendPromptAndAwaitTurn,
+  VISIBLE_COMPOSER,
   watchChatRequests,
 } from "../lib/chat";
 import { authenticatedEntryPath, chatSites, originFor } from "../lib/fleet";
@@ -54,7 +54,7 @@ async function expectComposerVisible(
   siteHost: string,
 ): Promise<void> {
   await expect(
-    page.locator(COMPOSER.input).first(),
+    page.locator(VISIBLE_COMPOSER.input).first(),
     `${siteHost} rendered no agent composer for a signed-in user`,
   ).toBeVisible({ timeout: 60_000 });
 }
@@ -143,7 +143,7 @@ for (const site of sites) {
           });
           try {
             await expect(
-              page.locator(COMPOSER.input).first(),
+              page.locator(VISIBLE_COMPOSER.input).first(),
               `${site.host} did not restore the composer after reloading a completed chat`,
             ).toBeVisible({ timeout: 60_000 });
           } catch (error) {
@@ -171,7 +171,7 @@ for (const site of sites) {
             `${site.host} restored a completed thread with a missing-final marker`,
           ).toHaveCount(0);
           await expect(
-            page.locator(COMPOSER.stop),
+            page.locator(VISIBLE_COMPOSER.stop),
             `${site.host} restored a completed thread in the stuck "Thinking" state`,
           ).toBeHidden();
         });
@@ -206,11 +206,11 @@ for (const site of sites) {
           chat.assertOnlyLuna();
 
           await expect(
-            page.locator(COMPOSER.stop),
+            page.locator(VISIBLE_COMPOSER.stop),
             `${site.host} still shows the stop button after the turn ended — the composer is stuck in the "Thinking" state users reported`,
           ).toBeHidden();
           await expect(
-            page.locator(COMPOSER.send).first(),
+            page.locator(VISIBLE_COMPOSER.send).first(),
             `${site.host} left the composer with neither a send nor a stop control after the turn`,
           ).toBeVisible();
         });
@@ -235,7 +235,7 @@ for (const site of sites) {
             timeout: 45_000,
           },
         );
-        const send = page.locator(COMPOSER.send).first();
+        const send = page.locator(VISIBLE_COMPOSER.send).first();
         await expect(send).toBeVisible({ timeout: 60_000 });
 
         const badge = page.locator(
