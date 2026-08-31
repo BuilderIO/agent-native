@@ -10,6 +10,7 @@ export interface NavigationState {
   factoryId?: string;
   factoryTab?: string;
   factoryAutomationId?: string;
+  factoryCreatingAutomation?: boolean;
   factoryAuditRunId?: string;
   factoryNodeId?: string;
   factoryEdgeId?: string;
@@ -29,14 +30,20 @@ export function useNavigationState() {
         ...(pathname === "/factory" && searchParams.get("factoryId")
           ? { factoryId: searchParams.get("factoryId") ?? undefined }
           : {}),
-        ...(pathname === "/factory" && searchParams.get("tab")
-          ? { factoryTab: searchParams.get("tab") ?? undefined }
-          : {}),
+        ...(pathname === "/factory" && searchParams.get("factoryId")
+          ? { factoryTab: searchParams.get("tab") ?? "inbox" }
+          : pathname === "/factory" && searchParams.get("tab")
+            ? { factoryTab: searchParams.get("tab") ?? undefined }
+            : {}),
         ...(pathname === "/factory" && searchParams.get("automationId")
           ? {
               factoryAutomationId:
                 searchParams.get("automationId") ?? undefined,
             }
+          : {}),
+        ...(pathname === "/factory" &&
+        searchParams.get("createAutomation") === "1"
+          ? { factoryCreatingAutomation: true }
           : {}),
         ...(pathname === "/factory" && searchParams.get("auditRunId")
           ? {
