@@ -1541,6 +1541,9 @@ describe("missing agent engine setup", () => {
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
     expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
+    expect(messageScroller).toContain(
+      '"relative flex min-h-0 flex-1 flex-col overflow-hidden"',
+    );
     expect(source).toContain("<MessageScrollerButton />");
     expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
     expect(source).not.toContain("autoScroll={false}");
