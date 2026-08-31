@@ -164,6 +164,15 @@ export function canCreateFactoryAutomation(
   );
 }
 
+export function canSaveFactoryAutomation(
+  form: FactoryAutomationFormState,
+  connections?: FactoryAutomationConnections,
+): boolean {
+  if (!form.displayName.trim()) return false;
+  if (!form.enabled) return true;
+  return canCreateFactoryAutomation(form, connections);
+}
+
 function stripDispatchLeaf(href: string): string {
   return href.replace(/\/(?:overview|apps)\/?$/, "");
 }

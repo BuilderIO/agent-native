@@ -134,25 +134,29 @@ export default defineAction({
       input.sentryProjectSlug !== undefined
         ? input.sentryProjectSlug.trim() || null
         : current.sentryProjectSlug;
-    if (current.source === "slack" && !nextSlackChannelId) {
-      throw new Error("Configure a Slack channel before saving this job.");
+    if (input.enabled) {
+      if (current.source === "slack" && !nextSlackChannelId) {
+        throw new Error("Configure a Slack channel before saving this job.");
+      }
+      if (current.source === "github" && !nextRepository) {
+        throw new Error(
+          "Configure a GitHub repository before saving this job.",
+        );
+      }
+      if (
+        current.source === "sentry" &&
+        (!nextSentryOrgSlug || !nextSentryProjectSlug)
+      ) {
+        throw new Error(
+          "Configure Sentry organization and project slugs before saving this job.",
+        );
+      }
+      await assertFactoryConnectorReady(current.source, userEmail, {
+        orgId,
+        slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+        verb: "saving",
+      });
     }
-    if (current.source === "github" && !nextRepository) {
-      throw new Error("Configure a GitHub repository before saving this job.");
-    }
-    if (
-      current.source === "sentry" &&
-      (!nextSentryOrgSlug || !nextSentryProjectSlug)
-    ) {
-      throw new Error(
-        "Configure Sentry organization and project slugs before saving this job.",
-      );
-    }
-    await assertFactoryConnectorReady(current.source, userEmail, {
-      orgId,
-      slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
-      verb: "saving",
-    });
     const config = {
       ...current,
       slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,

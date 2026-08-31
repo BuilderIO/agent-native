@@ -294,6 +294,26 @@ describe("resolveConnectorSecret", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("does not use a sibling org vault token for the requested org", async () => {
+    mocks.select.mockReturnValue({
+      from: () => ({
+        where: async () => [{ orgId: "active-org" }, { orgId: "other-org" }],
+      }),
+    });
+    mocks.readAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      key === "SLACK_BOT_TOKEN" && scope === "org" && scopeId === "other-org"
+        ? { value: "xoxb-other-org" }
+        : null,
+    );
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
   it("does not use provider env when NODE_ENV is unset even with sqlite", async () => {
     mocks.isLocalDatabase.mockReturnValue(true);
     vi.stubEnv("NODE_ENV", "");
@@ -327,6 +347,22 @@ describe("resolveFactoryConnectorReadiness", () => {
         where: async () => [{ orgId: "active-org" }],
       }),
     });
+  });
+
+  it("does not record workspace usage when resolving readiness", async () => {
+    mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
+      available: true,
+      value: "xoxb-connected",
+    });
+
+    await resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" });
+    expect(
+      mocks.resolveWorkspaceConnectionCredentialForApp,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordUsage: false,
+      }),
+    );
   });
 
   it("treats a granted workspace connection as ready", async () => {

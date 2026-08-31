@@ -5,6 +5,7 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
+const assertFactoryConnectorReadyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -29,6 +30,10 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
   workspaceMemberIdentityFromContext: workspaceMemberIdentityFromContextMock,
 }));
 
+vi.mock("../server/connectors/credentials.js", () => ({
+  assertFactoryConnectorReady: assertFactoryConnectorReadyMock,
+}));
+
 const existingContent = `---
 domain: factory
 factoryId: support-triage
@@ -36,6 +41,7 @@ createdBy: alice@example.com
 triggerType: schedule
 schedule: "*/5 * * * *"
 enabled: true
+slackChannelId: C123
 ---
 Observe Slack.
 `;
@@ -76,6 +82,7 @@ beforeEach(() => {
     updatedAt: 1,
   });
   resourcePutIfCurrentMock.mockResolvedValue({ id: "resource-1" });
+  assertFactoryConnectorReadyMock.mockResolvedValue(undefined);
 });
 
 describe("save-factory-automation", () => {
@@ -104,5 +111,46 @@ describe("save-factory-automation", () => {
     expect(resourcePutIfCurrentMock.mock.calls[0]?.[0].content).not.toContain(
       "createdBy: teammate@example.com",
     );
+    expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
+  });
+
+  it("rejects Slack saves that clear the channel", async () => {
+    const { default: action } = await import("./save-factory-automation.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-slack-feedback",
+          prompt: "Watch Slack more closely.",
+          slackChannelId: "",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow("Configure a Slack channel before saving this job.");
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a teammate disable a job when the connector is missing", async () => {
+    assertFactoryConnectorReadyMock.mockRejectedValue(
+      new Error(
+        "Connect Slack in Dispatch or add a vault token before saving this job.",
+      ),
+    );
+    const { default: action } = await import("./save-factory-automation.js");
+    const result = await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-slack-feedback",
+        prompt: "Watch Slack more closely.",
+        enabled: false,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(result).toMatchObject({ ok: true, enabled: false });
+    expect(assertFactoryConnectorReadyMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).toHaveBeenCalled();
   });
 });

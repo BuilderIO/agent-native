@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canCreateFactoryAutomation,
+  canSaveFactoryAutomation,
   dispatchIntegrationsHref,
   emptyAutomationForm,
   formAuthorFilter,
@@ -77,6 +78,22 @@ describe("factory-automation-form destination gating", () => {
     expect(canCreateFactoryAutomation(slack, disconnected)).toBe(false);
     expect(
       canCreateFactoryAutomation({ ...slack, slackChannelId: "" }, connected),
+    ).toBe(false);
+  });
+
+  it("lets Save disable a job when the connector is missing", () => {
+    const slack = {
+      ...emptyAutomationForm("slack"),
+      displayName: "Slack feedback",
+      slackChannelId: "C123",
+      enabled: false,
+    };
+    expect(canSaveFactoryAutomation(slack, disconnected)).toBe(true);
+    expect(
+      canSaveFactoryAutomation({ ...slack, enabled: true }, disconnected),
+    ).toBe(false);
+    expect(
+      canSaveFactoryAutomation({ ...slack, displayName: "" }, disconnected),
     ).toBe(false);
   });
 

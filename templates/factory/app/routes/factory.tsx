@@ -24,7 +24,7 @@ import { toast } from "sonner";
 
 import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
 import {
-  canCreateFactoryAutomation,
+  canSaveFactoryAutomation,
   dispatchIntegrationsHref,
   emptyAutomationForm,
   formAuthorFilter,
@@ -1261,7 +1261,7 @@ function AutomationsView({
                   disabled={
                     saveMutation.isPending ||
                     draft.canUpdate === false ||
-                    !canCreateFactoryAutomation(
+                    !canSaveFactoryAutomation(
                       automationToForm(draft),
                       configQuery.data?.connections,
                     )
