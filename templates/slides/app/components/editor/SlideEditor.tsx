@@ -4383,11 +4383,20 @@ export default function SlideEditor({
   );
 
   const applyObjectGeometry = useCallback(
-    (element: HTMLElement, geometry: SlideObjectGeometry) => {
+    (
+      element: HTMLElement,
+      geometry: SlideObjectGeometry,
+      { overrideImageSizing = false }: { overrideImageSizing?: boolean } = {},
+    ) => {
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
-      setSlideObjectDimension(element, "width", `${geometry.width}px`);
-      setSlideObjectDimension(element, "height", `${geometry.height}px`);
+      if (overrideImageSizing) {
+        setSlideObjectDimension(element, "width", `${geometry.width}px`);
+        setSlideObjectDimension(element, "height", `${geometry.height}px`);
+      } else {
+        element.style.width = `${geometry.width}px`;
+        element.style.height = `${geometry.height}px`;
+      }
     },
     [],
   );
@@ -4935,7 +4944,9 @@ export default function SlideEditor({
           if (gesture.kind !== "resize")
             return { handled: false, reason: "unhandled" };
           ensureSlideObjectId(element);
-          applyObjectGeometry(element, gesture.rect);
+          applyObjectGeometry(element, gesture.rect, {
+            overrideImageSizing: true,
+          });
           const currentSelector = getBuilderSelector(element);
           if (currentSelector) {
             selectElementForStyling(element, currentSelector, "resizing");
@@ -5094,7 +5105,11 @@ export default function SlideEditor({
       const applyPlan = (plan: Map<string, SlideObjectGeometry>) => {
         for (const member of members) {
           const geometry = plan.get(member.objectId);
-          if (geometry) applyObjectGeometry(member.element, geometry);
+          if (geometry) {
+            applyObjectGeometry(member.element, geometry, {
+              overrideImageSizing: true,
+            });
+          }
         }
       };
 
