@@ -2,6 +2,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+
 import {
   coveredIntakeTopics,
   INTAKE_QUESTION_TOPIC_LABELS,
@@ -12,7 +13,6 @@ import {
 
 const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
   "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating or editing. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
-
 
 export function formatUploadedFileContext(files: UploadedFile[]): string {
   if (files.length === 0) return "";
