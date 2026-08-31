@@ -36,6 +36,10 @@ review, so you know the shape of what matters:
 - signed-in state that does not render (no account control, empty shell) even though a session exists
 - an error, stack trace, raw JSON, or untranslated/placeholder copy shown to the user
 
+The first-run onboarding welcome screen is expected for a brand-new account. Do NOT report it
+just because it has no app shell, account control, or navigation yet; only report onboarding
+when a visible action was attempted and the screen demonstrably fails to advance.
+
 Do NOT report: aesthetic preferences, minor copy wording, anything you cannot see evidence
 for in the screenshot or text, or the presence of the test email address itself.
 
