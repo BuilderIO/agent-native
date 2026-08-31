@@ -34,6 +34,7 @@ import {
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
   resizeSlideObjectMembers,
+  setSlideObjectDimension,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   SLIDE_OBJECT_PASTE_OFFSET,
@@ -55,6 +56,19 @@ function createFreeformObject(
 }
 
 describe("slide object interactions", () => {
+  it("lets explicit image sizing override image size caps", () => {
+    const image = document.createElement("img");
+    image.style.setProperty("height", "auto", "important");
+    image.style.setProperty("max-height", "32px", "important");
+
+    setSlideObjectDimension(image, "height", "64px");
+
+    expect(image.style.getPropertyValue("height")).toBe("64px");
+    expect(image.style.getPropertyPriority("height")).toBe("important");
+    expect(image.style.getPropertyValue("max-height")).toBe("none");
+    expect(image.style.getPropertyPriority("max-height")).toBe("important");
+  });
+
   it("rejects nesting into void layer targets while keeping containers valid", () => {
     expect(canDropSlideLayerInside(document.createElement("img"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);

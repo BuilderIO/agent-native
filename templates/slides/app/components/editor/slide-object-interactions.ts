@@ -118,6 +118,19 @@ export interface SlideObjectGeometry {
   height: number;
 }
 
+export function setSlideObjectDimension(
+  element: HTMLElement,
+  property: "width" | "height",
+  value: string,
+): void {
+  if (element.tagName === "IMG") {
+    element.style.setProperty(`max-${property}`, "none", "important");
+    element.style.setProperty(property, value, "important");
+    return;
+  }
+  element.style.setProperty(property, value);
+}
+
 export function createSlideObjectPlacementGeometry(
   start: { x: number; y: number },
   end: { x: number; y: number },

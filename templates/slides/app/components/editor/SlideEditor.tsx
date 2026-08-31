@@ -167,6 +167,7 @@ import {
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
+  setSlideObjectDimension,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
@@ -3829,7 +3830,11 @@ export default function SlideEditor({
         ) {
           continue;
         }
-        element.style.setProperty(stylePropertyName(property), value);
+        if (property === "width" || property === "height") {
+          setSlideObjectDimension(element, property, value);
+        } else {
+          element.style.setProperty(stylePropertyName(property), value);
+        }
       }
 
       if (
@@ -4380,8 +4385,8 @@ export default function SlideEditor({
     (element: HTMLElement, geometry: SlideObjectGeometry) => {
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
-      element.style.width = `${geometry.width}px`;
-      element.style.height = `${geometry.height}px`;
+      setSlideObjectDimension(element, "width", `${geometry.width}px`);
+      setSlideObjectDimension(element, "height", `${geometry.height}px`);
     },
     [],
   );
@@ -6529,7 +6534,11 @@ export default function SlideEditor({
         ) {
           continue;
         }
-        element.style.setProperty(stylePropertyName(property), value);
+        if (property === "width" || property === "height") {
+          setSlideObjectDimension(element, property, value);
+        } else {
+          element.style.setProperty(stylePropertyName(property), value);
+        }
       }
 
       if (
