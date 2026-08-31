@@ -197,7 +197,7 @@ video bytes:
 | Endpoint                                          | Meaning                                                                                                      |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source` |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
@@ -255,12 +255,16 @@ WebMCP-capable browser, the page also registers these read-only tools:
 | WebMCP tool | Purpose |
 | --- | --- |
 | `clips-get-context` | Clip metadata, readiness, transcript status, and fallback URLs |
-| `clips-get-transcript` | Timestamped transcript segments, with optional time bounds |
+| `clips-get-transcript` | Timestamped transcript segments, with optional time bounds and stable-index pagination |
 | `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
 
 Agents should list the current page tools immediately before calling one. The
-frame tool returns an image URL and `mimeType: image/jpeg`; fetch that URL as an
-image rather than expecting WebMCP to carry binary bytes. WebMCP is progressive
+transcript tool returns `nextStartIndex` when another page exists; pass that
+value back as `startIndex` so overlapping transcript segments are not skipped.
+The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
+`endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
+returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image
+rather than expecting WebMCP to carry binary bytes. WebMCP is progressive
 enhancement and page-local: if the browser cannot expose it, use the existing
 `agentContextUrl`, `apis.transcript`, and `apis.frame` URLs above. These URLs,
 password handling, scoped `agent_access` tokens, and legacy `t` token support

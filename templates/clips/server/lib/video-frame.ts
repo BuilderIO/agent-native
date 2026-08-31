@@ -157,34 +157,36 @@ export async function probeMediaDurationMs(
 ): Promise<number | null> {
   if (mediaBytes.byteLength === 0) return null;
 
-  const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
-  const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
+  return withFrameExtractionSlot(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
+    const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
 
-  try {
-    await writeFile(inputPath, mediaBytes);
-    let stderr: string;
     try {
-      stderr = await runFfmpeg([
-        "-hide_banner",
-        "-nostdin",
-        "-i",
-        inputPath,
-        "-map",
-        "0:v:0?",
-        "-frames:v",
-        "1",
-        "-f",
-        "null",
-        "-",
-      ]);
-    } catch (error) {
-      if (error instanceof FfmpegRunError) return null;
-      throw error;
+      await writeFile(inputPath, mediaBytes);
+      let stderr: string;
+      try {
+        stderr = await runFfmpeg([
+          "-hide_banner",
+          "-nostdin",
+          "-i",
+          inputPath,
+          "-map",
+          "0:v:0?",
+          "-frames:v",
+          "1",
+          "-f",
+          "null",
+          "-",
+        ]);
+      } catch (error) {
+        if (error instanceof FfmpegRunError) return null;
+        throw error;
+      }
+      return parseDurationMs(stderr);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
-    return parseDurationMs(stderr);
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
+  });
 }
 
 async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {
@@ -216,14 +218,14 @@ export async function extractJpegFrame({
     );
   }
 
-  const dir = await mkdtemp(join(tmpdir(), "clips-frame-"));
-  const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
-  const outputPath = join(dir, "frame.jpg");
-  const seconds = Math.max(0, Math.round(atMs) / 1000);
+  return withFrameExtractionSlot(async () => {
+    const dir = await mkdtemp(join(tmpdir(), "clips-frame-"));
+    const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
+    const outputPath = join(dir, "frame.jpg");
+    const seconds = Math.max(0, Math.round(atMs) / 1000);
 
-  try {
-    await writeFile(inputPath, mediaBytes);
-    await withFrameExtractionSlot(async () => {
+    try {
+      await writeFile(inputPath, mediaBytes);
       await runFfmpeg([
         "-hide_banner",
         "-loglevel",
@@ -244,21 +246,32 @@ export async function extractJpegFrame({
       ]).catch((err) => {
         throw mapFfmpegError(err);
       });
-    });
 
-    const info = await stat(outputPath).catch(() => null);
-    if (!info || info.size === 0) {
-      throw new VideoFrameExtractionError(
-        "NO_VIDEO",
-        "No frame was available at that timestamp.",
-      );
+      let info;
+      try {
+        info = await stat(outputPath);
+      } catch (err) {
+        const code =
+          err instanceof Error && "code" in err ? err.code : undefined;
+        if (code !== "ENOENT") throw err;
+        throw new VideoFrameExtractionError(
+          "NO_VIDEO",
+          "No frame was available at that timestamp.",
+        );
+      }
+      if (info.size === 0) {
+        throw new VideoFrameExtractionError(
+          "NO_VIDEO",
+          "No frame was available at that timestamp.",
+        );
+      }
+
+      return new Uint8Array(await readFile(outputPath));
+    } catch (err) {
+      if (err instanceof VideoFrameExtractionError) throw err;
+      throw mapFfmpegError(err);
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
-
-    return new Uint8Array(await readFile(outputPath));
-  } catch (err) {
-    if (err instanceof VideoFrameExtractionError) throw err;
-    throw mapFfmpegError(err);
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
+  });
 }

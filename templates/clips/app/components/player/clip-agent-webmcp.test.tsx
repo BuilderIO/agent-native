@@ -136,8 +136,11 @@ describe("Clip WebMCP tools", () => {
             segmentCount: 3,
             returnedSegmentCount: 1,
             truncated: true,
+            nextStartIndex: 1,
             nextStartMs: 1001,
-            segments: [{ startMs: 0, endMs: 1000, text: "First." }],
+            segments: [
+              { startMs: 0, endMs: 1000, text: "First.", segmentIndex: 0 },
+            ],
           },
           instructions: [],
         }),
@@ -153,8 +156,11 @@ describe("Clip WebMCP tools", () => {
             segmentCount: 3,
             returnedSegmentCount: 1,
             truncated: true,
+            nextStartIndex: 2,
             nextStartMs: 2001,
-            segments: [{ startMs: 1000, endMs: 2000, text: "Second." }],
+            segments: [
+              { startMs: 1000, endMs: 2000, text: "Second.", segmentIndex: 1 },
+            ],
           },
           instructions: [],
         }),
@@ -179,6 +185,7 @@ describe("Clip WebMCP tools", () => {
       fullTextIncluded: false,
     });
     expect(result.nextStartMs).toBe(1001);
+    expect(result.nextStartIndex).toBe(1);
     expect(fetchMock).toHaveBeenCalledWith(
       `${window.location.origin}/api/agent-transcript.json?id=rec-1&agent_access=token&maxSegments=1`,
       expect.any(Object),
@@ -186,13 +193,13 @@ describe("Clip WebMCP tools", () => {
 
     const nextResult = JSON.parse(
       await transcriptTool.execute(
-        { startMs: result.nextStartMs, maxSegments: 1 },
+        { startIndex: result.nextStartIndex, maxSegments: 1 },
         { signal: new AbortController().signal },
       ),
     );
     expect(nextResult.segments[0].text).toBe("Second.");
     expect(fetchMock).toHaveBeenLastCalledWith(
-      `${window.location.origin}/api/agent-transcript.json?id=rec-1&agent_access=token&maxSegments=1&startMs=1001`,
+      `${window.location.origin}/api/agent-transcript.json?id=rec-1&agent_access=token&maxSegments=1&startIndex=1`,
       expect.any(Object),
     );
   });
@@ -225,11 +232,13 @@ describe("Clip WebMCP tools", () => {
           segmentCount: 50,
           returnedSegmentCount: 50,
           truncated: true,
+          nextStartIndex: 50,
           nextStartMs: 50_001,
           segments: Array.from({ length: 50 }, (_, index) => ({
             startMs: index * 1000,
             endMs: index * 1000 + 999,
             text: "x".repeat(4000),
+            segmentIndex: index,
           })),
         },
         instructions: [],
@@ -250,6 +259,54 @@ describe("Clip WebMCP tools", () => {
     expect(result.transcript.truncated).toBe(true);
     expect(result.nextStartMs).toBeGreaterThan(0);
     expect(result.segments.length).toBeLessThan(50);
+  });
+
+  it("bounds an empty transcript envelope with oversized metadata", async () => {
+    const registrations: Array<{ tool: any }> = [];
+    const modelContext = {
+      registerTool: vi.fn(async (tool) => registrations.push({ tool })),
+      getTools: vi.fn(async () => []),
+      executeTool: vi.fn(async () => ""),
+    };
+    const registration = createAgentNativeWebMcpRegistration({
+      document: documentWithModelContext(modelContext),
+      actions: createClipAgentWebMcpActions({
+        recordingId: "rec-1",
+        agentContextUrl: contextUrl,
+        recordingStatus: "ready",
+      }),
+    });
+    await registration.start();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        type: "agent-native.clip.transcript",
+        recording: { id: "rec-1", title: "t".repeat(100_000) },
+        apis: {},
+        transcript: {
+          status: "failed",
+          language: "en",
+          failureReason: "f".repeat(100_000),
+          segmentCount: 0,
+          segments: [],
+        },
+        instructions: ["i".repeat(100_000)],
+      }),
+    );
+
+    const transcriptTool = registrations.find(
+      ({ tool }) => tool.name === CLIPS_WEBMCP_TOOL_NAMES.transcript,
+    )?.tool;
+    const result = JSON.parse(
+      await transcriptTool.execute(
+        {},
+        { signal: new AbortController().signal },
+      ),
+    );
+
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(48_000);
+    expect(result.segments).toEqual([]);
+    expect(result.transcript.truncated).toBe(true);
   });
 
   it("returns an authenticated image URL and leaves stale-duration recovery to the API", async () => {

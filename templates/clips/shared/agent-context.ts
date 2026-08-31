@@ -39,6 +39,12 @@ export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
         minimum: 0,
         description: "Only return segments that overlap this end time.",
       },
+      startIndex: {
+        type: "integer",
+        minimum: 0,
+        description:
+          "Stable segment index for pagination; prefer nextStartIndex from the previous page.",
+      },
       maxSegments: {
         type: "integer",
         minimum: 1,
@@ -75,7 +81,7 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
     name: CLIPS_WEBMCP_TOOL_NAMES.transcript,
     title: "Get clip transcript",
     description:
-      "Read timestamped transcript segments. Use time bounds to page through long transcripts.",
+      "Read timestamped transcript segments. Use nextStartIndex to page through long transcripts without losing overlapping segments.",
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.transcript,
     annotations: { readOnlyHint: true, untrustedContentHint: true },
   },
@@ -95,7 +101,7 @@ export const CLIPS_WEBMCP_DISCOVERY = {
   scope: "page-local",
   tools: CLIPS_WEBMCP_TOOL_DEFINITIONS,
   instructions:
-    "If this clip page is open in a WebMCP-capable browser, list its page tools before using clips-get-context, clips-get-transcript, or clips-get-frame. If WebMCP is unavailable, use agentContextUrl and the existing apis.context, apis.transcript, and apis.frame URLs instead.",
+    "If this clip page is open in a WebMCP-capable browser, list its page tools before using clips-get-context, clips-get-transcript, or clips-get-frame. Use nextStartIndex for transcript pagination so overlapping segments are not lost. If WebMCP is unavailable, use agentContextUrl and the existing apis.context, apis.transcript, and apis.frame URLs instead.",
 };
 
 export type AgentClipReadiness = {
@@ -155,7 +161,7 @@ export function buildAgentDiscoveryPayload({
     webmcp: CLIPS_WEBMCP_DISCOVERY,
     instructions:
       readiness.instruction ??
-      "Fetch agentContextUrl for the transcript and JPEG frame URLs. If the page is open in a WebMCP-capable browser, list its page tools first and use them when available. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs. If the page is open in a WebMCP-capable browser, list its page tools first and use them when available. Use nextStartIndex when paging transcript segments so overlapping segments are not lost. Fetch the frame URLs to SEE the screen, not just read the transcript.",
   };
 }
 

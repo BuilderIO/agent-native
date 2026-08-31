@@ -101,7 +101,8 @@ describe("/api/agent-transcript route", () => {
       segmentCount: 3,
       returnedSegmentCount: 1,
       truncated: true,
-      segments: [segments[0]],
+      segments: [{ ...segments[0], segmentIndex: 0 }],
+      nextStartIndex: 1,
       nextStartMs: 1001,
     });
     expect(first.transcript).not.toHaveProperty("fullText");
@@ -114,8 +115,46 @@ describe("/api/agent-transcript route", () => {
     const second = await handler({} as any);
 
     expect(second.transcript).toMatchObject({
-      segments: [segments[1]],
+      segments: [{ ...segments[1], segmentIndex: 1 }],
+      nextStartIndex: 2,
       nextStartMs: 2001,
+    });
+  });
+
+  it("uses the stable segment index when transcript intervals overlap", async () => {
+    const overlappingSegments = [
+      { ...segments[0], endMs: 1500 },
+      { ...segments[1], startMs: 500, endMs: 1200 },
+      segments[2],
+    ];
+    mockLoadAgentTranscript.mockResolvedValue({
+      transcript: {
+        status: "ready",
+        language: "en",
+        fullText: "First. Second. Third.",
+        failureReason: null,
+      },
+      agentSegments: overlappingSegments,
+    });
+
+    mockGetQuery.mockReturnValue({ id: "rec-1", maxSegments: "1" });
+    const first = await handler({} as any);
+
+    expect(first.transcript).toMatchObject({
+      segments: [{ ...overlappingSegments[0], segmentIndex: 0 }],
+      nextStartIndex: 1,
+    });
+
+    mockGetQuery.mockReturnValue({
+      id: "rec-1",
+      startIndex: "1",
+      maxSegments: "1",
+    });
+    const second = await handler({} as any);
+
+    expect(second.transcript).toMatchObject({
+      segments: [{ ...overlappingSegments[1], segmentIndex: 1 }],
+      nextStartIndex: 2,
     });
   });
 

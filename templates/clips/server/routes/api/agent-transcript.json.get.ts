@@ -34,6 +34,7 @@ import {
 type AgentTranscriptWindow = {
   startMs?: number;
   endMs?: number;
+  startIndex?: number;
   maxSegments: number;
 };
 
@@ -57,6 +58,16 @@ function parseAgentTranscriptWindow(
 
   const startMs = parseMs("startMs");
   const endMs = parseMs("endMs");
+  const rawStartIndex = queryString(query.startIndex);
+  const startIndex = rawStartIndex ? Number(rawStartIndex) : undefined;
+  if (
+    startIndex !== undefined &&
+    (!Number.isSafeInteger(startIndex) || startIndex < 0)
+  ) {
+    throw new Error(
+      "Transcript query startIndex must be a non-negative integer",
+    );
+  }
   const rawMaxSegments = queryString(query.maxSegments);
   const maxSegments = rawMaxSegments ? Number(rawMaxSegments) : undefined;
   if (
@@ -74,11 +85,15 @@ function parseAgentTranscriptWindow(
   }
 
   const hasWindow =
-    startMs !== undefined || endMs !== undefined || maxSegments !== undefined;
+    startMs !== undefined ||
+    endMs !== undefined ||
+    startIndex !== undefined ||
+    maxSegments !== undefined;
   if (!hasWindow) return null;
   return {
     ...(startMs !== undefined ? { startMs } : {}),
     ...(endMs !== undefined ? { endMs } : {}),
+    ...(startIndex !== undefined ? { startIndex } : {}),
     maxSegments: maxSegments ?? CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
   };
 }
@@ -87,11 +102,15 @@ function pageAgentTranscriptSegments(
   segments: AgentTranscriptSegment[],
   window: AgentTranscriptWindow,
 ) {
-  const matchingSegments = segments.filter(
-    (segment) =>
-      (window.startMs === undefined || segment.endMs >= window.startMs) &&
-      (window.endMs === undefined || segment.startMs <= window.endMs),
-  );
+  const matchingSegments = segments
+    .map((segment, segmentIndex) => ({ ...segment, segmentIndex }))
+    .filter(
+      ({ segmentIndex, ...segment }) =>
+        (window.startIndex === undefined ||
+          segmentIndex >= window.startIndex) &&
+        (window.startMs === undefined || segment.endMs >= window.startMs) &&
+        (window.endMs === undefined || segment.startMs <= window.endMs),
+    );
   const page = matchingSegments.slice(0, window.maxSegments);
   const truncated = matchingSegments.length > page.length;
   const lastSegment = page[page.length - 1];
@@ -99,7 +118,13 @@ function pageAgentTranscriptSegments(
     segments: page,
     truncated,
     ...(truncated && lastSegment
-      ? { nextStartMs: nextAgentTranscriptStartMs(lastSegment.endMs) }
+      ? {
+          nextStartIndex: Math.min(
+            Number.MAX_SAFE_INTEGER,
+            lastSegment.segmentIndex + 1,
+          ),
+          nextStartMs: nextAgentTranscriptStartMs(lastSegment.endMs),
+        }
       : {}),
   };
 }
@@ -179,6 +204,9 @@ export default defineEventHandler(async (event: H3Event) => {
             segmentCount: agentSegments.length,
             returnedSegmentCount: transcriptPage?.segments.length ?? 0,
             truncated: transcriptPage?.truncated ?? false,
+            ...(transcriptPage?.nextStartIndex !== undefined
+              ? { nextStartIndex: transcriptPage.nextStartIndex }
+              : {}),
             ...(transcriptPage?.nextStartMs !== undefined
               ? { nextStartMs: transcriptPage.nextStartMs }
               : {}),

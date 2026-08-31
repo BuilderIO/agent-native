@@ -143,8 +143,6 @@ type SharePageLoaderData = {
   accessRequestToken?: string;
 };
 
-const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
-
 function emptyLoaderData(
   url: URL,
   accessDeniedStatus?: 401 | 403,
@@ -280,41 +278,25 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
   };
-  const canExposeAgentContext =
-    (rec.visibility === "public" || tokenGrantsAgentAccess) &&
+  const canExposeAnonymousAgentContext =
+    rec.visibility === "public" &&
+    !rec.password &&
     !rec.archivedAt &&
     !rec.trashedAt;
-  const token = tokenGrantsAgentAccess
-    ? agentAccessToken
-    : canExposeAgentContext &&
-        rec.password &&
-        getRequestUserEmail() === rec.ownerEmail
-      ? signScopedAgentAccessToken({
-          resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-          resourceId: id,
-          ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
-        })
-      : undefined;
-  const canExposeAnonymousAgentContext = canExposeAgentContext && !rec.password;
-  const canExposeOwnerAgentContext = canExposeAgentContext && Boolean(token);
   return shareLoaderData(
     {
       recording,
       origin: url.origin,
       shareUrl: `${url.origin}${url.pathname}`,
-      agentContextUrl:
-        canExposeAnonymousAgentContext || canExposeOwnerAgentContext
-          ? buildAgentApiUrls(id, {
-              origin: url.origin,
-              basePath:
-                process.env.VITE_APP_BASE_PATH ||
-                process.env.APP_BASE_PATH ||
-                "",
-              token,
-            }).contextUrl
-          : null,
+      agentContextUrl: canExposeAnonymousAgentContext
+        ? buildAgentApiUrls(id, {
+            origin: url.origin,
+            basePath:
+              process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "",
+          }).contextUrl
+        : null,
     },
-    hasAgentAccessToken || canExposeOwnerAgentContext,
+    hasAgentAccessToken,
   );
 }
 

@@ -16,6 +16,8 @@ import {
 
 const MAX_SEGMENT_TEXT_CHARS = 4000;
 const MAX_WEBMCP_TRANSCRIPT_RESULT_CHARS = 48_000;
+const MAX_WEBMCP_FIELD_CHARS = 2000;
+const MAX_WEBMCP_URL_CHARS = 4096;
 
 type ClipAgentWebMcpOptions = {
   recordingId: string;
@@ -45,6 +47,14 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function boundedString(
+  value: unknown,
+  max = MAX_WEBMCP_FIELD_CHARS,
+): string | null {
+  const string = stringValue(value);
+  return string === null ? null : string.slice(0, max);
 }
 
 function buildRelatedAgentUrl(
@@ -104,14 +114,21 @@ async function fetchAgentJson(
 function compactClip(value: unknown): Record<string, unknown> | null {
   const clip = optionalRecord(value);
   if (!clip) return null;
+  const readiness = optionalRecord(clip.agentReadiness);
   return {
-    id: stringValue(clip.id),
-    title: stringValue(clip.title),
-    sourceProvider: stringValue(clip.sourceProvider),
-    publicPageUrl: stringValue(clip.publicPageUrl),
+    id: boundedString(clip.id, 256),
+    title: boundedString(clip.title),
+    sourceProvider: boundedString(clip.sourceProvider, 64),
+    publicPageUrl: boundedString(clip.publicPageUrl, MAX_WEBMCP_URL_CHARS),
     durationMs: numberValue(clip.durationMs),
-    status: stringValue(clip.status),
-    agentReadiness: clip.agentReadiness ?? null,
+    status: boundedString(clip.status, 64),
+    agentReadiness: readiness
+      ? {
+          state: boundedString(readiness.state, 64),
+          retryAfterSeconds: numberValue(readiness.retryAfterSeconds),
+          instruction: boundedString(readiness.instruction),
+        }
+      : null,
   };
 }
 
@@ -125,18 +142,88 @@ function compactApis(
     context: { method: "GET", url: contextUrl },
     transcript: { method: "GET", url: transcriptUrl },
   };
-  if (apis?.frame) result.frame = apis.frame;
+  const frame = optionalRecord(apis?.frame);
+  if (frame) {
+    const query = optionalRecord(frame.query);
+    result.frame = {
+      method: boundedString(frame.method, 16) ?? "GET",
+      urlTemplate: boundedString(frame.urlTemplate, MAX_WEBMCP_URL_CHARS),
+      ...(query
+        ? {
+            query: Object.fromEntries(
+              Object.entries(query)
+                .slice(0, 8)
+                .map(([key, value]) => [key, boundedString(value)]),
+            ),
+          }
+        : {}),
+    };
+  }
   return result;
+}
+
+function compactRecommendedFrames(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 10).flatMap((frame) => {
+    const item = optionalRecord(frame);
+    if (!item) return [];
+    return [
+      {
+        atMs: numberValue(item.atMs),
+        timestamp: boundedString(item.timestamp, 64),
+        reason: boundedString(item.reason),
+        ...(boundedString(item.url, MAX_WEBMCP_URL_CHARS)
+          ? { url: boundedString(item.url, MAX_WEBMCP_URL_CHARS) }
+          : {}),
+      },
+    ];
+  });
+}
+
+function compactInstructions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (instruction): instruction is string => typeof instruction === "string",
+    )
+    .slice(0, 10)
+    .map((instruction) => instruction.slice(0, MAX_WEBMCP_FIELD_CHARS));
+}
+
+function ensureTranscriptResultFits<T extends Record<string, unknown>>(
+  result: T,
+  recordingId: string,
+): T {
+  if (JSON.stringify(result).length <= MAX_WEBMCP_TRANSCRIPT_RESULT_CHARS) {
+    return result;
+  }
+
+  return {
+    type: boundedString(result.type, 128) ?? "agent-native.clip.transcript",
+    sourceUrl: boundedString(result.sourceUrl, MAX_WEBMCP_URL_CHARS),
+    recordingId: recordingId.slice(0, 256),
+    transcript: {
+      status: boundedString(optionalRecord(result.transcript)?.status, 64),
+      language: boundedString(optionalRecord(result.transcript)?.language, 64),
+      returnedSegmentCount: 0,
+      truncated: true,
+      fullTextIncluded: false,
+      fullTextOmittedReason:
+        "WebMCP transcript result was bounded; use sourceUrl for the fallback transcript.",
+    },
+    segments: [],
+  } as unknown as T;
 }
 
 function parseTranscriptInput(input: unknown): {
   startMs?: number;
   endMs?: number;
+  startIndex?: number;
   maxSegments: number;
 } {
   const value = requiredRecord(input, "Transcript input");
   for (const key of Object.keys(value)) {
-    if (!["startMs", "endMs", "maxSegments"].includes(key)) {
+    if (!["startMs", "endMs", "startIndex", "maxSegments"].includes(key)) {
       throw new Error(`Transcript input has an unexpected field: ${key}`);
     }
   }
@@ -151,6 +238,18 @@ function parseTranscriptInput(input: unknown): {
   };
   const startMs = readNumber("startMs");
   const endMs = readNumber("endMs");
+  const rawStartIndex = value.startIndex;
+  if (
+    rawStartIndex !== undefined &&
+    (typeof rawStartIndex !== "number" ||
+      !Number.isSafeInteger(rawStartIndex) ||
+      rawStartIndex < 0)
+  ) {
+    throw new Error(
+      "Transcript input startIndex must be a non-negative integer",
+    );
+  }
+  const startIndex = rawStartIndex as number | undefined;
   if (startMs !== undefined && endMs !== undefined && endMs < startMs) {
     throw new Error("Transcript input endMs must be greater than startMs");
   }
@@ -171,6 +270,7 @@ function parseTranscriptInput(input: unknown): {
   return {
     ...(startMs !== undefined ? { startMs } : {}),
     ...(endMs !== undefined ? { endMs } : {}),
+    ...(startIndex !== undefined ? { startIndex } : {}),
     maxSegments: rawMaxSegments ?? CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
   };
 }
@@ -201,6 +301,7 @@ function transcriptSegment(value: unknown, index: number) {
   const normalizedStartMs = safeMs(startMs);
   const normalizedEndMs = Math.max(normalizedStartMs, safeMs(endMs));
   const boundedText = text.slice(0, MAX_SEGMENT_TEXT_CHARS);
+  const segmentIndex = numberValue(segment.segmentIndex);
   return {
     startMs: normalizedStartMs,
     endMs: normalizedEndMs,
@@ -208,6 +309,11 @@ function transcriptSegment(value: unknown, index: number) {
     range: `${formatAgentTimestamp(normalizedStartMs)}-${formatAgentTimestamp(normalizedEndMs)}`,
     text: boundedText,
     ...(boundedText.length < text.length ? { textTruncated: true } : {}),
+    ...(segmentIndex !== null &&
+    Number.isSafeInteger(segmentIndex) &&
+    segmentIndex >= 0
+      ? { segmentIndex }
+      : {}),
     ...(segment.source === "mic" || segment.source === "system"
       ? { source: segment.source }
       : {}),
@@ -249,9 +355,9 @@ export function createClipAgentWebMcpActions({
         AGENT_TRANSCRIPT_ENDPOINT,
       );
       const transcript = optionalRecord(payload.transcript);
-      const recommendedFrames = Array.isArray(payload.recommendedFrames)
-        ? payload.recommendedFrames.slice(0, 10)
-        : [];
+      const recommendedFrames = compactRecommendedFrames(
+        payload.recommendedFrames,
+      );
       return {
         type: stringValue(payload.type) ?? "agent-native.clip.context",
         sourceUrl: agentContextUrl,
@@ -263,9 +369,7 @@ export function createClipAgentWebMcpActions({
           segmentCount: numberValue(transcript?.segmentCount) ?? 0,
         },
         recommendedFrames,
-        instructions: Array.isArray(payload.instructions)
-          ? payload.instructions.slice(0, 10)
-          : [],
+        instructions: compactInstructions(payload.instructions),
       };
     },
   });
@@ -280,7 +384,8 @@ export function createClipAgentWebMcpActions({
     run: async (input, runtime) => {
       if (!agentContextUrl)
         throw new Error("Clip agent context is unavailable");
-      const { startMs, endMs, maxSegments } = parseTranscriptInput(input);
+      const { startMs, endMs, startIndex, maxSegments } =
+        parseTranscriptInput(input);
       const transcriptUrl = buildRelatedAgentUrl(
         agentContextUrl,
         AGENT_TRANSCRIPT_ENDPOINT,
@@ -288,6 +393,9 @@ export function createClipAgentWebMcpActions({
           maxSegments: String(maxSegments),
           ...(startMs !== undefined ? { startMs: String(startMs) } : {}),
           ...(endMs !== undefined ? { endMs: String(endMs) } : {}),
+          ...(startIndex !== undefined
+            ? { startIndex: String(startIndex) }
+            : {}),
         },
       );
       const payload = await fetchAgentJson(transcriptUrl, runtime.signal);
@@ -305,6 +413,7 @@ export function createClipAgentWebMcpActions({
           (endMs === undefined || segment.startMs <= endMs),
       );
       const serverTruncated = transcript.truncated === true;
+      const serverNextStartIndex = numberValue(transcript.nextStartIndex);
       const serverNextStartMs = numberValue(transcript.nextStartMs);
       const candidates = matchingSegments.slice(0, maxSegments);
       const baseResult = {
@@ -325,29 +434,43 @@ export function createClipAgentWebMcpActions({
             "WebMCP returns bounded timestamped segments; use the fallback transcript URL for fullText.",
         },
         segments: [] as typeof candidates,
-        instructions: Array.isArray(payload.instructions)
-          ? payload.instructions.slice(0, 10)
-          : [],
+        instructions: compactInstructions(payload.instructions),
         recordingId,
       };
+      const boundedBaseResult = ensureTranscriptResultFits(
+        baseResult,
+        recordingId,
+      );
+      const baseWasBounded = boundedBaseResult !== baseResult;
 
       let returnedSegments: typeof candidates = [];
       for (const segment of candidates) {
         const nextSegments = [...returnedSegments, segment];
         const truncated =
-          serverTruncated || nextSegments.length < matchingSegments.length;
+          baseWasBounded ||
+          serverTruncated ||
+          nextSegments.length < matchingSegments.length;
+        const lastSegment = nextSegments[nextSegments.length - 1];
+        const segmentIndex = numberValue(lastSegment?.segmentIndex);
+        const nextStartIndex =
+          segmentIndex !== null &&
+          Number.isSafeInteger(segmentIndex) &&
+          segmentIndex >= 0
+            ? Math.min(Number.MAX_SAFE_INTEGER, segmentIndex + 1)
+            : serverNextStartIndex;
         const candidateResult = {
-          ...baseResult,
+          ...boundedBaseResult,
           transcript: {
-            ...baseResult.transcript,
+            ...boundedBaseResult.transcript,
             returnedSegmentCount: nextSegments.length,
             truncated,
           },
           segments: nextSegments,
           ...(truncated
             ? {
+                ...(nextStartIndex !== null ? { nextStartIndex } : {}),
                 nextStartMs: nextAgentTranscriptStartMs(
-                  nextSegments[nextSegments.length - 1]?.endMs ?? 0,
+                  lastSegment?.endMs ?? 0,
                 ),
               }
             : {}),
@@ -362,24 +485,37 @@ export function createClipAgentWebMcpActions({
       }
 
       const truncated =
-        serverTruncated || returnedSegments.length < matchingSegments.length;
+        baseWasBounded ||
+        serverTruncated ||
+        returnedSegments.length < matchingSegments.length;
+      const lastReturnedSegment = returnedSegments[returnedSegments.length - 1];
+      const returnedSegmentIndex = numberValue(
+        lastReturnedSegment?.segmentIndex,
+      );
+      const nextStartIndex =
+        returnedSegmentIndex !== null &&
+        Number.isSafeInteger(returnedSegmentIndex) &&
+        returnedSegmentIndex >= 0
+          ? Math.min(Number.MAX_SAFE_INTEGER, returnedSegmentIndex + 1)
+          : returnedSegments.length === candidates.length
+            ? serverNextStartIndex
+            : null;
       return {
-        ...baseResult,
+        ...boundedBaseResult,
         transcript: {
-          ...baseResult.transcript,
+          ...boundedBaseResult.transcript,
           returnedSegmentCount: returnedSegments.length,
           truncated,
         },
         segments: returnedSegments,
         ...(truncated && returnedSegments.length > 0
           ? {
+              ...(nextStartIndex !== null ? { nextStartIndex } : {}),
               nextStartMs:
                 returnedSegments.length === candidates.length &&
                 serverNextStartMs !== null
                   ? serverNextStartMs
-                  : nextAgentTranscriptStartMs(
-                      returnedSegments[returnedSegments.length - 1]?.endMs ?? 0,
-                    ),
+                  : nextAgentTranscriptStartMs(lastReturnedSegment?.endMs ?? 0),
             }
           : {}),
       };
