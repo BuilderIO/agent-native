@@ -1,0 +1,78 @@
+<svg width="1433" height="1435" viewBox="0 0 1433 1435" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Builder Code Preview for Builder Content</title>
+<desc>A five-step vertical timeline showing how the content team prototypes and registers a component in Builder Code and Builder Content, then hands off to the dev team to ship.</desc>
+<style>
+text{font-family:'Geist','Helvetica Neue',Helvetica,Arial,sans-serif}
+.title{font-size:42px;font-family:'Geist SemiBold','Geist',sans-serif;fill:#FAF9F5}
+.sub{font-size:21px;fill:#B9B8B3}
+.legend{font-size:19px;fill:#C7C6C1}
+.cardTitleCyan{font-size:30px;font-family:'Geist SemiBold','Geist',sans-serif;fill:#29D8F3}
+.cardTitlePink{font-size:30px;font-family:'Geist SemiBold','Geist',sans-serif;fill:#FA9BF2}
+.body{font-size:19px;fill:#C7C6C1}
+.num{font-size:150px;font-family:'Geist SemiBold','Geist',sans-serif;text-anchor:end}
+</style>
+
+<rect x="0" y="0" width="1433" height="1435" fill="#060607"/>
+
+<text class="title" x="90" y="78">Builder Code Preview for Builder Content</text>
+<text class="sub" x="90" y="128">Build and preview new components in Builder Content, then hand off to dev to ship.</text>
+
+<circle cx="100" cy="190" r="10" fill="#22D3F0"/>
+<text class="legend" x="122" y="197">Content team</text>
+<circle cx="353" cy="190" r="10" fill="#FA9BF2"/>
+<text class="legend" x="375" y="197">Dev team</text>
+
+<!-- rail -->
+<line x1="135" y1="348" x2="135" y2="1053" stroke="#22B8D9" stroke-width="4"/>
+<line x1="135" y1="1053" x2="135" y2="1288" stroke="#E38FD8" stroke-width="4"/>
+
+<!-- connector stubs -->
+<line x1="135" y1="348" x2="250" y2="348" stroke="#22B8D9" stroke-width="3"/>
+<line x1="135" y1="583" x2="250" y2="583" stroke="#22B8D9" stroke-width="3"/>
+<line x1="135" y1="818" x2="250" y2="818" stroke="#22B8D9" stroke-width="3"/>
+<line x1="135" y1="1053" x2="250" y2="1053" stroke="#22B8D9" stroke-width="3"/>
+<line x1="135" y1="1288" x2="250" y2="1288" stroke="#E38FD8" stroke-width="3"/>
+
+<!-- dots -->
+<circle cx="135" cy="348" r="13" fill="#22D3F0"/>
+<circle cx="135" cy="583" r="13" fill="#22D3F0"/>
+<circle cx="135" cy="818" r="13" fill="#22D3F0"/>
+<circle cx="135" cy="1053" r="13" fill="#22D3F0"/>
+<circle cx="135" cy="1288" r="13" fill="#FA9BF2"/>
+
+<!-- Card 1 -->
+<rect x="250" y="250" width="1100" height="195" rx="20" fill="#0A0A0A" stroke="#01C8F1" stroke-width="3"/>
+<text class="cardTitleCyan" x="290" y="308">Identify your component</text>
+<text class="body" x="290" y="345">Review your existing custom components to confirm</text>
+<text class="body" x="290" y="378">it doesn't already exist — or note its name to edit.</text>
+<text class="num" x="1320" y="410" fill="#123C46">1</text>
+
+<!-- Card 2 -->
+<rect x="250" y="485" width="1100" height="195" rx="20" fill="#0A0A0A" stroke="#01C8F1" stroke-width="3"/>
+<text class="cardTitleCyan" x="290" y="543">Prototype it in Builder Code</text>
+<text class="body" x="290" y="580">Create a branch, then ask Builder Code to build or update</text>
+<text class="body" x="290" y="613">the component, plus a preview page to view it.</text>
+<text class="num" x="1320" y="645" fill="#123C46">2</text>
+
+<!-- Card 3 -->
+<rect x="250" y="720" width="1100" height="195" rx="20" fill="#0A0A0A" stroke="#01C8F1" stroke-width="3"/>
+<text class="cardTitleCyan" x="290" y="778">Register it in Builder Content</text>
+<text class="body" x="290" y="815">Ask Builder Code to register it as a custom component,</text>
+<text class="body" x="290" y="848">noting which properties should be configurable.</text>
+<text class="num" x="1320" y="880" fill="#123C46">3</text>
+
+<!-- Card 4 -->
+<rect x="250" y="955" width="1100" height="195" rx="20" fill="#0A0A0A" stroke="#01C8F1" stroke-width="3"/>
+<text class="cardTitleCyan" x="290" y="1013">Preview it in Builder Content</text>
+<text class="body" x="290" y="1050">On a test entry, use "Preview with a Builder Code branch"</text>
+<text class="body" x="290" y="1083">to see it live in your Space. Don't publish yet.</text>
+<text class="num" x="1320" y="1115" fill="#123C46">4</text>
+
+<!-- Card 5 -->
+<rect x="250" y="1190" width="1100" height="195" rx="20" fill="#0A0A0A" stroke="#FA9BF2" stroke-width="4"/>
+<text class="cardTitlePink" x="290" y="1248">Tag a developer to ship</text>
+<text class="body" x="290" y="1285">Assign a developer to review and open a PR. Once</text>
+<text class="body" x="290" y="1318">merged, switch preview back to production to ship.</text>
+<text class="num" x="1320" y="1350" fill="#3A1836">5</text>
+
+</svg>
