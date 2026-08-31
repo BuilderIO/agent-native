@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Command;
 #[cfg(target_os = "macos")]
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -22,13 +22,16 @@ use crate::state::{
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
     mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
-    set_capture_excluded_always, set_capture_included, tray_monitor_physical_rect,
+    set_capture_excluded_always, set_capture_included, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 /// Native overlay windows for the recording experience. These render the same
 /// React bundle with a hash route that `main.tsx` uses to pick the component.
 const COUNTDOWN_LABEL: &str = "countdown";
 const TOOLBAR_LABEL: &str = "toolbar";
+/// Supersedes stale toolbar topmost loops after window recreation.
+static TOOLBAR_TOPMOST_GENERATION: AtomicU64 = AtomicU64::new(0);
 // Geometry of the two circular cancel/skip buttons that flank the countdown
 // number. These MUST stay in sync with the CSS in
 // `templates/clips/desktop/src/styles.css` (`.countdown-control` is 64px and
@@ -1044,6 +1047,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -1099,6 +1103,7 @@ pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), St
     };
     if visible {
         raise_to_status_level(&win);
+        start_topmost_reassert_loop(&app, TOOLBAR_LABEL, &TOOLBAR_TOPMOST_GENERATION);
         crate::util::show_without_activation(&win);
     } else {
         let _ = win.hide();

@@ -1,6 +1,9 @@
 export interface DesignSystemData {
   source?: string;
   builderJobId?: string;
+  builderProjectId?: string;
+  builderBranchName?: string;
+  builderUrl?: string;
   builderStatus?: string;
   builderSyncedAt?: string;
   colors?: {
@@ -76,4 +79,26 @@ export function builderRefreshKey(system: {
 }): string {
   const parsed = parseDesignSystemData(system.data);
   return `${system.id}:${parsed?.builderJobId ?? "unknown"}`;
+}
+
+/**
+ * Persisted `builderUrl` values are treated as a trusted navigation target
+ * (rendered as an "Open in Builder" anchor). Reject anything that is not an
+ * absolute https URL on builder.io before it reaches the DOM, since the
+ * field is stored data that could be stale, corrupted, or tampered with by a
+ * collaborator on a shared design system.
+ */
+export function isTrustedBuilderPreviewUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // coercion-ok: an unparseable URL is untrusted, not merely absent.
+    return false;
+  }
+  return (
+    parsed.protocol === "https:" &&
+    (parsed.hostname === "builder.io" ||
+      parsed.hostname.endsWith(".builder.io"))
+  );
 }

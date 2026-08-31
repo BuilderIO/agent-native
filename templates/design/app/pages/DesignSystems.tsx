@@ -1,9 +1,11 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -14,8 +16,9 @@ import {
   IconChecks,
   IconComponents,
   IconDots,
-  IconPlus,
+  IconExternalLink,
   IconPalette,
+  IconPlus,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -76,6 +79,7 @@ import { QueryErrorState } from "../components/QueryErrorState";
 import { isViewerDefaultDesignSystem } from "../hooks/use-design-systems";
 import {
   builderRefreshKey,
+  isTrustedBuilderPreviewUrl,
   parseDesignSystemData,
   shouldRefreshBuilderDesignSystem,
   type DesignSystemData,
@@ -886,8 +890,8 @@ function DesignSystemDetailsSheet({
     [designSystem],
   );
   const assets = useMemo(
-    () => parseDesignSystemAssets(designSystem?.assets),
-    [designSystem?.assets],
+    () => parseDesignSystemAssets(designSystem && designSystem.assets),
+    [designSystem],
   );
 
   if (!designSystem) {
@@ -945,7 +949,11 @@ function DesignSystemDetailsSheet({
             </div>
           </section>
 
-          <TokenPreview data={parsed} assets={assets} />
+          <DesignSystemPreview
+            id={designSystem.id}
+            data={parsed}
+            assets={assets}
+          />
 
           <section className="space-y-3 border-t border-border pt-6">
             <div>
@@ -997,6 +1005,95 @@ function DesignSystemDetailsSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function DesignSystemPreview({
+  id,
+  data,
+  assets,
+}: {
+  id: string;
+  data: DesignSystemData | null;
+  assets: Array<{ name?: string; url?: string; variant?: string }>;
+}) {
+  return data?.source === "builder" ? (
+    <DesignSystemPreviewLink id={id} data={data} />
+  ) : (
+    <TokenPreview data={data} assets={assets} />
+  );
+}
+
+function DesignSystemPreviewLink({
+  id,
+  data,
+}: {
+  id: string;
+  data: DesignSystemData;
+}) {
+  const t = useT();
+  const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedBuilderUrl(null);
+    void fetch(
+      appApiPath(
+        `/api/design-system-builder-link?id=${encodeURIComponent(id)}`,
+      ),
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { builderUrl?: string | null } | null) => {
+        if (!cancelled) setResolvedBuilderUrl(json?.builderUrl ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedBuilderUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const persistedBuilderUrl =
+    data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
+      ? data.builderUrl
+      : undefined;
+  // The stored URL is the project/branch link for every source that returns a
+  // branch from indexing, so it renders straight away; the resolve only
+  // upgrades a `.fig` import whose branch was cut after the row was written.
+  const trustedBuilderUrl =
+    (resolvedBuilderUrl && isTrustedBuilderPreviewUrl(resolvedBuilderUrl)
+      ? resolvedBuilderUrl
+      : undefined) ?? persistedBuilderUrl;
+
+  return (
+    <section className="space-y-3 border-t border-border pt-6">
+      <div>
+        <h3 className="text-sm font-medium text-foreground">
+          {t("designSystems.preview.title")}
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {t("designSystems.preview.description")}
+        </p>
+      </div>
+      {trustedBuilderUrl ? (
+        <Button asChild className="cursor-pointer">
+          <a
+            href={withBuilderUtmTrackingParams(trustedBuilderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <IconExternalLink className="size-4" />
+            {"Open in Builder" /* i18n-ignore Builder link action */}
+          </a>
+        </Button>
+      ) : null}
+    </section>
   );
 }
 

@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
 };
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -239,9 +240,83 @@ pub fn raise_to_status_level(window: &WebviewWindow) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+// Windows has no window-level concept — `always_on_top` sets WS_EX_TOPMOST,
+// a z-order position rather than a level, so another app that calls
+// `SetWindowPos(HWND_TOPMOST)` after ours moves above ours even though both
+// windows are "always on top". Re-issuing `set_always_on_top(true)` re-sends
+// that call and pops the overlay back to the front of the topmost band —
+// the closest Windows equivalent to the NSStatusWindowLevel escape hatch
+// above. Combine with `start_topmost_reassert_loop` below: a single call at
+// show time only wins the race until the next app does the same.
+#[cfg(target_os = "windows")]
+pub fn raise_to_status_level(window: &WebviewWindow) {
+    if let Err(err) = window.set_always_on_top(true) {
+        eprintln!(
+            "[clips-tray] raise_to_status_level({}): set_always_on_top failed: {err}",
+            window.label()
+        );
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn raise_to_status_level(_window: &WebviewWindow) {
-    // No-op on non-macOS platforms. Window levels are an AppKit concept.
+    // No-op on Linux. Window levels/topmost re-assertion aren't a portable
+    // concept across window managers.
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn advance_topmost_generation(current_generation: &AtomicU64) -> u64 {
+    current_generation
+        .fetch_add(1, Ordering::SeqCst)
+        .wrapping_add(1)
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn is_current_topmost_generation(current_generation: &AtomicU64, generation: u64) -> bool {
+    current_generation.load(Ordering::SeqCst) == generation
+}
+
+/// Poll a window every couple of seconds and reassert `raise_to_status_level`
+/// while it's visible. A single call at show time only wins the Windows
+/// z-order race described there until another app raises itself topmost
+/// afterward — e.g. a call app's floating controls appearing mid-recording —
+/// which is exactly how the recording pill/toolbar can end up silently
+/// buried with no taskbar entry to recover it (both windows are
+/// intentionally `skip_taskbar`). Each start advances a caller-owned
+/// generation; an older task exits when superseded, while the new task always
+/// starts. This avoids losing the loop if a window is recreated while the old
+/// task is exiting. No-op on macOS/Linux.
+#[cfg(target_os = "windows")]
+pub fn start_topmost_reassert_loop(
+    app: &AppHandle,
+    label: &'static str,
+    current_generation: &'static AtomicU64,
+) {
+    let generation = advance_topmost_generation(current_generation);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if !is_current_topmost_generation(current_generation, generation) {
+                break;
+            }
+            let Some(window) = app.get_webview_window(label) else {
+                break;
+            };
+            if window.is_visible().unwrap_or(false) {
+                raise_to_status_level(&window);
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn start_topmost_reassert_loop(
+    _app: &AppHandle,
+    _label: &'static str,
+    _current_generation: &'static AtomicU64,
+) {
+    // No-op on macOS/Linux — see the doc comment on the Windows impl.
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -653,8 +728,11 @@ pub fn hide_voice_wake_popover(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::bundle_path_from_executable_path;
+    use super::{
+        advance_topmost_generation, bundle_path_from_executable_path, is_current_topmost_generation,
+    };
     use std::path::Path;
+    use std::sync::atomic::AtomicU64;
 
     #[test]
     fn derives_macos_bundle_path_from_app_executable() {
@@ -668,5 +746,21 @@ mod tests {
     fn rejects_non_bundle_executable_paths() {
         let executable = Path::new("/Users/steve/dev/Clips");
         assert!(bundle_path_from_executable_path(executable).is_none());
+    }
+
+    #[test]
+    fn replacement_topmost_loop_supersedes_the_exiting_generation() {
+        let current_generation = AtomicU64::new(0);
+        let exiting_generation = advance_topmost_generation(&current_generation);
+        let replacement_generation = advance_topmost_generation(&current_generation);
+
+        assert!(!is_current_topmost_generation(
+            &current_generation,
+            exiting_generation
+        ));
+        assert!(is_current_topmost_generation(
+            &current_generation,
+            replacement_generation
+        ));
     }
 }
