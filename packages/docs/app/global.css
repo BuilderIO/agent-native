@@ -2350,6 +2350,22 @@ html.dark .shiki span {
   text-decoration: underline;
 }
 
+/* Machine-translation disclosure, after the article content */
+.docs-translation-note {
+  margin-top: 32px;
+  color: var(--fg-secondary);
+  font-size: 13px;
+}
+
+.docs-translation-note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.docs-translation-note a:hover {
+  color: var(--fg);
+}
+
 /* Mobile docs content improvements */
 @media (max-width: 1023px) {
   .docs-content h1 {

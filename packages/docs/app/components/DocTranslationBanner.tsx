@@ -14,18 +14,9 @@ export default function DocTranslationBanner({
 }) {
   const t = useT();
   return (
-    <div
-      className="mt-8 rounded-md border p-4 text-sm text-muted-foreground"
-      style={{ borderColor: "var(--docs-border)" }}
-    >
-      <strong className="text-foreground">{t("docs.translationLabel")}</strong>{" "}
-      — {t("docs.translationDescription")}{" "}
-      <Link
-        to={originalHref}
-        className="font-medium text-[var(--docs-accent)] underline"
-      >
-        {t("docs.translationViewOriginal")}
-      </Link>
-    </div>
+    <p className="docs-translation-note">
+      {t("docs.translationLabel")} — {t("docs.translationDescription")}{" "}
+      <Link to={originalHref}>{t("docs.translationViewOriginal")}</Link>
+    </p>
   );
 }
