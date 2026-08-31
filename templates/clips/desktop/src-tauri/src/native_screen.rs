@@ -27,7 +27,7 @@ use screencapturekit::stream::{
     configuration::SCStreamConfiguration, content_filter::SCContentFilter,
     output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, sc_stream::SCStream,
 };
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
@@ -37,6 +37,14 @@ pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
 /// is incomplete even when its init-segment `moov` is present, so uploading
 /// would silently publish a truncated clip.
 const CAPTURE_FINALIZE_INCOMPLETE_PREFIX: &str = "capture finalize incomplete: ";
+/// Prefix tagging `refuse_if_capture_stop_pending`'s error: a previous
+/// ScreenCaptureKit stop timed out and its detached worker is still running.
+/// Callers that otherwise treat an SCK start failure as "unavailable, fall
+/// back to `screencapture`" must check for this prefix first — falling back
+/// would start a second capture mechanism while the OS may still consider the
+/// old ScreenCaptureKit session live, the exact contention this guard exists
+/// to prevent.
+const CAPTURE_STOP_PENDING_PREFIX: &str = "capture stop pending: ";
 // Keep native chunks comfortably under serverless request/event limits.
 const GCS_CHUNK_ALIGN_BYTES: usize = 256 * 1024;
 const UPLOAD_CHUNK_BYTES: usize = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
@@ -399,7 +407,11 @@ pub(crate) enum NativeFullscreenBackend {
     },
     #[cfg(target_os = "macos")]
     ScreenCaptureKit {
-        stream: SCStream,
+        /// Behind `Arc<Mutex>` so the stop path can bound `stop_capture()` on
+        /// a detached thread instead of blocking the caller when the SCStream
+        /// connection is interrupted and the synchronous call never returns.
+        /// See `CustomScreenCaptureKit::stream` for the same reasoning.
+        stream: Arc<Mutex<SCStream>>,
         recording: SCRecordingOutput,
         finish: Arc<RecordingFinish>,
         /// Set true once the first microphone sample buffer is delivered.
@@ -1416,7 +1428,12 @@ fn start_native_session_locked(
     ) {
         Ok(session) => session,
         Err(sck_err) => {
-            if defer_recording_output {
+            if defer_recording_output || sck_err.starts_with(CAPTURE_STOP_PENDING_PREFIX) {
+                // A pending-stop refusal means a previous ScreenCaptureKit
+                // session may still be live at the OS level. `screencapture`
+                // is not guaranteed independent of ScreenCaptureKit on every
+                // macOS version, so falling back to it here could race the
+                // same still-tearing-down session this guard exists to avoid.
                 return Err(sck_err);
             }
             if include_audio {
@@ -1750,6 +1767,8 @@ pub async fn native_fullscreen_recording_begin(
                 stream, recording, ..
             }) => {
                 stream
+                    .lock()
+                    .map_err(|e| format!("ScreenCaptureKit stream lock poisoned: {e}"))?
                     .add_recording_output(recording)
                     .map_err(|e| format!("add recording output failed: {e:?}"))?;
             }
@@ -2690,17 +2709,19 @@ fn rotate_screencapturekit_segment(
     }
     recover_from_unusable_current_segment(session, "segment rotation", true);
 
-    let start_result = start_screencapturekit_backend_at(
-        &segment_path,
-        restart.include_audio,
-        restart.capture_system_audio,
-        restart.mic_device_id.as_deref(),
-        restart.mic_device_label.as_deref(),
-        restart.target_display_id,
-        restart.capture_region,
-        false,
-        None,
-    );
+    let start_result = refuse_if_capture_stop_pending().and_then(|()| {
+        start_screencapturekit_backend_at(
+            &segment_path,
+            restart.include_audio,
+            restart.capture_system_audio,
+            restart.mic_device_id.as_deref(),
+            restart.mic_device_label.as_deref(),
+            restart.target_display_id,
+            restart.capture_region,
+            false,
+            None,
+        )
+    });
 
     let (backend, _, _) = match start_result {
         Ok(result) => result,
@@ -3047,36 +3068,46 @@ fn start_segment_backend(
         // safe_id isn't needed on macOS — the segment path is pre-computed by
         // the caller. Consume to silence the unused-variable warning.
         let _ = safe_id;
-        let sck_result = if crate::remote_flags::current().use_custom_sck_pipeline {
-            start_custom_screencapturekit_backend_at(
-                app,
-                segment_path,
-                include_audio,
-                capture_system_audio,
-                mic_device_id,
-                mic_device_label,
-                target_display_id,
-                capture_region,
-                false,
-                false,
-                None,
-            )
-        } else {
-            start_screencapturekit_backend_at(
-                segment_path,
-                include_audio,
-                capture_system_audio,
-                mic_device_id,
-                mic_device_label,
-                target_display_id,
-                capture_region,
-                false,
-                None,
-            )
-        };
+        let sck_result = refuse_if_capture_stop_pending().and_then(|()| {
+            if crate::remote_flags::current().use_custom_sck_pipeline {
+                start_custom_screencapturekit_backend_at(
+                    app,
+                    segment_path,
+                    include_audio,
+                    capture_system_audio,
+                    mic_device_id,
+                    mic_device_label,
+                    target_display_id,
+                    capture_region,
+                    false,
+                    false,
+                    None,
+                )
+            } else {
+                start_screencapturekit_backend_at(
+                    segment_path,
+                    include_audio,
+                    capture_system_audio,
+                    mic_device_id,
+                    mic_device_label,
+                    target_display_id,
+                    capture_region,
+                    false,
+                    None,
+                )
+            }
+        });
         match sck_result {
             Ok((backend, w, h)) => return Ok((backend, w, h)),
             Err(sck_err) => {
+                if sck_err.starts_with(CAPTURE_STOP_PENDING_PREFIX) {
+                    // A previous ScreenCaptureKit session may still be live at
+                    // the OS level. `screencapture` is not guaranteed
+                    // independent of ScreenCaptureKit on every macOS version,
+                    // so falling back here could race the same
+                    // still-tearing-down session this guard exists to avoid.
+                    return Err(sck_err);
+                }
                 if include_audio {
                     let mic_description = if mic_device_id
                         .is_some_and(|value| !value.trim().is_empty())
@@ -3356,7 +3387,7 @@ pub(crate) fn start_screencapturekit_backend_at(
     );
     Ok((
         NativeFullscreenBackend::ScreenCaptureKit {
-            stream,
+            stream: Arc::new(Mutex::new(stream)),
             recording,
             finish,
             mic_ready,
@@ -5182,6 +5213,7 @@ fn start_screencapturekit_recording(
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
 ) -> Result<NativeFullscreenSession, String> {
+    refuse_if_capture_stop_pending()?;
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
@@ -5448,10 +5480,41 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `SCStream::stop_capture()` occasionally stops the underlying capture but
 /// never returns from ScreenCaptureKit's synchronous completion wait. Keep
-/// teardown bounded so the writer can still close its inputs, flush the final
-/// fragment, and let the upload path validate the playable file on disk.
+/// teardown bounded — for the custom backend so the writer can still close
+/// its inputs, flush the final fragment, and let the upload path validate the
+/// playable file on disk; for the plain backend so a stuck `stop_capture()`
+/// can't leave the OS-level capture session half-torn-down and stall the
+/// *next* recording's `start_capture()` for the rest of its own hang.
 #[cfg(target_os = "macos")]
-const CUSTOM_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[cfg(target_os = "macos")]
+static PENDING_CAPTURE_STOP_WORKERS: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "macos")]
+pub(crate) fn pending_capture_stop_workers() -> usize {
+    PENDING_CAPTURE_STOP_WORKERS.load(Ordering::SeqCst)
+}
+
+/// Every entry point that constructs a brand-new ScreenCaptureKit `SCStream`
+/// (initial start, resume, and automatic segment rotation) must call this
+/// first. A prior stop that hit `SCK_STOP_TIMEOUT` leaves its `stop_capture()`
+/// running on a detached thread, still holding that stream's lock, with no
+/// signal of when (or whether) it finishes; starting a new capture while one
+/// is outstanding risks the exact OS-level contention this bounding exists to
+/// avoid. Errors carry `CAPTURE_STOP_PENDING_PREFIX` — callers that treat an
+/// SCK failure as "unavailable, fall back to `screencapture`" must check for
+/// it and refuse to fall back instead, since `screencapture` is not
+/// guaranteed independent of ScreenCaptureKit on every macOS version.
+#[cfg(target_os = "macos")]
+pub(crate) fn refuse_if_capture_stop_pending() -> Result<(), String> {
+    if pending_capture_stop_workers() > 0 {
+        return Err(format!(
+            "{CAPTURE_STOP_PENDING_PREFIX}A previous recording is still shutting down. Wait a moment and try again."
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(target_os = "macos")]
 pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
@@ -5459,8 +5522,11 @@ where
     F: FnOnce() -> Result<(), String> + Send + 'static,
 {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    PENDING_CAPTURE_STOP_WORKERS.fetch_add(1, Ordering::SeqCst);
     std::thread::spawn(move || {
-        let _ = tx.send(stop());
+        let result = stop();
+        PENDING_CAPTURE_STOP_WORKERS.fetch_sub(1, Ordering::SeqCst);
+        let _ = tx.send(result);
     });
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
@@ -5477,10 +5543,27 @@ where
 #[cfg(all(test, target_os = "macos"))]
 mod bounded_capture_stop_tests {
     use super::run_bounded_capture_stop;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
+
+    // All three tests below drive `run_bounded_capture_stop`, which touches
+    // the shared `PENDING_CAPTURE_STOP_WORKERS` static. Cargo runs tests in
+    // parallel by default, so without this a slow worker spawned by one test
+    // (e.g. the 1s sleep below) can still be decrementing the counter while
+    // another test is asserting against it, making the "back to baseline"
+    // check spuriously fail. Mirrors the `test_guard` pattern already used in
+    // `capture_audio_bus.rs` for the same class of shared-static tests.
+    fn test_guard() -> MutexGuard<'static, ()> {
+        static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn returns_the_capture_stop_result() {
+        let _guard = test_guard();
         assert_eq!(
             run_bounded_capture_stop(|| Ok(()), Duration::from_millis(50)),
             Ok(())
@@ -5493,6 +5576,7 @@ mod bounded_capture_stop_tests {
 
     #[test]
     fn releases_the_caller_when_capture_stop_hangs() {
+        let _guard = test_guard();
         let started = Instant::now();
         let result = run_bounded_capture_stop(
             || {
@@ -5503,6 +5587,41 @@ mod bounded_capture_stop_tests {
         );
         assert!(result.unwrap_err().contains("timed out"));
         assert!(started.elapsed() < Duration::from_millis(250));
+        // This test's own worker is still sleeping (up to ~1s) when it
+        // returns. Wait it out under the same lock so it can't bleed its
+        // decrement into whichever test acquires the guard next.
+        while super::pending_capture_stop_workers() > 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn tracks_a_timed_out_worker_until_it_actually_finishes() {
+        let _guard = test_guard();
+        use super::pending_capture_stop_workers;
+        let baseline = pending_capture_stop_workers();
+        let result = run_bounded_capture_stop(
+            || {
+                std::thread::sleep(Duration::from_millis(200));
+                Ok(())
+            },
+            Duration::from_millis(20),
+        );
+        assert!(result.unwrap_err().contains("timed out"));
+        assert!(
+            pending_capture_stop_workers() > baseline,
+            "a timed-out stop must stay counted as outstanding — the caller \
+             gave up waiting, but the worker (and the lock it holds) is still alive"
+        );
+        let deadline = Instant::now() + Duration::from_millis(1000);
+        while pending_capture_stop_workers() > baseline && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            pending_capture_stop_workers(),
+            baseline,
+            "the counter must drop back once the worker's stop() call actually returns"
+        );
     }
 }
 
@@ -5544,7 +5663,7 @@ pub(crate) fn stop_native_recording(
                                 .map_err(|e| format!("custom ScreenCaptureKit stop failed: {e:?}"))
                         })
                 },
-                CUSTOM_SCK_STOP_TIMEOUT,
+                SCK_STOP_TIMEOUT,
             );
             if let Err(err) = &stop_result {
                 eprintln!("[clips-tray] custom capture stop_capture error: {err}");
@@ -5564,12 +5683,28 @@ pub(crate) fn stop_native_recording(
             // `remove_recording_output()` looks like the clean stop path, but
             // on real machines it can block synchronously forever when the
             // underlying SCStream connection is interrupted. `stop_capture()`
-            // returns control to us, then the delegate callback is bounded by
-            // `SCK_FINALIZE_TIMEOUT`; the moov/audio guards below decide
-            // whether the resulting file is uploadable or recoverable.
-            let stop_result = stream
-                .stop_capture()
-                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+            // itself is not guaranteed to return either, so it runs on a
+            // detached thread bounded by `SCK_STOP_TIMEOUT`: an unbounded
+            // hang here doesn't just delay this stop, it leaves the OS-level
+            // capture session half-torn-down and stalls the *next*
+            // recording's `start_capture()`. The delegate callback below is
+            // separately bounded by `SCK_FINALIZE_TIMEOUT`; the moov/audio
+            // guards then decide whether the resulting file is uploadable or
+            // recoverable.
+            let stream_for_stop = Arc::clone(stream);
+            let stop_result = run_bounded_capture_stop(
+                move || {
+                    stream_for_stop
+                        .lock()
+                        .map_err(|e| format!("ScreenCaptureKit stop lock poisoned: {e}"))
+                        .and_then(|guard| {
+                            guard
+                                .stop_capture()
+                                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"))
+                        })
+                },
+                SCK_STOP_TIMEOUT,
+            );
             let mut waited_for_finalize = false;
             let finalize_outcome = if wait_for_finalize {
                 waited_for_finalize = true;
