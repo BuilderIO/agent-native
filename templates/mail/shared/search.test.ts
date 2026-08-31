@@ -66,6 +66,40 @@ describe("emailMessageMatchesSearch", () => {
     ).toBe(false);
   });
 
+  it("matches either side of a Gmail OR query", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+        }),
+        "from:notifications@github.com OR from:alerts@example.com",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Alerts", email: "alerts@example.com" } }),
+        "from:notifications@github.com OR from:alerts@example.com",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Other", email: "other@example.com" } }),
+        "from:notifications@github.com OR from:alerts@example.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("matches Gmail brace groups as OR queries", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+        }),
+        "{from:notifications@github.com from:alerts@example.com}",
+      ),
+    ).toBe(true);
+  });
+
   it("applies common negative and state Gmail operators", () => {
     expect(
       emailMessageMatchesSearch(

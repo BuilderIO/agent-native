@@ -82,6 +82,15 @@ describe("normalizeMailSettings", () => {
       { id: "github", name: "Github", query: "from:github.com" },
     ]);
   });
+
+  it("drops invalid saved-filter values instead of returning them", () => {
+    const settings = normalizeMailSettings(
+      { savedFilters: "not-an-array" },
+      "owner@example.com",
+    );
+
+    expect(settings.savedFilters).toBeUndefined();
+  });
 });
 
 describe("mergeSavedFilters", () => {
@@ -109,5 +118,17 @@ describe("mergeSavedFilters", () => {
         [filter("one")],
       ),
     ).toEqual([filter("one"), filter("remote"), filter("local")]);
+  });
+
+  it("reports a concurrent addition that would exceed the filter limit", () => {
+    const base = Array.from({ length: 19 }, (_, index) =>
+      filter(`base-${index}`),
+    );
+    const current = [...base, filter("remote")];
+    const next = [...base, filter("local")];
+
+    expect(() => mergeSavedFilters(current, next, base)).toThrow(
+      "Saved filters changed in another tab; please retry.",
+    );
   });
 });

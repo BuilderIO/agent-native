@@ -65,7 +65,10 @@ export function mergeSavedFilters(
     }
   }
 
-  return result.slice(0, 20);
+  if (result.length > 20) {
+    throw new Error("Saved filters changed in another tab; please retry.");
+  }
+  return result;
 }
 
 export function mergePinnedLabels(
@@ -139,9 +142,11 @@ export function normalizeMailSettings(
 ): UserSettings {
   if (data) {
     const savedFilters = normalizeSavedFilters(data.savedFilters);
+    const { savedFilters: _rawSavedFilters, ...dataWithoutSavedFilters } =
+      data as Record<string, unknown>;
     return {
       ...DEFAULT_SETTINGS,
-      ...(data as Partial<UserSettings>),
+      ...(dataWithoutSavedFilters as Partial<UserSettings>),
       email: (data as Partial<UserSettings>).email || email,
       signature: normalizeSignature((data as Partial<UserSettings>).signature),
       ...(savedFilters ? { savedFilters } : {}),

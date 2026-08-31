@@ -35,6 +35,116 @@ type ParsedSearch = {
   excludedTerms: string[];
 };
 
+function splitSearchOr(query: string): string[] | undefined {
+  const clauses: string[] = [];
+  let start = 0;
+  let inQuotes = false;
+  let depth = 0;
+  let foundOr = false;
+
+  for (let index = 0; index < query.length; index += 1) {
+    const character = query[index];
+    if (character === '"' && query[index - 1] !== "\\") {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (inQuotes) continue;
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (
+      depth === 0 &&
+      query.slice(index, index + 2).toLowerCase() === "or" &&
+      (index === 0 || /\s/.test(query[index - 1])) &&
+      (index + 2 === query.length || /\s/.test(query[index + 2]))
+    ) {
+      clauses.push(query.slice(start, index).trim());
+      start = index + 2;
+      index += 1;
+      foundOr = true;
+    }
+  }
+
+  if (!foundOr) return undefined;
+  clauses.push(query.slice(start).trim());
+  return clauses.every(Boolean) ? clauses : [];
+}
+
+function findSearchGroup(
+  query: string,
+  open: string,
+  close: string,
+): { start: number; end: number; content: string } | undefined {
+  let inQuotes = false;
+  let start = -1;
+  let depth = 0;
+
+  for (let index = 0; index < query.length; index += 1) {
+    const character = query[index];
+    if (character === '"' && query[index - 1] !== "\\") {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (inQuotes) continue;
+    if (character === open) {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (character === close && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        return {
+          start,
+          end: index,
+          content: query.slice(start + 1, index),
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
+function expandSearchDisjunction(query: string): string[] | undefined {
+  const braceGroup = findSearchGroup(query, "{", "}");
+  if (braceGroup) {
+    const alternatives =
+      splitSearchOr(braceGroup.content) ??
+      braceGroup.content.match(/"[^"\\]*(?:\\.[^"\\]*)*"|\S+/g) ??
+      [];
+    if (alternatives.length === 0) return [];
+
+    return alternatives.flatMap((alternative) => {
+      const replaced =
+        query.slice(0, braceGroup.start) +
+        alternative +
+        query.slice(braceGroup.end + 1);
+      return expandSearchDisjunction(replaced) ?? [replaced];
+    });
+  }
+
+  const parenthesisGroup = findSearchGroup(query, "(", ")");
+  if (parenthesisGroup) {
+    const alternatives = splitSearchOr(parenthesisGroup.content);
+    if (alternatives) {
+      return alternatives.flatMap((alternative) => {
+        const replaced =
+          query.slice(0, parenthesisGroup.start) +
+          alternative +
+          query.slice(parenthesisGroup.end + 1);
+        return expandSearchDisjunction(replaced) ?? [replaced];
+      });
+    }
+  }
+
+  return splitSearchOr(query);
+}
+
 /**
  * Keep local/demo search compatible with the Gmail query strings saved by
  * search tabs. Gmail-connected reads send the raw query to Gmail; this parser
@@ -156,7 +266,7 @@ function operatorMatches(
   }
 }
 
-export function emailMessageMatchesSearch(
+function matchesSimpleSearch(
   email: Pick<
     EmailMessage,
     | "subject"
@@ -176,10 +286,7 @@ export function emailMessageMatchesSearch(
   >,
   query: string,
 ): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-
-  const parsed = parseSearch(q);
+  const parsed = parseSearch(query);
   const searchableText = [
     email.subject,
     email.snippet,
@@ -207,4 +314,39 @@ export function emailMessageMatchesSearch(
     parsed.terms.every((term) => searchableText.includes(term)) &&
     parsed.excludedTerms.every((term) => !searchableText.includes(term))
   );
+}
+
+export function emailMessageMatchesSearch(
+  email: Pick<
+    EmailMessage,
+    | "subject"
+    | "snippet"
+    | "body"
+    | "from"
+    | "to"
+    | "cc"
+    | "bcc"
+    | "labelIds"
+    | "isRead"
+    | "isStarred"
+    | "isArchived"
+    | "isTrashed"
+    | "isDraft"
+    | "isSent"
+  >,
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const alternatives = expandSearchDisjunction(q);
+  if (alternatives) {
+    return (
+      alternatives.length > 0 &&
+      alternatives.some((alternative) =>
+        matchesSimpleSearch(email, alternative),
+      )
+    );
+  }
+  return matchesSimpleSearch(email, q);
 }
