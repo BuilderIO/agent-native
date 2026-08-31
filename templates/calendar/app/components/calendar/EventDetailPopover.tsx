@@ -824,7 +824,9 @@ export function EventDetailPopover({
             : notificationUpdates;
           const shouldChooseGuestScope =
             isRecurringEvent &&
-            ("attendees" in updates || "addAttendees" in updates);
+            ("attendees" in updates ||
+              "addAttendees" in updates ||
+              "removeGoogleMeet" in updates);
           const guestNotification = await promptGuestNotification({
             event,
             action: "update",
@@ -1103,6 +1105,9 @@ export function EventDetailPopover({
           event,
           action: "update",
           updates,
+          recurrenceScope: isRecurringEvent
+            ? { enabled: true, defaultScope: "single" }
+            : undefined,
         });
         if (!guestNotification) {
           endAction();
@@ -1124,7 +1129,15 @@ export function EventDetailPopover({
         endAction();
       }
     })();
-  }, [beginAction, endAction, event, promptGuestNotification, t, updateEvent]);
+  }, [
+    beginAction,
+    endAction,
+    event,
+    isRecurringEvent,
+    promptGuestNotification,
+    t,
+    updateEvent,
+  ]);
 
   const handleSaveDescription = useCallback(() => {
     const trimmed = editDescription.trim();

@@ -305,6 +305,9 @@ export function EventDetailPanel({
         event,
         action: "update",
         updates,
+        recurrenceScope: isRecurringEvent
+          ? { enabled: true, defaultScope: "single" }
+          : undefined,
       });
       if (!guestNotification) return;
       updateEvent.mutate(
@@ -319,7 +322,7 @@ export function EventDetailPanel({
         },
       );
     })();
-  }, [event, promptGuestNotification, t, updateEvent]);
+  }, [event, isRecurringEvent, promptGuestNotification, t, updateEvent]);
 
   const handleToggleAttendeeOptional = useCallback(
     (email: string, optional: boolean) => {
