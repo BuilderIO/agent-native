@@ -28,7 +28,7 @@ import {
   IconPlayerPlay,
   IconPlus,
   IconSearch,
-  IconSettings2,
+  IconSettings,
   IconShare,
   IconTrash,
   IconUpload,
@@ -198,7 +198,7 @@ function LibrarySidebar() {
 
       <div className="library-sidebar-bottom">
         <div className="library-nav-item">
-          <IconSettings2 size={15} />
+          <IconSettings size={15} />
           <span className="library-nav-label">Settings</span>
         </div>
         <div className="library-nav-item">
