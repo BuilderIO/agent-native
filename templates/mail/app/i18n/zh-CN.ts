@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "正在搜索 Gmail...",
       saveAsTab: "保存为标签页",
       saveAsTabPrompt: "为此标签页命名",
+      saveAsTabFailed: "无法保存此标签页。请重试。",
       filtersLimitReached: "最多可保存 20 个筛选条件。",
     },
     tabSettings: {

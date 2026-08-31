@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Recherche dans Gmail...",
       saveAsTab: "Enregistrer comme onglet",
       saveAsTabPrompt: "Nommer cet onglet",
+      saveAsTabFailed: "Impossible d’enregistrer cet onglet. Réessayez.",
       filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {

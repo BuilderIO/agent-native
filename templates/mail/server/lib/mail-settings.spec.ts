@@ -91,6 +91,31 @@ describe("normalizeMailSettings", () => {
 
     expect(settings.savedFilters).toBeUndefined();
   });
+
+  it("deduplicates ids after bounding their normalized length", () => {
+    const prefix = "x".repeat(80);
+    const settings = normalizeMailSettings(
+      {
+        savedFilters: [
+          {
+            id: `${prefix}a`,
+            name: "First",
+            query: "from:first@example.com",
+          },
+          {
+            id: `${prefix}b`,
+            name: "Second",
+            query: "from:second@example.com",
+          },
+        ],
+      },
+      "owner@example.com",
+    );
+
+    expect(settings.savedFilters).toEqual([
+      { id: prefix, name: "First", query: "from:first@example.com" },
+    ]);
+  });
 });
 
 describe("mergeSavedFilters", () => {

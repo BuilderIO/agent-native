@@ -115,9 +115,19 @@ function expandSearchDisjunction(query: string): string[] | undefined {
   if (braceGroup) {
     const alternatives =
       splitSearchOr(braceGroup.content) ??
-      braceGroup.content.match(/"[^"\\]*(?:\\.[^"\\]*)*"|\S+/g) ??
+      braceGroup.content.match(
+        /-?(?:[a-z][\w-]*:\s*)?(?:"[^"\\]*(?:\\.[^"\\]*)*"|\S+)/gi,
+      ) ??
       [];
     if (alternatives.length === 0) return [];
+
+    if (braceGroup.start > 0 && query[braceGroup.start - 1] === "-") {
+      const replaced =
+        query.slice(0, braceGroup.start - 1) +
+        alternatives.map((alternative) => `-${alternative}`).join(" ") +
+        query.slice(braceGroup.end + 1);
+      return expandSearchDisjunction(replaced) ?? [replaced];
+    }
 
     return alternatives.flatMap((alternative) => {
       const replaced =

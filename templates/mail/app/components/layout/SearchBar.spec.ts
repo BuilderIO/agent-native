@@ -12,6 +12,8 @@ describe("SearchBar saved-filter flow", () => {
 
     expect(source).toContain("<Dialog");
     expect(source).toContain("submitSavedSearch");
+    expect(source).toContain("setSaveError");
+    expect(source).toContain("await onSaveSearch");
     expect(source).not.toContain("window.prompt");
   });
 });

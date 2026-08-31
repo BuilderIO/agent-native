@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Buscando en Gmail...",
       saveAsTab: "Guardar como pestaña",
       saveAsTabPrompt: "Nombra esta pestaña",
+      saveAsTabFailed: "No se pudo guardar la pestaña. Inténtalo de nuevo.",
       filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {

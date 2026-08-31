@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Gmail 검색 중...",
       saveAsTab: "탭으로 저장",
       saveAsTabPrompt: "이 탭 이름 지정",
+      saveAsTabFailed: "이 탭을 저장하지 못했습니다. 다시 시도해 주세요.",
       filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {

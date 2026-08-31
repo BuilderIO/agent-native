@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Gmail खोजा जा रहा है...",
       saveAsTab: "टैब के रूप में सहेजें",
       saveAsTabPrompt: "इस टैब का नाम दें",
+      saveAsTabFailed: "यह टैब सहेजा नहीं जा सका। फिर कोशिश करें।",
       filtersLimitReached: "आप अधिकतम 20 फ़िल्टर सहेज सकते हैं।",
     },
     tabSettings: {

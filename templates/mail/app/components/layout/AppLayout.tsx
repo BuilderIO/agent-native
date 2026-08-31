@@ -925,13 +925,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 
   const saveSearchAsFilter = useCallback(
-    (query: string, name: string) => {
+    async (query: string, name: string) => {
       const normalizedQuery = query.trim().slice(0, 500);
       const normalizedName = name.trim().slice(0, 80);
       if (!normalizedQuery || !normalizedName) return;
       if (savedFilters.length >= 20) {
-        toast.error(t("mail.search.filtersLimitReached"));
-        return;
+        throw new Error(t("mail.search.filtersLimitReached"));
       }
 
       const existing = savedFilters.find(
@@ -951,13 +950,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         name: normalizedName,
         query: normalizedQuery,
       };
-      updateSettings.mutate(
-        { savedFilters: [...savedFilters, filter] },
-        {
-          onSuccess: () =>
-            void navigate(`/inbox?filter=${encodeURIComponent(id)}`),
-        },
-      );
+      try {
+        await updateSettings.mutateAsync({
+          savedFilters: [...savedFilters, filter],
+        });
+      } catch {
+        throw new Error(t("mail.search.saveAsTabFailed"));
+      }
+      void navigate(`/inbox?filter=${encodeURIComponent(id)}`);
     },
     [navigate, savedFilters, t, updateSettings],
   );

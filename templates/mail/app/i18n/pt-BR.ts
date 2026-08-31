@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Pesquisando no Gmail...",
       saveAsTab: "Salvar como aba",
       saveAsTabPrompt: "Nomeie esta aba",
+      saveAsTabFailed: "Não foi possível salvar esta aba. Tente novamente.",
       filtersLimitReached: "Você pode salvar até 20 filtros.",
     },
     tabSettings: {

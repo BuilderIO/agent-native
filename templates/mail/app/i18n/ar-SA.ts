@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "جارٍ البحث في Gmail...",
       saveAsTab: "حفظ كعلامة تبويب",
       saveAsTabPrompt: "سمِّ علامة التبويب هذه",
+      saveAsTabFailed: "تعذر حفظ علامة التبويب هذه. حاول مرة أخرى.",
       filtersLimitReached: "يمكنك حفظ ما يصل إلى 20 فلترًا.",
     },
     tabSettings: {

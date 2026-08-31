@@ -40,7 +40,7 @@ const MIN_REMOTE_QUERY_LENGTH = 3;
 
 interface SearchBarProps {
   onClose: () => void;
-  onSaveSearch?: (query: string, name: string) => void;
+  onSaveSearch?: (query: string, name: string) => void | Promise<void>;
   initialQuery?: string;
   autoFocus?: boolean;
   hasActiveSearch?: boolean;
@@ -64,6 +64,8 @@ export function SearchBar({
   const lastSyncedQueryRef = useRef(initialQuery);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [savePending, setSavePending] = useState(false);
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
@@ -250,18 +252,31 @@ export function SearchBar({
   const handleSaveSearch = useCallback(() => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery || !onSaveSearch) return;
+    setSaveError("");
     setSaveName(trimmedQuery);
     setSaveDialogOpen(true);
   }, [onSaveSearch, query]);
 
-  const submitSavedSearch = useCallback(() => {
+  const submitSavedSearch = useCallback(async () => {
     const trimmedQuery = query.trim();
     const trimmedName = saveName.trim();
-    if (!trimmedQuery || !trimmedName || !onSaveSearch) return;
-    onSaveSearch(trimmedQuery, trimmedName);
-    setSaveDialogOpen(false);
-    setSaveName("");
-  }, [onSaveSearch, query, saveName]);
+    if (!trimmedQuery || !trimmedName || !onSaveSearch || savePending) return;
+    setSaveError("");
+    setSavePending(true);
+    try {
+      await onSaveSearch(trimmedQuery, trimmedName);
+      setSaveDialogOpen(false);
+      setSaveName("");
+    } catch (error) {
+      setSaveError(
+        error instanceof Error && error.message
+          ? error.message
+          : t("mail.search.saveAsTabFailed"),
+      );
+    } finally {
+      setSavePending(false);
+    }
+  }, [onSaveSearch, query, saveName, savePending, t]);
 
   return (
     <div className="relative flex items-center gap-1.5">
@@ -425,7 +440,10 @@ export function SearchBar({
         open={saveDialogOpen}
         onOpenChange={(open) => {
           setSaveDialogOpen(open);
-          if (!open) setSaveName("");
+          if (!open) {
+            setSaveName("");
+            setSaveError("");
+          }
         }}
       >
         <DialogContent className="max-w-sm">
@@ -435,7 +453,7 @@ export function SearchBar({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              submitSavedSearch();
+              void submitSavedSearch();
             }}
             className="space-y-3"
           >
@@ -448,6 +466,11 @@ export function SearchBar({
                 className="mt-1.5"
               />
             </label>
+            {saveError && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {saveError}
+              </p>
+            )}
             <DialogFooter>
               <Button
                 type="button"
@@ -456,7 +479,7 @@ export function SearchBar({
               >
                 {t("mail.compose.cancel")}
               </Button>
-              <Button type="submit" disabled={!saveName.trim()}>
+              <Button type="submit" disabled={!saveName.trim() || savePending}>
                 {t("mail.integrations.save")}
               </Button>
             </DialogFooter>

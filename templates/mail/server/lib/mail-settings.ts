@@ -168,10 +168,11 @@ function normalizeSavedFilters(value: unknown): SavedMailFilter[] | undefined {
       typeof candidate.name === "string" ? candidate.name.trim() : "";
     const query =
       typeof candidate.query === "string" ? candidate.query.trim() : "";
-    if (!id || !name || !query || seen.has(id)) continue;
-    seen.add(id);
+    const normalizedId = id.slice(0, 80);
+    if (!normalizedId || !name || !query || seen.has(normalizedId)) continue;
+    seen.add(normalizedId);
     filters.push({
-      id: id.slice(0, 80),
+      id: normalizedId,
       name: name.slice(0, 80),
       query: query.slice(0, 500),
     });

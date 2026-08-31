@@ -100,6 +100,37 @@ describe("emailMessageMatchesSearch", () => {
     ).toBe(true);
   });
 
+  it("keeps quoted operator values together in brace groups", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Jane Doe", email: "jane@example.com" } }),
+        '{from:"Jane Doe" from:alerts@example.com}',
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps negated Gmail brace groups excluded as a whole", () => {
+    const query = "-{from:alerts@example.com from:news@example.com}";
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Alerts", email: "alerts@example.com" } }),
+        query,
+      ),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "News", email: "news@example.com" } }),
+        query,
+      ),
+    ).toBe(false);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Other", email: "other@example.com" } }),
+        query,
+      ),
+    ).toBe(true);
+  });
+
   it("applies common negative and state Gmail operators", () => {
     expect(
       emailMessageMatchesSearch(
