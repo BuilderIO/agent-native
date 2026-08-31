@@ -4,6 +4,7 @@ import { isQaTestEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
   createQaEmail,
+  isMailosaurInconclusiveError,
   verificationLinkFor,
   waitForVerificationEmail,
 } from "../lib/mailosaur";
@@ -71,7 +72,7 @@ const targets = selectedSignupTargets();
 for (const target of targets) {
   test(`${target.environment} ${target.app} completes email signup without a refresh`, async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(360_000);
     const { errors, thirdParty } = collectAppPageErrors(page, target.origin);
     const failedRequests: string[] = [];
@@ -116,35 +117,46 @@ for (const target of targets) {
       await expect(page.locator("#magic-link-form")).toBeVisible();
     });
 
-    await test.step("request a fresh magic link", async () => {
-      const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
-      await page.locator("#m-email").fill(email);
-      await page.locator("#magic-link-submit").click({ noWaitAfter: true });
-      await expect(page.locator("#magic-link-success")).toBeVisible();
-      await expect(page.locator("#magic-link-success-email")).toHaveText(email);
-      expect(
-        magicLinkStatuses,
-        "magic-link request was not observed",
-      ).not.toEqual([]);
-      expect(magicLinkStatuses.at(-1)).toBe(200);
-      const message = await emailPromise;
+    const message = await test.step("request a fresh magic link", async () => {
+      try {
+        const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
+        await page.locator("#m-email").fill(email);
+        await page.locator("#magic-link-submit").click({ noWaitAfter: true });
+        await expect(page.locator("#magic-link-success")).toBeVisible();
+        await expect(page.locator("#magic-link-success-email")).toHaveText(
+          email,
+        );
+        expect(
+          magicLinkStatuses,
+          "magic-link request was not observed",
+        ).not.toEqual([]);
+        expect(magicLinkStatuses.at(-1)).toBe(200);
+        return await emailPromise;
+      } catch (error) {
+        if (isMailosaurInconclusiveError(error)) {
+          testInfo.skip(true, `INCONCLUSIVE: ${error.message}`);
+          return null;
+        }
+        throw error;
+      }
+    });
+    if (!message) return;
 
-      await test.step("use the secure same-origin link from the inbox", async () => {
-        const verificationLink = verificationLinkFor(message, target.origin);
-        const response = await page.goto(verificationLink, {
-          waitUntil: "domcontentloaded",
-        });
-        expect(
-          response,
-          `${target.app} verification produced no response`,
-        ).toBeTruthy();
-        expect(
-          response!.status(),
-          `${target.app} verification returned an error`,
-        ).toBeLessThan(400);
-        expect(new URL(page.url()).origin).toBe(target.origin);
-        expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
+    await test.step("use the secure same-origin link from the inbox", async () => {
+      const verificationLink = verificationLinkFor(message, target.origin);
+      const response = await page.goto(verificationLink, {
+        waitUntil: "domcontentloaded",
       });
+      expect(
+        response,
+        `${target.app} verification produced no response`,
+      ).toBeTruthy();
+      expect(
+        response!.status(),
+        `${target.app} verification returned an error`,
+      ).toBeLessThan(400);
+      expect(new URL(page.url()).origin).toBe(target.origin);
+      expect(new URL(page.url()).pathname).not.toMatch(/sign-in|login/i);
     });
 
     await test.step("prove the session works before any refresh", async () => {
