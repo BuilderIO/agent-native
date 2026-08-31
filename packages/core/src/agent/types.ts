@@ -192,6 +192,8 @@ export interface AgentChatRequest {
   structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
+  /** Parent message for assistant-ui sends and regenerations. */
+  parentId?: string | null;
   attachments?: AgentChatAttachment[];
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;

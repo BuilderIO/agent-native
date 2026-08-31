@@ -17,7 +17,6 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
 import { stableId } from "../server/triage/ids.js";
 
 function chatContextFromAction(
@@ -94,7 +93,6 @@ export default defineAction({
     );
     const chatContext = chatContextFromAction(context);
     const db = getDb();
-    let createdNewFactory = false;
 
     const result = await db.transaction(async (tx) => {
       const existing = (
@@ -155,7 +153,6 @@ export default defineAction({
           );
         }
       } else {
-        createdNewFactory = true;
         await tx.insert(factoryDefinitions).values({
           id: factoryId,
           name,
@@ -192,11 +189,6 @@ export default defineAction({
         source,
       };
     });
-    if (createdNewFactory) {
-      await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-        enabled: false,
-      });
-    }
     return result;
   },
 });

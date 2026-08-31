@@ -33,6 +33,14 @@ export const agentConfig = z.object({
       env: ["AGENT_BUILT_IN_ENGINES"],
       doc: 'Built-in engines to register, e.g. ["ai-sdk:openai"]. Unset registers every built-in.',
     }),
+  buildEnginePackages: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      doc: "Build-derived JSON list of runtime packages available to bundled agent engines.",
+    }),
   mode: z
     .string()
     .min(1)

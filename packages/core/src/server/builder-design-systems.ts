@@ -506,6 +506,42 @@ export async function fetchBuilderDesignSystemDecodeJobStatus(
   return (await response.json()) as BuilderDesignSystemDecodeJobStatus;
 }
 
+export interface BuilderDesignSystemRecord {
+  projectId?: string;
+  branchName?: string;
+}
+
+/**
+ * Looks up the project + branch a Builder-indexed design system lives on.
+ * `builderUrl` is frozen at index time and often falls back to the docs page
+ * because the Fusion branch isn't cut yet -- this lets a caller resolve the
+ * real project/branch preview link later, once it exists.
+ */
+export async function fetchBuilderDesignSystemRecord(
+  designSystemId: string,
+): Promise<BuilderDesignSystemRecord | null> {
+  const credentials = await resolveBuilderDesignSystemCredentials();
+  const url = makeBuilderDesignSystemUrl(
+    encodeURIComponent(designSystemId),
+    credentials,
+  );
+  const response = await fetchWithTimeout(url, {
+    method: "GET",
+    headers: makeBuilderHeaders(credentials),
+  });
+  if (response.status === 404) return null;
+  await assertOk(response, "Builder design-system lookup failed");
+  const json = (await response.json()) as {
+    projectId?: unknown;
+    branchName?: unknown;
+  };
+  return {
+    projectId: typeof json.projectId === "string" ? json.projectId : undefined,
+    branchName:
+      typeof json.branchName === "string" ? json.branchName : undefined,
+  };
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }

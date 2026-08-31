@@ -1,4 +1,5 @@
 import { setClientAppState } from "@agent-native/core/client/hooks";
+import type { LayoutGridById } from "@shared/layout-grid";
 import type { RefObject } from "react";
 
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
@@ -18,12 +19,14 @@ import type {
 export interface PublishAgentSelectionContextArgs {
   activeBreakpointWidthState: number | undefined;
   activeCodeFile: CodeWorkbenchActiveFile | null;
-  activeFile: DesignFile;
+  /** Undefined before any screen is active — every read below must guard. */
+  activeFile: DesignFile | undefined;
   activeInspectorTab: InspectorTab;
   activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
   design: DesignData | null;
   designDataJson: Record<string, unknown>;
+  layoutGrids: LayoutGridById;
   designSelectionOwnerIdRef: RefObject<string>;
   files: DesignFile[];
   hoveredElement: ElementInfo | null;
@@ -56,6 +59,7 @@ export function runPublishAgentSelectionContext({
   activeTool,
   design,
   designDataJson,
+  layoutGrids,
   designSelectionOwnerIdRef,
   files,
   hoveredElement,
@@ -154,6 +158,9 @@ export function runPublishAgentSelectionContext({
     })(),
     // §8 — active design state (null = Default / live view)
     selectedStateId,
+    // The grid the active screen's positions snap to, so the agent authors
+    // left/top on the same multiples dragging produces. null = no grid.
+    layoutGrid: activeFile ? (layoutGrids[activeFile.id] ?? null) : null,
   };
   (window as any).__designSelection = selection;
   const persistedSelection = {
@@ -178,6 +185,7 @@ export function runPublishAgentSelectionContext({
     responsiveEditScope: selection.responsiveEditScope,
     breakpointSetId: selection.breakpointSetId,
     selectedStateId: selection.selectedStateId,
+    layoutGrid: selection.layoutGrid,
     ownerId: designSelectionOwnerIdRef.current,
   };
   const persistedKey = JSON.stringify(persistedSelection);

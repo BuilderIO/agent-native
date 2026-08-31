@@ -4,6 +4,7 @@ import { parse } from "yaml";
 
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const clipsNetlifyPath = "templates/clips/netlify.toml";
+const chatNetlifyPath = "templates/chat/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
@@ -18,6 +19,7 @@ export const PRODUCTION_PURGE_CONDITION =
 
 const reusable = readFileSync(reusablePath, "utf8");
 const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
+const chatNetlify = readFileSync(chatNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
@@ -222,6 +224,18 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasProductionChatBuildOverride =
+  clipsBuild.includes(
+    'if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]];',
+  ) &&
+  chatNetlify.includes("agentNativePrebuiltBuild") &&
+  chatNetlify.includes("agentNativePrebuiltDatabaseUrl") &&
+  chatNetlify.includes("agentNativePrebuiltAuthSecret");
+if (!hasProductionChatBuildOverride) {
+  issues.push(
+    `${reusablePath} and ${chatNetlifyPath} must provide a production Chat build-only override for masked Netlify secrets`,
+  );
+}
 const hasClipsAndPlanBuildOverride = clipsBuild.includes(
   '[[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
 );
@@ -295,6 +309,9 @@ const parsedStepIndex = (name: string) =>
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedClipsMigrationIndex = parsedStepIndex(
+  "Run Clips release migrations",
+);
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -312,6 +329,20 @@ const parsedCleanupIndex = parsedStepIndex(
 );
 issues.push(...validateGoogleCallbackVerificationWorkflow(reusable));
 issues.push(...validateNetlifyApiRateLimitHandling(reusable));
+const parsedClipsMigrationIf = reusableSteps[parsedClipsMigrationIndex]?.if;
+if (
+  parsedClipsMigrationIndex < 0 ||
+  typeof parsedClipsMigrationIf !== "string" ||
+  !parsedClipsMigrationIf.includes("inputs.target == 'production'") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy") ||
+  !parsedClipsMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !parsedClipsMigrationIf.includes("source_template == 'clips'") ||
+  !reusable.includes("CLIPS_DATABASE_URL")
+) {
+  issues.push(
+    `${reusablePath} must run Clips release migrations against CLIPS_DATABASE_URL before a production prebuilt deploy`,
+  );
+}
 if (
   parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||

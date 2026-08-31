@@ -269,7 +269,8 @@ export async function replaceOAuthTokensIfRevision(
       expectedStorageVersion,
     ],
   });
-  return result.rowsAffected === 1;
+  const replaced = result.rowsAffected === 1;
+  return replaced;
 }
 
 /** Delete only the exact credential revision the caller inspected. */
@@ -295,7 +296,8 @@ export async function deleteOAuthTokensIfRevision(
       expectedStorageVersion,
     ],
   });
-  return result.rowsAffected === 1;
+  const deleted = result.rowsAffected === 1;
+  return deleted;
 }
 
 /**
@@ -438,7 +440,9 @@ export async function saveOAuthTokens(
       Date.now(),
     ],
   });
-  if (result.rowsAffected === 1) return;
+  if (result.rowsAffected === 1) {
+    return;
+  }
 
   const { rows: conflict } = await client.execute({
     sql: `SELECT owner FROM ${table} WHERE provider = ? AND account_id = ?`,

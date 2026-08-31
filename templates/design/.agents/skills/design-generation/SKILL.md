@@ -194,6 +194,11 @@ Pick a preset by `projectType`:
 ## Measurable rules (bake these in)
 
 - 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
+- Absolute `left`/`top` are whole pixels, and multiples of the screen's
+  `layoutGrid.size` when `design-selection` reports one. A fractional or
+  off-grid position reads as a mistake to a designer and does not match what
+  dragging the same element produces. Set a screen's grid with
+  `set-layout-grid`.
 - Body text ≥ 16px, labels ≥ 12px.
 - Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
 - WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.
@@ -323,6 +328,14 @@ Skip the questions entirely when:
   iterating — don't re-ask settled ground on follow-up prompts for the same
   design; or
 - the user says "decide for me," "surprise me," "just build it," or similar.
+
+The turn that opens `show-design-questions` already checked Creative Context
+and any published Brand DNA before this skill loads, and the directives it
+built name exactly which topics (form factor, aesthetic direction,
+features/content, interactions/polish, exploring variations) are already
+answered. Never re-ask a topic those directives list as covered, and never
+skip a topic they don't — a single unrelated context member (a doc, a spec)
+must not suppress a question it has no bearing on.
 
 Asking on every prompt is as much a failure mode as never asking: a detailed
 prompt that already answers the obvious questions should generate

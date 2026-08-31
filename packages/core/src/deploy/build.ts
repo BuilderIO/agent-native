@@ -11,6 +11,7 @@
  * Supported presets:
  * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
  * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
+ * - aws_amplify: Uses Nitro's .amplify-hosting deployment specification
  *
  * Usage: node deploy/build.js (called automatically by `agent-native build`)
  */
@@ -51,6 +52,10 @@ import {
   resolveRecurringJobsBuildMarker,
 } from "../server/agent-chat/recurring-jobs-runtime.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
+import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "../server/cookie-namespace.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
@@ -108,6 +113,16 @@ export const CLOUDFLARE_MODULE_PRESETS = [
   "cloudflare_module",
   "cloudflare-module",
 ] as const;
+
+export const AWS_AMPLIFY_PRESETS = [
+  "aws_amplify",
+  "aws-amplify",
+  "awsAmplify",
+] as const;
+
+export function isAwsAmplifyPreset(targetPreset: string): boolean {
+  return (AWS_AMPLIFY_PRESETS as readonly string[]).includes(targetPreset);
+}
 
 export function isCloudflareModulePreset(targetPreset: string): boolean {
   return (CLOUDFLARE_MODULE_PRESETS as readonly string[]).includes(
@@ -910,7 +925,11 @@ export function generateWorkerEntry(
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const ssrAuthRedirectScript = getSsrAuthRedirectScript();
+  const ssrAuthRedirectScript = getSsrAuthRedirectScript(
+    frameworkSessionHintCookieName(
+      resolveAuthCookieNamespace().frameworkCookieName,
+    ),
+  );
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -1741,7 +1760,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -2650,6 +2669,31 @@ const PACKAGE_DEPENDENCY_FIELDS = [
   "devDependencies",
   "peerDependencies",
 ];
+const RUNTIME_PACKAGE_DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+] as const;
+const AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR =
+  "AGENT_NATIVE_BUILD_ENGINE_PACKAGES";
+
+function resolveDeclaredRuntimePackageNames(projectCwd: string): string[] {
+  const manifest = readPackageManifest(projectCwd);
+  const packageNames = new Set<string>();
+  for (const field of RUNTIME_PACKAGE_DEPENDENCY_FIELDS) {
+    const dependencies = manifest?.[field];
+    if (
+      !dependencies ||
+      typeof dependencies !== "object" ||
+      Array.isArray(dependencies)
+    ) {
+      continue;
+    }
+    for (const packageName of Object.keys(dependencies)) {
+      packageNames.add(packageName);
+    }
+  }
+  return [...packageNames].sort();
+}
 
 // Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
 // and 32-bit-arm prebuilds of these native packages are ~100MB that can never
@@ -4135,6 +4179,57 @@ export function stubLocalOnlySqliteDriverForServerless(
   return freed;
 }
 
+/**
+ * Nitro bundles the Vite SSR driver's dynamic import into a private `_libs`
+ * chunk when Amplify uses `noExternals: true`, so the package-tree stub above
+ * cannot see it. Replace that generated chunk after Nitro emits it.
+ */
+export function stubBundledLocalOnlySqliteDriverForServerless(
+  serverDir: string,
+): number {
+  const libsDir = path.join(serverDir, "_libs");
+  if (!fs.existsSync(libsDir)) return 0;
+
+  const stubSource = [
+    "class BetterSqlite3NotAvailableInServerless {",
+    "  constructor() {",
+    "    throw new Error(",
+    '      "better-sqlite3 is not available in a serverless deployment. " +',
+    '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
+    '        "filesystem is ephemeral and not shared between containers. " +',
+    '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
+    "    );",
+    "  }",
+    "}",
+    "const BetterSqlite3Module = BetterSqlite3NotAvailableInServerless;",
+    "BetterSqlite3Module.SqliteError = class SqliteError extends Error {};",
+    "export const t = () => BetterSqlite3Module;",
+    "export default BetterSqlite3Module;",
+    "export const Database = BetterSqlite3Module;",
+    "",
+  ].join("\n");
+
+  let replaced = 0;
+  for (const entry of fs.readdirSync(libsDir, { withFileTypes: true })) {
+    if (
+      !entry.isFile() ||
+      !entry.name.startsWith("better-sqlite3") ||
+      !entry.name.endsWith(".mjs")
+    ) {
+      continue;
+    }
+    fs.writeFileSync(path.join(libsDir, entry.name), stubSource);
+    replaced++;
+  }
+
+  if (replaced > 0) {
+    console.log(
+      `[deploy] Stubbed ${replaced} bundled better-sqlite3 chunk(s) for serverless output.`,
+    );
+  }
+  return replaced;
+}
+
 function netlifyFunctionSizeBudget(functionDir: string): number {
   const allowance =
     (hasBundledServerlessBrowserRuntime(functionDir)
@@ -5191,13 +5286,15 @@ export function resolveNitroBundledYjsEntry(): string {
 }
 
 /**
- * Edge runtimes have no node_modules, while Node/serverless outputs receive the
- * small set above through the controlled post-build pass.
+ * Edge runtimes have no node_modules. Amplify uses a self-contained Nitro
+ * bundle to avoid its monorepo dependency-tracing pass; other Node/serverless
+ * outputs receive the small set above through the controlled post-build pass.
  */
 export function nitroNoExternalsForPreset(
   targetPreset: string,
 ): true | readonly string[] {
   return targetPreset.startsWith("cloudflare") ||
+    isAwsAmplifyPreset(targetPreset) ||
     targetPreset.startsWith("deno")
     ? true
     : targetPreset === "netlify" ||
@@ -5258,6 +5355,7 @@ function createBrowserOnlyServerStubPlugin() {
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
   deploymentEnvironment?: string,
+  projectCwd: string = cwd,
 ): Record<string, string> {
   const configuredDeploymentEnvironment =
     deploymentEnvironment?.trim() ||
@@ -5298,6 +5396,14 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    // Nitro's serverless bundle inlines optional provider packages into
+    // relative chunks. The deployed Function cannot use require.resolve to
+    // see those chunks, so carry the app's runtime dependency boundary into
+    // the bundle as positive package evidence.
+    [`process.env.${AGENT_NATIVE_BUILD_ENGINE_PACKAGES_ENV_VAR}`]:
+      JSON.stringify(
+        JSON.stringify(resolveDeclaredRuntimePackageNames(projectCwd)),
+      ),
     // Whether the recurring-jobs scheduled function exists is decided HERE, by
     // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
     // a pipeline that sets the kill switch only for the build leaves no runtime
@@ -5410,6 +5516,9 @@ export default bundle;
     rootDir: cwd,
     dev: false,
     preset,
+    ...(isAwsAmplifyPreset(preset)
+      ? { awsAmplify: { runtime: "nodejs24.x" } }
+      : {}),
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
@@ -5451,6 +5560,16 @@ export default bundle;
           ? [createCloudflareModuleStubPlugin()]
           : []),
         createBrowserOnlyServerStubPlugin(),
+        ...(isAwsAmplifyPreset(preset)
+          ? [
+              {
+                name: "agent-native-amplify-yjs-resolver",
+                resolveId(id: string) {
+                  return id === "yjs" ? resolveNitroBundledYjsEntry() : null;
+                },
+              },
+            ]
+          : []),
       ],
     },
     ...(providedPluginsNitroPlugin
@@ -5458,9 +5577,9 @@ export default bundle;
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // Edge presets (cloudflare, deno) bundle all deps because node_modules are
-    // unavailable at runtime. Node and controlled serverless presets
-    // externalize Yjs above, then emit one full runtime module after Nitro has
-    // preserved every consumer's public imports.
+    // unavailable at runtime. Amplify also uses one self-contained bundle to
+    // avoid its monorepo dependency-tracing pass; other Node/serverless
+    // presets externalize Yjs above, then emit one portable runtime module.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
@@ -5487,13 +5606,23 @@ export default bundle;
     configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
   }
 
-  if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
+  if (
+    preset === "netlify" ||
+    preset === "vercel" ||
+    preset === "aws-lambda" ||
+    isAwsAmplifyPreset(preset)
+  ) {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     stubLocalOnlySqliteDriverForServerless(nitro.options.output.serverDir);
+    if (isAwsAmplifyPreset(preset)) {
+      stubBundledLocalOnlySqliteDriverForServerless(
+        nitro.options.output.serverDir,
+      );
+    }
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);

@@ -2,7 +2,7 @@ import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { ContentLandingResult } from "@shared/content-landing";
 import { useCallback, useEffect, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
@@ -48,6 +48,7 @@ function DocumentSkeleton() {
 
 export default function HomeRoute() {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
   const startedRef = useRef(false);
   const resolveLanding = useActionMutation<
@@ -63,13 +64,20 @@ export default function HomeRoute() {
       if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
-      void navigate(`/page/${result.documentId}`, { replace: true });
+      void navigate(
+        {
+          pathname: `/page/${result.documentId}`,
+          search: location.search,
+          hash: location.hash,
+        },
+        { replace: true },
+      );
     } catch (error) {
       // Keep the typed mutation error available to QueryErrorState. Retrying
       // starts a fresh resolver attempt rather than pretending arrival worked.
       console.error("Failed to resolve the Content landing page", error);
     }
-  }, [navigate, resolveLanding, t]);
+  }, [location.hash, location.search, navigate, resolveLanding, t]);
 
   useEffect(() => {
     void openLanding();

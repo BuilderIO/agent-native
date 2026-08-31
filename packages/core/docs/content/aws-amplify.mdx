@@ -1,0 +1,121 @@
+---
+title: "AWS Amplify"
+description: "Deploy an Agent-Native SSR app to AWS Amplify Hosting with Nitro's aws_amplify preset."
+search: "AWS Amplify Hosting deployment Nitro aws_amplify SSR CloudFront"
+---
+
+# AWS Amplify
+
+AWS Amplify Hosting supports the Nitro deployment specification directly. Set
+Nitro's `aws_amplify` preset and publish the generated `.amplify-hosting`
+directory. The framework does not need an Amplify runtime package or an AWS
+SDK dependency.
+
+## Build with Nitro
+
+For a standalone app, add this `amplify.yml` at the project root:
+
+```yaml filename="amplify.yml"
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm use 24
+        - corepack enable
+        - pnpm install
+    build:
+      commands:
+        - NITRO_PRESET=aws_amplify pnpm build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - "**/*"
+```
+
+The Nitro build produces the Amplify SSR deployment contract:
+
+- `.amplify-hosting/static` contains the browser assets.
+- `.amplify-hosting/compute/default/server.js` starts the Node server on
+  Amplify's port 3000.
+- `.amplify-hosting/deploy-manifest.json` routes static files to the static
+  primitive and all other requests to the compute primitive.
+
+For a monorepo, run the build from the repository root and point the artifact
+base directory at the app's output. For example, a calendar app under
+`templates/calendar` uses `NITRO_PRESET=aws_amplify pnpm --filter calendar build`
+and `templates/calendar/.amplify-hosting`. The matching Amplify environment
+variable is `AMPLIFY_MONOREPO_APP_ROOT=templates/calendar`.
+
+The framework sets Nitro's `awsAmplify.runtime` to `nodejs24.x`, matching the
+Node 24 build phase and the repository's server runtime requirements.
+
+## Configure the app
+
+Amplify Hosting compute is serverless. Configure a persistent SQL database and
+the production secrets in the Amplify environment variables:
+
+- `DATABASE_URL` for Postgres, Neon, Supabase, RDS, Turso, or another supported
+  SQL provider.
+- `BETTER_AUTH_SECRET` as a stable 32+ character secret.
+- `DATABASE_AUTH_TOKEN` when the database provider needs a separate token.
+- Any provider credentials required by the app.
+
+Enable SSR app logs in Amplify after connecting the repository. Run schema
+migrations in the release pipeline or as a separate controlled task. Do not
+use the local SQLite file as production storage.
+
+## CloudFront caching
+
+Amplify serves SSR applications through CloudFront. Nitro sets the standard
+`Cache-Control` header on the public SSR HTML and React Router `.data` shell:
+
+```txt
+public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+Amplify honors that origin header, so no Amplify-specific header file is
+required. CloudFront uses the ten-minute freshness window, can serve the
+stale shell while revalidating, and can serve it during an origin error. The
+framework's client-side actions and private routes keep user-specific data out
+of that public shell.
+
+Amplify's static asset policy already gives static files a one-year maximum
+TTL. The hashed Vite assets are therefore edge-cacheable without adding a
+platform-specific rewrite or custom header. Continuous-deployment releases
+clear the Amplify cache.
+
+Keep Amplify's default **Remove cookies from cache key** setting enabled. The
+SSR handler strips cookies before rendering the public shell, so excluding
+cookies improves the shared cache hit rate without making the shell
+personalized. Do not add a global `Cache-Control` override in `customHttp.yml`:
+it can override `no-store` responses on private routes. Use
+`AGENT_NATIVE_SSR_CACHE` when a deployment needs a shorter or disabled SSR
+policy.
+
+See [SSR Caching](/docs/ssr-caching) for the shared policy and
+[Amplify's cache-key documentation](https://docs.aws.amazon.com/amplify/latest/userguide/cache-key-cookies.html)
+for the hosting setting.
+
+## Verify the deployment
+
+After the first build, check the public URL and confirm that:
+
+1. `/` returns the SSR shell and its `Cache-Control` header.
+2. A hashed `/assets/*` file returns successfully.
+3. Sign-in, database reads and writes, and any OAuth callbacks used by the app
+   work against the configured persistent database.
+
+Amplify's deployment output must contain the Nitro-generated
+`deploy-manifest.json`; a static-only upload is not an SSR deployment.
+
+See [AWS's SSR deployment specification](https://docs.aws.amazon.com/amplify/latest/userguide/ssr-deployment-specification.html)
+and [Nitro's AWS Amplify provider guide](https://nitro.build/deploy/providers/aws-amplify)
+for the platform contract.
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Deployment**](/docs/deployment) - database and hosting guidance
+- [**Deployment environment variables**](/docs/deployment-environment-variables) - production configuration
+- [**Calendar**](/docs/template-calendar) - the first-party calendar template
