@@ -111,7 +111,7 @@ function resolveMountMatch(
   const prefixedPath = `${appBasePath}${path}`;
   if (
     path === "/"
-      ? reqPath !== appBasePath
+      ? reqPath !== appBasePath && reqPath !== `${appBasePath}/`
       : !pathMatchesPrefix(reqPath, prefixedPath)
   ) {
     return null;

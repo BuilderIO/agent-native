@@ -372,6 +372,34 @@ describe("framework request handler", () => {
     await expect(pending).resolves.toEqual({ ok: true });
   });
 
+  it("waits for default plugin bootstrap before a trailing-slash app root falls through", async () => {
+    process.env.APP_BASE_PATH = "/docs";
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      getH3App(nitroApp).use("/", () => ({ ok: true }));
+      return [];
+    });
+
+    getH3App(nitroApp);
+    let settled = false;
+    const pending = dispatch(nitroApp, "/docs/").then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    release();
+
+    await expect(pending).resolves.toEqual({ ok: true });
+  });
+
   it("does not treat an app-scoped child route as the root route", async () => {
     process.env.APP_BASE_PATH = "/docs";
     const nitroApp = createNitroApp();
