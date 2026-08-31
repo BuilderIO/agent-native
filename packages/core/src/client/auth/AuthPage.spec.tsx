@@ -47,6 +47,9 @@ describe("AuthPage", () => {
     expect(html).toContain('class="split');
     expect(html).toContain('class="marketing-panel"');
     expect(html).toContain('class="form-panel');
+    expect(html).toMatch(
+      /class="form-panel[^\"]*">\s*<a[^>]+class="auth-marketing-learn-more"/,
+    );
   });
 
   it("keeps the magic-link entry and completion surfaces in the React tree", () => {

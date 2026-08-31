@@ -1309,16 +1309,13 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     margin: 0 auto;
   }
   .auth-marketing-learn-more {
-    position: fixed;
-    top: max(1.5rem, env(safe-area-inset-top));
-    inset-inline-end: max(4rem, calc(env(safe-area-inset-right) + 3.5rem));
-    z-index: 3;
+    align-self: flex-end;
+    margin-bottom: 1rem;
     color: hsl(var(--foreground, 0 0% 90%));
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.875rem;
     line-height: 1.5;
     text-decoration: none;
-    white-space: nowrap;
   }
   .auth-marketing-learn-more:hover { color: hsl(var(--foreground, 0 0% 90%)); }
   .auth-marketing-learn-more-link { color: hsl(var(--primary, 195 100% 50%)); }
@@ -1440,9 +1437,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .form-panel .local-note { max-width: 400px; }
   @media (max-width: 900px) {
     .auth-marketing-learn-more {
-      top: max(1rem, env(safe-area-inset-top));
-      inset-inline-end: max(3.5rem, calc(env(safe-area-inset-right) + 3rem));
+      align-self: flex-start;
+      margin-bottom: 1rem;
       font-size: 0.75rem;
+      text-align: start;
     }
     .split { flex-direction: column; min-height: auto; }
     .marketing-panel { padding: 4.25rem 1.5rem 1.5rem; }

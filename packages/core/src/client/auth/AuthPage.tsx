@@ -2653,6 +2653,25 @@ export function AuthPage(props: AuthPageProps) {
       }
       auth={
         <>
+          {marketingCopy.learnMoreUrl ? (
+            <a
+              className="auth-marketing-learn-more"
+              href={marketingCopy.learnMoreUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span>
+                {t("newToApp").replace(
+                  "{appName}",
+                  marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
+                )}
+              </span>
+              <span aria-hidden="true"> - </span>
+              <span className="auth-marketing-learn-more-link">
+                {t("learnMore")}
+              </span>
+            </a>
+          ) : null}
           {authCard}
           {localNote}
         </>
@@ -2663,25 +2682,6 @@ export function AuthPage(props: AuthPageProps) {
           : "auth-marketing-home"
       }
     >
-      {marketingCopy.learnMoreUrl ? (
-        <a
-          className="auth-marketing-learn-more"
-          href={marketingCopy.learnMoreUrl}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <span>
-            {t("newToApp").replace(
-              "{appName}",
-              marketingCopy.appName.replace(/^Agent-Native\s+/i, ""),
-            )}
-          </span>
-          <span aria-hidden="true"> - </span>
-          <span className="auth-marketing-learn-more-link">
-            {t("learnMore")}
-          </span>
-        </a>
-      ) : null}
       {marketingCopy.screenshotSrc ? (
         <div className="auth-marketing-screenshot-wrap">
           <img
