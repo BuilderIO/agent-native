@@ -26,6 +26,7 @@ describe("MarketingHome", () => {
     expect(html).toContain("Reusable");
     expect(html).toContain("max-w-7xl");
     expect(html).toContain("py-16");
+    expect(html).toContain('data-agent-native-starfield="true"');
     expect(html).not.toContain("max-w-6xl");
   });
 

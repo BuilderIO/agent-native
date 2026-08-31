@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deriveAppIdentity, isFirstPartyApp } from "./app-identity.js";
+import {
+  deriveAppIdentity,
+  isFirstPartyApp,
+  resolveAppHomePath,
+} from "./app-identity.js";
 import { getAppConfig, resetAppConfigForTests } from "./store.js";
 
 const base = { packageName: undefined } as Parameters<
@@ -73,6 +77,30 @@ describe("deriveAppIdentity", () => {
         sourceTemplate: "slides",
       }),
     ).toBe(true);
+  });
+
+  it("keeps first-party app homes while custom apps default to the root", () => {
+    expect(
+      resolveAppHomePath({ ...base, packageName: "mail", slug: "mail" }),
+    ).toBe("/home");
+    expect(resolveAppHomePath({ ...base, packageName: "customer-crm" })).toBe(
+      "/",
+    );
+    expect(
+      resolveAppHomePath({
+        ...base,
+        packageName: "test-standalone",
+        sourceTemplate: "chat",
+      }),
+    ).toBe("/");
+    expect(
+      resolveAppHomePath({
+        ...base,
+        packageName: "mail",
+        slug: "mail",
+        homePath: "/inbox",
+      }),
+    ).toBe("/inbox");
   });
 
   it("runs on the resolved config, so APP_NAME still wins", () => {

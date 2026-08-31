@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import {
   DEFAULT_SSR_CACHE_CONTROL,
@@ -74,6 +78,7 @@ describe("server/auth", () => {
 
   afterEach(() => {
     clearAuthPublicPathRegistry();
+    resetAppConfigForTests();
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
@@ -3026,6 +3031,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
       const { autoMountAuth } = await import("./auth.js");
 
       const getSession = vi.fn(async () => null);
@@ -3058,6 +3064,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();
@@ -3099,6 +3106,7 @@ describe("server/auth", () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
+      defineAppConfig({ app: { homePath: "/home" } });
       const { autoMountAuth } = await import("./auth.js");
 
       const app = createMockApp();

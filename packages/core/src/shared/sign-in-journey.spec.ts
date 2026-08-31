@@ -282,6 +282,46 @@ describe("signInJourney", () => {
     expect(journey.resumeHref).toBe("/home");
   });
 
+  it("uses the configured app home for an invalid continuation", () => {
+    expect(
+      signInJourney({
+        at: SIGN_IN_ENTRY_PATH,
+        continuation: "not-a-real-token-%%%",
+        homePath: "/inbox",
+      }).resumeHref,
+    ).toBe("/inbox");
+    expect(
+      signInJourney({
+        at: "/mail/sign-in",
+        basePath: "/mail",
+        continuation: "not-a-real-token-%%%",
+        homePath: "/inbox",
+      }).resumeHref,
+    ).toBe("/mail/inbox");
+  });
+
+  it("rejects unsafe configured home paths", () => {
+    for (const homePath of [
+      "https://evil.example",
+      "//evil.example",
+      "/inbox?next=/evil",
+      "/inbox#evil",
+      "/inbox/../evil",
+      "/sign-in",
+      "/workspace/sign-in",
+      "/workspace/_agent-native/sign-in",
+      "/workspace/login",
+      "/workspace/signup",
+    ]) {
+      expect(
+        signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath }).resumeHref,
+      ).toBe("/home");
+    }
+    expect(
+      signInJourney({ at: SIGN_IN_ENTRY_PATH, homePath: "/" }).resumeHref,
+    ).toBe("/");
+  });
+
   it("preserves search params for login-form-at-this-URL routes", () => {
     // `/_agent-native/open`, the MCP authorize page, and `agent-native connect`
     // serve the login form AT their own URL; client_id/state/PKCE must survive.
@@ -324,5 +364,10 @@ describe("signInJourneyInlineScript", () => {
     expect(evaluated.signInJourney({ at: "/mail/login" })).toEqual(
       signInJourney({ at: "/mail/login", basePath: "/mail" }),
     );
+
+    const configured = new Function(
+      `${script}; return __anCreateSignInJourney("/mail", "/inbox");`,
+    )() as { homeHref: () => string };
+    expect(configured.homeHref()).toBe("/mail/inbox");
   });
 });
