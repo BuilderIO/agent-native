@@ -1292,6 +1292,8 @@ export async function runTransactionalEmailsOnce(
 }
 
 export default function registerTransactionalEmailsJob(): void {
+  if (process.env.NETLIFY === "true") return;
+
   const isProd = process.env.NODE_ENV === "production";
   const flag = process.env.RUN_BACKGROUND_JOBS;
   const enabled = flag === "1" || (isProd && flag !== "0");

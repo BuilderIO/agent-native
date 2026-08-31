@@ -1,19 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
-import {
-  link,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import path from "node:path";
+import { randomUUID } from "node:crypto";
 
+import { and, asc, eq, isNull, lte, or, type SQL } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../db/index.js";
 
 const timestampSchema = z.string().datetime({ offset: true });
 const nonEmptyStringSchema = z.string().trim().min(1);
@@ -213,17 +203,8 @@ export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
 }
 
 export type TransactionalEmailStoreOptions = {
-  root?: string;
   now?: () => Date;
-  testHooks?: {
-    afterInitialJobTempSynced?: () => Promise<void>;
-    afterStaleLockSnapshot?: () => Promise<void>;
-    afterJobLockAcquired?: () => Promise<void>;
-    afterFreshLockContention?: () => Promise<void>;
-  };
 };
-
-const LOCK_STALE_MS = 30_000;
 export const AI_DISPATCH_STALE_MS = 30 * 60 * 1000;
 
 const allowedTransitions: Record<
@@ -240,18 +221,6 @@ const allowedTransitions: Record<
   failed: new Set(),
 };
 
-function isNodeError(error: unknown, code: string): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === code
-  );
-}
-
-function jobHash(logicalKey: string): string {
-  return createHash("sha256").update(logicalKey).digest("hex");
-}
-
 function stateTimestampField(
   state: TransactionalEmailState,
 ): keyof TransactionalEmailJob | null {
@@ -264,296 +233,142 @@ function stateTimestampField(
   return null;
 }
 
+function databaseJobToJob(
+  row: typeof schema.transactionalEmailJobs.$inferSelect,
+): TransactionalEmailJob {
+  let recordingIds: unknown;
+  try {
+    recordingIds = JSON.parse(row.recordingIdsJson);
+  } catch (error) {
+    const detail = error instanceof Error ? `: ${error.message}` : "";
+    throw new Error(
+      `Invalid transactional email job recording ids for ${row.logicalKey}${detail}`,
+    );
+  }
+  return transactionalEmailJobSchema.parse({
+    logicalKey: row.logicalKey,
+    type: row.type,
+    state: row.state,
+    recipient: row.recipient,
+    recordingIds,
+    attempts: row.attempts,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lastError: row.lastError,
+    leaseUntil: row.leaseUntil,
+    leaseToken: row.leaseToken,
+    shareId: row.shareId ?? undefined,
+    requestedBy: row.requestedBy ?? undefined,
+    month: row.month ?? undefined,
+    generatedSummary: row.generatedSummary ?? undefined,
+    aiDispatchedAt: row.aiDispatchedAt ?? undefined,
+    aiClaimedBy: row.aiClaimedBy ?? undefined,
+    readyAt: row.readyAt ?? undefined,
+    sendingAt: row.sendingAt ?? undefined,
+    sentAt: row.sentAt ?? undefined,
+    cancelledAt: row.cancelledAt ?? undefined,
+    failedAt: row.failedAt ?? undefined,
+  });
+}
+
+function jobToDatabaseValues(job: TransactionalEmailJob) {
+  return {
+    logicalKey: job.logicalKey,
+    type: job.type,
+    state: job.state,
+    recipient: job.recipient,
+    recordingIdsJson: JSON.stringify(job.recordingIds),
+    shareId: job.shareId ?? null,
+    requestedBy: job.requestedBy ?? null,
+    month: job.month ?? null,
+    generatedSummary: job.generatedSummary ?? null,
+    attempts: job.attempts,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    aiDispatchedAt: job.aiDispatchedAt ?? null,
+    aiClaimedBy: job.aiClaimedBy ?? null,
+    readyAt: job.readyAt ?? null,
+    sendingAt: job.sendingAt ?? null,
+    sentAt: job.sentAt ?? null,
+    cancelledAt: job.cancelledAt ?? null,
+    failedAt: job.failedAt ?? null,
+    lastError: job.lastError,
+    leaseUntil: job.leaseUntil,
+    leaseToken: job.leaseToken,
+  };
+}
+
 export function createTransactionalEmailStore(
   options: TransactionalEmailStoreOptions = {},
 ) {
-  const root =
-    options.root ??
-    path.join(process.cwd(), "data", "clips-transactional-emails");
-  const jobsDirectory = path.join(root, "jobs");
-  const locksDirectory = path.join(root, "locks");
-  const configFile = path.join(root, "config.json");
   const now = options.now ?? (() => new Date());
-  const testHooks = options.testHooks;
 
-  const jobFile = (logicalKey: string) =>
-    path.join(jobsDirectory, `${jobHash(logicalKey)}.json`);
-  const lockFile = (logicalKey: string) =>
-    path.join(locksDirectory, `${jobHash(logicalKey)}.lock`);
-
-  async function ensureDirectories(): Promise<void> {
-    await Promise.all([
-      mkdir(jobsDirectory, { recursive: true, mode: 0o700 }),
-      mkdir(locksDirectory, { recursive: true, mode: 0o700 }),
-    ]);
+  function normalizeRecipient(email: string) {
+    return recipientSchema.parse(email.trim().toLowerCase());
   }
 
-  async function parseJsonFile<T>(
-    file: string,
-    schema: z.ZodType<T>,
-    description: string,
-  ): Promise<T> {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(await readFile(file, "utf8"));
-    } catch (error) {
-      if (isNodeError(error, "ENOENT")) throw error;
-      const detail = error instanceof Error ? `: ${error.message}` : "";
-      throw new Error(`Invalid ${description} JSON at ${file}${detail}`);
-    }
-    const result = schema.safeParse(parsed);
-    if (!result.success) {
-      throw new Error(
-        `Invalid ${description} at ${file}: ${result.error.message}`,
-      );
-    }
-    return result.data;
-  }
-
-  async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
-    const temporaryFile = path.join(
-      path.dirname(file),
-      `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`,
-    );
-    try {
-      await writeFile(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600,
-      });
-      await rename(temporaryFile, file);
-    } catch (error) {
-      await rm(temporaryFile, { force: true }).catch(() => undefined);
-      throw error;
-    }
-  }
-
-  async function publishJsonExclusive(
-    file: string,
-    value: unknown,
-  ): Promise<boolean> {
-    const temporaryFile = path.join(
-      path.dirname(file),
-      `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`,
-    );
-    let handle;
-    try {
-      handle = await open(temporaryFile, "wx", 0o600);
-      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-      await handle.sync();
-      await handle.close();
-      handle = undefined;
-      await testHooks?.afterInitialJobTempSynced?.();
-      try {
-        await link(temporaryFile, file);
-        const directoryHandle = await open(path.dirname(file), "r");
-        try {
-          await directoryHandle.sync();
-        } finally {
-          await directoryHandle.close();
-        }
-        return true;
-      } catch (error) {
-        if (isNodeError(error, "EEXIST")) return false;
-        throw error;
-      }
-    } finally {
-      await handle?.close().catch(() => undefined);
-      await rm(temporaryFile, { force: true }).catch(() => undefined);
-    }
+  function transitionedJob(
+    job: TransactionalEmailJob,
+    nextState: TransactionalEmailState,
+    changes: { generatedSummary?: string; lastError?: string | null } = {},
+  ) {
+    const timestamp = now().toISOString();
+    const timestampField = stateTimestampField(nextState);
+    return transactionalEmailJobSchema.parse({
+      ...job,
+      ...changes,
+      state: nextState,
+      updatedAt: timestamp,
+      leaseUntil: null,
+      leaseToken: null,
+      ...(timestampField ? { [timestampField]: timestamp } : {}),
+    });
   }
 
   async function readJob(
     logicalKey: string,
   ): Promise<TransactionalEmailJob | null> {
-    const file = jobFile(logicalKey);
-    try {
-      const job = await parseJsonFile(
-        file,
-        transactionalEmailJobSchema,
-        "transactional email job",
-      );
-      if (job.logicalKey !== logicalKey) {
-        throw new Error(`Transactional email job key mismatch at ${file}`);
-      }
-      return job;
-    } catch (error) {
-      if (isNodeError(error, "ENOENT")) return null;
-      throw error;
-    }
+    const [row] = await getDb()
+      .select()
+      .from(schema.transactionalEmailJobs)
+      .where(
+        eq(
+          schema.transactionalEmailJobs.logicalKey,
+          nonEmptyStringSchema.parse(logicalKey),
+        ),
+      )
+      .limit(1);
+    return row ? databaseJobToJob(row) : null;
   }
 
   async function listJobs(): Promise<TransactionalEmailJob[]> {
-    await ensureDirectories();
-    const files = (await readdir(jobsDirectory))
-      .filter((file) => file.endsWith(".json"))
-      .sort();
-    const jobs = await Promise.all(
-      files.map(async (filename) => {
-        const file = path.join(jobsDirectory, filename);
-        const job = await parseJsonFile(
-          file,
-          transactionalEmailJobSchema,
-          "transactional email job",
-        );
-        if (filename !== `${jobHash(job.logicalKey)}.json`) {
-          throw new Error(`Transactional email job key mismatch at ${file}`);
-        }
-        return job;
-      }),
-    );
-    return jobs.sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt),
-    );
-  }
-
-  type FileIdentity = { dev: number; ino: number };
-
-  function identityOf(value: { dev: number; ino: number }): FileIdentity {
-    return { dev: value.dev, ino: value.ino };
-  }
-
-  function sameIdentity(
-    left: FileIdentity | null,
-    right: FileIdentity | null,
-  ): boolean {
     return (
-      left !== null &&
-      right !== null &&
-      left.dev === right.dev &&
-      left.ino === right.ino
-    );
+      await getDb()
+        .select()
+        .from(schema.transactionalEmailJobs)
+        .orderBy(asc(schema.transactionalEmailJobs.createdAt))
+    ).map(databaseJobToJob);
   }
 
-  async function fileIdentity(file: string): Promise<FileIdentity | null> {
-    const value = await stat(file).catch((error: unknown) => {
-      if (isNodeError(error, "ENOENT")) return null;
-      throw error;
-    });
-    return value ? identityOf(value) : null;
-  }
-
-  async function unlinkIfIdentity(
-    file: string,
-    expected: FileIdentity,
-  ): Promise<boolean> {
-    if (!sameIdentity(await fileIdentity(file), expected)) return false;
-    try {
-      await unlink(file);
-      return true;
-    } catch (error) {
-      if (isNodeError(error, "ENOENT")) return false;
-      throw error;
-    }
-  }
-
-  async function createLockOwner(file: string): Promise<FileIdentity> {
-    const handle = await open(file, "wx", 0o600);
-    try {
-      await handle.sync();
-      return identityOf(await handle.stat());
-    } finally {
-      await handle.close();
-    }
-  }
-
-  async function takeoverMarkerBlocks(file: string): Promise<boolean> {
-    const existing = await stat(file).catch((error: unknown) => {
-      if (isNodeError(error, "ENOENT")) return null;
-      throw error;
-    });
-    if (!existing) return false;
-    if (Date.now() - existing.mtimeMs <= LOCK_STALE_MS) return true;
-    return !(await unlinkIfIdentity(file, identityOf(existing)));
-  }
-
-  async function acquireTakeoverMarker(
-    ownerFile: string,
-    takeoverFile: string,
-  ): Promise<boolean> {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        await link(ownerFile, takeoverFile);
-        return true;
-      } catch (error) {
-        if (!isNodeError(error, "EEXIST")) throw error;
-        if (await takeoverMarkerBlocks(takeoverFile)) return false;
-      }
-    }
-    return false;
-  }
-
-  async function withJobLock<T>(
-    logicalKey: string,
-    operation: () => Promise<T>,
-  ): Promise<T | null> {
-    await ensureDirectories();
-    const file = lockFile(logicalKey);
-    const ownerFile = `${file}.${process.pid}.${randomUUID()}.owner`;
-    const takeoverFile = `${file}.takeover`;
-    const ownerIdentity = await createLockOwner(ownerFile);
-    let acquired = false;
-    let ownsTakeover = false;
-    try {
-      if (await takeoverMarkerBlocks(takeoverFile)) return null;
-      try {
-        await link(ownerFile, file);
-        acquired = true;
-        if (await takeoverMarkerBlocks(takeoverFile)) return null;
-      } catch (error) {
-        if (!isNodeError(error, "EEXIST")) throw error;
-        const existingLock = await stat(file).catch((statError: unknown) => {
-          if (isNodeError(statError, "ENOENT")) return null;
-          throw statError;
-        });
-        if (
-          existingLock &&
-          Date.now() - existingLock.mtimeMs <= LOCK_STALE_MS
-        ) {
-          await testHooks?.afterFreshLockContention?.();
-          return null;
-        }
-        ownsTakeover = await acquireTakeoverMarker(ownerFile, takeoverFile);
-        if (!ownsTakeover) return null;
-        const lockStat = await stat(file).catch(() => null);
-        if (!lockStat || Date.now() - lockStat.mtimeMs <= LOCK_STALE_MS) {
-          return null;
-        }
-        const staleIdentity = identityOf(lockStat);
-        await testHooks?.afterStaleLockSnapshot?.();
-        if (!sameIdentity(await fileIdentity(file), staleIdentity)) return null;
-        if (!(await unlinkIfIdentity(file, staleIdentity))) return null;
-        try {
-          await link(ownerFile, file);
-          acquired = true;
-        } catch (retryError) {
-          if (isNodeError(retryError, "EEXIST")) return null;
-          throw retryError;
-        }
-      }
-      await testHooks?.afterJobLockAcquired?.();
-      if (!sameIdentity(await fileIdentity(file), ownerIdentity)) return null;
-      return await operation();
-    } finally {
-      // A holder only releases the inode it acquired. A stale reclaimer may
-      // replace that inode while the original holder is paused; identity-based
-      // release preserves the replacement without a cleanup-time takeover race.
-      if (acquired) await unlinkIfIdentity(file, ownerIdentity);
-      if (ownsTakeover) {
-        await unlinkIfIdentity(takeoverFile, ownerIdentity);
-      }
-      await rm(ownerFile, { force: true });
-    }
+  async function replaceJob(
+    job: TransactionalEmailJob,
+    condition: SQL | undefined,
+  ) {
+    const [updated] = await getDb()
+      .update(schema.transactionalEmailJobs)
+      .set(jobToDatabaseValues(job))
+      .where(condition)
+      .returning();
+    return updated ? databaseJobToJob(updated) : null;
   }
 
   async function enqueue(
     logicalKey: string,
     payload: TransactionalEmailPayload,
     initialState: "pending" | "awaiting_ai" = "pending",
-  ): Promise<{ created: boolean; job: TransactionalEmailJob }> {
+  ) {
     const parsedKey = nonEmptyStringSchema.parse(logicalKey);
     const parsedPayload = transactionalEmailPayloadSchema.parse(payload);
-    await ensureDirectories();
     const timestamp = now().toISOString();
     const job = transactionalEmailJobSchema.parse({
       logicalKey: parsedKey,
@@ -566,9 +381,12 @@ export function createTransactionalEmailStore(
       leaseUntil: null,
       leaseToken: null,
     });
-    if (await publishJsonExclusive(jobFile(parsedKey), job)) {
-      return { created: true, job };
-    }
+    const [created] = await getDb()
+      .insert(schema.transactionalEmailJobs)
+      .values(jobToDatabaseValues(job))
+      .onConflictDoNothing()
+      .returning({ logicalKey: schema.transactionalEmailJobs.logicalKey });
+    if (created) return { created: true, job };
     const existing = await readJob(parsedKey);
     if (!existing) {
       throw new Error(`Transactional email job disappeared for ${parsedKey}`);
@@ -580,7 +398,7 @@ export function createTransactionalEmailStore(
     recipient: string,
     recordingId: string,
     requestedBy: string,
-  ): Promise<{ created: boolean; job: TransactionalEmailJob }> {
+  ) {
     const logicalKey = `first-import:${recipient.trim().toLowerCase()}`;
     const enqueued = await enqueue(logicalKey, {
       type: "first-import",
@@ -589,160 +407,170 @@ export function createTransactionalEmailStore(
       requestedBy,
     });
     if (enqueued.created || enqueued.job.state === "sent") return enqueued;
-
-    const converged = await withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (
-        !job ||
-        job.type !== "first-import" ||
-        !["pending", "ready", "cancelled"].includes(job.state)
-      ) {
-        return null;
-      }
-      if (job.recordingIds[0] === recordingId) return job;
-      const timestamp = now().toISOString();
-      const updated = transactionalEmailJobSchema.parse({
-        ...job,
-        recipient,
-        recordingIds: [recordingId],
-        requestedBy,
-        state: "pending",
-        attempts: 0,
-        updatedAt: timestamp,
-        readyAt: undefined,
-        sendingAt: undefined,
-        cancelledAt: undefined,
-        failedAt: undefined,
-        lastError: null,
-        leaseUntil: null,
-        leaseToken: null,
-      });
-      await writeJsonAtomic(jobFile(logicalKey), updated);
-      return updated;
+    const job = enqueued.job;
+    if (
+      job.type !== "first-import" ||
+      !["pending", "ready", "cancelled"].includes(job.state) ||
+      job.recordingIds[0] === recordingId
+    ) {
+      return enqueued;
+    }
+    const timestamp = now().toISOString();
+    const candidate = transactionalEmailJobSchema.parse({
+      ...job,
+      recipient,
+      recordingIds: [recordingId],
+      requestedBy,
+      state: "pending",
+      attempts: 0,
+      updatedAt: timestamp,
+      readyAt: undefined,
+      sendingAt: undefined,
+      cancelledAt: undefined,
+      failedAt: undefined,
+      lastError: null,
+      leaseUntil: null,
+      leaseToken: null,
     });
-    return { created: false, job: converged ?? enqueued.job };
+    const updated = await replaceJob(
+      candidate,
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, logicalKey),
+        eq(schema.transactionalEmailJobs.state, job.state),
+      ),
+    );
+    return {
+      created: false,
+      job: updated ?? (await readJob(logicalKey)) ?? job,
+    };
   }
 
   async function transition(
     logicalKey: string,
     expectedStates: readonly TransactionalEmailState[],
     nextState: TransactionalEmailState,
-    changes: {
-      generatedSummary?: string;
-      lastError?: string | null;
-    } = {},
+    changes: { generatedSummary?: string; lastError?: string | null } = {},
   ): Promise<TransactionalEmailJob | null> {
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (!job || !expectedStates.includes(job.state)) return null;
-      if (job.state === "sending") return null;
-      if (!allowedTransitions[job.state].has(nextState)) {
-        throw new Error(
-          `Invalid transactional email transition: ${job.state} -> ${nextState}`,
-        );
-      }
-      const timestamp = now().toISOString();
-      const timestampField = stateTimestampField(nextState);
-      const updated = transactionalEmailJobSchema.parse({
-        ...job,
-        ...changes,
-        state: nextState,
-        updatedAt: timestamp,
-        leaseUntil: null,
-        leaseToken: null,
-        ...(timestampField ? { [timestampField]: timestamp } : {}),
-      });
-      await writeJsonAtomic(jobFile(logicalKey), updated);
-      return updated;
-    });
+    const job = await readJob(logicalKey);
+    if (
+      !job ||
+      !expectedStates.includes(job.state) ||
+      job.state === "sending"
+    ) {
+      return null;
+    }
+    if (!allowedTransitions[job.state].has(nextState)) {
+      throw new Error(
+        `Invalid transactional email transition: ${job.state} -> ${nextState}`,
+      );
+    }
+    return replaceJob(
+      transitionedJob(job, nextState, changes),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, job.state),
+        isNull(schema.transactionalEmailJobs.leaseToken),
+      ),
+    );
   }
 
-  async function claimAwaitingAi(
-    logicalKey: string,
-    claimantEmail: string,
-  ): Promise<TransactionalEmailJob | null> {
-    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (!job || !isAiBackedType(job.type) || job.state !== "awaiting_ai") {
-        return null;
-      }
-      const timestamp = now().toISOString();
-      const claimed = transactionalEmailJobSchema.parse({
+  async function claimAwaitingAi(logicalKey: string, claimantEmail: string) {
+    const claimant = normalizeRecipient(claimantEmail);
+    const job = await readJob(logicalKey);
+    if (!job || !isAiBackedType(job.type) || job.state !== "awaiting_ai") {
+      return null;
+    }
+    const timestamp = now().toISOString();
+    return replaceJob(
+      transactionalEmailJobSchema.parse({
         ...job,
         state: "ai_dispatched",
         aiClaimedBy: claimant,
         aiDispatchedAt: timestamp,
         updatedAt: timestamp,
-      });
-      await writeJsonAtomic(jobFile(logicalKey), claimed);
-      return claimed;
-    });
+      }),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, "awaiting_ai"),
+      ),
+    );
   }
 
   async function reclaimStaleAiDispatch(
     logicalKey: string,
     claimantEmail: string,
     staleBefore: Date,
-  ): Promise<TransactionalEmailJob | null> {
-    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      const dispatchedAt = job?.aiDispatchedAt ?? job?.updatedAt;
-      if (
-        !job ||
-        !isAiBackedType(job.type) ||
-        job.state !== "ai_dispatched" ||
-        !dispatchedAt ||
-        Date.parse(dispatchedAt) > staleBefore.getTime()
-      ) {
-        return null;
-      }
-      const timestamp = now().toISOString();
-      const reclaimed = transactionalEmailJobSchema.parse({
+  ) {
+    const claimant = normalizeRecipient(claimantEmail);
+    const job = await readJob(logicalKey);
+    const dispatchedAt = job?.aiDispatchedAt ?? job?.updatedAt;
+    if (
+      !job ||
+      !isAiBackedType(job.type) ||
+      job.state !== "ai_dispatched" ||
+      !dispatchedAt ||
+      Date.parse(dispatchedAt) > staleBefore.getTime()
+    ) {
+      return null;
+    }
+    const timestamp = now().toISOString();
+    return replaceJob(
+      transactionalEmailJobSchema.parse({
         ...job,
         aiClaimedBy: claimant,
         aiDispatchedAt: timestamp,
         updatedAt: timestamp,
-      });
-      await writeJsonAtomic(jobFile(logicalKey), reclaimed);
-      return reclaimed;
-    });
+      }),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, "ai_dispatched"),
+        lte(
+          schema.transactionalEmailJobs.aiDispatchedAt,
+          staleBefore.toISOString(),
+        ),
+      ),
+    );
   }
 
   async function completeClaimedAi(
     logicalKey: string,
     claimantEmail: string,
     generatedSummary: string,
-  ): Promise<TransactionalEmailJob | null> {
-    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (
-        !job ||
-        job.type !== "two-clips" ||
-        job.state !== "ai_dispatched" ||
-        job.aiClaimedBy !== claimant
-      ) {
-        return null;
-      }
-      const timestamp = now().toISOString();
-      const completed = transactionalEmailJobSchema.parse({
+  ) {
+    const claimant = normalizeRecipient(claimantEmail);
+    const summary = z.string().max(20_000).parse(generatedSummary);
+    const job = await readJob(logicalKey);
+    if (
+      !job ||
+      job.type !== "two-clips" ||
+      job.state !== "ai_dispatched" ||
+      job.aiClaimedBy !== claimant
+    ) {
+      return null;
+    }
+    const timestamp = now().toISOString();
+    return replaceJob(
+      transactionalEmailJobSchema.parse({
         ...job,
         state: "ready",
-        generatedSummary,
+        generatedSummary: summary,
         readyAt: timestamp,
         updatedAt: timestamp,
-      });
-      await writeJsonAtomic(jobFile(logicalKey), completed);
-      return completed;
-    });
+      }),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, "ai_dispatched"),
+        eq(schema.transactionalEmailJobs.aiClaimedBy, claimant),
+      ),
+    );
   }
 
-  async function claimNextAwaitingAi(): Promise<TransactionalEmailJob | null> {
-    const candidates = (await listJobs()).filter(
-      (job) => job.state === "awaiting_ai",
-    );
+  async function claimNextAwaitingAi() {
+    const candidates = await getDb()
+      .select({ logicalKey: schema.transactionalEmailJobs.logicalKey })
+      .from(schema.transactionalEmailJobs)
+      .where(eq(schema.transactionalEmailJobs.state, "awaiting_ai"))
+      .orderBy(asc(schema.transactionalEmailJobs.createdAt));
     for (const candidate of candidates) {
       const claimed = await transition(
         candidate.logicalKey,
@@ -757,22 +585,24 @@ export function createTransactionalEmailStore(
   async function acquireSendingLease(
     logicalKey: string,
     leaseDurationMs: number,
-  ): Promise<TransactionalEmailJob | null> {
+  ) {
     if (!Number.isInteger(leaseDurationMs) || leaseDurationMs <= 0) {
       throw new Error("leaseDurationMs must be a positive integer");
     }
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (!job) return null;
-      const currentTime = now();
-      const canAcquire =
-        job.state === "ready" ||
-        (job.state === "sending" &&
-          job.leaseUntil !== null &&
-          Date.parse(job.leaseUntil) <= currentTime.getTime());
-      if (!canAcquire) return null;
-      const timestamp = currentTime.toISOString();
-      const updated = transactionalEmailJobSchema.parse({
+    const job = await readJob(logicalKey);
+    if (!job) return null;
+    const currentTime = now();
+    const timestamp = currentTime.toISOString();
+    if (
+      job.state !== "ready" &&
+      (job.state !== "sending" ||
+        job.leaseUntil === null ||
+        Date.parse(job.leaseUntil) > currentTime.getTime())
+    ) {
+      return null;
+    }
+    return replaceJob(
+      transactionalEmailJobSchema.parse({
         ...job,
         state: "sending",
         attempts: job.attempts + 1,
@@ -783,10 +613,18 @@ export function createTransactionalEmailStore(
           currentTime.getTime() + leaseDurationMs,
         ).toISOString(),
         leaseToken: randomUUID(),
-      });
-      await writeJsonAtomic(jobFile(logicalKey), updated);
-      return updated;
-    });
+      }),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        or(
+          eq(schema.transactionalEmailJobs.state, "ready"),
+          and(
+            eq(schema.transactionalEmailJobs.state, "sending"),
+            lte(schema.transactionalEmailJobs.leaseUntil, timestamp),
+          ),
+        ),
+      ),
+    );
   }
 
   async function transitionSending(
@@ -794,58 +632,61 @@ export function createTransactionalEmailStore(
     leaseToken: string,
     nextState: "sent" | "ready" | "cancelled" | "failed",
     changes: { lastError?: string | null } = {},
-  ): Promise<TransactionalEmailJob | null> {
+  ) {
     const parsedLeaseToken = nonEmptyStringSchema.parse(leaseToken);
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (
-        !job ||
-        job.state !== "sending" ||
-        job.leaseToken !== parsedLeaseToken
-      ) {
-        return null;
-      }
-      if (!allowedTransitions.sending.has(nextState)) {
-        throw new Error(
-          `Invalid transactional email transition: sending -> ${nextState}`,
-        );
-      }
-      const timestamp = now().toISOString();
-      const timestampField = stateTimestampField(nextState);
-      const updated = transactionalEmailJobSchema.parse({
-        ...job,
-        ...changes,
-        state: nextState,
-        updatedAt: timestamp,
-        leaseUntil: null,
-        leaseToken: null,
-        ...(timestampField ? { [timestampField]: timestamp } : {}),
-      });
-      await writeJsonAtomic(jobFile(logicalKey), updated);
-      return updated;
-    });
+    const job = await readJob(logicalKey);
+    if (
+      !job ||
+      job.state !== "sending" ||
+      job.leaseToken !== parsedLeaseToken
+    ) {
+      return null;
+    }
+    if (!allowedTransitions.sending.has(nextState)) {
+      throw new Error(
+        `Invalid transactional email transition: sending -> ${nextState}`,
+      );
+    }
+    return replaceJob(
+      transitionedJob(job, nextState, changes),
+      and(
+        eq(schema.transactionalEmailJobs.logicalKey, job.logicalKey),
+        eq(schema.transactionalEmailJobs.state, "sending"),
+        eq(schema.transactionalEmailJobs.leaseToken, parsedLeaseToken),
+      ),
+    );
+  }
+
+  async function readConfig(): Promise<TransactionalEmailConfig | null> {
+    const [row] = await getDb()
+      .select()
+      .from(schema.transactionalEmailConfigs)
+      .where(eq(schema.transactionalEmailConfigs.id, "default"))
+      .limit(1);
+    if (!row) return null;
+    let config: unknown;
+    try {
+      config = JSON.parse(row.configJson);
+    } catch (error) {
+      const detail = error instanceof Error ? `: ${error.message}` : "";
+      throw new Error(`Invalid transactional email config JSON${detail}`);
+    }
+    return transactionalEmailConfigSchema.parse(config);
   }
 
   async function ensureEnabledAt(): Promise<TransactionalEmailConfig> {
-    await ensureDirectories();
     const config = transactionalEmailConfigSchema.parse({
       enabledAt: now().toISOString(),
     });
-    try {
-      await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600,
-      });
-      return config;
-    } catch (error) {
-      if (!isNodeError(error, "EEXIST")) throw error;
-      return parseJsonFile(
-        configFile,
-        transactionalEmailConfigSchema,
-        "transactional email config",
-      );
-    }
+    const [created] = await getDb()
+      .insert(schema.transactionalEmailConfigs)
+      .values({ id: "default", configJson: JSON.stringify(config) })
+      .onConflictDoNothing()
+      .returning({ id: schema.transactionalEmailConfigs.id });
+    if (created) return config;
+    const existing = await readConfig();
+    if (!existing) throw new Error("Transactional email config disappeared");
+    return existing;
   }
 
   async function updateReconciliationCursor(
@@ -857,43 +698,32 @@ export function createTransactionalEmailStore(
     const parsedCursorName =
       transactionalEmailCursorNameSchema.parse(cursorName);
     const parsedCursor = reconciliationCursorSchema.parse(reconciliationCursor);
-    const updated = await withJobLock(
-      "transactional-email-config",
-      async () => {
-        const config = await parseJsonFile(
-          configFile,
-          transactionalEmailConfigSchema,
-          "transactional email config",
-        );
-        const nextConfig = transactionalEmailConfigSchema.parse({
-          ...config,
-          [parsedCursorName]: parsedCursor,
-        });
-        await writeJsonAtomic(configFile, nextConfig);
-        return nextConfig;
-      },
-    );
-    if (!updated) {
+    const config = await readConfig();
+    if (!config)
+      throw new Error("Transactional email config is not initialized");
+    const nextConfig = transactionalEmailConfigSchema.parse({
+      ...config,
+      [parsedCursorName]: parsedCursor,
+    });
+    const [updated] = await getDb()
+      .update(schema.transactionalEmailConfigs)
+      .set({ configJson: JSON.stringify(nextConfig) })
+      .where(
+        and(
+          eq(schema.transactionalEmailConfigs.id, "default"),
+          eq(
+            schema.transactionalEmailConfigs.configJson,
+            JSON.stringify(config),
+          ),
+        ),
+      )
+      .returning();
+    if (!updated)
       throw new Error("Transactional email config is being updated");
-    }
-    return updated;
-  }
-
-  async function readConfig(): Promise<TransactionalEmailConfig | null> {
-    try {
-      return await parseJsonFile(
-        configFile,
-        transactionalEmailConfigSchema,
-        "transactional email config",
-      );
-    } catch (error) {
-      if (isNodeError(error, "ENOENT")) return null;
-      throw error;
-    }
+    return transactionalEmailConfigSchema.parse(JSON.parse(updated.configJson));
   }
 
   return {
-    root,
     enqueue,
     enqueueOrConvergeFirstImport,
     readJob,
