@@ -9,8 +9,120 @@
  * templates/clips/desktop/src/app.tsx (the `popoverView === "recorder"`
  * return) so a screenshot of it looks like the real thing. Delete this route
  * once the capture is done — it is not a product page.
+ *
+ * The Library backdrop behind the popover is a hand-built recreation of the
+ * real library grid (templates/clips/app/components/library/recording-card.tsx)
+ * for visual fidelity only — it does not import that component, which pulls in
+ * Clips-only theme tokens and dependencies not present in the docs package.
  */
+import {
+  IconLock,
+  IconPlayerPlay,
+  IconSearch,
+  IconUsersGroup,
+  IconWorld,
+} from "@tabler/icons-react";
+
 import "../../../../templates/clips/desktop/src/styles.css";
+
+const LIBRARY_RECORDINGS: Array<{
+  title: string;
+  thumbnail: string;
+  duration: string;
+  relative: string;
+  visibility: "public" | "org" | "private";
+}> = [
+  {
+    title: "Introducing Agent-Native Clips",
+    thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
+    duration: "1:58",
+    relative: "2 days ago",
+    visibility: "public",
+  },
+  {
+    title: "Show Claude how to perform a task",
+    thumbnail: "/clips/U1f0uKYYKGF2.jpg",
+    duration: "3:12",
+    relative: "5 days ago",
+    visibility: "org",
+  },
+  {
+    title: "Record browser workflows with Clips",
+    thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
+    duration: "2:41",
+    relative: "1 week ago",
+    visibility: "private",
+  },
+  {
+    title: "Weekly sync walkthrough",
+    thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
+    duration: "8:05",
+    relative: "1 week ago",
+    visibility: "org",
+  },
+  {
+    title: "Onboarding checklist review",
+    thumbnail: "/clips/U1f0uKYYKGF2.jpg",
+    duration: "4:37",
+    relative: "2 weeks ago",
+    visibility: "private",
+  },
+  {
+    title: "Demo for the design team",
+    thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
+    duration: "6:20",
+    relative: "3 weeks ago",
+    visibility: "public",
+  },
+];
+
+function LibraryPrivacyIcon({
+  visibility,
+}: {
+  visibility: (typeof LIBRARY_RECORDINGS)[number]["visibility"];
+}) {
+  if (visibility === "public") return <IconWorld size={14} />;
+  if (visibility === "org") return <IconUsersGroup size={14} />;
+  return <IconLock size={14} />;
+}
+
+function LibraryBackdrop() {
+  return (
+    <div className="library-backdrop">
+      <div className="library-topbar">
+        <div className="library-brand">
+          <span className="library-brand-mark" aria-hidden />
+          <span className="library-brand-name">Clips</span>
+        </div>
+        <h1 className="library-heading">Library</h1>
+        <div className="library-search" aria-hidden>
+          <IconSearch size={15} />
+          <span>Search recordings</span>
+        </div>
+      </div>
+      <div className="library-grid">
+        {LIBRARY_RECORDINGS.map((recording) => (
+          <div className="library-card" key={recording.title}>
+            <div className="library-card-thumb">
+              <img src={recording.thumbnail} alt="" />
+              <div className="library-card-thumb-overlay">
+                <IconPlayerPlay size={28} />
+              </div>
+              <span className="library-card-duration">
+                {recording.duration}
+              </span>
+            </div>
+            <div className="library-card-title">{recording.title}</div>
+            <div className="library-card-meta">
+              <LibraryPrivacyIcon visibility={recording.visibility} />
+              <span>{recording.relative}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ScreenCamIcon() {
   return (
@@ -290,6 +402,23 @@ function SettingsIcon() {
   );
 }
 
+const LIBRARY_BACKDROP_CSS = [
+  ".library-backdrop { position: fixed; inset: 0; background: #f7f7f8; color: #18181b; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+  ".library-topbar { display: flex; align-items: center; gap: 24px; padding: 20px 40px; border-bottom: 1px solid #e4e4e7; background: #ffffff; }",
+  ".library-brand { display: flex; align-items: center; gap: 8px; }",
+  ".library-brand-mark { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, #6366f1, #a855f7); }",
+  ".library-brand-name { font-weight: 600; font-size: 14px; color: #52525b; }",
+  ".library-heading { margin: 0; font-size: 18px; font-weight: 600; color: #18181b; }",
+  ".library-search { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 260px; padding: 8px 12px; border-radius: 8px; border: 1px solid #e4e4e7; background: #f4f4f5; color: #a1a1aa; font-size: 13px; }",
+  ".library-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 32px 40px; max-width: 1120px; }",
+  ".library-card-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; border: 1px solid #e4e4e7; background: #e4e4e7; }",
+  ".library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
+  ".library-card-thumb-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.15); color: #ffffff; }",
+  ".library-card-duration { position: absolute; bottom: 6px; right: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.65); color: #ffffff; font-size: 11px; font-variant-numeric: tabular-nums; }",
+  ".library-card-title { margin-top: 8px; font-size: 13px; font-weight: 500; color: #18181b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+  ".library-card-meta { margin-top: 2px; display: flex; align-items: center; gap: 6px; color: #a1a1aa; font-size: 12px; }",
+].join("\n");
+
 export default function ClipsReadyToRecordPreview() {
   return (
     <div
@@ -297,14 +426,20 @@ export default function ClipsReadyToRecordPreview() {
         position: "fixed",
         inset: 0,
         zIndex: 2147483647,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#dcdcdc",
-        padding: 40,
       }}
     >
-      <div className="app app-recorder" style={{ width: 340 }}>
+      <style>{LIBRARY_BACKDROP_CSS}</style>
+      <LibraryBackdrop />
+      <div
+        className="app app-recorder"
+        style={{
+          width: 340,
+          position: "fixed",
+          top: 36,
+          right: "13%",
+          boxShadow: "var(--shadow-md)",
+        }}
+      >
         <div className="recorder-home-content">
           <div className="header header-centered">
             <button
