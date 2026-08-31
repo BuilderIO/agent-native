@@ -165,6 +165,7 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(fs.readFileSync(configPath, "utf-8")).toContain(
       'sourceTemplate: "chat"',
     );
+    expect(fs.readFileSync(configPath, "utf-8")).toContain('homePath: "/home"');
   });
 
   it("keeps the blank scaffold headless instead of generating UI files", async () => {

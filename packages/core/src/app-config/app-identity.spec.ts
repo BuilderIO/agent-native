@@ -92,7 +92,7 @@ describe("deriveAppIdentity", () => {
         packageName: "test-standalone",
         sourceTemplate: "chat",
       }),
-    ).toBe("/home");
+    ).toBe("/");
     expect(
       resolveAppHomePath({
         ...base,
