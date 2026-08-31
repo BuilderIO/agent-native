@@ -11149,6 +11149,39 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
   });
 
+  it("CHAINS a background run that stopped during action preparation", () => {
+    const run = makeRun([
+      { type: "text", text: "I will build the design now." },
+      {
+        type: "activity",
+        label: "Preparing generate-design action",
+        tool: "generate-design",
+        id: "call-generate-design",
+      },
+      {
+        type: "tool_input_start",
+        tool: "generate-design",
+        id: "call-generate-design",
+      },
+      {
+        type: "tool_input_delta",
+        tool: "generate-design",
+        id: "call-generate-design",
+        text: '{"files":',
+      },
+      { type: "done" },
+    ]);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
   it("does NOT chain a background run that sent final text after completed tools", () => {
     expect(
       shouldChainBackgroundContinuation({
