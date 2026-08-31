@@ -126,6 +126,7 @@ describe("<EditorToolbar>", () => {
     const onToggleTextBoxMode = vi.fn();
     const onSelectShape = vi.fn();
     const onToggleAnimations = vi.fn();
+    const onToggleLayers = vi.fn();
     const onChangeSlideTransition = vi.fn();
     const slide = {
       id: "slide-1",
@@ -154,6 +155,7 @@ describe("<EditorToolbar>", () => {
           onToggleTextBoxMode={onToggleTextBoxMode}
           onSelectShape={onSelectShape}
           onToggleAnimations={onToggleAnimations}
+          onToggleLayers={onToggleLayers}
           onChangeSlideTransition={onChangeSlideTransition}
         />
       </TooltipProvider>,
@@ -172,6 +174,7 @@ describe("<EditorToolbar>", () => {
         "shape-rectangle",
         "shape-circle",
         "element-animations",
+        "layers",
         "slide-transition-instant",
         "slide-transition-fade",
         "slide-transition-slide",
@@ -190,12 +193,14 @@ describe("<EditorToolbar>", () => {
     run("add-text-box");
     run("shape-rectangle");
     run("element-animations");
+    run("layers");
     run("slide-transition-fade");
 
     expect(onAddEmptySlide).toHaveBeenCalledOnce();
     expect(onToggleTextBoxMode).toHaveBeenCalledOnce();
     expect(onSelectShape).toHaveBeenCalledWith("rectangle");
     expect(onToggleAnimations).toHaveBeenCalledOnce();
+    expect(onToggleLayers).toHaveBeenCalledOnce();
     expect(onChangeSlideTransition).toHaveBeenCalledWith("fade");
   });
 

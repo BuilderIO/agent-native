@@ -135,6 +135,24 @@ describe("dashboard storage", () => {
     expect(fake.inserted).toEqual([]);
   });
 
+  it("can snapshot the current dashboard after an agent turn", async () => {
+    const fake = fakeDb({ updateCount: 1 });
+    const result = await storage(fake.db).createRevisionSnapshot("dash_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+
+    expect(result?.id).toBe("dash_1");
+    expect(fake.db.transaction).toHaveBeenCalledOnce();
+    expect(fake.inserted).toEqual([
+      expect.objectContaining({
+        dashboardId: "dash_1",
+        title: "Pipeline",
+        ownerEmail: "owner@example.com",
+      }),
+    ]);
+  });
+
   it("registers the per-app resource policy", () => {
     const fake = fakeDb({ updateCount: 1 });
     storage(fake.db).registerShareable();

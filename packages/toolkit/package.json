@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.17.6",
+  "version": "0.18.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -214,6 +214,20 @@
       "development": "./dist/hooks/*.js",
       "import": "./dist/hooks/*.js",
       "default": "./dist/hooks/*.js"
+    },
+    "./marketing": {
+      "types": "./dist/marketing/index.d.ts",
+      "browser": "./dist/marketing/index.js",
+      "development": "./dist/marketing/index.js",
+      "import": "./dist/marketing/index.js",
+      "default": "./dist/marketing/index.js"
+    },
+    "./marketing/*": {
+      "types": "./dist/marketing/*.d.ts",
+      "browser": "./dist/marketing/*.js",
+      "development": "./dist/marketing/*.js",
+      "import": "./dist/marketing/*.js",
+      "default": "./dist/marketing/*.js"
     },
     "./onboarding": {
       "types": "./dist/onboarding/index.d.ts",

@@ -85,7 +85,7 @@ describe("GitHub triage client", () => {
             body: "body",
             state: "open",
             html_url: "https://github.test/issues/1",
-            user: { login: "author" },
+            user: { login: "author", id: 1 },
             labels: [],
             created_at: "now",
             updated_at: "now",
@@ -97,7 +97,7 @@ describe("GitHub triage client", () => {
             body: "body",
             state: "open",
             html_url: "https://github.test/pulls/2",
-            user: { login: "author" },
+            user: { login: "author", id: 1 },
             labels: [],
             created_at: "now",
             updated_at: "now",
@@ -204,5 +204,248 @@ describe("GitHub triage client", () => {
         fetchImpl: failedFetch,
       }).mergePullRequest(repository, 2),
     ).rejects.toThrow("not clean");
+  });
+
+  it("reads review comments, reviews, and check runs from GitHub", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      const path = url.pathname;
+      if (path.endsWith("/reviews")) {
+        return response([
+          {
+            user: { login: "reviewer", id: 2 },
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2026-08-28T12:00:00Z",
+          },
+        ]);
+      }
+      if (path.endsWith("/comments")) {
+        return response([
+          {
+            id: 11,
+            user: { login: "reviewer", id: 2 },
+            body: "Please fix",
+            path: "src/a.ts",
+            line: 4,
+            in_reply_to_id: null,
+            created_at: "2026-08-28T12:00:00Z",
+          },
+          {
+            id: 12,
+            user: { login: "author", id: 1 },
+            body: "Fixed",
+            in_reply_to_id: 11,
+            created_at: "2026-08-28T12:01:00Z",
+          },
+        ]);
+      }
+      if (path.endsWith("/check-runs")) {
+        return response({
+          total_count: 1,
+          check_runs: [
+            {
+              name: "ci",
+              status: "completed",
+              conclusion: "success",
+              completed_at: "2026-08-28T12:02:00Z",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const evidence = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).getPullRequestEvidence(repository, 7, "sha-7");
+
+    expect(evidence.comments).toEqual([
+      {
+        id: "11",
+        author: "reviewer",
+        inReplyToId: null,
+        body: "Please fix",
+        path: "src/a.ts",
+        line: 4,
+        createdAt: "2026-08-28T12:00:00Z",
+      },
+      {
+        id: "12",
+        author: "author",
+        inReplyToId: "11",
+        body: "Fixed",
+        createdAt: "2026-08-28T12:01:00Z",
+      },
+    ]);
+    expect(evidence.commentsTruncated).toBe(false);
+    expect(evidence.reviews).toEqual([
+      {
+        author: "reviewer",
+        state: "changes_requested",
+        observedAt: "2026-08-28T12:00:00Z",
+      },
+    ]);
+    expect(evidence.checks).toEqual([
+      {
+        name: "ci",
+        state: "passed",
+        observedAt: "2026-08-28T12:02:00Z",
+      },
+    ]);
+    const paths = fetchImpl.mock.calls.map(
+      ([input]) => new URL(String(input)).pathname,
+    );
+    expect(paths).toEqual([
+      "/repos/builder/factory/pulls/7/reviews",
+      "/repos/builder/factory/pulls/7/comments",
+      "/repos/builder/factory/commits/sha-7/check-runs",
+    ]);
+  });
+
+  it("lists review comments without fetching reviews or check runs", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/comments")) {
+        return response([
+          {
+            id: 11,
+            user: { login: "reviewer", id: 2 },
+            body: "",
+            in_reply_to_id: null,
+            created_at: "2026-08-28T12:00:00Z",
+          },
+        ]);
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+
+    const snapshot = await createGitHubClient({
+      ownerEmail: "owner@example.com",
+      fetchImpl,
+    }).listPullRequestReviewComments(repository, 7);
+
+    expect(snapshot.comments).toEqual([
+      {
+        id: "11",
+        author: "reviewer",
+        inReplyToId: null,
+        body: "",
+        createdAt: "2026-08-28T12:00:00Z",
+      },
+    ]);
+    expect(snapshot.commentsTruncated).toBe(false);
+  });
+
+  it("fails loudly when GitHub check-run results are truncated", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/reviews") || path.endsWith("/comments")) {
+        return response([]);
+      }
+      return response({
+        total_count: 2,
+        check_runs: [
+          {
+            name: "ci",
+            status: "completed",
+            conclusion: "success",
+            completed_at: "2026-08-28T12:02:00Z",
+          },
+        ],
+      });
+    });
+
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      }).getPullRequestEvidence(repository, 7, "sha-7"),
+    ).rejects.toThrow("check-run page was truncated");
+  });
+
+  it("lists pull-request filenames and fails when the file page is truncated", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      response([{ filename: "src/a.ts" }, { filename: "src/b.ts" }]),
+    );
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      }).listPullRequestChangedFiles(repository, 7),
+    ).resolves.toEqual(["src/a.ts", "src/b.ts"]);
+
+    const truncated = vi.fn<typeof fetch>(async () =>
+      response(
+        Array.from({ length: 100 }, (_, index) => ({
+          filename: `src/${index}.ts`,
+        })),
+      ),
+    );
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl: truncated,
+      }).listPullRequestChangedFiles(repository, 7),
+    ).rejects.toThrow("file page was truncated");
+  });
+
+  it("creates a GitHub issue for Sentry dispatch", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      expect(new URL(String(input)).pathname).toBe(
+        "/repos/builder/factory/issues",
+      );
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        title: "Sentry error",
+        body: "@builderio-bot please fix",
+      });
+      return response(
+        {
+          number: 44,
+          html_url: "https://github.test/issues/44",
+        },
+        201,
+      );
+    });
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl,
+      }).createIssue(repository, {
+        title: "Sentry error",
+        body: "@builderio-bot please fix",
+      }),
+    ).resolves.toEqual({
+      number: 44,
+      htmlUrl: "https://github.test/issues/44",
+    });
+  });
+
+  it("adds a GitHub issue reaction and treats an existing one as already present", async () => {
+    const created = vi.fn<typeof fetch>(async (input, init) => {
+      expect(new URL(String(input)).pathname).toBe(
+        "/repos/builder/factory/issues/44/reactions",
+      );
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({ content: "eyes" });
+      return response({ id: 1 }, 201);
+    });
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl: created,
+      }).addIssueReaction(repository, 44, "eyes"),
+    ).resolves.toEqual({ added: true, already_present: false });
+
+    const already = vi.fn<typeof fetch>(
+      async () => new Response("already reacted", { status: 422 }),
+    );
+    await expect(
+      createGitHubClient({
+        ownerEmail: "owner@example.com",
+        fetchImpl: already,
+      }).addIssueReaction(repository, 44, "eyes"),
+    ).resolves.toEqual({ added: false, already_present: true });
   });
 });

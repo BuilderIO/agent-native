@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import type { EmailMessage, MobileActionId } from "@shared/types";
 import {
   IconArchive,
@@ -17,6 +18,8 @@ import {
   IconPhoto,
   IconSearch,
   IconDots,
+  IconFilter,
+  IconInbox,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconTrash,
@@ -35,6 +38,7 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -215,6 +219,10 @@ export function EmailThread({
 
   // Use the latest message as the "primary" email for actions/metadata
   const email = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const [aiFilterDialog, setAiFilterDialog] = useState<{
+    action: "filter" | "keep";
+    targets: AiFilterTarget[];
+  } | null>(null);
 
   // Simple loading check: do we have the full email body yet?
   const hasFullBody = !!(email?.bodyHtml || email?.body);
@@ -578,6 +586,41 @@ export function EmailThread({
     if (threadId) return [threadId];
     return [];
   }, [selectedIds, threadId]);
+
+  const openAiFilterDialog = useCallback(
+    (action: "filter" | "keep") => {
+      const targets = getActionThreadKeys().flatMap((key): AiFilterTarget[] => {
+        const thread = threads.find(
+          (candidate) =>
+            (candidate.latestMessage.threadId || candidate.latestMessage.id) ===
+            key,
+        );
+        const target =
+          thread?.latestMessage ??
+          (email && (email.threadId || email.id) === key ? email : undefined);
+        if (!target) return [];
+        return [
+          {
+            id: target.id,
+            threadId: target.threadId || target.id,
+            ...(target.accountEmail && target.accountEmail !== "local"
+              ? { accountEmail: target.accountEmail }
+              : {}),
+            sender: target.from.name
+              ? `${target.from.name} <${target.from.email}>`
+              : target.from.email,
+            subject: target.subject,
+          },
+        ];
+      });
+      if (targets.length === 0) {
+        toast.error(t("mail.toasts.noEmailSelected"));
+        return;
+      }
+      setAiFilterDialog({ action, targets });
+    },
+    [email, getActionThreadKeys, t, threads],
+  );
 
   const handleArchive = useCallback(() => {
     const threadKeys = getActionThreadKeys();
@@ -950,6 +993,15 @@ export function EmailThread({
         case "archive":
           handleArchive();
           break;
+        case "aiFilter":
+          openAiFilterDialog(
+            email?.labelIds.some(
+              (label) => label.toLowerCase() === AI_FILTER_LABEL,
+            )
+              ? "keep"
+              : "filter",
+          );
+          break;
         case "trash":
           handleTrash();
           break;
@@ -983,6 +1035,7 @@ export function EmailThread({
     },
     [
       handleArchive,
+      openAiFilterDialog,
       handleTrash,
       handleStar,
       handleReply,
@@ -1116,6 +1169,9 @@ export function EmailThread({
 
   // Strip "Re: " / "Fwd: " prefixes for thread subject
   const threadSubject = email.subject.replace(/^(Re|Fwd|Fw):\s*/i, "");
+  const isAiFiltered = email.labelIds.some(
+    (label) => label.toLowerCase() === AI_FILTER_LABEL,
+  );
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -1156,6 +1212,32 @@ export function EmailThread({
               })}
               {/* Action bar */}
               <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() =>
+                        openAiFilterDialog(isAiFiltered ? "keep" : "filter")
+                      }
+                      aria-label={
+                        isAiFiltered
+                          ? t("mail.aiFilter.keepButton")
+                          : t("mail.aiFilter.filterButton")
+                      }
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      {isAiFiltered ? (
+                        <IconInbox className="h-4 w-4" />
+                      ) : (
+                        <IconFilter className="h-4 w-4" />
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isAiFiltered
+                      ? t("mail.aiFilter.keepButton")
+                      : t("mail.aiFilter.filterButton")}
+                  </TooltipContent>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -1481,12 +1563,25 @@ export function EmailThread({
         <MobileActionBar
           actions={mobileActions}
           isStarred={email.isStarred}
+          isAiFiltered={isAiFiltered}
           onAction={handleMobileAction}
           onUpdateActions={(actions) =>
             updateSettings.mutate({ mobileActions: actions })
           }
         />
       )}
+      <AiFilterDialog
+        open={!!aiFilterDialog}
+        onOpenChange={(open) => !open && setAiFilterDialog(null)}
+        action={aiFilterDialog?.action ?? "filter"}
+        targets={aiFilterDialog?.targets ?? []}
+        onComplete={() => {
+          const shouldAdvance = aiFilterDialog?.action === "filter";
+          setAiFilterDialog(null);
+          setSelectedIds?.(new Set());
+          if (shouldAdvance) advanceOrGoBack();
+        }}
+      />
     </div>
   );
 }

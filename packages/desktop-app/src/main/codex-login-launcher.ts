@@ -116,7 +116,7 @@ export function getCodexLoginLaunchSpec(
       command: "/usr/bin/osascript",
       args: [
         "-e",
-        'tell application "Terminal" to do script "codex login"',
+        'tell application "Terminal"\nset loginTab to do script "codex login"\nrepeat while busy of loginTab\ndelay 1\nend repeat\nend tell',
         "-e",
         'tell application "Terminal" to activate',
       ],

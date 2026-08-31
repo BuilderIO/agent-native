@@ -15,13 +15,21 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
 } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -165,17 +173,20 @@ export default defineAction({
     }),
   },
   http: false,
-  run: async ({
-    deckId,
-    content,
-    slideId,
-    layout,
-    notes,
-    position,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) =>
+  run: async (
+    {
+      deckId,
+      content,
+      slideId,
+      layout,
+      notes,
+      position,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    ctx,
+  ) =>
     withDeckLock(deckId, async () => {
       await assertAccess("deck", deckId, "editor");
       const db = getDb();
@@ -312,7 +323,7 @@ export default defineAction({
       const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
-      const now = new Date().toISOString();
+      const now = nextDeckRevision(row.updatedAt);
       deck.slides = slides;
       deck.updatedAt = now;
       const currentTitle =
@@ -332,24 +343,33 @@ export default defineAction({
               reuseLabels: mergedReuseLabels,
             };
 
-      await createDeckVersionSnapshot(
-        {
-          id: row.id,
-          title: row.title,
-          data: row.data,
-          ownerEmail: row.ownerEmail,
-        },
-        { label: "Before adding slide" },
-      );
       await db.transaction(async (tx: any) => {
-        await tx
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title,
+            data: row.data,
+            ownerEmail: row.ownerEmail,
+          },
+          {
+            force:
+              ctx?.caller === "tool" ||
+              ctx?.caller === "mcp" ||
+              ctx?.caller === "a2a",
+            chatContext: deckVersionChatContextFromAction(ctx),
+            label: "Before adding slide",
+            db: tx,
+          },
+        );
+        const updateResult = await tx
           .update(schema.decks)
           .set({
             ...(repairedTitle ? { title: repairedTitle } : {}),
             data: JSON.stringify(deck),
             updatedAt: now,
           })
-          .where(eq(schema.decks.id, deckId));
+          .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
+        assertDeckWriteApplied(updateResult, deckId, "slide addition");
         await recordGenerationCreativeContext(
           {
             appId: "slides",

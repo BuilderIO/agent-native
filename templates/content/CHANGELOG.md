@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-26
+
+### Fixed
+
+- Shared pages now show retryable load failures instead of leaving their content indefinitely loading.
+
 ## 2026-08-24
 
 ### Fixed

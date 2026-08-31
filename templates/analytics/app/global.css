@@ -140,13 +140,6 @@
 
 .analytics-dashboard-panel-skeleton {
   background-color: hsl(var(--muted-foreground) / 0.12);
-  animation: skeleton-pulse 2s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .analytics-dashboard-panel-skeleton {
-    animation: none;
-  }
 }
 
 .analytics-mobile-nav {

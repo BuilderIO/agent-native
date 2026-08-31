@@ -101,7 +101,7 @@ export const parityMatrix: ParityRow[] = [
     surface: "workspace",
     label:
       "Resolve the app root to the caller's last authorized page or a private welcome page",
-    uiEntrypoints: ["app/routes/_app._index.tsx", "app/lib/content-landing.ts"],
+    uiEntrypoints: ["app/routes/_app.home.tsx", "app/lib/content-landing.ts"],
     durableEffect:
       "The root route restores the most recent authorized page when possible and otherwise converges on one private personal welcome page while preserving last-location state.",
     uiImplementation:

@@ -3,7 +3,10 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
+import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/core/client/markdown";
 import {
   IconSend,
   IconCheck,
@@ -29,9 +32,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import {
+  displayCommentMentions,
+  mentionsForCommentText,
+  type CommentMention,
+  type CommentMentionDisplay,
+} from "../../../shared/comment-mentions";
+import { useMentionMembers } from "../../hooks/use-mention-members";
+import {
+  CommentComposer as CommentTextComposer,
+  type MentionEntry,
+} from "./comment-composer";
 import { REACTION_EMOJIS } from "./reaction-emojis";
 import { msToClock } from "./scrubber";
 
@@ -69,6 +82,7 @@ export interface Comment {
   authorEmail: string;
   authorName: string | null;
   content: string;
+  mentions?: CommentMentionDisplay[];
   videoTimestampMs: number;
   emojiReactionsJson: string;
   resolved: boolean;
@@ -134,9 +148,20 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [draftMentions, setDraftMentions] = useState<MentionEntry[]>([]);
+  const [replyMentions, setReplyMentions] = useState<MentionEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [editMentions, setEditMentions] = useState<MentionEntry[]>([]);
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
+  const { data: mentionMembers = [] } = useMentionMembers(
+    recordingId,
+    isSignedIn,
+  );
+  const selectedEditMentions = useMemo(
+    () => mentionsForCommentText(editDraft, editMentions),
+    [editDraft, editMentions],
+  );
 
   const queryClient = useQueryClient();
 
@@ -161,6 +186,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         authorEmail: currentUserEmail ?? "",
         authorName: currentUserName ?? null,
         content: vars.content,
+        mentions: displayCommentMentions(vars.mentions),
         videoTimestampMs: vars.videoTimestampMs ?? 0,
         emojiReactionsJson: "{}",
         resolved: false,
@@ -292,7 +318,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
       patchComments((list) =>
         list.map((comment) =>
           comment.id === vars.id
-            ? { ...comment, content: vars.content, updatedAt }
+            ? {
+                ...comment,
+                content: vars.content,
+                ...(vars.mentions === undefined
+                  ? {}
+                  : { mentions: displayCommentMentions(vars.mentions) }),
+                updatedAt,
+              }
             : comment,
         ),
       );
@@ -302,6 +335,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
       setEditingId(vars.id);
       setEditDraft(vars.content);
+      setEditMentions(vars.mentions ?? []);
     },
     onSuccess: (data: any) => {
       if (!data?.id || !data?.content || !data?.updatedAt) return;
@@ -311,6 +345,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
             ? {
                 ...comment,
                 content: data.content,
+                ...(data.mentions !== undefined
+                  ? { mentions: data.mentions }
+                  : {}),
                 updatedAt: data.updatedAt,
               }
             : comment,
@@ -357,21 +394,25 @@ export function CommentsPanel(props: CommentsPanelProps) {
           videoTimestampMs: target.videoTimestampMs,
           threadId: target.threadId,
           parentId: target.id,
+          ...mentionArgs(value, replyMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         }
       : {
           recordingId,
           content: text,
           videoTimestampMs: currentMs,
+          ...mentionArgs(value, draftMentions),
           ...(currentUserName ? { authorName: currentUserName } : {}),
         };
     // Clear composer state before firing the mutation so the UI feels instant —
     // the optimistic cache patch in onMutate puts the comment in the list.
     if (target) {
       setReplyDraft("");
+      setReplyMentions([]);
       setReplyTo(null);
     } else {
       setDraft("");
+      setDraftMentions([]);
     }
     addComment.mutate(vars);
   }
@@ -383,6 +424,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       return;
     }
     setReplyTo(root);
+    setReplyMentions([]);
     setTimeout(() => replyComposerRef.current?.focus(), 0);
   }
 
@@ -390,23 +432,30 @@ export function CommentsPanel(props: CommentsPanelProps) {
     if (!canComment) return;
     setEditingId(comment.id);
     setEditDraft(comment.content);
+    // Persisted comment data only contains display-safe mention names.
+    setEditMentions([]);
   }
 
   function cancelEditing() {
     setEditingId(null);
     setEditDraft("");
+    setEditMentions([]);
   }
 
   function submitEdit(comment: Comment) {
     if (!canComment) return;
     const content = editDraft.trim();
     if (!content) return;
-    if (content === comment.content) {
+    if (content === comment.content && selectedEditMentions.length === 0) {
       cancelEditing();
       return;
     }
     cancelEditing();
-    updateComment.mutate({ id: comment.id, content });
+    updateComment.mutate({
+      id: comment.id,
+      content,
+      ...mentionArgs(editDraft, selectedEditMentions),
+    });
   }
 
   const composer = (
@@ -420,6 +469,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
       enableComments={enableComments}
       canComment={canComment}
       onDraftChange={setDraft}
+      onMentionAdd={(mention) =>
+        setDraftMentions((current) => upsertMention(current, mention))
+      }
+      members={mentionMembers}
       onSubmit={() => submitDraft(draft, null)}
       onUnauthenticated={onUnauthenticated}
     />
@@ -459,6 +512,13 @@ export function CommentsPanel(props: CommentsPanelProps) {
                     isEditing={editingId === root.id}
                     editDraft={editDraft}
                     onEditDraftChange={setEditDraft}
+                    onEditMentionAdd={(mention) =>
+                      setEditMentions((current) =>
+                        upsertMention(current, mention),
+                      )
+                    }
+                    hasSelectedEditMentions={selectedEditMentions.length > 0}
+                    members={mentionMembers}
                     onStartEdit={() => startEditing(root)}
                     onCancelEdit={cancelEditing}
                     onSaveEdit={() => submitEdit(root)}
@@ -484,6 +544,15 @@ export function CommentsPanel(props: CommentsPanelProps) {
                             isEditing={editingId === r.id}
                             editDraft={editDraft}
                             onEditDraftChange={setEditDraft}
+                            onEditMentionAdd={(mention) =>
+                              setEditMentions((current) =>
+                                upsertMention(current, mention),
+                              )
+                            }
+                            hasSelectedEditMentions={
+                              selectedEditMentions.length > 0
+                            }
+                            members={mentionMembers}
                             onStartEdit={() => startEditing(r)}
                             onCancelEdit={cancelEditing}
                             onSaveEdit={() => submitEdit(r)}
@@ -502,8 +571,15 @@ export function CommentsPanel(props: CommentsPanelProps) {
                       draft={replyDraft}
                       textareaRef={replyComposerRef}
                       onDraftChange={setReplyDraft}
+                      onMentionAdd={(mention) =>
+                        setReplyMentions((current) =>
+                          upsertMention(current, mention),
+                        )
+                      }
+                      members={mentionMembers}
                       onCancel={() => {
                         setReplyDraft("");
+                        setReplyMentions([]);
                         setReplyTo(null);
                       }}
                       onSubmit={() => submitDraft(replyDraft, replyTo)}
@@ -601,6 +677,8 @@ function CommentComposer({
   enableComments,
   canComment,
   onDraftChange,
+  onMentionAdd,
+  members,
   onSubmit,
   onUnauthenticated,
 }: {
@@ -613,6 +691,8 @@ function CommentComposer({
   enableComments: boolean;
   canComment: boolean;
   onDraftChange: (value: string) => void;
+  onMentionAdd: (mention: MentionEntry) => void;
+  members: { email: string; name: string | null }[];
   onSubmit: () => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
 }) {
@@ -634,7 +714,7 @@ function CommentComposer({
         <button
           type="button"
           onClick={() => onUnauthenticated("comment")}
-          className="flex min-h-16 w-full items-center gap-3 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-16 w-full items-center gap-3 rounded-md border-0 bg-background px-3 py-2.5 text-left text-sm text-muted-foreground shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Avatar className="size-7 shrink-0">
             <AvatarFallback className="bg-primary/15 text-xs text-primary">
@@ -676,8 +756,7 @@ function CommentComposer({
       <div
         className={cn(
           "flex gap-2",
-          isSharePresentation &&
-            "items-start rounded-md border border-border p-3 shadow-sm",
+          isSharePresentation && "items-start rounded-md p-3 shadow-sm",
         )}
       >
         {isSharePresentation ? (
@@ -693,9 +772,12 @@ function CommentComposer({
             </AvatarFallback>
           </Avatar>
         ) : null}
-        <Textarea
+        <CommentTextComposer
           value={draft}
-          onChange={(e) => onDraftChange(e.target.value)}
+          onChange={onDraftChange}
+          onMentionAdd={onMentionAdd}
+          members={members}
+          onSubmit={onSubmit}
           placeholder={t("commentsPanel.leaveComment")}
           className={cn(
             "resize-none border-0 bg-background text-sm",
@@ -703,12 +785,7 @@ function CommentComposer({
               ? "min-h-10 flex-1 border-0 px-3 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               : "min-h-[60px]",
           )}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              onSubmit();
-            }
-          }}
+          submitOnEnter={false}
         />
         <Button
           onClick={onSubmit}
@@ -730,38 +807,35 @@ function InlineReplyComposer({
   draft,
   textareaRef,
   onDraftChange,
+  onMentionAdd,
+  members,
   onCancel,
   onSubmit,
 }: {
   draft: string;
   textareaRef: Ref<HTMLTextAreaElement>;
   onDraftChange: (value: string) => void;
+  onMentionAdd: (mention: MentionEntry) => void;
+  members: { email: string; name: string | null }[];
   onCancel: () => void;
   onSubmit: () => void;
 }) {
   const t = useT();
 
   return (
-    <div className="ml-9 mt-2 rounded-lg p-2">
-      <Textarea
+    <div className="ml-12 mt-2 rounded-lg p-2">
+      <CommentTextComposer
         ref={textareaRef}
         autoFocus
         value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
+        onChange={onDraftChange}
+        onMentionAdd={onMentionAdd}
+        members={members}
+        onSubmit={onSubmit}
         placeholder={t("commentsPanel.writeReply")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (
-            event.key === "Enter" &&
-            (event.metaKey || event.ctrlKey)
-          ) {
-            event.preventDefault();
-            onSubmit();
-          }
-        }}
+        onEscape={onCancel}
+        submitOnEnter={false}
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -785,12 +859,18 @@ function InlineEditComposer({
   draft,
   originalContent,
   onDraftChange,
+  onMentionAdd,
+  hasSelectedMentions,
+  members,
   onCancel,
   onSubmit,
 }: {
   draft: string;
   originalContent: string;
   onDraftChange: (value: string) => void;
+  onMentionAdd: (mention: MentionEntry) => void;
+  hasSelectedMentions: boolean;
+  members: { email: string; name: string | null }[];
   onCancel: () => void;
   onSubmit: () => void;
 }) {
@@ -799,24 +879,17 @@ function InlineEditComposer({
 
   return (
     <div className="mt-2 rounded-lg p-2">
-      <Textarea
+      <CommentTextComposer
         autoFocus
         value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
+        onChange={onDraftChange}
+        onMentionAdd={onMentionAdd}
+        members={members}
+        onSubmit={onSubmit}
         aria-label={t("commentsPanel.editComment")}
         className="min-h-16 resize-none border-0 bg-background text-sm"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (
-            event.key === "Enter" &&
-            (event.metaKey || event.ctrlKey)
-          ) {
-            event.preventDefault();
-            onSubmit();
-          }
-        }}
+        onEscape={onCancel}
+        submitOnEnter={false}
       />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel}>
@@ -826,7 +899,8 @@ function InlineEditComposer({
           size="sm"
           onClick={onSubmit}
           disabled={
-            !normalizedDraft || normalizedDraft === originalContent.trim()
+            !normalizedDraft ||
+            (normalizedDraft === originalContent.trim() && !hasSelectedMentions)
           }
         >
           {t("common.save")}
@@ -847,6 +921,9 @@ function CommentCard({
   onResolve,
   onDelete,
   onEditDraftChange,
+  onEditMentionAdd,
+  hasSelectedEditMentions,
+  members,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
@@ -864,6 +941,9 @@ function CommentCard({
   onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
   onEditDraftChange: (value: string) => void;
+  onEditMentionAdd: (mention: MentionEntry) => void;
+  hasSelectedEditMentions: boolean;
+  members: { email: string; name: string | null }[];
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSaveEdit: () => void;
@@ -946,6 +1026,9 @@ function CommentCard({
             draft={editDraft}
             originalContent={comment.content}
             onDraftChange={onEditDraftChange}
+            onMentionAdd={onEditMentionAdd}
+            hasSelectedMentions={hasSelectedEditMentions}
+            members={members}
             onCancel={onCancelEdit}
             onSubmit={onSaveEdit}
           />
@@ -954,6 +1037,7 @@ function CommentCard({
             <InlineMarkdown
               content={comment.content}
               className="mt-0.5 text-sm text-foreground"
+              protectedSpans={commentMentionSpans(comment.mentions)}
             />
 
             <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
@@ -1088,6 +1172,38 @@ function parseReactions(raw: string): Record<string, string[]> {
     if (v && typeof v === "object") return v as Record<string, string[]>;
   } catch {}
   return {};
+}
+
+function upsertMention(
+  current: MentionEntry[],
+  mention: MentionEntry,
+): MentionEntry[] {
+  return current.some(
+    (entry) => entry.email.toLowerCase() === mention.email.toLowerCase(),
+  )
+    ? current
+    : [...current, mention];
+}
+
+function mentionArgs(
+  text: string,
+  mentions: readonly CommentMention[],
+): { mentions?: CommentMention[] } {
+  const present = mentionsForCommentText(text, mentions);
+  return present.length > 0 ? { mentions: present } : {};
+}
+
+function commentMentionSpans(
+  mentions: readonly CommentMentionDisplay[] | null | undefined,
+): InlineMarkdownProtectedSpan[] {
+  const labels = Array.from(
+    new Set((mentions ?? []).map((mention) => mention.name)),
+  ).sort((a, b) => b.length - a.length);
+  return labels.map((name) => ({
+    source: `@${name}`,
+    label: `@${name}`,
+    className: "comment-mention font-medium text-primary",
+  }));
 }
 
 function displayName(c: Comment): string {

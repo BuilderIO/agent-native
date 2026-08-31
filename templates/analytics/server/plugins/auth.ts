@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 const authPlugin = createAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   publicPaths: [
     "/track",
     "/api/analytics/track",

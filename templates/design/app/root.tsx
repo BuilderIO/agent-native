@@ -195,6 +195,12 @@ function DesignToaster() {
 
 function RootContent() {
   const location = useLocation();
+  if (location.pathname === "/") return <Outlet />;
+  return <PrivateRootContent />;
+}
+
+function PrivateRootContent() {
+  const location = useLocation();
   const { session } = useSession();
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
@@ -227,7 +233,9 @@ function RootContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isPublicPath = isPublicDesignAppPath(location.pathname);
+  const isMarketingHome = location.pathname === "/";
+  const isPublicPath =
+    isMarketingHome || isPublicDesignAppPath(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders

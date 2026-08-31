@@ -13,8 +13,19 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
 import { isRecordingExpired } from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
+import {
+  displayCommentMentions,
+  mentionsForCommentText,
+  parseCommentMentions,
+} from "../shared/comment-mentions.js";
+
+const mentionSchema = z.object({
+  email: z.string().email(),
+  name: z.string().trim().min(1),
+});
 
 export default defineAction({
   description:
@@ -28,6 +39,10 @@ export default defineAction({
       .describe(
         "Updated comment text; inline Markdown is supported, without headings",
       ),
+    mentions: z
+      .union([z.string(), z.array(mentionSchema).max(20)])
+      .optional()
+      .describe("Organization members mentioned in the updated comment"),
   }),
   run: async (args) => {
     const userEmail = getRequestUserEmail();
@@ -62,10 +77,24 @@ export default defineAction({
       );
     }
 
+    const mentions = await resolveCommentMentions(
+      args.mentions === undefined
+        ? mentionsForCommentText(
+            args.content,
+            parseCommentMentions(existing.mentionsJson),
+          )
+        : args.mentions,
+      existing.organizationId,
+    );
+
     const updatedAt = new Date().toISOString();
     const updated = await db
       .update(schema.recordingComments)
-      .set({ content: args.content, updatedAt })
+      .set({
+        content: args.content,
+        mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
+        updatedAt,
+      })
       .where(
         and(
           eq(schema.recordingComments.id, args.id),
@@ -82,6 +111,11 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id: args.id, content: args.content, updatedAt };
+    return {
+      id: args.id,
+      content: args.content,
+      mentions: displayCommentMentions(mentions),
+      updatedAt,
+    };
   },
 });

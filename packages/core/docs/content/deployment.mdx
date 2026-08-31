@@ -1,7 +1,7 @@
 ---
 title: "Deployment"
 description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent SQL database."
-search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
+search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Amplify AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
 ---
 
 # Deployment
@@ -79,7 +79,7 @@ contract stay the same.
 
 <!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design">
+<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Amplify, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design">
 
 ```html
 <!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
@@ -147,6 +147,16 @@ contract stay the same.
       />
     </span>
     <strong>AWS Lambda</strong>
+  </a>
+  <a class="deployment-target" href="/docs/aws-amplify">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/aws-lambda.svg"
+        alt=""
+      />
+    </span>
+    <strong>AWS Amplify</strong>
   </a>
   <a class="deployment-target" href="/docs/deno-deploy">
     <span class="deployment-target-mark">
@@ -268,7 +278,8 @@ settings or production controls:
 - [**Node.js**](/docs/node-js) - run the default Nitro server preset
 - [**Docker**](/docs/docker) - package the Node.js server in a container
 - [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
-- [**AWS Lambda**](/docs/aws-lambda) and [**Deno Deploy**](/docs/deno-deploy) - deploy to function and Deno runtimes
+- [**AWS Amplify**](/docs/aws-amplify) and [**AWS Lambda**](/docs/aws-lambda) - deploy Nitro's serverless output on AWS
+- [**Deno Deploy**](/docs/deno-deploy) - deploy to the Deno runtime
 - [**Azure Static Web Apps**](/docs/azure-static-web-apps), [**Koyeb**](/docs/koyeb), and [**Render**](/docs/render) - use additional Nitro providers
 - [Nitro's provider list](https://nitro.build/deploy/providers) - see the broader set of presets Nitro supports
 - [**SSR Caching**](/docs/ssr-caching) - configure the public shell cache

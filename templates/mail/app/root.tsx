@@ -31,6 +31,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -437,25 +438,36 @@ function DbSyncSetup() {
 // AppProviders built-in toaster is suppressed via toaster={null}.
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
+function AppContent() {
+  return (
+    <>
+      <AutoFocus />
+      <AutomationTrigger />
+      <VisibilityRefresh />
+      <DbSyncSetup />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
-        toaster={MAIL_TOASTER}
+        isPublicPath={isMarketingPath}
+        toaster={isMarketingPath ? null : MAIL_TOASTER}
         sessionBypass={isMcpEmbedSurface()}
         i18n={{ catalog: i18nCatalog }}
       >
-        <AutoFocus />
-        <AutomationTrigger />
-        <VisibilityRefresh />
-        <DbSyncSetup />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

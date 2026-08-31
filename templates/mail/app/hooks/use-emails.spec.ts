@@ -103,6 +103,12 @@ describe("useLabels", () => {
 
     expect(source).toContain("placeholderData: (previousData) => previousData");
     expect(source).toContain("export const EMPTY_LABELS: Label[] = [];");
+    expect(source).toContain(
+      "export function useLabels(accountEmails?: readonly string[])",
+    );
+    expect(source).toContain(
+      'accountEmails=${encodeURIComponent(accountFilter.join(","))}',
+    );
   });
 });
 

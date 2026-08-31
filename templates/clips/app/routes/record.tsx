@@ -18,6 +18,7 @@ import {
   chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
+  UPLOAD_SLICE_BYTES,
   type UploadMode,
 } from "@shared/recording-core";
 import {
@@ -802,6 +803,7 @@ export default function RecordRoute() {
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const playheadConfirmOpenRef = useRef(false);
   // Tracks whether opening the discard-confirm dialog paused the recording
   // itself (vs. the user having already paused) — so "Resume" only resumes
   // when we're the ones who paused it, and the dialog never gets captured in
@@ -967,6 +969,7 @@ export default function RecordRoute() {
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
+  const restartInFlightRef = useRef<Promise<void> | null>(null);
 
   // Elapsed-time display now ticks inside RecordingToolbar itself (via
   // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
@@ -1336,7 +1339,6 @@ export default function RecordRoute() {
   // Netlify's effective binary function payload limit. Mirrors the recorder's
   // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
-  const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
   const UPLOAD_PARALLELISM = 4;
 
   const probeVideoMetadata = useCallback(
@@ -1589,12 +1591,12 @@ export default function RecordRoute() {
 
         const totalChunks = Math.max(
           1,
-          Math.ceil(uploadBlob.size / UPLOAD_CHUNK_BYTES),
+          Math.ceil(uploadBlob.size / UPLOAD_SLICE_BYTES),
         );
 
         const chunkDescs = Array.from({ length: totalChunks }, (_, i) => {
-          const start = i * UPLOAD_CHUNK_BYTES;
-          const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
+          const start = i * UPLOAD_SLICE_BYTES;
+          const end = Math.min(start + UPLOAD_SLICE_BYTES, uploadBlob.size);
           const isFinal = i === totalChunks - 1;
           return {
             index: i,
@@ -2205,6 +2207,8 @@ export default function RecordRoute() {
     fileUploadRecordingIdRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
+    engineRef.current = null;
+    pendingRef.current = null;
     liveTranscription.stop();
     browserDiagnosticsRef.current?.dispose();
     browserDiagnosticsRef.current = null;
@@ -2251,8 +2255,6 @@ export default function RecordRoute() {
     setIsPaused(false);
     setUiState("idle");
     setUploadProgress(null);
-    pendingRef.current = null;
-    engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
 
   const playCountdownAudioCue = useCallback(() => {
@@ -2380,13 +2382,68 @@ export default function RecordRoute() {
     };
   }, [cameraStream, liveTranscription, recordingMode]);
 
-  const restart = useCallback(async () => {
-    await doCancel();
-    const opts = pendingStartOptsRef.current;
-    if (opts) {
-      await startFlow(opts);
-    }
+  const restart = useCallback(() => {
+    if (restartInFlightRef.current) return restartInFlightRef.current;
+    const run = (async () => {
+      await doCancel();
+      const opts = pendingStartOptsRef.current;
+      if (opts) {
+        await startFlow(opts);
+      }
+    })();
+    restartInFlightRef.current = run;
+    void run.then(
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+      () => {
+        if (restartInFlightRef.current === run) {
+          restartInFlightRef.current = null;
+        }
+      },
+    );
+    return run;
   }, [doCancel, startFlow]);
+
+  const handlePlayheadConfirmChange = useCallback(
+    (
+      change: import("@shared/recording-playhead").RecordingPlayheadConfirmChange,
+    ) => {
+      playheadConfirmOpenRef.current = change.type === "open";
+      if (change.type === "open") {
+        if (!change.enteredPaused) {
+          const engine = engineRef.current;
+          engine?.pause();
+          liveTranscription.pause();
+          setIsPaused(true);
+        }
+        return;
+      }
+      if (change.resume || !change.enteredPaused) {
+        const engine = engineRef.current;
+        if (engine?.getState() === "paused") {
+          engine.resume();
+          liveTranscription.resume();
+          setIsPaused(false);
+        }
+      }
+    },
+    [liveTranscription],
+  );
+
+  const handlePlayheadConfirmAction = useCallback(
+    (intent: import("@shared/recording-playhead").RecordingPlayheadIntent) => {
+      playheadConfirmOpenRef.current = false;
+      if (intent === "restart") {
+        void restart();
+      } else {
+        void doCancel();
+      }
+    },
+    [doCancel, restart],
+  );
 
   const fireConfetti = useCallback(() => {
     confettiRef.current?.burst();
@@ -2397,7 +2454,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (discardConfirmOpen) return;
+      if (discardConfirmOpen || playheadConfirmOpenRef.current) return;
       const alt = e.altKey;
       const shift = e.shiftKey;
       const meta = e.metaKey;
@@ -2731,6 +2788,8 @@ export default function RecordRoute() {
           onTogglePause={togglePause}
           onStop={() => void doStop()}
           onCancel={requestDiscard}
+          onConfirmAction={handlePlayheadConfirmAction}
+          onConfirmChange={handlePlayheadConfirmChange}
         />
       )}
 

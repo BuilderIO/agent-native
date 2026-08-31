@@ -99,6 +99,37 @@ describe("McpIntegrationDialog", () => {
     ).toBe("user");
   });
 
+  it("waits for the desktop OAuth target before connecting", () => {
+    const linear = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "linear",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="linear"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[linear]}
+            oauthReady={false}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const connect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    expect(connect).toHaveProperty("disabled", true);
+    act(() => connect?.click());
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
   it("offers a shared scope for an integration that supports it", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",

@@ -48,8 +48,12 @@ async function assertBetterAuthUserIdentityColumns(): Promise<void> {
  * key without touching users or sessions. The JWKS endpoint keeps expired
  * keys during its grace period, so already-issued short-lived tokens remain
  * verifiable while the new key propagates.
+ *
+ * Also invoked at runtime by `jwks-secret-rotation.ts` when a live request
+ * hits the decrypt failure — release migrations do not reach every deployed
+ * database, so the release-time pass alone cannot be relied on.
  */
-async function expireJwksKeysAfterAuthSecretRotation(): Promise<void> {
+export async function expireJwksKeysAfterAuthSecretRotation(): Promise<void> {
   const { getDbExec, isPostgres } = await import("../db/client.js");
   const now = isPostgres() ? new Date().toISOString() : Date.now();
   const table = isPostgres() ? '"jwks"' : "jwks";

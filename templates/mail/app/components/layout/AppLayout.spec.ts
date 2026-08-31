@@ -74,12 +74,28 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
   });
 
+  it("uses mailbox-wide counts for regular label tabs", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;",
+    );
+  });
+
   it("does not let loaded pages inflate server-backed label badges", () => {
     const source = appLayoutSource();
 
     expect(source).not.toContain("Math.max(serverCount, localCount)");
     expect(source).toContain(
-      'typeof serverCount === "number" && useServerLabelCounts',
+      'typeof serverCount === "number" ? serverCount : localCount',
+    );
+  });
+
+  it("scopes label counts to the selected accounts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
     );
   });
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as credentialProvider from "./credential-provider";
 import {
   getDeploymentEmailReadiness,
   getEmailReadiness,
@@ -9,8 +10,32 @@ import {
 describe("sendEmail", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("uses deployment credentials for process-owned sends", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "deployment-sendgrid-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    vi.stubEnv("RESEND_API_KEY", "");
+    const resolveSecret = vi
+      .spyOn(credentialProvider, "resolveSecret")
+      .mockResolvedValue("stale-scoped-key");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Dashboard report",
+      html: "<p>Report</p>",
+      useDeploymentCredentials: true,
+    });
+
+    expect(resolveSecret).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer deployment-sendgrid-key",
+    });
   });
 
   it("overrides only the verified sender display name and maps Reply-To", async () => {
@@ -51,6 +76,25 @@ describe("sendEmail", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.categories).toContain("calendar.booking-confirmed::org::org-1");
+  });
+
+  it("disables click tracking for security-sensitive links", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: '<a href="https://design.agent-native.com/verify">Verify</a>',
+      disableClickTracking: true,
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.tracking_settings).toEqual({
+      click_tracking: { enable: false },
+    });
   });
 
   it("applies per-app sender branding on agent-native.com deployments", async () => {

@@ -98,6 +98,8 @@ on:
         required: true
       PLAN_DATABASE_URL:
         required: false
+      CLIPS_DATABASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -255,7 +257,19 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
+          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
+            # Starter's runtime database and auth secret are Netlify secrets.
+            # The external prebuilt runner receives masked values, so use
+            # build-only shapes and let the deployed Functions read the real
+            # site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+          fi
+          if [[ "$TARGET" == "production" && "$SOURCE_TEMPLATE" == "chat" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
@@ -270,6 +284,18 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?PLAN_DATABASE_URL secret is required for prebuilt Plan deployments}"
           pnpm --filter plan migrate:production
+
+      - name: Run Clips release migrations
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'clips'
+        env:
+          DATABASE_URL: ${{ secrets.CLIPS_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?CLIPS_DATABASE_URL secret is required for prebuilt Clips deployments}"
+          pnpm --filter clips migrate:production
 
       - name: Verify deploy directories
         env:
@@ -318,18 +344,18 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           (async () => {
           const fs = require("node:fs");
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-build-pause",
           };
-          const request = (url, options = {}) => fetch(url, {
+          const request = (url, options = {}) => requestNetlifyApi(url, {
             ...options,
             headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
           });
 
           async function readJson(response, label) {
@@ -415,8 +441,9 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           (async () => {
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
@@ -444,10 +471,9 @@ jobs:
           if (!siteId) throw new Error("Netlify site id is required to unlock production.");
 
           const request = (url, options = {}) =>
-            fetch(url, {
+            requestNetlifyApi(url, {
               ...options,
               headers: { ...headers, ...(options.headers || {}) },
-              signal: AbortSignal.timeout(30_000),
             });
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           const ACTIVE_PRODUCTION_DEPLOY_STATES = [
@@ -658,6 +684,41 @@ jobs:
           });
           NODE
 
+      - name: Capture the current published deploy for callback rollback
+        id: previous
+        if: >-
+          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template != '@agent-native/docs'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const fs = require("node:fs");
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const response = await requestNetlifyApi(`https://api.netlify.com/api/v1/sites/${siteId}`, {
+              headers: {
+                Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+              },
+            });
+            const text = await response.text();
+            const site = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`Netlify published deploy lookup failed with HTTP ${response.status}.`);
+            }
+            const deployId = site?.published_deploy?.id;
+            if (!deployId) throw new Error("Netlify site has no published deploy to protect.");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `published_deploy_id=${deployId}\n`);
+            console.log(`Captured current published deploy ${deployId} for callback rollback.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: inputs.deploy
@@ -715,15 +776,15 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
           };
-          const request = (url) => fetch(url, {
-            headers,
-            signal: AbortSignal.timeout(30_000),
-          });
+          const request = (url) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, { headers }),
+            );
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
           async function readJson(response, label) {
@@ -785,6 +846,107 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
           echo "Health check passed: ${url%/}/_agent-native/health"
 
+      # The active managed client and its capability are observable only from
+      # the live host, so this is a post-publish verification. If the declared
+      # managed callback is definitively unregistered, the immediately
+      # following step restores the deploy captured above before leaving the
+      # job failed. Inconclusive checks fail loudly without destructive
+      # rollback. Draft deploy URLs are intentionally excluded because they
+      # are not registered OAuth origins.
+      - name: Verify Google OAuth redirect registration
+        id: google_redirect
+        if: >-
+          inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template != '@agent-native/docs'
+        continue-on-error: true
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: |
+          set +e
+          node --experimental-strip-types scripts/check-google-redirect-uris.ts --host "$HOST" --paths auto
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Roll back after Google callback verification failure
+        if: >-
+          steps.google_redirect.outcome == 'failure' &&
+          steps.google_redirect.outputs.exit_code == '1'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          NEW_DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          PREVIOUS_DEPLOY_ID: ${{ steps.previous.outputs.published_deploy_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types <<'NODE'
+          (async () => {
+            const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
+            const api = "https://api.netlify.com/api/v1";
+            const headers = {
+              Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            };
+            const request = (url, options = {}) => requestNetlifyApi(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+            });
+            const readJson = async (response, label) => {
+              const text = await response.text();
+              const body = text ? JSON.parse(text) : null;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}.`);
+              }
+              return body;
+            };
+            const siteId = process.env.NETLIFY_SITE_ID;
+            const previousId = process.env.PREVIOUS_DEPLOY_ID;
+            const newId = process.env.NEW_DEPLOY_ID;
+            if (!siteId || !previousId || !newId || previousId === newId) {
+              throw new Error("Callback rollback is missing a distinct previous and new deploy id.");
+            }
+            const current = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify current deploy lookup",
+            );
+            if (current?.published_deploy?.id !== newId) {
+              throw new Error(
+                `Refusing callback rollback because Netlify now serves ${current?.published_deploy?.id || "an unknown deploy"}, expected ${newId}.`,
+              );
+            }
+            await readJson(
+              await request(`${api}/sites/${siteId}/deploys/${previousId}/restore`, {
+                method: "POST",
+              }),
+              `Netlify callback rollback to ${previousId}`,
+            );
+            const deadline = Date.now() + 5 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const site = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                "Netlify callback rollback verification",
+              );
+              if (site?.published_deploy?.id === previousId) {
+                console.log(`Restored previous published deploy ${previousId}.`);
+                process.exitCode = 1;
+                return;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 10_000));
+            }
+            throw new Error(`Netlify did not publish rollback deploy ${previousId} within five minutes.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Fail after Google callback verification
+        if: ${{ steps.google_redirect.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          probe_exit_code="${{ steps.google_redirect.outputs.exit_code }}"
+          echo "::error::Google OAuth callback verification failed (exit code ${probe_exit_code:-2})."
+          exit "${probe_exit_code:-2}"
+
       # An unknown URL must still be storable. When it is not, every dead link
       # and crawler miss re-invokes the render function, and Netlify runs one
       # request per container — so a single site's regression drains the
@@ -818,10 +980,11 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           (async () => {
-            const response = await fetch(`${api}/purge`, {
+            const response = await requestNetlifyApi(`${api}/purge`, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
@@ -829,7 +992,6 @@ jobs:
                 "User-Agent": "agent-native-prebuilt-production-cache-purge",
               },
               body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
-              signal: AbortSignal.timeout(30_000),
             });
             const text = await response.text();
             let body = null;
@@ -856,16 +1018,16 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
+          const { requestNetlifyApi } = await import("./scripts/netlify-api-request.ts");
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-lock",
           };
-          const request = (url, options = {}) => fetch(url, {
+          const request = (url, options = {}) => requestNetlifyApi(url, {
             ...options,
             headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
           });
 
           async function readJson(response, label) {
@@ -911,17 +1073,19 @@ jobs:
           cutoverHasGitConnectedBuild: ${{ steps.pause.outputs.has_git_connected_build }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-build-resume",
           };
-          const request = (url, options = {}) => fetch(url, {
-            ...options,
-            headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
-          });
+          const request = (url, options = {}) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, {
+                ...options,
+                headers: { ...headers, ...(options.headers || {}) },
+              }),
+            );
 
           async function readJson(response, label) {
             const text = await response.text();
@@ -985,17 +1149,19 @@ jobs:
           cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
-          node <<'NODE'
+          node --experimental-strip-types <<'NODE'
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
             "User-Agent": "agent-native-prebuilt-production-failure-cleanup",
           };
-          const request = (url, options = {}) => fetch(url, {
-            ...options,
-            headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
-          });
+          const request = (url, options = {}) =>
+            import("./scripts/netlify-api-request.ts").then(({ requestNetlifyApi }) =>
+              requestNetlifyApi(url, {
+                ...options,
+                headers: { ...headers, ...(options.headers || {}) },
+              }),
+            );
 
           async function readJson(response, label) {
             const text = await response.text();
