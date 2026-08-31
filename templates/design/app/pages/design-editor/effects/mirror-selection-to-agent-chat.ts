@@ -18,6 +18,7 @@ export interface MirrorSelectionToAgentChatArgs {
   design: DesignData | null;
   id: string | undefined;
   isSignedIn: boolean;
+  mirroredExcerptRef: RefObject<string | null>;
   mirroredSelectionIdRef: RefObject<string | null>;
   selectedCodeLayerNode: CodeLayerNode | null;
   selectedElement: ElementInfo | null;
@@ -31,6 +32,7 @@ export function runMirrorSelectionToAgentChat({
   design,
   id,
   isSignedIn,
+  mirroredExcerptRef,
   mirroredSelectionIdRef,
   selectedCodeLayerNode,
   selectedElement,
@@ -40,12 +42,30 @@ export function runMirrorSelectionToAgentChat({
   if (!isSignedIn) return;
   if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
     mirroredSelectionIdRef.current = null;
+    mirroredExcerptRef.current = null;
     sentSelectionIdRef.current = null;
     removeAgentChatContextItem(key);
     return;
   }
 
   const selectionId = `${activeFile?.id ?? ""}::${selectedElement.sourceId ?? selectedElement.selector}`;
+  // Computed up front (it only reads selectedCodeLayerNode/activeProjectionContent,
+  // both already available) so the "same selection" branch below can compare
+  // it against what was last mirrored, instead of only comparing identity.
+  // Excerpt the outerHTML out of the SOURCE projection rather than the
+  // rendered DOM: this is the exact text edit-design's search/replace has
+  // to match, so an edit anchored to it cannot drift onto a child or
+  // sibling that merely measures the same on canvas.
+  const selectedNodeSpan = selectedCodeLayerNode?.source;
+  const outerHtmlExcerpt = selectedNodeSpan
+    ? nodeRepromptSubtreeExcerpt(
+        activeProjectionContent.slice(
+          selectedNodeSpan.start,
+          selectedNodeSpan.end,
+        ),
+      )
+    : "";
+
   if (selectionId !== mirroredSelectionIdRef.current) {
     // A genuinely new/changed selection always (re)attaches, regardless of
     // whether the previous one was marked sent.
@@ -63,13 +83,19 @@ export function runMirrorSelectionToAgentChat({
       sentSelectionIdRef.current = selectionId;
     }
     return;
-  } else {
-    // Same selection, still present in the shared store, nothing to do —
-    // avoid republishing (and thus avoid the feedback loop above) when
-    // nothing about the selection actually changed.
+  } else if (outerHtmlExcerpt === mirroredExcerptRef.current) {
+    // Same selection, still unsent and present in the shared store, AND the
+    // markup we'd mirror hasn't changed since last time — avoid republishing
+    // (and thus avoid the feedback loop above) when nothing actually changed.
     return;
   }
+  // Falls through here either for a new selection, or for the SAME
+  // unsent selection whose underlying markup changed (e.g. a live inspector
+  // edit to the still-selected node) — the structural-reference directive
+  // promises the agent literal values read from this markup, so stale markup
+  // sitting unsent in the composer must be refreshed before it can be sent.
   mirroredSelectionIdRef.current = selectionId;
+  mirroredExcerptRef.current = outerHtmlExcerpt;
 
   const labelSource =
     selectedElement.textContent?.trim() ||
@@ -86,19 +112,6 @@ export function runMirrorSelectionToAgentChat({
     null;
   const targetSelector =
     selectedCodeLayerNode?.selector ?? selectedElement.selector ?? null;
-  // Excerpt the outerHTML out of the SOURCE projection rather than the
-  // rendered DOM: this is the exact text edit-design's search/replace has
-  // to match, so an edit anchored to it cannot drift onto a child or
-  // sibling that merely measures the same on canvas.
-  const selectedNodeSpan = selectedCodeLayerNode?.source;
-  const outerHtmlExcerpt = selectedNodeSpan
-    ? nodeRepromptSubtreeExcerpt(
-        activeProjectionContent.slice(
-          selectedNodeSpan.start,
-          selectedNodeSpan.end,
-        ),
-      )
-    : "";
   const contextLines = [
     `Selected design element in design "${design?.title ?? id}".`,
     `designId: ${id}`,
