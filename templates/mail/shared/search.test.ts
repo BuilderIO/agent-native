@@ -153,4 +153,25 @@ describe("emailMessageMatchesSearch", () => {
       ),
     ).toBe(true);
   });
+
+  it("matches common saved-filter category, attachment, filename, and date operators", () => {
+    const githubAttachment = {
+      id: "attachment",
+      filename: "report.pdf",
+      mimeType: "application/pdf",
+      size: 12,
+    };
+    const email = message({
+      date: "2026-05-20T00:00:00.000Z",
+      labelIds: ["promotions"],
+      attachments: [githubAttachment],
+    });
+
+    expect(emailMessageMatchesSearch(email, "category:promotions")).toBe(true);
+    expect(emailMessageMatchesSearch(email, "has:attachment")).toBe(true);
+    expect(emailMessageMatchesSearch(email, "filename:pdf")).toBe(true);
+    expect(
+      emailMessageMatchesSearch(email, "after:2026/05/19 before:2026/05/21"),
+    ).toBe(true);
+  });
 });

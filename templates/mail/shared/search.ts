@@ -23,7 +23,14 @@ type SearchOperator =
   | "subject"
   | "label"
   | "in"
-  | "is";
+  | "is"
+  | "category"
+  | "has"
+  | "filename"
+  | "after"
+  | "before"
+  | "newer"
+  | "older";
 
 type ParsedSearch = {
   operators: Array<{
@@ -164,7 +171,7 @@ function expandSearchDisjunction(query: string): string[] | undefined {
 function parseSearch(query: string): ParsedSearch {
   const operators: ParsedSearch["operators"] = [];
   const operatorPattern =
-    /(^|[\s({])(-?)(from|to|cc|bcc|subject|label|in|is):\s*(?:"([^"]+)"|(\S+))/gi;
+    /(^|[\s({])(-?)(from|to|cc|bcc|subject|label|in|is|category|has|filename|after|before|newer|older):\s*(?:"([^"]+)"|(\S+))/gi;
   const residual = query.replace(
     operatorPattern,
     (
@@ -216,10 +223,19 @@ function operatorMatches(
     | "isTrashed"
     | "isDraft"
     | "isSent"
+    | "date"
+    | "attachments"
   >,
   field: SearchOperator,
   value: string,
 ): boolean {
+  const dateBoundary = (raw: string): number | null => {
+    if (/^\d+$/.test(raw)) return Number(raw) * 1000;
+    const parts = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+    if (!parts) return null;
+    return Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  };
+
   switch (field) {
     case "from":
       return (
@@ -273,6 +289,27 @@ function operatorMatches(
         default:
           return false;
       }
+    case "category":
+      return mailLabelsInclude(
+        email.labelIds,
+        value === "primary" ? "personal" : value,
+      );
+    case "has":
+      return value === "attachment" && (email.attachments?.length ?? 0) > 0;
+    case "filename":
+      return (email.attachments ?? []).some((attachment) =>
+        includesQuery(attachment.filename, value),
+      );
+    case "after":
+    case "newer": {
+      const boundary = dateBoundary(value);
+      return boundary !== null && new Date(email.date).getTime() > boundary;
+    }
+    case "before":
+    case "older": {
+      const boundary = dateBoundary(value);
+      return boundary !== null && new Date(email.date).getTime() < boundary;
+    }
   }
 }
 
@@ -293,6 +330,8 @@ function matchesSimpleSearch(
     | "isTrashed"
     | "isDraft"
     | "isSent"
+    | "date"
+    | "attachments"
   >,
   query: string,
 ): boolean {
@@ -343,6 +382,8 @@ export function emailMessageMatchesSearch(
     | "isTrashed"
     | "isDraft"
     | "isSent"
+    | "date"
+    | "attachments"
   >,
   query: string,
 ): boolean {

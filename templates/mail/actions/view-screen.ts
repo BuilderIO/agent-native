@@ -172,13 +172,13 @@ async function fetchEmailList(
         },
       );
 
-      return applyActiveInboxTab(
-        latestPerThread(
-          messages.map((m: any) =>
-            gmailToEmailMessage(m, m._accountEmail, labelMap),
-          ),
-        ),
-      ).slice(0, 50);
+      const preparedMessages = messages.map((m: any) =>
+        gmailToEmailMessage(m, m._accountEmail, labelMap),
+      );
+      return latestPerThread(applyActiveInboxTab(preparedMessages)).slice(
+        0,
+        50,
+      );
     }
 
     // Fallback: local store

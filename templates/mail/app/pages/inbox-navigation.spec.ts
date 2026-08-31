@@ -118,6 +118,17 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("nav.activeInboxTab");
     expect(source).toContain("nav.activeAccounts");
   });
+
+  it("filters full Gmail threads before collapsing the agent snapshot", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain(
+      "const preparedMessages = messages.map((m: any) =>",
+    );
+    expect(source).toContain(
+      "latestPerThread(applyActiveInboxTab(preparedMessages))",
+    );
+  });
 });
 
 describe("Inbox pagination", () => {
