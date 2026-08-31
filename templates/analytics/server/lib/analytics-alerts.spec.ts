@@ -418,7 +418,7 @@ describe("analytics alert evaluation", () => {
     const page = Array.from({ length: 5_000 }, (_, index) => ({
       id: `evt-${index}`,
       event_name: "agent_run_terminal",
-      timestamp: "2026-08-31T12:00:00.000Z",
+      timestamp: "2026-08-31T12:00:00.123456Z",
       properties: "{}",
       context: "{}",
     }));
@@ -478,7 +478,13 @@ describe("analytics alert evaluation", () => {
     expect(result.observedValue).toBe(1);
     expect(firstPartyMocks.query).toHaveBeenCalledTimes(2);
     expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
+      "TIMESTAMP('2026-08-31T12:00:00.123456Z')",
+    );
+    expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
       "id < 'evt-4999'",
+    );
+    expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
+      ") AS analytics_alert_page WHERE (timestamp < TIMESTAMP('",
     );
   });
 

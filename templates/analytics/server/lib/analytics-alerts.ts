@@ -984,11 +984,6 @@ export function buildBigQueryAlertQuery(
     `event_date <= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowEnd)}))`,
     `timestamp >= TIMESTAMP(${bigQuerySqlLiteral(windowStart)})`,
     `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(windowEnd)})`,
-    ...(cursor
-      ? [
-          `(timestamp < TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) OR (timestamp = TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) AND id < ${bigQuerySqlLiteral(cursor.id)}))`,
-        ]
-      : []),
     rule.orgId
       ? `org_id = ${bigQuerySqlLiteral(rule.orgId)}`
       : `(org_id IS NULL AND LOWER(owner_email) = LOWER(${bigQuerySqlLiteral(rule.ownerEmail)}))`,
@@ -1003,7 +998,11 @@ export function buildBigQueryAlertQuery(
     }),
   ];
 
-  return `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
+  const cursorPredicate = cursor
+    ? `(timestamp < TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) OR (timestamp = TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) AND id < ${bigQuerySqlLiteral(cursor.id)}))`
+    : null;
+  const candidateSql = `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")}`;
+  return `SELECT * FROM (${candidateSql}) AS analytics_alert_page${cursorPredicate ? ` WHERE ${cursorPredicate}` : ""} ORDER BY timestamp DESC, id DESC`;
 }
 
 function bigQuerySqlLiteral(value: string): string {
@@ -1177,14 +1176,20 @@ async function loadCandidateEvents(
             buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
             { userEmail: rule.ownerEmail, orgId: rule.orgId },
           );
+          if (result.truncated) {
+            throw new Error(
+              `BigQuery alert evaluation for rule ${rule.id} returned a transport-truncated page; refusing to evaluate partial data`,
+            );
+          }
           const page = result.rows.map(normalizeBigQueryAlertEventRow);
           rows.push(...page);
           if (!page.length) break;
-          if (!result.truncated && page.length < BIGQUERY_ALERT_PAGE_SIZE) {
-            break;
-          }
-          const last = page[page.length - 1]!;
-          cursor = { timestamp: last.timestamp, id: last.id };
+          if (page.length < BIGQUERY_ALERT_PAGE_SIZE) break;
+          const lastRaw = result.rows[result.rows.length - 1]!;
+          cursor = {
+            timestamp: requiredBigQueryAlertString(lastRaw, "timestamp"),
+            id: requiredBigQueryAlertString(lastRaw, "id"),
+          };
         }
         return rows;
       },
