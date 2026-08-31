@@ -375,8 +375,7 @@
 }
 
 /* Placeholders */
-.compose-editor p.is-editor-empty:first-child::before,
-.compose-editor p.is-empty::before {
+.compose-editor p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   color: hsl(var(--muted-foreground));
