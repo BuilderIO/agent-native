@@ -1116,11 +1116,16 @@ export async function queryFirstPartyAnalyticsInBigQuery(
 ): Promise<{
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }> {
   const result = await runQuery(
     `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table)}) AS first_party_analytics_query LIMIT 5000`,
   );
-  return { rows: result.rows, schema: result.schema };
+  return {
+    rows: result.rows,
+    schema: result.schema,
+    ...(result.truncated ? { truncated: true } : {}),
+  };
 }
 
 export async function assertFirstPartyAnalyticsBigQueryReady(
