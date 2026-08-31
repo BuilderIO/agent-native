@@ -179,6 +179,7 @@ import {
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
   endsAfterCompletedToolWithoutAssistantFinal,
+  endsDuringActionPreparation,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -7377,7 +7378,10 @@ export function backgroundContinuationReasonForRun(
       new EngineError(last.error, { errorCode: last.errorCode }),
     );
   }
-  if (endsAfterCompletedToolWithoutAssistantFinal(run)) {
+  if (
+    endsAfterCompletedToolWithoutAssistantFinal(run) ||
+    endsDuringActionPreparation(run)
+  ) {
     return "stream_ended";
   }
   return "run_timeout";
@@ -7533,7 +7537,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
 function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
-    endsAfterCompletedToolWithoutAssistantFinal(run)
+    endsAfterCompletedToolWithoutAssistantFinal(run) ||
+    endsDuringActionPreparation(run)
   );
 }
 
