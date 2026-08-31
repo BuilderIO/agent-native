@@ -81,7 +81,15 @@ async function fetchAgentJson(
     headers: { Accept: "application/json" },
     ...(signal ? { signal } : {}),
   });
-  const payload = await response.json().catch(() => null);
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    if (!response.ok) {
+      throw new Error(`Clip agent request failed: HTTP ${response.status}`);
+    }
+    throw new Error("Clip agent response was not valid JSON");
+  }
   if (!response.ok) {
     const detail =
       isRecord(payload) && typeof payload.error === "string"
