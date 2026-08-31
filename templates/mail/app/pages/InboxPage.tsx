@@ -518,7 +518,7 @@ export function InboxPage() {
   );
 
   // Sync current navigation state to file (write-only, so agent can read it)
-  const searchQ = searchParams.get("q") ?? undefined;
+  const searchQ = searchQuery;
   useEffect(() => {
     navState.sync({
       view,
@@ -526,6 +526,7 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
       search: searchQ,
       label: activeLabel ?? undefined,
+      filter: activeFilterId ?? undefined,
       activeInboxTab: activeInboxTab ?? undefined,
       activeAccounts:
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
@@ -538,6 +539,7 @@ export function InboxPage() {
     focusedId,
     searchQ,
     activeLabel,
+    activeFilterId,
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,

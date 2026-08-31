@@ -12,6 +12,15 @@ import {
 } from "react";
 import { useNavigate } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -53,6 +62,8 @@ export function SearchBar({
   const listRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const lastSyncedQueryRef = useRef(initialQuery);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
 
   const { data: contacts = [] } = useContacts();
   const queryClient = useQueryClient();
@@ -239,10 +250,18 @@ export function SearchBar({
   const handleSaveSearch = useCallback(() => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery || !onSaveSearch) return;
-    const name = window.prompt(t("mail.search.saveAsTabPrompt"), trimmedQuery);
-    if (!name?.trim()) return;
-    onSaveSearch(trimmedQuery, name.trim());
-  }, [onSaveSearch, query, t]);
+    setSaveName(trimmedQuery);
+    setSaveDialogOpen(true);
+  }, [onSaveSearch, query]);
+
+  const submitSavedSearch = useCallback(() => {
+    const trimmedQuery = query.trim();
+    const trimmedName = saveName.trim();
+    if (!trimmedQuery || !trimmedName || !onSaveSearch) return;
+    onSaveSearch(trimmedQuery, trimmedName);
+    setSaveDialogOpen(false);
+    setSaveName("");
+  }, [onSaveSearch, query, saveName]);
 
   return (
     <div className="relative flex items-center gap-1.5">
@@ -401,6 +420,49 @@ export function SearchBar({
           )}
         </div>
       )}
+
+      <Dialog
+        open={saveDialogOpen}
+        onOpenChange={(open) => {
+          setSaveDialogOpen(open);
+          if (!open) setSaveName("");
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("mail.search.saveAsTab")}</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitSavedSearch();
+            }}
+            className="space-y-3"
+          >
+            <label className="text-[12px] text-muted-foreground">
+              {t("mail.search.saveAsTabPrompt")}
+              <Input
+                autoFocus
+                value={saveName}
+                onChange={(event) => setSaveName(event.target.value)}
+                className="mt-1.5"
+              />
+            </label>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSaveDialogOpen(false)}
+              >
+                {t("mail.compose.cancel")}
+              </Button>
+              <Button type="submit" disabled={!saveName.trim()}>
+                {t("mail.integrations.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

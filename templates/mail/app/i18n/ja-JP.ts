@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Gmail を検索中...",
       saveAsTab: "タブとして保存",
       saveAsTabPrompt: "このタブに名前を付ける",
+      filtersLimitReached: "保存できるフィルターは最大20件です。",
     },
     tabSettings: {
       views: "ビュー",

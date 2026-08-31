@@ -591,18 +591,26 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const activeFilterCounts = useMemo(() => {
     const threadUnread = new Map<string, boolean>();
-    for (const email of activeFilterEmails) {
+    const scopedEmails =
+      activeAccounts.size > 0
+        ? activeFilterEmails.filter(
+            (email) =>
+              email.accountEmail && activeAccounts.has(email.accountEmail),
+          )
+        : activeFilterEmails;
+    for (const email of scopedEmails) {
       const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
       threadUnread.set(key, (threadUnread.get(key) ?? false) || !email.isRead);
     }
     return {
       total:
+        activeAccounts.size === 0 &&
         typeof activeFilterTotalEstimate === "number"
           ? activeFilterTotalEstimate
           : threadUnread.size,
       unread: [...threadUnread.values()].filter(Boolean).length,
     };
-  }, [activeFilterEmails, activeFilterTotalEstimate]);
+  }, [activeAccounts, activeFilterEmails, activeFilterTotalEstimate]);
 
   // Tabs to show in the bar: pinned triage filters first, then the inbox
   // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
@@ -917,6 +925,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       const normalizedQuery = query.trim().slice(0, 500);
       const normalizedName = name.trim().slice(0, 80);
       if (!normalizedQuery || !normalizedName) return;
+      if (savedFilters.length >= 20) {
+        toast.error(t("mail.search.filtersLimitReached"));
+        return;
+      }
 
       const existing = savedFilters.find(
         (filter) =>
@@ -943,7 +955,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         },
       );
     },
-    [navigate, savedFilters, updateSettings],
+    [navigate, savedFilters, t, updateSettings],
   );
 
   const removeSavedFilter = useCallback(
@@ -1194,7 +1206,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (viewId.startsWith("filter:")) {
       return viewId === `filter:${activeFilterId}`
         ? activeFilterCounts[kind]
-        : 0;
+        : undefined;
     }
     const label = resolveLabelForCount(viewId);
     const countField = countFieldForKind(kind);
@@ -1351,7 +1363,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           />
                         )}
                         {tab.label}
-                        {count > 0 && (
+                        {count !== undefined && count > 0 && (
                           <span
                             className={cn(
                               "text-[11px] tabular-nums",
@@ -1914,7 +1926,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                       {tab.label}
                                     </span>
                                   </span>
-                                  {count > 0 && (
+                                  {count !== undefined && count > 0 && (
                                     <span className="text-[12px] text-muted-foreground/50 tabular-nums">
                                       {count}
                                     </span>

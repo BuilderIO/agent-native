@@ -79,16 +79,20 @@ describe("Inbox navigation commands", () => {
 
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
+    expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
     expect(inboxSource()).toContain(
       "activeInboxTab: activeInboxTab ?? undefined",
     );
+    expect(inboxSource()).toContain("filter: activeFilterId ?? undefined");
+    expect(inboxSource()).toContain("const searchQ = searchQuery;");
     expect(inboxSource()).toContain(
       "activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined",
     );
     expect(viewScreenSource()).toContain(
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
+    expect(viewScreenSource()).toContain("filter: nav.filter ?? null");
   });
 
   it("filters the view-screen snapshot to the active Other partition", () => {

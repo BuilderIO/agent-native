@@ -54,6 +54,15 @@ describe("AppLayout inbox rail count", () => {
       "href: `/inbox?filter=${encodeURIComponent(filter.id)}`",
     );
     expect(source).toContain("savedFilters: [...savedFilters, filter]");
+    expect(source).toContain("savedFilters.length >= 20");
+    expect(source).toContain("filtersLimitReached");
+    expect(source).toContain("activeAccounts.size > 0");
+  });
+
+  it("does not show a false count for an inactive saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("? activeFilterCounts[kind]\n        : undefined");
   });
 
   it("builds pin mutations from the resolved visible pins", () => {

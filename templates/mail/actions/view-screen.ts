@@ -346,6 +346,7 @@ export default defineAction({
       screen.emailList = {
         view: nav.view,
         label: nav.label ?? null,
+        filter: nav.filter ?? null,
         activeInboxTab: nav.activeInboxTab ?? null,
         activeAccounts: nav.activeAccounts ?? [],
         search: nav.search ?? null,

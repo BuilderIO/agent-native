@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "Searching Gmail...",
       saveAsTab: "Save as tab",
       saveAsTabPrompt: "Name this tab",
+      filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
       views: "Views",

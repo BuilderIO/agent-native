@@ -46,6 +46,7 @@ const messages = {
       searchingGmail: "正在搜尋 Gmail...",
       saveAsTab: "儲存為分頁",
       saveAsTabPrompt: "為此分頁命名",
+      filtersLimitReached: "最多可儲存 20 個篩選條件。",
     },
     tabSettings: {
       views: "檢視",
