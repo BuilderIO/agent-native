@@ -1091,7 +1091,6 @@ function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
     jsonPath &&
     filter.value !== null &&
     typeof filter.value === "object" &&
-    op !== "exists" &&
     op !== "contains"
   ) {
     return null;
