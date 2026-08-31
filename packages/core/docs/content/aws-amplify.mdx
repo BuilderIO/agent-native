@@ -50,6 +50,64 @@ variable is `AMPLIFY_MONOREPO_APP_ROOT=templates/calendar`.
 The framework sets Nitro's `awsAmplify.runtime` to `nodejs24.x`, matching the
 Node 24 build phase and the repository's server runtime requirements.
 
+## Runtime variables and CLI
+
+Amplify exposes environment variables to the build container but does not
+automatically expose them to every SSR runtime. The Agent-Native Amplify
+adapter writes only keys declared by the app's `.env.example` plus the core
+deployment keys into the Nitro compute bundle. Its generated `server.js` loads
+that file with Node's native `process.loadEnvFile()` before starting Nitro.
+
+The file is inside `compute/default`, not the public `static` directory. It
+still travels with the server artifact, so do not commit a populated `.env` or
+grant artifact access more broadly than necessary. Prefer Amplify secret
+management or an external secret store for production credentials.
+
+You can configure app-level variables with the AWS CLI. Amplify's update
+commands replace the complete environment-variable map, so retrieve the
+current map and merge overrides before updating. Keep these JSON files outside
+the repository and remove them after the update:
+
+```json filename="amplify-env-overrides.json"
+{
+  "APP_URL": "https://calendar.example.com",
+  "DATABASE_URL": "<persistent-database-url>",
+  "BETTER_AUTH_SECRET": "<stable-auth-secret>"
+}
+```
+
+```bash
+aws amplify get-app \
+  --app-id <app-id> \
+  --query 'app.environmentVariables' \
+  --output json > amplify-env-current.json
+jq -s '.[0] * .[1]' amplify-env-current.json amplify-env-overrides.json \
+  > amplify-env-next.json
+aws amplify update-app \
+  --app-id <app-id> \
+  --environment-variables file://amplify-env-next.json
+
+aws amplify get-branch \
+  --app-id <app-id> \
+  --branch-name <branch-name> \
+  --query 'branch.environmentVariables' \
+  --output json > amplify-branch-env-current.json
+jq -s '.[0] * .[1]' amplify-branch-env-current.json amplify-env-overrides.json \
+  > amplify-branch-env-next.json
+aws amplify update-branch \
+  --app-id <app-id> \
+  --branch-name <branch-name> \
+  --environment-variables file://amplify-branch-env-next.json
+aws amplify start-job \
+  --app-id <app-id> \
+  --branch-name <branch-name> \
+  --job-type RELEASE
+```
+
+App-level values apply to branches by default. Use `update-branch` when a
+branch needs an explicit override. The build must run again after an env
+change so Nitro can include the declared runtime values.
+
 ## Configure the app
 
 Amplify Hosting compute is serverless. Configure a persistent SQL database and
