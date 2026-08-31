@@ -82,6 +82,31 @@ describe("slide object interactions", () => {
     expect(image.getAttribute("style")).toBe(originalStyle);
   });
 
+  it("restores each capped image after a canceled group resize", () => {
+    const images = [
+      document.createElement("img"),
+      document.createElement("img"),
+    ];
+    const originalStyles = images.map(
+      (image, index) =>
+        `position:absolute;left:${index * 40}px;width:260px;height:auto!important;max-height:32px!important;`,
+    );
+    images.forEach((image, index) =>
+      image.setAttribute("style", originalStyles[index]),
+    );
+
+    for (const image of images) {
+      setSlideObjectDimension(image, "height", "64px");
+    }
+    images.forEach((image, index) =>
+      restoreSlideObjectStyle(image, originalStyles[index]),
+    );
+
+    expect(images.map((image) => image.getAttribute("style"))).toEqual(
+      originalStyles,
+    );
+  });
+
   it("rejects nesting into void layer targets while keeping containers valid", () => {
     expect(canDropSlideLayerInside(document.createElement("img"))).toBe(false);
     expect(canDropSlideLayerInside(document.createElement("p"))).toBe(false);

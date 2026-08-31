@@ -5102,6 +5102,12 @@ export default function SlideEditor({
           .map((member) => member.element.getAttribute("data-builder-id"))
           .filter((id): id is string => Boolean(id)),
       );
+      const originalStyles = new Map(
+        members.map((member) => [
+          member.objectId,
+          member.element.getAttribute("style"),
+        ]),
+      );
       const applyPlan = (plan: Map<string, SlideObjectGeometry>) => {
         for (const member of members) {
           const geometry = plan.get(member.objectId);
@@ -5156,6 +5162,12 @@ export default function SlideEditor({
           applyPlan(
             new Map(members.map((member) => [member.objectId, member.start])),
           );
+          for (const member of members) {
+            restoreSlideObjectStyle(
+              member.element,
+              originalStyles.get(member.objectId) ?? null,
+            );
+          }
           refreshMultiSelectionRects(selectedIds);
           return { handled: true };
         },
