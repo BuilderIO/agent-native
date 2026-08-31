@@ -126,13 +126,13 @@ change the default for everyone in the org.
 
 ### Repository secrets
 
-| Secret                    | Purpose                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`          | The identity every authenticated spec asserts it is running as                                         |
-| `BETA_E2E_SESSION_TOKENS` | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
-| `BETA_E2E_SESSION_TOKEN_CRM` | Optional beta CRM override when its isolated database needs a fresh session                          |
-| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                        |
-| `BETA_E2E_OPENAI_API_KEY` | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
+| Secret                        | Purpose                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `BETA_E2E_EMAIL`              | The identity every authenticated spec asserts it is running as                                         |
+| `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
+| `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
+| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |
+| `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
 
 The CRM and Chat overrides take precedence over their entries in the map, so
 refreshing an isolated host does not require replacing the other live sessions.

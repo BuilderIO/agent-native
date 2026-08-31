@@ -205,12 +205,18 @@ export const COMPOSER = {
 } as const;
 
 /**
- * The suite opens the AgentSidebar, but some apps also render a page-level
- * composer and chat keeps inactive tabs mounted. Scope actions to the open
- * sidebar root before selecting its visible controls.
+ * Sidebar chat uses the default variant, while standalone chat pages use the
+ * hero variant. Dispatch also renders a page-level default composer, so the
+ * variant is what keeps that overview form out of the sidebar test.
  */
-const VISIBLE_AGENT_COMPOSER_ROOT =
-  '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="root"]:visible';
+const DEFAULT_COMPOSER_ROOT =
+  '[data-agent-composer-slot="root"][data-agent-composer-variant="default"]';
+const HERO_COMPOSER_ROOT =
+  '[data-agent-composer-slot="root"][data-agent-composer-variant="hero"]';
+const VISIBLE_AGENT_COMPOSER_ROOT = [
+  `.agent-sidebar-panel[data-agent-sidebar-state="open"] ${DEFAULT_COMPOSER_ROOT}:visible`,
+  `${HERO_COMPOSER_ROOT}:visible`,
+].join(", ");
 
 export const VISIBLE_COMPOSER = {
   root: VISIBLE_AGENT_COMPOSER_ROOT,
@@ -305,6 +311,7 @@ export const CHAT_FAILURE_PATTERNS: RegExp[] = [
   /rate-limiting this chat/i,
   /provider .*is overloaded/i,
   /AI is paused until an email address/i,
+  /Agent panel hit a glitch/i,
   // Two spellings ship for the same condition; both mean the turn produced no
   // final message.
   /stopped (?:without|before) sending a final message/i,
