@@ -61,7 +61,7 @@ const APPS: ShowcaseApp[] = [
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb06a2d6d71404a42874e09b4c2493f2f",
     hoverImage:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1c82abc0f3c488a9ef751c23f77d6f7",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f1a20d6adf541bf9caa14bde86eb5cf",
     href: "/apps/clips",
   },
   {
