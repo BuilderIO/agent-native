@@ -213,8 +213,8 @@ function hasScreenChildLayers(content: string): boolean {
 }
 
 import {
-  BOARD_SURFACE_BACKGROUND,
   getBoardContentKey,
+  resolveBoardSurfaceBackground,
   getBoardContentLayerSignature,
   getBoardSurfaceContentBounds,
   getBoardSurfaceRenderContent,
@@ -517,6 +517,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   selectedLayerSelectorGroupsByScreen = EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN,
   onCrossScreenElementDrop,
   boardFileId,
+  canvasBackground,
   boardFileContent,
   boardFrameGeometry,
   onBoardDrawPrimitive,
@@ -668,16 +669,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       height: surfaceSize.height / scale,
     };
   }, [canvasZoom, pan.x, pan.y, surfaceSize.height, surfaceSize.width]);
-  // The board iframe cannot read the host's CSS vars, so the themed canvas
-  // colour has to be resolved out here or the board stays dark in light mode.
+  // The board iframe cannot read the host's CSS vars. Prefer the live
+  // design canvas colour; the theme var is only the unset fallback.
   const boardSurfaceBackground = useMemo(() => {
-    if (typeof window === "undefined") return BOARD_SURFACE_BACKGROUND;
-    const themed = window
-      .getComputedStyle(document.documentElement)
-      .getPropertyValue("--design-editor-canvas-bg")
-      .trim();
-    return themed || BOARD_SURFACE_BACKGROUND;
-  }, [resolvedTheme]);
+    const themed =
+      typeof window === "undefined"
+        ? ""
+        : window
+            .getComputedStyle(document.documentElement)
+            .getPropertyValue("--design-editor-canvas-bg")
+            .trim();
+    return resolveBoardSurfaceBackground(canvasBackground, themed);
+  }, [canvasBackground, resolvedTheme]);
 
   const boardSurfaceRenderGeometry = useMemo(() => {
     if (!boardFrameGeometry) return undefined;
@@ -8403,7 +8406,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 pointerEvents: "none",
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
-                background: BOARD_SURFACE_BACKGROUND,
+                background: boardSurfaceBackground,
               }}
             />
           </div>

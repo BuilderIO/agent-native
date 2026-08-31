@@ -2,8 +2,12 @@
  * Server-side Yjs document manager with LRU caching and SQL persistence.
  *
  * Performance notes:
- * - `getDoc()` loads from the DB once on cache miss; subsequent calls return
- *   the cached Y.Doc directly with no DB I/O.
+ * - `getDoc()` loads the state blob from the DB on cache miss, then keeps the
+ *   Y.Doc in memory. A cache hit still costs one version-column SELECT: this
+ *   process is one of many serverless instances, so a doc cached here can be
+ *   arbitrarily far behind a peer instance's writes, and a read that skips
+ *   the check returns old text that looks current. The blob is re-read only
+ *   when that version actually moved.
  * - Mutations no longer call `applyStoredState()` unconditionally on every
  *   write. The defensive re-read from the DB happens only inside
  *   `persistMergedState` (needed for the CAS version read), not as a
@@ -28,6 +32,7 @@ import {
 import {
   loadYDocRecord,
   loadYDocState,
+  loadYDocVersion,
   saveYDocState,
   trySaveYDocState,
 } from "./storage.js";
@@ -100,10 +105,20 @@ const COMPACTION_RATIO = 4;
 interface CacheEntry {
   doc: Y.Doc;
   lastAccess: number;
+  /**
+   * The `_collab_docs.version` this cached doc is known to contain, or `null`
+   * when a write landed whose resulting version this process never learned.
+   * `null` must force a full reload — treating it as "current" is what makes
+   * a peer instance's writes invisible.
+   */
+  syncedVersion: number | null;
 }
 
 const _cache = new Map<string, CacheEntry>();
 const _writeLocks = new Map<string, Promise<void>>();
+// Coalesces concurrent staleness checks for the same docId so a burst of
+// readers costs one version SELECT rather than one each.
+const _refreshLocks = new Map<string, Promise<void>>();
 // Coalesces concurrent cache-miss loads for the same docId. Without this, two
 // simultaneous getDoc() callers both miss the cache, both build a Y.Doc and
 // apply stored state, and the second _cache.set silently orphans the first
@@ -196,19 +211,80 @@ async function persistMergedState(
     const stateToStore = buildStateToStore(doc, latest?.state?.length ?? 0);
     const textSnapshot = getTextSnapshot();
     validateTextSnapshot?.(textSnapshot);
+    const expectedVersion = latest?.version ?? null;
     const saved = await trySaveYDocState(
       docId,
       stateToStore,
       textSnapshot,
-      latest?.version ?? null,
+      expectedVersion,
     );
-    if (saved) return;
+    if (saved) {
+      // trySaveYDocState inserts at version 0 and otherwise bumps by one.
+      // Recording it keeps the next read on a single version SELECT instead
+      // of re-fetching the blob this process just wrote.
+      noteCachedVersion(
+        docId,
+        doc,
+        expectedVersion === null ? 0 : expectedVersion + 1,
+      );
+      return;
+    }
   }
 
   // All CAS attempts failed — fall back to unconditional save.
   const textSnapshot = getTextSnapshot();
   validateTextSnapshot?.(textSnapshot);
   await saveYDocState(docId, Y.encodeStateAsUpdate(doc), textSnapshot);
+  noteCachedVersion(docId, doc, null);
+}
+
+/**
+ * Record the row version a just-persisted doc now matches. `null` means the
+ * write's resulting version is unknown, so the next read must reload rather
+ * than assume this process is current.
+ */
+function noteCachedVersion(
+  docId: string,
+  doc: Y.Doc,
+  version: number | null,
+): void {
+  const entry = _cache.get(docId);
+  if (entry?.doc === doc) entry.syncedVersion = version;
+}
+
+/**
+ * Merge any state written by another process into a cached doc. Costs one
+ * version-column read; the state blob is fetched only when the version moved.
+ * Yjs merges are idempotent, so re-applying our own state is safe — the bug
+ * this closes is the opposite one, a reader that never re-checks and answers
+ * from a doc a peer instance moved past minutes ago.
+ */
+async function mergeNewerStoredState(
+  docId: string,
+  entry: CacheEntry,
+): Promise<void> {
+  const inFlight = _refreshLocks.get(docId);
+  if (inFlight) return inFlight;
+
+  const refresh = (async () => {
+    const storedVersion = await loadYDocVersion(docId);
+    // No row: nothing durable to merge. Anything already in this doc is a
+    // local write that has not been persisted yet, so keep it.
+    if (storedVersion === null) return;
+    if (entry.syncedVersion === storedVersion) return;
+
+    const record = await loadYDocRecord(docId);
+    if (record === null) return;
+    if (record.state.length > 0) Y.applyUpdate(entry.doc, record.state);
+    entry.syncedVersion = record.version;
+  })();
+
+  _refreshLocks.set(docId, refresh);
+  try {
+    await refresh;
+  } finally {
+    if (_refreshLocks.get(docId) === refresh) _refreshLocks.delete(docId);
+  }
 }
 
 /**
@@ -218,6 +294,7 @@ export async function getDoc(docId: string): Promise<Y.Doc> {
   const cached = _cache.get(docId);
   if (cached) {
     cached.lastAccess = Date.now();
+    await mergeNewerStoredState(docId, cached);
     return cached.doc;
   }
 
@@ -234,13 +311,17 @@ export async function getDoc(docId: string): Promise<Y.Doc> {
     }
 
     const doc = new Y.Doc();
-    const stored = await loadYDocState(docId);
-    if (stored && stored.length > 0) {
-      Y.applyUpdate(doc, stored);
+    const record = await loadYDocRecord(docId);
+    if (record && record.state.length > 0) {
+      Y.applyUpdate(doc, record.state);
     }
 
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now() });
+    _cache.set(docId, {
+      doc,
+      lastAccess: Date.now(),
+      syncedVersion: record?.version ?? null,
+    });
     return doc;
   })();
 
@@ -289,6 +370,15 @@ export async function applyText(
   requestSource?: string,
   options: {
     /**
+     * Validate the converged text this diff will be computed FROM, inside the
+     * write lock. A caller that checked the live text before calling has no
+     * protection against a peer process committing in between: `newText` is a
+     * whole document computed from the older base, so applying it would
+     * overwrite the other writer rather than conflict. Reject here to keep
+     * that a loud, retryable conflict.
+     */
+    validateBase?: (base: string) => void;
+    /**
      * Validate the fully converged text after cross-process Yjs updates have
      * merged, but before the state is persisted or broadcast. A rejected
      * candidate is discarded from this process's cache so the next read
@@ -300,6 +390,7 @@ export async function applyText(
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
     const oldText = doc.getText(fieldName).toString();
+    options.validateBase?.(oldText);
     const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
     if (update.length === 0) {
@@ -434,7 +525,7 @@ export async function seedFromText(
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now() });
+    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
   });
 }
 
@@ -528,7 +619,7 @@ export async function seedFromJson(
 
     // Cache the doc
     evictIfNeeded();
-    _cache.set(docId, { doc, lastAccess: Date.now() });
+    _cache.set(docId, { doc, lastAccess: Date.now(), syncedVersion: null });
   });
 }
 

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const storageMocks = vi.hoisted(() => ({
   loadYDocRecord: vi.fn(),
   loadYDocState: vi.fn(),
+  loadYDocVersion: vi.fn(),
   saveYDocState: vi.fn(),
   trySaveYDocState: vi.fn(),
 }));
@@ -24,10 +25,11 @@ describe("ydoc-manager", () => {
     storageMocks.saveYDocState.mockReset();
     storageMocks.trySaveYDocState.mockReset();
     storageMocks.loadYDocState.mockReset();
+    storageMocks.loadYDocVersion.mockReset();
   });
 
   it("coalesces concurrent cache-miss loads for the same document", async () => {
-    storageMocks.loadYDocState.mockImplementation(async () => {
+    storageMocks.loadYDocRecord.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       return null;
     });
@@ -39,6 +41,6 @@ describe("ydoc-manager", () => {
     ]);
 
     expect(first).toBe(second);
-    expect(storageMocks.loadYDocState).toHaveBeenCalledTimes(1);
+    expect(storageMocks.loadYDocRecord).toHaveBeenCalledTimes(1);
   });
 });

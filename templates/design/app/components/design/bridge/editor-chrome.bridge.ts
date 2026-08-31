@@ -5572,7 +5572,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var FRAME_PRIMITIVE_SELECTOR = '[data-an-primitive="frame"]';
   var frameLabelRenderKey = "";
 
+  // Only top-level canvas objects carry a name label. A screen is named by the
+  // host's screen card, so nothing inside a screen document is labeled here:
+  // "has no frame ancestor" is not "is top level", and a frame dropped inside a
+  // screen satisfied the former and got a stray canvas label.
   function outermostFrameElements(): Element[] {
+    if (!designCanvasBoardSurface) return [];
     var frames = Array.prototype.slice.call(
       document.querySelectorAll(FRAME_PRIMITIVE_SELECTOR),
     ) as Element[];

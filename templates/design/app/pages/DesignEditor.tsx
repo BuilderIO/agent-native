@@ -1147,7 +1147,10 @@ function DesignEditor() {
   const [
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
-  ] = useState<{ requestId: number; screenIds: string[] } | null>(null);
+  ] = useState<{
+    requestId: number;
+    screenIds: string[];
+  } | null>(null);
   const [
     pendingStructureVerificationStatus,
     setPendingStructureVerificationStatus,
@@ -1470,7 +1473,10 @@ function DesignEditor() {
     string[]
   >([]);
   const [createdOverviewLayerSelection, setCreatedOverviewLayerSelection] =
-    useState<{ screenId: string; layerId: string } | null>(null);
+    useState<{
+      screenId: string;
+      layerId: string;
+    } | null>(null);
   const pendingOverviewScreenSelectionRef = useRef<string | null>(null);
   const pendingOverviewLayerSelectionRef = useRef<string | null>(null);
   const lastOverviewSelectedScreenIdsRef = useRef<string[]>([]);
@@ -3667,10 +3673,7 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!design?.title) return;
-    const nextTitle = `${normalizeDocumentTitle(
-      design.title,
-      "Untitled design",
-    )} — Design`;
+    const nextTitle = `${normalizeDocumentTitle(design.title, "Untitled design")} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {
@@ -20190,6 +20193,7 @@ function DesignEditor() {
                           canEditDesign ? handleOverviewDropFiles : undefined
                         }
                         boardFileId={boardFileId}
+                        canvasBackground={canvasBackground}
                         boardIsActive={activeFileId === boardFileId}
                         boardFileContent={boardFileContent}
                         boardFrameGeometry={boardFrameGeometry}

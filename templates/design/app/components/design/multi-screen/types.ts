@@ -326,6 +326,8 @@ export interface MultiScreenCanvasProps {
    * the screen iframes so board elements are editable through the bridge.
    */
   boardFileId?: string;
+  /** Host CSS vars do not reach the board iframe; omit this and coverage stays themed. */
+  canvasBackground?: string | null;
   /**
    * The current HTML content of the board file.
    * Passed as `content` to the board <DesignCanvas> instance.

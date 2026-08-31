@@ -373,6 +373,22 @@ export async function writeInlineSourceFile(args: {
       if (liveBeforeApply !== args.content) {
         try {
           await applyText(args.file.id, args.content, "content", "agent", {
+            // The check above ran before the write lock and against a value
+            // that another serverless process can invalidate a millisecond
+            // later. Re-assert it on the text the diff is actually computed
+            // from: `args.content` is a whole document built on the older
+            // base, so a peer's edit that landed in between would be
+            // overwritten silently rather than reported as a conflict.
+            validateBase: (base) => {
+              if (
+                args.expectedVersionHash &&
+                args.expectedVersionHash !== sourceContentHash(base)
+              ) {
+                throw new SourceWorkspaceEditConflictError(
+                  "Source file changed while the edit was being applied. Re-read the file and retry.",
+                );
+              }
+            },
             // A human artboard edit can reach the shared Y.Doc from another
             // serverless process after the version check above. Validate the
             // fully converged CRDT snapshot before core persists or broadcasts

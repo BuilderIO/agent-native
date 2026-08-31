@@ -20,31 +20,14 @@ import {
   IconRefresh,
   IconVector,
 } from "@tabler/icons-react";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { AppearanceProperties } from "./edit-panel/appearance-properties";
@@ -81,10 +64,7 @@ import {
   deriveLockedAspectSize,
   interactionStateSelectionKey,
 } from "./edit-panel/element-identity";
-import {
-  commitStylePatch,
-  ScrubStyleInput,
-} from "./edit-panel/field-primitives";
+import { commitStylePatch, ScrubStyleInput } from "./edit-panel/field-primitives";
 import {
   averageGradientOpacity,
   buildGradientLayer,
@@ -108,10 +88,7 @@ import {
   elementWithInteractionStateStyles,
   resolveInteractionStateValue,
 } from "./edit-panel/interaction-state-helpers";
-import {
-  LayoutContextProperties,
-  LayoutGuideProperties,
-} from "./edit-panel/layout-properties";
+import { LayoutContextProperties, LayoutGuideProperties } from "./edit-panel/layout-properties";
 import {
   ColorInput,
   InspectorActionPairGrid,
@@ -146,10 +123,7 @@ import {
   type StyleChangeMeta,
   type StylesChangeHandler,
 } from "./edit-panel/style-change-types";
-import {
-  mergeRotationValue,
-  normalizeRotationDegrees,
-} from "./edit-panel/transform-helpers";
+import { mergeRotationValue, normalizeRotationDegrees } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
@@ -167,10 +141,7 @@ import {
 } from "./inspector";
 import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
-import {
-  ReviewCommentsPanel,
-  type ReviewCommentsPanelProps,
-} from "./ReviewCommentsPanel";
+import { ReviewCommentsPanel, type ReviewCommentsPanelProps } from "./ReviewCommentsPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
@@ -254,9 +225,7 @@ interface EditPanelProps {
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
     screenId: string,
-    next: Partial<
-      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
-    >,
+    next: Partial<Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">>,
   ) => void;
   pageStyles?: Record<string, string>;
   zoom?: number;
@@ -285,9 +254,7 @@ interface EditPanelProps {
   /** Latest active file HTML, used to compose rapid sequential source edits. */
   activeContent?: string;
   /** Optimistic localhost state styles that are not persisted into activeContent. */
-  pendingInteractionStateStyles?: Partial<
-    Record<InteractionState, Record<string, string>>
-  >;
+  pendingInteractionStateStyles?: Partial<Record<InteractionState, Record<string, string>>>;
   /** Server revision for activeContent. */
   activeFileUpdatedAt?: string | null;
   /**
@@ -309,11 +276,7 @@ interface EditPanelProps {
    * Called after a component prop edit returns the patched source so the parent
    * editor can sync local/Yjs content instead of waiting for query invalidation.
    */
-  onComponentPropApplied?: (
-    fileId: string,
-    content: string,
-    updatedAt?: string,
-  ) => void;
+  onComponentPropApplied?: (fileId: string, content: string, updatedAt?: string) => void;
   /**
    * Called after a token edit is applied so the parent can push the resolved
    * CSS-var map into the iframe via the tweak-values postMessage.
@@ -386,11 +349,7 @@ interface EditPanelProps {
    * active tool back to `"move"` afterward — matching Figma, which arms the
    * Frame tool for exactly one placement.
    */
-  onCreateScreenFromPreset?: (preset: {
-    name: string;
-    width: number;
-    height: number;
-  }) => void;
+  onCreateScreenFromPreset?: (preset: { name: string; width: number; height: number }) => void;
   // -------------------------------------------------------------------------
   // Position section — selection alignment (Figma parity)
   // -------------------------------------------------------------------------
@@ -428,9 +387,7 @@ interface EditPanelProps {
    * Only `"unsupported"` may fall back to writing the container styles alone.
    */
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
-  onAlignSelection?: (
-    edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
-  ) => void;
+  onAlignSelection?: (edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom") => void;
   // -------------------------------------------------------------------------
   // Element interaction states (hover / focus / focus-visible / active /
   // disabled) — see shared/interaction-states.ts for the persisted format
@@ -568,14 +525,10 @@ function sourcePositionLabel(
   source: Pick<InspectCodeSourceLocation, "filePath" | "line" | "column">,
 ): string {
   if (source.line == null) return source.filePath;
-  return `${source.filePath}:${source.line}${
-    source.column == null ? "" : `:${source.column}`
-  }`;
+  return `${source.filePath}:${source.line}${source.column == null ? "" : `:${source.column}`}`;
 }
 
-function sourcePrecisionLabel(
-  method: InspectCodeSourceLocation["method"],
-): string | null {
+function sourcePrecisionLabel(method: InspectCodeSourceLocation["method"]): string | null {
   if (method === "debug-stack") return "Runtime-transformed location"; // i18n-ignore design inspector technical provenance label
   if (method === "debug-source" || method === "data-attribute") {
     return "Authored source location"; // i18n-ignore design inspector technical provenance label
@@ -583,15 +536,9 @@ function sourcePrecisionLabel(
   return null;
 }
 
-function SourceLocationSummary({
-  source,
-}: {
-  source: InspectCodeSourceLocation;
-}) {
+function SourceLocationSummary({ source }: { source: InspectCodeSourceLocation }) {
   const precision = sourcePrecisionLabel(source.method);
-  const ownerPrecision = source.owner
-    ? sourcePrecisionLabel(source.owner.method)
-    : null;
+  const ownerPrecision = source.owner ? sourcePrecisionLabel(source.owner.method) : null;
   return (
     <div className="space-y-1">
       <div
@@ -601,18 +548,14 @@ function SourceLocationSummary({
         <div className="flex min-w-0 items-center gap-1">
           <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
           {source.componentName ? (
-            <span className="shrink-0 font-medium text-foreground">
-              {source.componentName}
-            </span>
+            <span className="shrink-0 font-medium text-foreground">{source.componentName}</span>
           ) : null}
           <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
             {sourcePositionLabel(source)}
           </span>
         </div>
         {precision ? (
-          <div className="mt-0.5 pl-4 text-[9px] text-muted-foreground/70">
-            {precision}
-          </div>
+          <div className="mt-0.5 pl-4 text-[9px] text-muted-foreground/70">{precision}</div>
         ) : null}
       </div>
       {source.owner ? (
@@ -624,18 +567,12 @@ function SourceLocationSummary({
             <span className="mr-1 font-medium text-foreground/80">
               {"Owner" /* i18n-ignore design inspector provenance label */}
             </span>
-            {source.owner.componentName
-              ? `${source.owner.componentName} · `
-              : ""}
-            <span className="font-mono">
-              {sourcePositionLabel(source.owner)}
-            </span>
+            {source.owner.componentName ? `${source.owner.componentName} · ` : ""}
+            <span className="font-mono">{sourcePositionLabel(source.owner)}</span>
             {source.owner.key ? ` · key ${source.owner.key}` : ""}
           </div>
           {ownerPrecision ? (
-            <div className="mt-0.5 text-[9px] text-muted-foreground/70">
-              {ownerPrecision}
-            </div>
+            <div className="mt-0.5 text-[9px] text-muted-foreground/70">{ownerPrecision}</div>
           ) : null}
         </div>
       ) : null}
@@ -683,9 +620,7 @@ function CreateComponentPopover({
               variant="ghost"
               size="icon"
               className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
-              aria-label={
-                "Create component" /* i18n-ignore design inspector action */
-              }
+              aria-label={"Create component" /* i18n-ignore design inspector action */}
             >
               <IconComponents className="size-3.5" />
             </Button>
@@ -733,18 +668,11 @@ function CreateComponentPopover({
               id="create-component-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={
-                "PrimaryButton" /* i18n-ignore design inspector placeholder */
-              }
+              placeholder={"PrimaryButton" /* i18n-ignore design inspector placeholder */}
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onOpenChange(false)}
-            >
+            <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
               {"Cancel" /* i18n-ignore design inspector action */}
             </Button>
             <Button type="submit" size="sm" disabled={!name.trim()}>
@@ -769,8 +697,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
   const [copied, setCopied] = useState(false);
   const html = data.html ?? "";
   const source = data.sourceLocation ?? null;
-  const snippet =
-    elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
+  const snippet = elementHtmlPreview(data) ?? source?.snippet ?? (html.trim() || null);
 
   const handleCopy = () => {
     if (!snippet) return;
@@ -795,17 +722,13 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
               variant="ghost"
               size="icon"
               className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
-              aria-label={
-                "Inspect code" /* i18n-ignore design inspector action */
-              }
+              aria-label={"Inspect code" /* i18n-ignore design inspector action */}
             >
               <IconCode className="size-3.5" />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>
-          {"Inspect code" /* i18n-ignore design inspector action */}
-        </TooltipContent>
+        <TooltipContent>{"Inspect code" /* i18n-ignore design inspector action */}</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-80 space-y-2 p-2 !text-[11px]">
         <div className="flex items-center justify-between gap-2">
@@ -836,19 +759,13 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           </pre>
         ) : (
           <p className="px-1 py-2 text-muted-foreground">
-            {
-              "No source available for this element." /* i18n-ignore design inspector empty */
-            }
+            {"No source available for this element." /* i18n-ignore design inspector empty */}
           </p>
         )}
 
         {source?.absolutePath ? (
           <a
-            href={vscodeDeepLink(
-              source.absolutePath,
-              source.line,
-              source.column,
-            )}
+            href={vscodeDeepLink(source.absolutePath, source.line, source.column)}
             className="block"
           >
             <Button
@@ -878,10 +795,7 @@ function CodeInspectPanel({
 }) {
   const [copied, setCopied] = useState(false);
   const snippet = data
-    ? (elementHtmlPreview(data) ??
-      data.sourceLocation?.snippet ??
-      data.html?.trim() ??
-      null)
+    ? (elementHtmlPreview(data) ?? data.sourceLocation?.snippet ?? data.html?.trim() ?? null)
     : null;
   const bounds = element?.boundingRect ?? screen;
   const measurements = bounds
@@ -938,17 +852,13 @@ function CodeInspectPanel({
       </div>
 
       {measurements.length > 0 ? (
-        <PanelSection
-          title={"Measurements" /* i18n-ignore design inspector section */}
-        >
+        <PanelSection title={"Measurements" /* i18n-ignore design inspector section */}>
           <InspectorGrid layout="pair-flow">
             {measurements.map(([label, value]) => (
               <InspectorGridCell key={label} span={14}>
                 <div className="flex h-6 items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 text-[11px]">
                   <span className="text-muted-foreground">{label}</span>
-                  <span className="font-mono text-foreground">
-                    {Math.round(Number(value))}px
-                  </span>
+                  <span className="font-mono text-foreground">{Math.round(Number(value))}px</span>
                 </div>
               </InspectorGridCell>
             ))}
@@ -957,16 +867,12 @@ function CodeInspectPanel({
       ) : null}
 
       {styles.length > 0 ? (
-        <PanelSection
-          title={"Computed styles" /* i18n-ignore design inspector section */}
-        >
+        <PanelSection title={"Computed styles" /* i18n-ignore design inspector section */}>
           <div className="space-y-2 text-[11px]">
             {styles.map(([label, value]) => (
               <InspectorGrid key={label} className="items-center">
                 <InspectorGridCell span={10}>
-                  <span className="truncate text-muted-foreground">
-                    {label}
-                  </span>
+                  <span className="truncate text-muted-foreground">{label}</span>
                 </InspectorGridCell>
                 <InspectorGridCell span={18}>
                   <span className="block truncate text-right font-mono text-foreground">
@@ -1034,10 +940,7 @@ function SelectionHeader({
 }) {
   if (!element) return null;
 
-  const title =
-    selectedCount > 1
-      ? `${selectedCount} selected`
-      : inspectorObjectTitle(element);
+  const title = selectedCount > 1 ? `${selectedCount} selected` : inspectorObjectTitle(element);
   const TypeIcon = elementTypeIcon(element);
   const isComponentSelection = elementIsComponentSelection(element);
 
@@ -1072,9 +975,7 @@ function SelectionHeader({
                 />
               ) : (
                 <SectionIconButton
-                  label={
-                    "Create component" /* i18n-ignore design inspector action */
-                  }
+                  label={"Create component" /* i18n-ignore design inspector action */}
                   disabled
                 >
                   <IconComponents className="size-3.5" />
@@ -1098,11 +999,7 @@ function SelectionHeader({
   );
 }
 
-function ScreenSelectionHeader({
-  screen,
-}: {
-  screen: ScreenGeometrySelection;
-}) {
+function ScreenSelectionHeader({ screen }: { screen: ScreenGeometrySelection }) {
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
       <div className="design-sidebar-context-title flex min-w-0 items-center gap-1.5 text-left text-foreground">
@@ -1117,11 +1014,7 @@ function ScreenSelectionHeader({
  *  Size label rather than an always-visible list: the frame tool's full-panel
  *  preset list only exists before a frame is drawn, so a selected frame had no
  *  way to reach the same sizes. */
-function ScreenSizePresetPicker({
-  onPick,
-}: {
-  onPick: (preset: FrameSizePreset) => void;
-}) {
+function ScreenSizePresetPicker({ onPick }: { onPick: (preset: FrameSizePreset) => void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const label = t("editPanel.framePresets.applyToFrame");
@@ -1163,20 +1056,15 @@ function ScreenGeometryProperties({
   screen: ScreenGeometrySelection;
   onGeometryChange?: (
     screenId: string,
-    next: Partial<
-      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
-    >,
+    next: Partial<Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">>,
   ) => void;
 }) {
   const t = useT();
   const noop = useCallback(() => {}, []);
   const editable = Boolean(onGeometryChange);
   const commit = useCallback(
-    (
-      next: Partial<
-        Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
-      >,
-    ) => onGeometryChange?.(screen.id, next),
+    (next: Partial<Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">>) =>
+      onGeometryChange?.(screen.id, next),
     [onGeometryChange, screen.id],
   );
 
@@ -1207,9 +1095,7 @@ function ScreenGeometryProperties({
         />
       </div>
       <div className="design-sidebar-property-group">
-        <SubsectionLabel>
-          {"Size" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
+        <SubsectionLabel>{"Size" /* i18n-ignore design inspector label */}</SubsectionLabel>
         <InspectorActionPairGrid
           className="items-center"
           left={
@@ -1235,9 +1121,7 @@ function ScreenGeometryProperties({
           action={
             editable ? (
               <ScreenSizePresetPicker
-                onPick={(preset) =>
-                  commit({ width: preset.width, height: preset.height })
-                }
+                onPick={(preset) => commit({ width: preset.width, height: preset.height })}
               />
             ) : null
           }
@@ -1328,9 +1212,7 @@ function InspectorTabsHeader({
         </InspectorGridCell>
         <InspectorGridCell span={4}>
           <InspectorActionRail>
-            {import.meta.env.DEV &&
-            activeTab === "design" &&
-            onInspectorGridDebugChange ? (
+            {import.meta.env.DEV && activeTab === "design" && onInspectorGridDebugChange ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1348,9 +1230,7 @@ function InspectorTabsHeader({
                         : "Show inspector grid" /* i18n-ignore design inspector debug action */
                     }
                     aria-pressed={inspectorGridDebug}
-                    onClick={() =>
-                      onInspectorGridDebugChange(!inspectorGridDebug)
-                    }
+                    onClick={() => onInspectorGridDebugChange(!inspectorGridDebug)}
                   >
                     <IconGridDots className="size-3.5" />
                   </Button>
@@ -1392,9 +1272,7 @@ function PageProperties({
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
   const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === fontFamily,
-  )
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
     ? baseFontFamilyOptions
     : [
         {
@@ -1420,48 +1298,49 @@ function PageProperties({
             allowDesignHistoryHotkeys
           />
         </PanelSection>
-      ) : null}
-      <PanelSection title={t("editPanel.sections.page")}>
-        <ColorInput
-          label={t("editPanel.labels.background")}
-          value={styles.backgroundColor || ""}
-          onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
-          backgroundImage={styles.backgroundImage}
-          backgroundSize={styles.backgroundSize}
-          backgroundRepeat={styles.backgroundRepeat}
-          backgroundPosition={styles.backgroundPosition}
-          onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
-          // Layer-index-aware: ColorInput merges the edited image into the
-          // correct backgroundImage/backgroundSize/backgroundRepeat/
-          // backgroundPosition index and hands back the full four-property
-          // patch here, already preserving every other stacked
-          // gradient/image layer (same pattern as FillProperties' base fill
-          // row — see fill-properties.tsx). The single-layer
-          // `onImageFillChange` this previously used always overwrote the
-          // *whole* background stack via `imageFillToBackgroundStyles`,
-          // silently wiping any other stacked background layer.
-          onImageFillLayerChange={(patch) =>
-            commitStylePatch(patch, onStyleChange, onStylesChange)
-          }
-          blendMode={styles.backgroundBlendMode || "normal"}
-          onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
-          supportsLayeredFills
-          allowDesignHistoryHotkeys
-        />
-        <PropSelect
-          label={t("editPanel.labels.font")}
-          value={fontFamily}
-          onChange={(v) => onStyleChange("fontFamily", v)}
-          options={fontFamilyOptions}
-        />
-        <PropInput
-          label={t("editPanel.labels.baseSize")}
-          value={styles.fontSize || "16px"}
-          onChange={(v) => onStyleChange("fontSize", v)}
-          placeholder="16px"
-          defaultUnit="px"
-        />
-      </PanelSection>
+      ) : (
+        <PanelSection title={t("editPanel.sections.page")}>
+          <ColorInput
+            label={t("editPanel.labels.background")}
+            value={styles.backgroundColor || ""}
+            onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
+            backgroundImage={styles.backgroundImage}
+            backgroundSize={styles.backgroundSize}
+            backgroundRepeat={styles.backgroundRepeat}
+            backgroundPosition={styles.backgroundPosition}
+            onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
+            // Layer-index-aware: ColorInput merges the edited image into the
+            // correct backgroundImage/backgroundSize/backgroundRepeat/
+            // backgroundPosition index and hands back the full four-property
+            // patch here, already preserving every other stacked
+            // gradient/image layer (same pattern as FillProperties' base fill
+            // row — see fill-properties.tsx). The single-layer
+            // `onImageFillChange` this previously used always overwrote the
+            // *whole* background stack via `imageFillToBackgroundStyles`,
+            // silently wiping any other stacked background layer.
+            onImageFillLayerChange={(patch) =>
+              commitStylePatch(patch, onStyleChange, onStylesChange)
+            }
+            blendMode={styles.backgroundBlendMode || "normal"}
+            onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
+            supportsLayeredFills
+            allowDesignHistoryHotkeys
+          />
+          <PropSelect
+            label={t("editPanel.labels.font")}
+            value={fontFamily}
+            onChange={(v) => onStyleChange("fontFamily", v)}
+            options={fontFamilyOptions}
+          />
+          <PropInput
+            label={t("editPanel.labels.baseSize")}
+            value={styles.fontSize || "16px"}
+            onChange={(v) => onStyleChange("fontSize", v)}
+            placeholder="16px"
+            defaultUnit="px"
+          />
+        </PanelSection>
+      )}
     </div>
   );
 }
@@ -1492,10 +1371,7 @@ function ExportPreview({
   } | null>(null);
   const width = rendered?.width ?? rect?.width ?? null;
   const height = rendered?.height ?? rect?.height ?? null;
-  const aspect =
-    width != null && height != null && width > 0 && height > 0
-      ? width / height
-      : 1;
+  const aspect = width != null && height != null && width > 0 && height > 0 ? width / height : 1;
   const [state, setState] = useState<
     | { status: "idle" }
     | { status: "loading" }
@@ -1616,9 +1492,7 @@ function SelectionColorsProperties({
   if (!colors.length) return null;
 
   return (
-    <PanelSection
-      title={"Selection colors" /* i18n-ignore design inspector label */}
-    >
+    <PanelSection title={"Selection colors" /* i18n-ignore design inspector label */}>
       {expanded ? (
         <InspectorGrid>
           {colors.map((color, index) => {
@@ -1645,17 +1519,9 @@ function SelectionColorsProperties({
                       </span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent
-                    side="left"
-                    align="start"
-                    sideOffset={8}
-                    className="w-80 p-0"
-                  >
+                  <PopoverContent side="left" align="start" sideOffset={8} className="w-80 p-0">
                     <DesignColorPicker
-                      value={cssColorOrFallback(
-                        color.value,
-                        DEFAULT_AUTHORED_COLOR,
-                      )}
+                      value={cssColorOrFallback(color.value, DEFAULT_AUTHORED_COLOR)}
                       // PF12: per-tick drag preview vs. one authoritative
                       // commit on gesture-end — same split as ColorInput's
                       // setNext (see its PF12 comment above).
@@ -1685,9 +1551,7 @@ function SelectionColorsProperties({
               onClick={() => setExpanded(true)}
             >
               <span className="truncate">
-                {
-                  "Show selection colors" /* i18n-ignore design inspector label */
-                }
+                {"Show selection colors" /* i18n-ignore design inspector label */}
               </span>
               <div className="flex shrink-0 items-center -space-x-1">
                 {colors.slice(0, 3).map((color, index) => (
@@ -1773,25 +1637,22 @@ export const EditPanel = memo(function EditPanel({
 }: EditPanelProps) {
   const t = useT();
   const [createComponentOpen, setCreateComponentOpen] = useState(false);
-  const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
-    DEFAULT_EXPORT_SETTINGS,
-  );
+  const [exportSettings, setExportSettings] =
+    useState<ExportSettingsValue>(DEFAULT_EXPORT_SETTINGS);
   // Element interaction-state selector (Default / Hover / Focus / …). Owned
   // here (not lifted to the parent) per the mission contract — DesignEditor
   // only needs to react to changes via onInteractionStateChange, it doesn't
   // need to drive the value. Resets to Default whenever the selection
   // changes so switching elements never leaves a stale non-default state
   // silently active (matches the export-settings reset effect below).
-  const [interactionState, setInteractionState] =
-    useState<ActiveInteractionState>(null);
+  const [interactionState, setInteractionState] = useState<ActiveInteractionState>(null);
   // Own the Radix menu state above InteractionStatePanel's conditional
   // element subtree. A source commit can briefly remove/recreate that subtree
   // while the selected runtime element is reconciled; panel-local uncontrolled
   // state interpreted that refresh as an outside close immediately after the
   // user's click. This state survives the transient remount and is reset only
   // when the stable selection identity genuinely changes.
-  const [interactionStateMenuOpen, setInteractionStateMenuOpen] =
-    useState(false);
+  const [interactionStateMenuOpen, setInteractionStateMenuOpen] = useState(false);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -1849,13 +1710,9 @@ export const EditPanel = memo(function EditPanel({
   );
   const selectionAlreadyComponent =
     selectedCount === 1 &&
-    (selectedElementAlreadyComponent ||
-      elementIsComponentSelection(selectedElement));
+    (selectedElementAlreadyComponent || elementIsComponentSelection(selectedElement));
   const canCreateComponent = Boolean(
-    onCreateComponent &&
-    selectedElement &&
-    selectedCount <= 1 &&
-    !selectionAlreadyComponent,
+    onCreateComponent && selectedElement && selectedCount <= 1 && !selectionAlreadyComponent,
   );
   const selectedElementKey = inspectorElement
     ? interactionStateSelectionKey(inspectorElement, fileId, selectedCount)
@@ -1880,8 +1737,8 @@ export const EditPanel = memo(function EditPanel({
   const selectionHasTextElement = effectiveSelectedElements.some((element) =>
     isTextElement(element),
   );
-  const selectionHasContainerElement = effectiveSelectedElements.some(
-    (element) => isContainerElement(element),
+  const selectionHasContainerElement = effectiveSelectedElements.some((element) =>
+    isContainerElement(element),
   );
   const handleActiveTabChange = useCallback(
     (tab: InspectorTab) => onActiveTabChange?.(tab),
@@ -1936,9 +1793,7 @@ export const EditPanel = memo(function EditPanel({
   // `<style data-agent-native-states>` block in the active file's HTML for
   // this one node id. Only meaningful for a single-element, source-backed
   // selection — undefined (no dot ever shown) otherwise.
-  const interactionStatesWithOverrides = useMemo(():
-    | ReadonlySet<InteractionState>
-    | undefined => {
+  const interactionStatesWithOverrides = useMemo((): ReadonlySet<InteractionState> | undefined => {
     if (!activeContent || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
     if (!nodeId) return undefined;
@@ -1948,20 +1803,13 @@ export const EditPanel = memo(function EditPanel({
       .map(([state]) => state as InteractionState);
     const combined = [...states, ...pendingStates];
     return combined.length > 0 ? new Set(combined) : undefined;
-  }, [
-    activeContent,
-    pendingInteractionStateStyles,
-    selectedCount,
-    inspectorElement?.sourceId,
-  ]);
+  }, [activeContent, pendingInteractionStateStyles, selectedCount, inspectorElement?.sourceId]);
 
   // The active state's declared property/value overrides for the selected
   // element, used below to resolve each style-section field's displayed
   // value (state value when overridden, else the base value — see
   // `resolveInteractionStateValue`).
-  const activeInteractionStateStyles = useMemo(():
-    | Record<string, string>
-    | undefined => {
+  const activeInteractionStateStyles = useMemo((): Record<string, string> | undefined => {
     if (!activeContent || !interactionState || selectedCount > 1) {
       return undefined;
     }
@@ -1988,10 +1836,7 @@ export const EditPanel = memo(function EditPanel({
   const stateResolvedInspectorElement = useMemo(
     () =>
       inspectorElement
-        ? elementWithInteractionStateStyles(
-            inspectorElement,
-            activeInteractionStateStyles,
-          )
+        ? elementWithInteractionStateStyles(inspectorElement, activeInteractionStateStyles)
         : null,
     [activeInteractionStateStyles, inspectorElement],
   );
@@ -1999,9 +1844,7 @@ export const EditPanel = memo(function EditPanel({
   // Motion keyframe diamonds (Figma Motion parity) — see `motionKeyframeState`
   // on EditPanelProps. `undefined` (feature off, or a multi-selection, which
   // has no single element to keyframe) hides every diamond below.
-  const motionKeyframeFieldContext = useMemo(():
-    | MotionKeyframeFieldContext
-    | undefined => {
+  const motionKeyframeFieldContext = useMemo((): MotionKeyframeFieldContext | undefined => {
     if (!motionKeyframeState || selectedCount > 1) return undefined;
     return {
       hasTimeline: motionKeyframeState.hasTimeline,
@@ -2023,21 +1866,14 @@ export const EditPanel = memo(function EditPanel({
   // without touching those ~26 call sites individually.
   const onStyleChange = useCallback<StyleChangeHandler>(
     (property, value, meta) => {
-      onStyleChangeProp(
-        property,
-        value,
-        interactionState ? { ...meta, interactionState } : meta,
-      );
+      onStyleChangeProp(property, value, interactionState ? { ...meta, interactionState } : meta);
     },
     [onStyleChangeProp, interactionState],
   );
   const onStylesChange = useCallback<StylesChangeHandler>(
     (styles, meta) => {
       if (!onStylesChangeProp) return;
-      onStylesChangeProp(
-        styles,
-        interactionState ? { ...meta, interactionState } : meta,
-      );
+      onStylesChangeProp(styles, interactionState ? { ...meta, interactionState } : meta);
     },
     [onStylesChangeProp, interactionState],
   );
@@ -2048,9 +1884,7 @@ export const EditPanel = memo(function EditPanel({
   // itself happens in `resolveBreakpointOverride`. Declared after
   // `onStyleChange` so its reset callback can route the synthetic commit
   // through the same interaction-state-aware wrapper every other field uses.
-  const breakpointOverrideFieldContext = useMemo(():
-    | BreakpointOverrideFieldContext
-    | undefined => {
+  const breakpointOverrideFieldContext = useMemo((): BreakpointOverrideFieldContext | undefined => {
     if (!breakpointContext || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
     return {
@@ -2065,9 +1899,8 @@ export const EditPanel = memo(function EditPanel({
         // value — the base/wider-scope value the field falls back to once
         // the override is cleared — never a new value to persist; see the
         // `breakpointReset` doc on `StyleChangeMeta` for the full contract.
-        const camelProperty = property.replace(
-          /-([a-z])/g,
-          (_, letter: string) => letter.toUpperCase(),
+        const camelProperty = property.replace(/-([a-z])/g, (_, letter: string) =>
+          letter.toUpperCase(),
         );
         const fallback =
           inspectorElement?.computedStyles[property] ??
@@ -2092,9 +1925,7 @@ export const EditPanel = memo(function EditPanel({
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resolvedActiveTab: InspectorTab =
-    readOnly && (activeTab === "design" || activeTab === "tweaks")
-      ? "code"
-      : activeTab;
+    readOnly && (activeTab === "design" || activeTab === "tweaks") ? "code" : activeTab;
 
   // Frame presets belong to the Design inspector. Keep Comments and Tweaks
   // visible when the Frame tool remains armed while another tab is active.
@@ -2124,25 +1955,19 @@ export const EditPanel = memo(function EditPanel({
         />
 
         {showFramePresets ? (
-          <FramePresetsPanel
-            onPick={(preset) => onCreateScreenFromPreset?.(preset)}
-          />
+          <FramePresetsPanel onPick={(preset) => onCreateScreenFromPreset?.(preset)} />
         ) : resolvedActiveTab === "design" ? (
           <>
             <SelectionHeader
               element={inspectorElement}
               selectedCount={selectedCount}
-              onCreateComponent={
-                canCreateComponent ? onCreateComponent : undefined
-              }
+              onCreateComponent={canCreateComponent ? onCreateComponent : undefined}
               createComponentOpen={createComponentOpen}
               onCreateComponentOpenChange={setCreateComponentOpen}
               showCreateComponentAction={!selectionAlreadyComponent}
               defaultComponentName={defaultComponentName}
               inspectCode={
-                inspectCode && selectedElement && selectedCount <= 1
-                  ? inspectCode
-                  : undefined
+                inspectCode && selectedElement && selectedCount <= 1 ? inspectCode : undefined
               }
             />
             {!inspectorElement && selectedScreenGeometry ? (
@@ -2246,9 +2071,7 @@ export const EditPanel = memo(function EditPanel({
               {!inspectorElement && selectedScreenGeometry ? (
                 <ScreenGeometryProperties
                   screen={selectedScreenGeometry}
-                  onGeometryChange={
-                    readOnly ? undefined : onScreenGeometryChange
-                  }
+                  onGeometryChange={readOnly ? undefined : onScreenGeometryChange}
                 />
               ) : null}
 
@@ -2258,9 +2081,7 @@ export const EditPanel = memo(function EditPanel({
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
-                  onCanvasBackgroundChange={
-                    readOnly ? undefined : onCanvasBackgroundChange
-                  }
+                  onCanvasBackgroundChange={readOnly ? undefined : onCanvasBackgroundChange}
                 />
               )}
 
@@ -2302,9 +2123,7 @@ export const EditPanel = memo(function EditPanel({
                   />
                   {selectionHasTextElement ? (
                     <TypographyProperties
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
+                      element={stateResolvedInspectorElement ?? inspectorElement}
                       onStyleChange={onStyleChange}
                     />
                   ) : null}
@@ -2337,9 +2156,7 @@ export const EditPanel = memo(function EditPanel({
                   />
                   {selectionHasContainerElement ? (
                     <LayoutGuideProperties
-                      element={
-                        stateResolvedInspectorElement ?? inspectorElement
-                      }
+                      element={stateResolvedInspectorElement ?? inspectorElement}
                       onStyleChange={onStyleChange}
                     />
                   ) : null}
@@ -2360,9 +2177,7 @@ export const EditPanel = memo(function EditPanel({
                     // or clipping bug in it.
                     formats={["png", "svg", "pdf"]}
                     exporting={exporting}
-                    onChange={(patch) =>
-                      setExportSettings((current) => ({ ...current, ...patch }))
-                    }
+                    onChange={(patch) => setExportSettings((current) => ({ ...current, ...patch }))}
                     onExport={onExport}
                   />
                   {/* Distinct from the settings panel's key: two siblings
@@ -2396,9 +2211,7 @@ export const EditPanel = memo(function EditPanel({
                             event.stopPropagation();
                             reviewPanelProps.onRunAudit?.();
                           }}
-                          aria-label={
-                            "Run audit" /* i18n-ignore design inspector action */
-                          }
+                          aria-label={"Run audit" /* i18n-ignore design inspector action */}
                         >
                           <IconRefresh
                             className={cn(
@@ -2423,10 +2236,7 @@ export const EditPanel = memo(function EditPanel({
         ) : resolvedActiveTab === "tweaks" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="h-10 shrink-0 border-b border-border/90 px-2">
-              <InspectorGrid
-                className="h-full items-center"
-                layout="header-actions"
-              >
+              <InspectorGrid className="h-full items-center" layout="header-actions">
                 <InspectorGridCell span={24}>
                   <h3 className="design-sidebar-context-title min-w-0 truncate text-foreground">
                     {t("designEditor.tweaks")}
@@ -2443,16 +2253,12 @@ export const EditPanel = memo(function EditPanel({
                             size="icon"
                             className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
                             aria-label={t("designEditor.addTweaks")}
-                            onClick={(event) =>
-                              handleRequestTweaks(event.currentTarget)
-                            }
+                            onClick={(event) => handleRequestTweaks(event.currentTarget)}
                           >
                             <IconPlus className="size-3.5" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>
-                          {t("designEditor.addTweaks")}
-                        </TooltipContent>
+                        <TooltipContent>{t("designEditor.addTweaks")}</TooltipContent>
                       </Tooltip>
                     ) : null}
                   </InspectorActionRail>
@@ -2479,9 +2285,7 @@ export const EditPanel = memo(function EditPanel({
         ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
-        {import.meta.env.DEV &&
-        resolvedActiveTab === "design" &&
-        inspectorGridDebug ? (
+        {import.meta.env.DEV && resolvedActiveTab === "design" && inspectorGridDebug ? (
           <div
             className="design-inspector-grid-debug-overlay"
             data-inspector-grid-debug-overlay
