@@ -11,7 +11,6 @@ import {
   isValidCron,
   nextOccurrence,
 } from "../../jobs/cron.js";
-import { automationWebhookPath } from "../webhook.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -88,44 +87,43 @@ export default defineAction({
       { userEmail, orgId: ctx?.orgId, appId: ctx?.appId },
       scope as AutomationScope,
     );
-    return definitions.map(({ resource, name, meta, body, canUpdate }) => ({
-      id: resource.id,
-      name,
-      path: resource.path,
-      scope: scope as AutomationScope,
-      triggerType: meta.triggerType,
-      event: meta.event ?? null,
-      // The path is a bearer credential, so only people who can update the
-      // automation can retrieve it from the action surface.
-      webhookPath:
-        canUpdate && meta.webhookToken
-          ? automationWebhookPath(meta.webhookToken)
+    return definitions.map(
+      ({ resource, name, meta, body, canUpdate, webhookPath }) => ({
+        id: resource.id,
+        name,
+        path: resource.path,
+        scope: scope as AutomationScope,
+        triggerType: meta.triggerType,
+        event: meta.event ?? null,
+        // The path is a bearer credential, so only people who can update the
+        // automation can retrieve it from the action surface.
+        webhookPath: canUpdate ? (webhookPath ?? null) : null,
+        schedule: meta.schedule || null,
+        timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
+        scheduleDescription: meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
           : null,
-      schedule: meta.schedule || null,
-      timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
-      scheduleDescription: meta.schedule
-        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
-        : null,
-      condition: meta.condition ?? null,
-      body,
-      enabled: meta.enabled,
-      lastRun: meta.lastRun ?? null,
-      lastCheck: meta.lastCheck ?? null,
-      lastStatus: meta.lastStatus ?? null,
-      lastError: meta.lastError ?? null,
-      nextRun: nextRun(meta),
-      createdBy: meta.createdBy ?? null,
-      model: meta.model ?? null,
-      executionHostId: meta.executionHostId ?? null,
-      executionEngine: meta.executionEngine ?? null,
-      executionCwd: meta.executionCwd ?? null,
-      mcpTools: meta.mcpTools ?? [],
-      originScopeId: meta.originScopeId ?? null,
-      deliveryPlatform: meta.deliveryPlatform ?? null,
-      deliveryDestination: meta.deliveryDestination ?? null,
-      deliveryThreadRef: meta.deliveryThreadRef ?? null,
-      deliveryTenantId: meta.deliveryTenantId ?? null,
-      canUpdate,
-    }));
+        condition: meta.condition ?? null,
+        body,
+        enabled: meta.enabled,
+        lastRun: meta.lastRun ?? null,
+        lastCheck: meta.lastCheck ?? null,
+        lastStatus: meta.lastStatus ?? null,
+        lastError: meta.lastError ?? null,
+        nextRun: nextRun(meta),
+        createdBy: meta.createdBy ?? null,
+        model: meta.model ?? null,
+        executionHostId: meta.executionHostId ?? null,
+        executionEngine: meta.executionEngine ?? null,
+        executionCwd: meta.executionCwd ?? null,
+        mcpTools: meta.mcpTools ?? [],
+        originScopeId: meta.originScopeId ?? null,
+        deliveryPlatform: meta.deliveryPlatform ?? null,
+        deliveryDestination: meta.deliveryDestination ?? null,
+        deliveryThreadRef: meta.deliveryThreadRef ?? null,
+        deliveryTenantId: meta.deliveryTenantId ?? null,
+        canUpdate,
+      }),
+    );
   },
 });

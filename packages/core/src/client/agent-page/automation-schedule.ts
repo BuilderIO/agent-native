@@ -156,13 +156,20 @@ export function automationScheduleDraftFromCron(
     };
   }
 
-  if (time && dayOfMonth === "*" && month === "*" && /^\d$/.test(dayOfWeek)) {
+  const weeklyDay = numeric(dayOfWeek);
+  if (
+    time &&
+    dayOfMonth === "*" &&
+    month === "*" &&
+    weeklyDay !== null &&
+    weeklyDay <= 7
+  ) {
     return {
       draft: {
         ...fallback,
         preset: "weekly",
         time,
-        weekday: Number(dayOfWeek),
+        weekday: weeklyDay === 7 ? 0 : weeklyDay,
       },
       recognized: true,
     };

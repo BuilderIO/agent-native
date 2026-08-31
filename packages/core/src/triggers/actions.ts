@@ -30,7 +30,6 @@ import {
   getRequestOrgId,
 } from "../server/request-context.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
-import { automationWebhookPath } from "./webhook.js";
 
 /* ------------------------------------------------------------------ */
 /*  Individual action handlers                                        */
@@ -99,14 +98,12 @@ async function handleList(
   const automations = definitions
     .filter(({ meta }) => !args.domain || meta.domain === args.domain)
     .filter(({ meta }) => args.enabled_only !== "true" || meta.enabled)
-    .map(({ name, meta, body, canUpdate }) => ({
+    .map(({ name, meta, body, canUpdate, webhookPath }) => ({
       name,
       scope,
       triggerType: meta.triggerType,
       event: meta.event ?? null,
-      webhookPath: meta.webhookToken
-        ? automationWebhookPath(meta.webhookToken)
-        : null,
+      webhookPath: canUpdate ? (webhookPath ?? null) : null,
       schedule: meta.schedule || null,
       timezone: meta.timezone ? effectiveTimezone(meta.timezone) : null,
       scheduleDescription: meta.schedule
@@ -229,9 +226,7 @@ async function handleDefine(
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       event: definition.meta.event ?? null,
-      webhookPath: definition.meta.webhookToken
-        ? automationWebhookPath(definition.meta.webhookToken)
-        : null,
+      webhookPath: definition.webhookPath ?? null,
       schedule: definition.meta.schedule || null,
       timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
@@ -317,6 +312,7 @@ async function handleUpdate(
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       enabled: definition.meta.enabled,
+      webhookPath: definition.webhookPath ?? null,
       schedule: definition.meta.schedule || null,
       timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,

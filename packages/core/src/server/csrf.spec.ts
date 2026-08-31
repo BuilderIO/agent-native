@@ -145,9 +145,19 @@ describe("CSRF middleware", () => {
       await status(
         { cookie: COOKIE, "content-type": "application/json" },
         "POST",
-        "/_agent-native/automations/webhook/token",
+        "/_agent-native/automations/webhook/" + "a".repeat(43),
       ),
     ).not.toBe(403);
+  });
+
+  it("does not exempt a nested automation management route", async () => {
+    expect(
+      await status(
+        { cookie: COOKIE, "content-type": "text/plain" },
+        "POST",
+        "/_agent-native/automations/webhook/" + "a".repeat(43) + "/fire-test",
+      ),
+    ).toBe(403);
   });
 
   // The remote-device relay lives under the HMAC-justified `/integrations/`

@@ -82,18 +82,27 @@ Run the automation.`;
     expect(rewritten).toContain('lastRun: "2026-08-21T17:30:01.097Z"');
   });
 
-  it("round-trips webhook automation credentials", () => {
+  it("does not serialize webhook automation credentials into resource content", () => {
     const meta: JobFrontmatter = {
       schedule: "",
       enabled: true,
       triggerType: "webhook",
       webhookToken: "a".repeat(43),
     };
-    const parsed = parseJobResource(
-      buildJobResourceContent(meta, "Run from the incoming payload."),
+    const content = buildJobResourceContent(
+      meta,
+      "Run from the incoming payload.",
     );
-    expect(parsed.meta).toEqual(meta);
-    expect(parsed.classification.triggerType).toBe("webhook");
+    expect(content).not.toContain("webhookToken");
+    expect(parseJobResource(content).meta.webhookToken).toBeUndefined();
+    expect(
+      parseJobResource(`---
+triggerType: webhook
+webhookToken: ${meta.webhookToken}
+---
+
+Legacy webhook.`).meta.webhookToken,
+    ).toBe(meta.webhookToken);
   });
 
   it("distinguishes legacy jobs from explicit scheduled automations", () => {

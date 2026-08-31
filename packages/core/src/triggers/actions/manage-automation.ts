@@ -7,7 +7,6 @@ import {
   updateAutomation,
 } from "../../automations/service.js";
 import { refreshEventSubscriptions } from "../dispatcher.js";
-import { automationWebhookPath } from "../webhook.js";
 
 export default defineAction({
   description:
@@ -76,9 +75,7 @@ export default defineAction({
         event: definition.meta.event ?? null,
         schedule: definition.meta.schedule || null,
         timezone: definition.meta.timezone ?? null,
-        webhookPath: definition.meta.webhookToken
-          ? automationWebhookPath(definition.meta.webhookToken)
-          : null,
+        webhookPath: definition.webhookPath ?? null,
         nextRun: definition.meta.nextRun ?? null,
       };
     }
@@ -121,6 +118,7 @@ export default defineAction({
       executionEngine: definition.meta.executionEngine ?? null,
       executionCwd: definition.meta.executionCwd ?? null,
       nextRun: definition.meta.nextRun ?? null,
+      webhookPath: definition.webhookPath ?? null,
     };
   },
 });

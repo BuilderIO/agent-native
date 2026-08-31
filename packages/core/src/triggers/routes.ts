@@ -45,11 +45,13 @@ import { readBody } from "../server/h3-helpers.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
 import {
+  findAutomationWebhookTarget,
+  readAutomationWebhookPath,
+} from "./webhook-store.js";
+import {
   AUTOMATION_WEBHOOK_MAX_BODY_BYTES,
   AUTOMATION_WEBHOOK_PLATFORM,
-  automationWebhookPath,
   isAutomationWebhookToken,
-  webhookTokensMatch,
   type AutomationWebhookTaskPayload,
 } from "./webhook.js";
 
@@ -178,7 +180,7 @@ async function currentUserCanUpdateAutomation(
       const org = await getOrgContext(event);
       if (org.orgId !== resourceOrgId) return false;
       return await canUpdateAutomationResource(
-        { userEmail, orgId: resourceOrgId },
+        { userEmail, orgId: resourceOrgId, appId: meta.appId },
         resource,
       );
     } catch {
@@ -251,8 +253,8 @@ async function resourceToAutomationItem(
     // The path is a bearer credential; read-only organization members can see
     // the trigger without receiving permission to invoke it.
     webhookPath:
-      canUpdate && meta.webhookToken
-        ? automationWebhookPath(meta.webhookToken)
+      canUpdate && meta.triggerType === "webhook"
+        ? await readAutomationWebhookPath(resource, meta)
         : undefined,
     schedule: meta.schedule || undefined,
     scheduleDescription: scheduleDescription(meta.schedule, meta.timezone),
@@ -404,28 +406,31 @@ async function findWebhookAutomation(token: string): Promise<{
   body: string;
 } | null> {
   if (!isAutomationWebhookToken(token)) return null;
-  // ponytail: token lookup scans job resources; add an indexed token table if webhook volume warrants it.
-  const resources = await resourceListAllOwners("jobs/");
-  for (const resource of resources) {
-    if (!resource.path.endsWith(".md")) continue;
-    const parsed = parseJobResource(resource.content);
-    const meta = asTriggerFrontmatter(parsed.meta);
-    if (
-      meta.triggerType === "webhook" &&
-      meta.enabled &&
-      webhookTokensMatch(meta.webhookToken, token)
-    ) {
-      return { resource, meta, body: parsed.body };
-    }
-  }
-  return null;
+  const target = await findAutomationWebhookTarget(token);
+  if (!target) return null;
+  const resource = await resourceGetByPath(target.owner, target.path);
+  if (!resource || resource.id !== target.automationId) return null;
+  const parsed = parseJobResource(resource.content);
+  const meta = asTriggerFrontmatter(parsed.meta);
+  return meta.triggerType === "webhook" && meta.enabled
+    ? { resource, meta, body: parsed.body }
+    : null;
 }
 
-function webhookEventId(event: H3Event): string {
-  const supplied =
-    getRequestHeader(event, "x-webhook-event-id") ??
-    getRequestHeader(event, "x-event-id");
-  const value = supplied?.trim() || randomUUID();
+function webhookEventId(event: H3Event, payload: unknown): string {
+  const supplied = [
+    getRequestHeader(event, "x-webhook-event-id"),
+    getRequestHeader(event, "x-event-id"),
+    getRequestHeader(event, "x-github-delivery"),
+  ].find((value) => value?.trim());
+  const bodyId =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).id
+      : undefined;
+  const value =
+    supplied?.trim() ||
+    (typeof bodyId === "string" ? bodyId.trim() : "") ||
+    randomUUID();
   if (value.length > 256 || /[\r\n]/.test(value)) {
     throw Object.assign(new Error("Webhook event id is too long."), {
       statusCode: 400,
@@ -461,7 +466,7 @@ async function enqueueAutomationWebhook(
     }
   }
 
-  const eventId = webhookEventId(event);
+  const eventId = webhookEventId(event, payload);
   const ownerEmail =
     match.meta.createdBy?.trim().toLowerCase() || match.resource.owner;
   const externalThreadId = `${match.resource.owner}:${match.resource.path}`;

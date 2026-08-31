@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const AUTOMATION_WEBHOOK_PLATFORM = "automation-webhook";
 export const AUTOMATION_WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
@@ -24,6 +24,10 @@ export function isAutomationWebhookToken(value: string): boolean {
 
 export function automationWebhookPath(token: string): string {
   return `/_agent-native/automations/webhook/${token}`;
+}
+
+export function automationWebhookTokenHash(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
 export function webhookTokensMatch(

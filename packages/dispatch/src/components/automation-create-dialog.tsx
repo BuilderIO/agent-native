@@ -15,6 +15,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBolt,
   IconCalendarEvent,
@@ -71,36 +72,48 @@ interface CreateAutomationResult {
 
 const PRESETS: {
   value: AutomationSchedulePreset;
+  labelKey: string;
+  detailKey: string;
   label: string;
   detail: string;
   draft: Partial<AutomationScheduleDraft>;
 }[] = [
   {
     value: "hourly",
+    labelKey: "jobs.schedulePreset.hourly",
+    detailKey: "jobs.schedulePreset.hourlyDetail",
     label: "Every hour",
     detail: "At the top of the hour",
     draft: { preset: "hourly" },
   },
   {
     value: "daily-midnight",
+    labelKey: "jobs.schedulePreset.dailyMidnight",
+    detailKey: "jobs.schedulePreset.dailyMidnightDetail",
     label: "Every day at midnight",
     detail: "12:00 AM",
     draft: { preset: "daily-midnight" },
   },
   {
     value: "daily-noon",
+    labelKey: "jobs.schedulePreset.dailyNoon",
+    detailKey: "jobs.schedulePreset.dailyNoonDetail",
     label: "Every day at noon",
     detail: "12:00 PM",
     draft: { preset: "daily-noon" },
   },
   {
     value: "weekdays",
+    labelKey: "jobs.schedulePreset.weekdays",
+    detailKey: "jobs.schedulePreset.weekdaysDetail",
     label: "Every weekday",
     detail: "Monday to Friday at 9:00 AM",
     draft: { preset: "weekdays", time: "09:00" },
   },
   {
     value: "weekly",
+    labelKey: "jobs.schedulePreset.weekly",
+    detailKey: "jobs.schedulePreset.weeklyDetail",
     label: "Every week",
     detail: "Sunday at 9:00 AM",
     draft: { preset: "weekly", weekday: 0, time: "09:00" },
@@ -129,12 +142,13 @@ function ScheduleFields({
   saving: boolean;
   onChange: (patch: Partial<AutomationScheduleDraft>) => void;
 }) {
+  const t = useT();
   const customMinute = Number(draft.time.split(":")[1] ?? 0);
   return (
     <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
       <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
         <label className="space-y-1.5 text-xs text-muted-foreground">
-          <span>Repeat every</span>
+          <span>{t("jobs.repeatEvery", { defaultValue: "Repeat every" })}</span>
           <Input
             type="number"
             min={1}
@@ -150,7 +164,7 @@ function ScheduleFields({
           />
         </label>
         <label className="space-y-1.5 text-xs text-muted-foreground">
-          <span>Unit</span>
+          <span>{t("jobs.scheduleUnit", { defaultValue: "Unit" })}</span>
           <Select
             value={draft.unit}
             disabled={saving}
@@ -162,10 +176,18 @@ function ScheduleFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="hour">hour(s)</SelectItem>
-              <SelectItem value="day">day(s)</SelectItem>
-              <SelectItem value="week">week(s)</SelectItem>
-              <SelectItem value="month">month(s)</SelectItem>
+              <SelectItem value="hour">
+                {t("jobs.hours", { defaultValue: "hour(s)" })}
+              </SelectItem>
+              <SelectItem value="day">
+                {t("jobs.days", { defaultValue: "day(s)" })}
+              </SelectItem>
+              <SelectItem value="week">
+                {t("jobs.weeks", { defaultValue: "week(s)" })}
+              </SelectItem>
+              <SelectItem value="month">
+                {t("jobs.months", { defaultValue: "month(s)" })}
+              </SelectItem>
             </SelectContent>
           </Select>
         </label>
@@ -173,7 +195,7 @@ function ScheduleFields({
 
       {draft.unit === "hour" ? (
         <label className="block space-y-1.5 text-xs text-muted-foreground">
-          <span>At minute</span>
+          <span>{t("jobs.atMinute", { defaultValue: "At minute" })}</span>
           <Input
             type="number"
             min={0}
@@ -196,7 +218,7 @@ function ScheduleFields({
 
       {draft.unit === "week" ? (
         <label className="block space-y-1.5 text-xs text-muted-foreground">
-          <span>On</span>
+          <span>{t("jobs.onDay", { defaultValue: "On" })}</span>
           <Select
             value={String(draft.weekday)}
             disabled={saving}
@@ -218,7 +240,7 @@ function ScheduleFields({
 
       {draft.unit === "month" ? (
         <label className="block space-y-1.5 text-xs text-muted-foreground">
-          <span>Day of month</span>
+          <span>{t("jobs.dayOfMonth", { defaultValue: "Day of month" })}</span>
           <Input
             type="number"
             min={1}
@@ -240,7 +262,7 @@ function ScheduleFields({
 
       {draft.unit !== "hour" ? (
         <label className="block space-y-1.5 text-xs text-muted-foreground">
-          <span>At</span>
+          <span>{t("jobs.atTime", { defaultValue: "At" })}</span>
           <Input
             type="time"
             value={draft.time}
@@ -265,6 +287,7 @@ function ScheduleBuilder({
   onTimezoneChange: (value: string) => void;
   onChange: (value: string) => void;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState<AutomationScheduleDraft>(
     DEFAULT_AUTOMATION_SCHEDULE_DRAFT,
   );
@@ -292,7 +315,9 @@ function ScheduleBuilder({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <div className="text-xs font-medium text-foreground">Repeat</div>
+        <div className="text-xs font-medium text-foreground">
+          {t("jobs.repeat", { defaultValue: "Repeat" })}
+        </div>
         <div className="grid gap-2 sm:grid-cols-2">
           {PRESETS.map((preset) => (
             <button
@@ -305,9 +330,11 @@ function ScheduleBuilder({
               )}
               onClick={() => choosePreset(preset.value, preset.draft)}
             >
-              <span className="block text-sm font-medium">{preset.label}</span>
+              <span className="block text-sm font-medium">
+                {t(preset.labelKey, { defaultValue: preset.label })}
+              </span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
-                {preset.detail}
+                {t(preset.detailKey, { defaultValue: preset.detail })}
               </span>
             </button>
           ))}
@@ -323,9 +350,13 @@ function ScheduleBuilder({
               })
             }
           >
-            <span className="block text-sm font-medium">Custom</span>
+            <span className="block text-sm font-medium">
+              {t("jobs.schedulePreset.custom", { defaultValue: "Custom" })}
+            </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
-              Set your own repeat pattern
+              {t("jobs.schedulePreset.customDetail", {
+                defaultValue: "Set your own repeat pattern",
+              })}
             </span>
           </button>
         </div>
@@ -343,25 +374,41 @@ function ScheduleBuilder({
 
       {!advanced && friendly.schedule ? (
         <p className="text-xs text-muted-foreground">
-          Runs{" "}
-          {draft.preset === "hourly"
-            ? "at the start of every hour"
-            : draft.preset === "daily-midnight"
-              ? "every day at midnight"
-              : draft.preset === "daily-noon"
-                ? "every day at noon"
-                : "at " + formatAutomationTime(draft.time)}
-          .
+          {t("jobs.schedulePreview", {
+            defaultValue: "Runs {{time}}.",
+            time:
+              draft.preset === "hourly"
+                ? t("jobs.schedulePreview.hourly", {
+                    defaultValue: "at the start of every hour",
+                  })
+                : draft.preset === "daily-midnight"
+                  ? t("jobs.schedulePreview.dailyMidnight", {
+                      defaultValue: "every day at midnight",
+                    })
+                  : draft.preset === "daily-noon"
+                    ? t("jobs.schedulePreview.dailyNoon", {
+                        defaultValue: "every day at noon",
+                      })
+                    : t("jobs.schedulePreview.atTime", {
+                        defaultValue: "at {{time}}",
+                        time: formatAutomationTime(draft.time),
+                      }),
+          })}
         </p>
       ) : null}
       {!advanced && friendly.error ? (
         <p className="text-xs text-destructive">
-          Custom weekly intervals beyond one week are available under Advanced.
+          {t("jobs.weeklyIntervalAdvanced", {
+            defaultValue:
+              "Custom weekly intervals beyond one week are available under Advanced.",
+          })}
         </p>
       ) : null}
 
       <div>
-        <label className="text-xs font-medium text-foreground">Timezone</label>
+        <label className="text-xs font-medium text-foreground">
+          {t("jobs.timezone", { defaultValue: "Timezone" })}
+        </label>
         <div className="mt-1">
           <TimezoneSelect
             value={timezone}
@@ -385,12 +432,14 @@ function ScheduleBuilder({
       >
         <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs font-medium text-foreground [&::-webkit-details-marker]:hidden">
           <IconCode className="size-4 text-muted-foreground" />
-          Advanced - cron expression
+          {t("jobs.advancedSchedule", {
+            defaultValue: "Advanced - cron expression",
+          })}
           <span className="ms-auto text-muted-foreground group-open:hidden">
-            Show
+            {t("jobs.show", { defaultValue: "Show" })}
           </span>
           <span className="ms-auto hidden text-muted-foreground group-open:inline">
-            Hide
+            {t("jobs.hide", { defaultValue: "Hide" })}
           </span>
         </summary>
         <div className="border-t border-border/60 px-3 pb-3 pt-2.5">
@@ -407,14 +456,18 @@ function ScheduleBuilder({
             }}
           />
           <p className="mt-1 text-[11px] text-muted-foreground">
-            minute hour day-of-month month day-of-week
+            {t("jobs.cronFormatHint", {
+              defaultValue: "minute hour day-of-month month day-of-week",
+            })}
           </p>
         </div>
       </details>
 
       {activeSchedule && !valid ? (
         <p className="text-xs text-destructive">
-          A cron expression needs exactly 5 fields.
+          {t("jobs.cronFieldCount", {
+            defaultValue: "A cron expression needs exactly 5 fields.",
+          })}
         </p>
       ) : null}
     </div>
@@ -430,6 +483,7 @@ function EventFields({
   event: string;
   onChange: (value: string) => void;
 }) {
+  const t = useT();
   const eventsQuery = useActionQuery<AutomationEvent[]>(
     "list-automation-events",
     {},
@@ -439,14 +493,18 @@ function EventFields({
   return (
     <>
       <label className="space-y-1.5 text-xs text-muted-foreground">
-        <span>Start when</span>
+        <span>{t("jobs.startWhen", { defaultValue: "Start when" })}</span>
         <Select value={event} onValueChange={onChange}>
           <SelectTrigger>
             <SelectValue
               placeholder={
                 eventsQuery.isLoading
-                  ? "Loading event types..."
-                  : "Choose an app event"
+                  ? t("jobs.loadingEventTypes", {
+                      defaultValue: "Loading event types...",
+                    })
+                  : t("jobs.chooseAppEvent", {
+                      defaultValue: "Choose an app event",
+                    })
               }
             />
           </SelectTrigger>
@@ -466,7 +524,9 @@ function EventFields({
       ) : null}
       {eventsQuery.error ? (
         <p className="mt-2 text-xs text-destructive">
-          Could not load event types.
+          {t("jobs.loadEventTypesError", {
+            defaultValue: "Could not load event types.",
+          })}
         </p>
       ) : null}
     </>
@@ -486,6 +546,7 @@ export function AutomationCreateDialog({
   onOpenChange,
   onCreated,
 }: AutomationCreateDialogProps) {
+  const t = useT();
   const [name, setName] = useState("");
   const [scope, setScope] = useState<"personal" | "organization">(initialScope);
   const [triggerType, setTriggerType] = useState<TriggerType>("schedule");
@@ -540,25 +601,32 @@ export function AutomationCreateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>New automation</DialogTitle>
+          <DialogTitle>
+            {t("jobs.newAutomation", { defaultValue: "New automation" })}
+          </DialogTitle>
           <DialogDescription>
-            Choose what starts it, then describe the work in plain language.
+            {t("jobs.createAutomationDescription", {
+              defaultValue:
+                "Choose what starts it, then describe the work in plain language.",
+            })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
             <label className="space-y-1.5 text-xs text-muted-foreground">
-              <span>Name</span>
+              <span>{t("jobs.name", { defaultValue: "Name" })}</span>
               <Input
                 value={name}
                 disabled={create.isPending}
-                placeholder="morning-digest"
+                placeholder={t("jobs.automationNamePlaceholder", {
+                  defaultValue: "morning-digest",
+                })}
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
             <label className="space-y-1.5 text-xs text-muted-foreground">
-              <span>Scope</span>
+              <span>{t("jobs.scope", { defaultValue: "Scope" })}</span>
               <Select
                 value={scope}
                 disabled={create.isPending}
@@ -570,8 +638,12 @@ export function AutomationCreateDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="personal">Personal</SelectItem>
-                  <SelectItem value="organization">Organization</SelectItem>
+                  <SelectItem value="personal">
+                    {t("jobs.personal", { defaultValue: "Personal" })}
+                  </SelectItem>
+                  <SelectItem value="organization">
+                    {t("jobs.organization", { defaultValue: "Organization" })}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </label>
@@ -583,13 +655,16 @@ export function AutomationCreateDialog({
           >
             <TabsList className="grid h-auto w-full grid-cols-3">
               <TabsTrigger value="schedule" className="gap-2 py-2 text-xs">
-                <IconClock className="size-3.5" /> Schedule
+                <IconClock className="size-3.5" />
+                {t("jobs.schedule", { defaultValue: "Schedule" })}
               </TabsTrigger>
               <TabsTrigger value="webhook" className="gap-2 py-2 text-xs">
-                <IconBolt className="size-3.5" /> Webhook
+                <IconBolt className="size-3.5" />
+                {t("jobs.webhook", { defaultValue: "Webhook" })}
               </TabsTrigger>
               <TabsTrigger value="event" className="gap-2 py-2 text-xs">
-                <IconCalendarEvent className="size-3.5" /> App event
+                <IconCalendarEvent className="size-3.5" />
+                {t("jobs.appEvent", { defaultValue: "App event" })}
               </TabsTrigger>
             </TabsList>
             <TabsContent value="schedule" className="mt-3">
@@ -607,11 +682,15 @@ export function AutomationCreateDialog({
                   <IconBolt className="mt-0.5 size-4 shrink-0 text-primary" />
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      Run when a service sends an HTTP POST
+                      {t("jobs.webhookTriggerDescription", {
+                        defaultValue: "Run when a service sends an HTTP POST",
+                      })}
                     </p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      After you save, Dispatch gives you a private URL to paste
-                      into GitHub, Stripe, or another webhook provider.
+                      {t("jobs.webhookSetupDescription", {
+                        defaultValue:
+                          "After you save, Dispatch gives you a private URL to paste into GitHub, Stripe, or another webhook provider.",
+                      })}
                     </p>
                   </div>
                 </div>
@@ -623,11 +702,16 @@ export function AutomationCreateDialog({
           </Tabs>
 
           <label className="space-y-1.5 text-xs text-muted-foreground">
-            <span>What should it do?</span>
+            <span>
+              {t("jobs.whatShouldItDo", { defaultValue: "What should it do?" })}
+            </span>
             <Textarea
               value={body}
               disabled={create.isPending}
-              placeholder="Review new support requests and summarize anything urgent in a shared note."
+              placeholder={t("jobs.automationBodyPlaceholder", {
+                defaultValue:
+                  "Review new support requests and summarize anything urgent in a shared note.",
+              })}
               rows={5}
               onChange={(event) => setBody(event.target.value)}
             />
@@ -645,7 +729,7 @@ export function AutomationCreateDialog({
             disabled={create.isPending}
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            {t("jobs.cancel", { defaultValue: "Cancel" })}
           </Button>
           <Button
             type="button"
@@ -655,7 +739,7 @@ export function AutomationCreateDialog({
             {create.isPending ? (
               <IconLoader2 className="size-4 animate-spin" />
             ) : null}
-            Create automation
+            {t("jobs.createAutomation", { defaultValue: "Create automation" })}
           </Button>
         </DialogFooter>
       </DialogContent>

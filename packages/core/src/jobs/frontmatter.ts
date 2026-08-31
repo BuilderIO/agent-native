@@ -46,7 +46,7 @@ export interface JobFrontmatter {
   triggerType?: JobTriggerType;
   /** For event automations: the event name to subscribe to. */
   event?: string;
-  /** Opaque bearer token used by webhook automations. Never log this value. */
+  /** Legacy only. New webhook tokens live in the encrypted secret store. */
   webhookToken?: string;
   /** Natural-language condition evaluated before dispatch. */
   condition?: string;
@@ -315,7 +315,7 @@ function parseKnownField(
       meta.event = value;
       break;
     case "webhookToken":
-      meta.webhookToken = value || undefined;
+      if (WEBHOOK_TOKEN_RE.test(value)) meta.webhookToken = value;
       break;
     case "condition":
       meta.condition = value;
@@ -471,11 +471,6 @@ export function buildJobResourceContent(
     "Remote automation run IDs",
     REMOTE_ID_RE,
   );
-  assertBoundedFrontmatterValue(
-    meta.webhookToken,
-    "Webhook tokens",
-    WEBHOOK_TOKEN_RE,
-  );
   if (
     meta.executionCwd !== undefined &&
     (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
@@ -492,7 +487,6 @@ export function buildJobResourceContent(
   ];
   if (meta.triggerType) lines.push(`triggerType: ${meta.triggerType}`);
   pushString(lines, "event", meta.event);
-  pushString(lines, "webhookToken", meta.webhookToken);
   pushString(lines, "condition", meta.condition);
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);

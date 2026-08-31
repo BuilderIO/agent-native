@@ -37,6 +37,14 @@ describe("automation schedule builder", () => {
     expect(automationScheduleDraftFromCron("0 9 1 * 1").recognized).toBe(false);
   });
 
+  it("canonicalizes Sunday aliases without shifting the selected day", () => {
+    const parsed = automationScheduleDraftFromCron("0 9 * * 7");
+    expect(parsed.draft).toMatchObject({ preset: "weekly", weekday: 0 });
+    expect(automationScheduleToCron(parsed.draft)).toEqual({
+      schedule: "0 9 * * 0",
+    });
+  });
+
   it("keeps unsupported multi-week cadence explicit for Advanced", () => {
     expect(
       automationScheduleToCron({
