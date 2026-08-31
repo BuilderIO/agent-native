@@ -71,23 +71,98 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const SHIPPING_CHURN_RE =
+  /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
+
+const CREDENTIAL_NAMESPACE_SIGNAL = String.raw`(?:mismatched?[ -]pairs?|GOOGLE_SIGN_IN_[A-Z_]+)`;
+const CREDENTIAL_CORRECTION_CONTEXT = String.raw`(?:wrong|incorrect|mistaken|mistake|not the (?:fix|pair)|changes? nothing|changed nothing|didn['’]?t (?:fix|change)|fixed the wrong|repair\w*|rotat\w*|regenerat\w*|replac\w*|don't|do not|stop|never|avoid)`;
+// A bare namespace mention is routine documentation. Count it only when the
+// same sentence also says the repair was wrong or describes a repair action.
+const CREDENTIAL_NAMESPACE_RE = new RegExp(
+  [
+    String.raw`\b${CREDENTIAL_NAMESPACE_SIGNAL}\b[^.!?]{0,120}\b${CREDENTIAL_CORRECTION_CONTEXT}\b`,
+    String.raw`\b${CREDENTIAL_CORRECTION_CONTEXT}\b[^.!?]{0,120}\b${CREDENTIAL_NAMESPACE_SIGNAL}\b`,
+  ].join("|"),
+  "i",
+);
+
+const CREDENTIAL_REGEX_CASES = [
+  [
+    true,
+    "Do not rotate the key because the mismatched pairs identify different clients.",
+  ],
+  [
+    true,
+    "The GOOGLE_SIGN_IN_CLIENT_SECRET was repaired instead of the active provider pair.",
+  ],
+  [true, "The mismatched pair was the wrong fix and changed nothing."],
+  [false, "Check mismatched pairs before changing credentials."],
+  [false, "GOOGLE_SIGN_IN_CLIENT_ID identifies the sign-in client."],
+  [false, "Mismatched pairs can be intentional on a host."],
+];
+
+const SHIPPING_CHURN_REGEX_CASES = [
+  [true, "don't merge main 100 times unless there is a clear conflict."],
+  [true, "Stop merging main unless there is a real conflict."],
+  [true, "only push up commits if there are clear CI errors or PR feedback."],
+  [true, "Do not create or push a routine chore: publish branch work commit."],
+  [true, "I don't want those chore commits unless absolutely necessary."],
+  [true, "Do not run ship:push on a clean or merely behind branch."],
+  [true, "Stop updating or syncing the branch from main unless conflicting."],
+  [true, "Stop creating generic ship commits unless CI requires them."],
+  [true, "Do not merge `main` into every PR unless there is a conflict."],
+  [false, "Don't forget to merge main when everything is green."],
+  [false, "The build completed successfully."],
+  [false, "The branch contains a useful chore commit."],
+  [false, "Only commit relevant changes."],
+  [false, "Do not merge main when every required check passes."],
+  [false, "Should we merge main after the checks pass?"],
+  [
+    false,
+    "Do not commit or push changes unless they belong to this requested fix.",
+  ],
+  [false, "Do not merge main after CI passes."],
+  [false, "Do not merge main. The branch contains a routine chore commit."],
+  [true, "Do not push routine commits."],
+  [true, "Do not push commits routinely."],
+];
+
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
     ([expected, message]) =>
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+  );
+  failures.push(
+    ...SHIPPING_CHURN_REGEX_CASES.filter(
+      ([expected, message]) => SHIPPING_CHURN_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...CREDENTIAL_REGEX_CASES.filter(
+      ([expected, message]) =>
+        CREDENTIAL_NAMESPACE_RE.test(message) !== expected,
+    ),
   );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Feedback regex self-test passed (${FEEDBACK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
+  {
+    // Added 2026-08-27 after the PR queue exposed routine main merges and
+    // generic ship commits as a measurable source of CI churn.
+    key: "shipping-churn",
+    label: "Had to stop routine ship commits or main merges",
+    fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
+    re: SHIPPING_CHURN_RE,
+  },
   {
     key: "branch-moves",
     label: "Unrequested branch creation / movement",
@@ -133,6 +208,22 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "credential-wrong-namespace",
+    label: "Had to stop a credential rotation that was the wrong fix",
+    fixedBy:
+      "pnpm check:google-redirect-uris (MISMATCHED-PAIRS remediation, 2026-08-29)",
+    // The failure is repairing one namespace while the flow reads the other,
+    // so the repair verifies clean and changes nothing.
+    re: new RegExp(
+      [
+        String.raw`\b(?:don'?t|do not|stop|no need to|didn'?t need to)\b[^.!?]{0,60}\b(?:rotat\w+|regenerat\w+|new secret|another key|update the key)\b`,
+        String.raw`\b(?:wrong|losing|stale) (?:key|secret|pair|namespace)\b`,
+        CREDENTIAL_NAMESPACE_RE.source,
+      ].join("|"),
+      "i",
+    ),
   },
   {
     key: "missed-localization",

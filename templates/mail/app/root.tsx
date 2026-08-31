@@ -31,6 +31,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteError,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -329,8 +330,8 @@ function VisibilityRefresh() {
       const now = Date.now();
       if (now - lastRefresh.current < 60_000) return;
       lastRefresh.current = now;
-      qc.invalidateQueries({ queryKey: ["emails"] });
-      qc.invalidateQueries({ queryKey: ["labels"] });
+      void qc.invalidateQueries({ queryKey: ["emails"] });
+      void qc.invalidateQueries({ queryKey: ["labels"] });
     };
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);
@@ -363,13 +364,13 @@ function DbSyncSetup() {
       // Ignore events we caused — the mutation's onSettled handles our own updates
       const isOwnEvent = data.requestSource === TAB_ID;
       const invalidateSettingsSurfaces = () => {
-        qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
-        qc.invalidateQueries({ queryKey: ["automations"] });
-        qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        qc.invalidateQueries({ queryKey: ["google-status"] });
-        qc.invalidateQueries({ queryKey: ["automation-settings"] });
-        qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
-        qc.invalidateQueries({ queryKey: ["agent-engines"] });
+        void qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
+        void qc.invalidateQueries({ queryKey: ["automations"] });
+        void qc.invalidateQueries({ queryKey: ["gmail-filters"] });
+        void qc.invalidateQueries({ queryKey: ["google-status"] });
+        void qc.invalidateQueries({ queryKey: ["automation-settings"] });
+        void qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
+        void qc.invalidateQueries({ queryKey: ["agent-engines"] });
       };
 
       if (data.source === "app-state") {
@@ -377,10 +378,10 @@ function DbSyncSetup() {
           data.key,
         );
         if (integrationProvider && !isOwnEvent) {
-          qc.invalidateQueries({
+          void qc.invalidateQueries({
             queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
           });
-          qc.invalidateQueries({
+          void qc.invalidateQueries({
             queryKey:
               integrationProvider === "*"
                 ? ["integration-data"]
@@ -391,27 +392,27 @@ function DbSyncSetup() {
           (data.key?.startsWith("compose-") || data.key === "*") &&
           !isOwnEvent
         ) {
-          qc.invalidateQueries({
+          void qc.invalidateQueries({
             queryKey: ["compose-drafts"],
             refetchType: "all",
           });
         }
         if (data.key === "refresh-signal" && !isOwnEvent) {
           markExternalEmailRefresh();
-          qc.invalidateQueries({ queryKey: ["emails"] });
-          qc.invalidateQueries({ queryKey: ["email"] });
-          qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: ["labels"] });
         }
         if (!isOwnEvent) {
-          qc.invalidateQueries({ queryKey: ["navigate-command"] });
+          void qc.invalidateQueries({ queryKey: ["navigate-command"] });
         }
       } else if (data.source === "settings") {
         if (!isOwnEvent) {
-          qc.invalidateQueries({ queryKey: ["settings"] });
-          qc.invalidateQueries({ queryKey: ["aliases"] });
-          qc.invalidateQueries({ queryKey: ["labels"] });
-          qc.invalidateQueries({ queryKey: ["emails"] });
-          qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: ["settings"] });
+          void qc.invalidateQueries({ queryKey: ["aliases"] });
+          void qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
           invalidateSettingsSurfaces();
         }
       } else if (data.source === "action") {
@@ -422,9 +423,9 @@ function DbSyncSetup() {
       } else if (data.source === "screen-refresh") {
         if (!isOwnEvent) {
           markExternalEmailRefresh();
-          qc.invalidateQueries({ queryKey: ["emails"] });
-          qc.invalidateQueries({ queryKey: ["email"] });
-          qc.invalidateQueries({ queryKey: ["labels"] });
+          void qc.invalidateQueries({ queryKey: ["emails"] });
+          void qc.invalidateQueries({ queryKey: ["email"] });
+          void qc.invalidateQueries({ queryKey: ["labels"] });
           invalidateSettingsSurfaces();
         }
       }
@@ -437,25 +438,36 @@ function DbSyncSetup() {
 // AppProviders built-in toaster is suppressed via toaster={null}.
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
+function AppContent() {
+  return (
+    <>
+      <AutoFocus />
+      <AutomationTrigger />
+      <VisibilityRefresh />
+      <DbSyncSetup />
+      <AppLayout>
+        <Outlet />
+      </AppLayout>
+    </>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
-        toaster={MAIL_TOASTER}
+        isPublicPath={isMarketingPath}
+        toaster={isMarketingPath ? null : MAIL_TOASTER}
         sessionBypass={isMcpEmbedSurface()}
         i18n={{ catalog: i18nCatalog }}
       >
-        <AutoFocus />
-        <AutomationTrigger />
-        <VisibilityRefresh />
-        <DbSyncSetup />
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
+        {isMarketingPath ? <Outlet /> : <AppContent />}
       </AppProviders>
     </AppToolkitProvider>
   );

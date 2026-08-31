@@ -41,11 +41,13 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
+import { hydrateCommentAuthorNames } from "../server/lib/user-identities.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
   normalizeBuilderCreditsStatus,
 } from "../shared/builder-credits.js";
+import { displayCommentMentions } from "../shared/comment-mentions.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -204,6 +206,7 @@ export default defineAction({
         asc(schema.recordingComments.videoTimestampMs),
         asc(schema.recordingComments.createdAt),
       );
+    const hydratedComments = await hydrateCommentAuthorNames(comments);
 
     const reactions = await db
       .select()
@@ -411,7 +414,7 @@ export default defineAction({
           }
         : null,
       builderCredits,
-      comments: comments.map((c) => ({
+      comments: hydratedComments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,
         threadId: c.threadId,
@@ -419,6 +422,7 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
+        mentions: displayCommentMentions(c.mentionsJson),
         videoTimestampMs: c.videoTimestampMs,
         emojiReactionsJson: c.emojiReactionsJson,
         resolved: Boolean(c.resolved),

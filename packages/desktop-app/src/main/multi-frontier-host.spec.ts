@@ -131,7 +131,7 @@ describe("MultiFrontierHost", () => {
 
     expect(launch.mock.calls[0]?.[1]).toEqual(
       expect.arrayContaining([
-        'tell application "Terminal" to do script "codex login"',
+        'tell application "Terminal"\nset loginTab to do script "codex login"\nrepeat while busy of loginTab\ndelay 1\nend repeat\nend tell',
       ]),
     );
     expect(launch.mock.calls[1]?.[1]).toEqual(
@@ -140,6 +140,25 @@ describe("MultiFrontierHost", () => {
       ]),
     );
     expect(launch.mock.calls.every((call) => call[2] === "/safe")).toBe(true);
+  });
+
+  it("refreshes Codex status after the macOS Terminal login completes", async () => {
+    const codex = createCodexAdapter(status("codex", "needs-sign-in"));
+    const connected = status("codex", "connected");
+    codex.refresh.mockResolvedValueOnce(connected);
+    const host = createHost({
+      codex,
+      platform: "darwin",
+      launchDetached: async (_command, _args, _cwd, options) => {
+        expect(options.waitForExit).toBe(true);
+        return { ok: true, cwd: "/safe" };
+      },
+    });
+
+    await expect(host.beginProviderLogin("codex")).resolves.toMatchObject({
+      status: { connectionState: "connected" },
+    });
+    expect(codex.refresh).toHaveBeenCalledOnce();
   });
 
   it("resolves cwd, generates request and participant ids in main, and forwards actions", async () => {

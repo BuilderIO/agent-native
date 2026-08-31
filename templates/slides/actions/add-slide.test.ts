@@ -1,14 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hashSlideContent } from "../shared/slide-fit";
+
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
-// Each test sets this; the helper consults it to decide whether to report
-// overflow, fit, or timeout.
-let mockFitCheckResult:
-  | { status: "fits" | "overflows" | "timeout"; measurement?: unknown }
-  | undefined;
 
 let deckData: Record<string, unknown>;
 let updatedFields: Record<string, unknown> | undefined;
@@ -17,12 +14,13 @@ const whereSelectFn = vi.fn(async () => [
   {
     id: "deck-1",
     data: JSON.stringify(deckData),
+    updatedAt: "2026-01-01T00:00:00.000Z",
   },
 ]);
 const fromFn = vi.fn(() => ({ where: whereSelectFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
@@ -116,10 +114,13 @@ vi.mock("./patch-deck.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => ({ and: args }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -132,17 +133,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestRunContext: () => undefined,
 }));
 
-vi.mock("./_await-fit-check.js", () => ({
-  awaitLayoutFitCheck: async () => mockFitCheckResult ?? { status: "timeout" },
-  formatOverflowForTool: (deckId: string, m: { verticalOverflow: number }) =>
-    `MOCK_OVERFLOW_MESSAGE deck=${deckId} overflow=${m.verticalOverflow}`,
-}));
-
 import action from "./add-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockFitCheckResult = undefined;
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   deckData = {
     title: "Test deck",
@@ -283,73 +277,30 @@ describe("add-slide", () => {
     ).rejects.toThrow();
   });
 
-  it("appends layoutOverflow + auto-fix message when the editor reports vertical overflow", async () => {
-    mockFitCheckResult = {
-      status: "overflows",
-      measurement: {
-        slideId: "slide-new",
-        contentHeight: 645,
-        viewportHeight: 420,
-        verticalOverflow: 225,
-        measuredAt: Date.now(),
-      },
-    };
-
+  it("returns a pending fit check keyed to the new slide revision", async () => {
     const result = (await action.run({
       deckId: "deck-1",
       slideId: "slide-new",
       content: "<div>New</div>",
     })) as Record<string, unknown>;
 
-    expect(result).toMatchObject({
-      deckId: "deck-1",
-      slideId: "slide-new",
-      layoutOverflow: {
-        verticalOverflow: 225,
-        contentHeight: 645,
-        viewportHeight: 420,
-      },
-    });
-    expect(result.message).toMatch(/MOCK_OVERFLOW_MESSAGE/);
-  });
-
-  it("omits layoutOverflow when the editor reports the slide fits", async () => {
-    mockFitCheckResult = {
-      status: "fits",
-      measurement: {
-        slideId: "slide-new",
-        contentHeight: 380,
-        viewportHeight: 420,
-        verticalOverflow: 0,
-        measuredAt: Date.now(),
-      },
-    };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-new",
-      content: "<div>New</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
-  });
-
-  it("omits layoutOverflow when no editor is open to measure (timeout)", async () => {
-    mockFitCheckResult = { status: "timeout" };
-
-    const result = (await action.run({
-      deckId: "deck-1",
-      slideId: "slide-new",
-      content: "<div>New</div>",
-    })) as Record<string, unknown>;
-
-    expect(result.layoutOverflow).toBeUndefined();
-    expect(result.message).toBeUndefined();
     expect(result).toMatchObject({
       deckId: "deck-1",
       slideId: "slide-new",
       slideCount: 3,
+      layoutFit: {
+        status: "pending",
+        slideId: "slide-new",
+      },
+    });
+    expect(
+      result.layoutFit as {
+        contentHash: string;
+        layoutFitRevision: string;
+      },
+    ).toMatchObject({
+      contentHash: hashSlideContent("<div>New</div>"),
+      layoutFitRevision: expect.any(String),
     });
   });
 

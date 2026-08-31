@@ -57,15 +57,13 @@ export function EmptyState({
       if (spaceId) params.set("spaceId", spaceId);
       if (folderId) params.set("folderId", folderId);
       const qs = params.toString();
-      navigate(qs ? `/record?${qs}` : "/record");
+      void navigate(qs ? `/record?${qs}` : "/record");
     }
   };
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
-      <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/15 to-primary/5 shadow-md">
-        <Icon className="h-10 w-10 text-primary" />
-      </div>
+      <Icon className="mb-6 h-10 w-10 text-primary" />
       <h2 className="text-base font-semibold text-foreground mb-1">
         {t(`empty.${kind}.title`)}
       </h2>

@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   useActionMutation,
   useActionQuery,
@@ -230,6 +231,11 @@ function StatusPageRow({
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(publicUrl);
+      trackEvent("share_link_copied", {
+        resource_type: "status_page",
+        resource_id: page.id,
+        link_type: "share",
+      });
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {

@@ -15,6 +15,9 @@ import {
 } from "./google-api.js";
 import {
   gmailBatchModifyByAccount,
+  exchangeCode,
+  gmailToEmailMessage,
+  getAuthUrl,
   getClientsWithErrors,
   listGmailMessages,
   markAllUnreadReadForAccount,
@@ -563,6 +566,32 @@ describe("listGmailMessages", () => {
   });
 });
 
+describe("gmailToEmailMessage", () => {
+  it("preserves commas inside quoted sender names", () => {
+    const message = gmailToEmailMessage({
+      id: "message-1",
+      threadId: "thread-1",
+      internalDate: "1750000000000",
+      labelIds: ["INBOX"],
+      payload: {
+        headers: [
+          {
+            name: "From",
+            value: '"Cuevas, Gustavo" <cuevas@example.com>',
+          },
+          { name: "Date", value: "2025-06-15T12:00:00.000Z" },
+        ],
+      },
+      snippet: "",
+    });
+
+    expect(message.from).toEqual({
+      name: "Cuevas, Gustavo",
+      email: "cuevas@example.com",
+    });
+  });
+});
+
 describe("getClientsWithErrors with unusable token records", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -954,6 +983,11 @@ describe("gmailBatchModifyByAccount", () => {
       );
 
       expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(createOAuth2Client).toHaveBeenCalledWith(
+        "client-id",
+        "client-secret",
+        "",
+      );
       expect(googleFetch).toHaveBeenCalledWith(
         expect.stringContaining("messages/batchModify"),
         "refreshed-access-token",
@@ -961,4 +995,15 @@ describe("gmailBatchModifyByAccount", () => {
       );
     },
   );
+});
+
+describe("Google OAuth URL construction", () => {
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+  });
 });

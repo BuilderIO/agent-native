@@ -1031,7 +1031,7 @@ export async function runBuilderMediaCompressionSweepOnce(): Promise<void> {
       );
     } catch (err) {
       console.warn("[builder-media-compression] sweep item failed", {
-        key: String(row.key ?? ""),
+        key: typeof row.key === "string" ? row.key : "",
         recordingId: state.recordingId,
         error: errorMessage(err),
       });

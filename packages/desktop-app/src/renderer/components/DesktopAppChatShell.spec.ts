@@ -3,37 +3,27 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
-  shouldAnimateDesktopAppChatSidebar,
+  desktopSettingsTabForSection,
   shouldShowDesktopAppChatSidebar,
 } from "./DesktopAppChatShell.js";
 
 describe("desktop app chat shell", () => {
-  it("animates only the first active presentation of a cached app tab", () => {
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: false,
-        hasSwitchedAway: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldAnimateDesktopAppChatSidebar({
-        isActive: true,
-        hasSwitchedAway: false,
-        chatSidebarWasOpenBeforeMount: true,
-      }),
-    ).toBe(false);
+  it("routes chat settings requests to the native settings surface", () => {
+    expect(desktopSettingsTabForSection("llm")).toBe("providers");
+    expect(desktopSettingsTabForSection("secrets:OPENAI_API_KEY")).toBe(
+      "connections",
+    );
+    expect(desktopSettingsTabForSection("uploads")).toBe("workspace");
+    expect(desktopSettingsTabForSection("terminal")).toBe("terminal");
+    expect(desktopSettingsTabForSection("voice")).toBe("general");
+  });
+
+  it("keeps cached app chat sidebars mounted without replaying entrance animation", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("animateDesktop={false}");
   });
 
   it("keeps the shell open state shared while new app chats start empty", () => {
@@ -47,6 +37,8 @@ describe("desktop app chat shell", () => {
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
     expect(source).toContain("toggleScopeId={toggleScopeId}");
+    expect(source).toContain("onNewCliTab={onNewCliTab}");
+    expect(source).toContain('newCliTabLabel="New CLI tab"');
     expect(source).toContain("restoreActiveThread={false}");
     expect(source).toContain("enabled={showChatSidebar}");
     expect(source).not.toContain(
@@ -54,6 +46,24 @@ describe("desktop app chat shell", () => {
     );
     expect(source).not.toContain("Sign in on the right");
     expect(source).not.toContain("data-desktop-app-sign-in");
+  });
+
+  it("creates an isolated query client for each mounted app shell", () => {
+    const source = readFileSync(
+      new URL("./DesktopAppChatShell.tsx", import.meta.url),
+      "utf8",
+    );
+    const componentStart = source.indexOf(
+      "export default function DesktopAppChatShell(",
+    );
+    const queryClientCreation = source.indexOf(
+      "createAgentNativeQueryClient()",
+    );
+
+    expect(queryClientCreation).toBeGreaterThan(componentStart);
+    expect(source).not.toContain(
+      "const desktopChatQueryClient = createAgentNativeQueryClient();",
+    );
   });
 
   it("keeps the resolved chat endpoint across app tab switches", () => {
@@ -80,6 +90,9 @@ describe("desktop app chat shell", () => {
 
     expect(shellCss).toMatch(
       /\.desktop-app-webview-surface,\s*\.code-agents-embedded-app-surface\s*\{[\s\S]*?border-radius: var\(--agent-native-raised-radius, 8px\) 0 0\s+var\(--agent-native-raised-radius, 8px\);[\s\S]*?border-left: 0;[\s\S]*?box-shadow: 0 0 0 1px hsl\(var\(--border\)\);[\s\S]*?\}/,
+    );
+    expect(shellCss).not.toContain(
+      "transition: grid-template-columns 200ms var(--ease-collapse)",
     );
   });
 

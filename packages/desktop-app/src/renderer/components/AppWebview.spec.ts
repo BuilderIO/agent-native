@@ -97,6 +97,14 @@ describe("Desktop identity lazy child synchronization", () => {
         status: "idle",
       }),
     ).toBe(false);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: false,
+        status: "failed",
+      }),
+    ).toBe(false);
   });
 
   it("keeps the chat handoff pending until child synchronization completes", () => {
@@ -137,9 +145,9 @@ describe("Desktop identity lazy child synchronization", () => {
     ).toBe(false);
   });
 
-  it("does not demote a verified workspace session when child sync fails", () => {
+  it("reports a failed child sync to the shell-owned identity surface", () => {
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
-      "signed-in",
+      "failed",
     );
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
       "signed-in",
@@ -248,6 +256,48 @@ describe("Desktop identity activation", () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it("focuses an active webview for an explicit app-open request", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-calendar",
+      name: "Calendar",
+      icon: "calendar",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://calendar.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const props = {
+      app,
+      appConfig,
+      isActive: true,
+      theme: "dark" as const,
+    };
+
+    act(() => {
+      root.render(React.createElement(AppWebview, props));
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    const focus = vi.fn();
+    Object.defineProperty(webview!, "focus", {
+      configurable: true,
+      value: focus,
+    });
+
+    act(() => {
+      root.render(React.createElement(AppWebview, { ...props, focusNonce: 1 }));
+    });
+
+    expect(focus).toHaveBeenCalledOnce();
   });
 
   it("reveals a loaded tab without reloading it after switching away", async () => {
@@ -930,6 +980,12 @@ describe("AppWebview auth state", () => {
       "/_agent-native/auth/session",
     );
     expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "authenticated === true",
+    );
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      'window.location.protocol !== "http:"',
+    );
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },
@@ -942,6 +998,33 @@ describe("AppWebview auth state", () => {
         "unauthenticated",
       ),
     ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { email: "user@example.com", status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: { email: "user@example.com" }, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { user: {}, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 200 }, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { ok: true, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
   });
 
   it("falls back only when the app does not expose the session endpoint", () => {
@@ -984,7 +1067,7 @@ describe("AppWebview auth state", () => {
 
   it("reports only native sign-in gate states as unauthenticated", () => {
     expect(isDesktopIdentityGateUnauthenticated("sign-in-required")).toBe(true);
-    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("checking")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("signed-in")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("idle")).toBe(false);
@@ -1367,6 +1450,104 @@ describe("Recovering from a slow app load", () => {
     await act(async () => {
       webview?.dispatchEvent(new Event("dom-ready"));
       await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
+  });
+
+  it("loads the app URL instead of leaving an eligible app on about:blank after identity sync fails", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "failed"),
+          ensureAppSession: vi.fn(async () => false),
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+
+    root = createRoot(container);
+
+    const app: AppDefinition = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig: AppConfig = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      url: "https://mail.agent-native.com",
+      devPort: 3000,
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod",
+    };
+
+    await act(async () => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    expect(webview?.getAttribute("src")).toContain(
+      "https://mail.agent-native.com",
+    );
+    expect(webview?.getAttribute("src")).not.toBe("about:blank");
+  });
+
+  it("clears an unresponsive error when the guest becomes responsive", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    act(() => {
+      webview?.dispatchEvent(new Event("unresponsive"));
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(container.textContent).toContain("Mail isn't loading");
+
+    act(() => {
+      webview?.dispatchEvent(new Event("responsive"));
     });
 
     expect(container.textContent).not.toContain("Mail isn't loading");

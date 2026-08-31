@@ -20,8 +20,7 @@ export interface PresenceBarProps {
   agentPresent?: boolean;
   /** Whether the agent is actively making edits right now. */
   agentActive?: boolean;
-  /** Whether to show the status dot beside the active agent label. When false,
-   *  the label is integrated with the avatar pill. */
+  /** @deprecated Agent editing is represented by the AI presence circle and tooltip. */
   showAgentEditingDot?: boolean;
   /** Current user's email (to exclude from the list). */
   currentUserEmail?: string;
@@ -154,15 +153,17 @@ function AgentAvatar({
   active,
   onClick,
   isFollowing,
-  showAgentEditingDot,
 }: {
   active: boolean;
   onClick?: () => void;
   isFollowing?: boolean;
-  showAgentEditingDot: boolean;
 }) {
   injectStyles();
-  const integratedEditingBadge = active && !isFollowing && !showAgentEditingDot;
+  const tooltipLabel = isFollowing
+    ? "Following AI — click to stop"
+    : active
+      ? "AI is editing"
+      : "AI agent";
 
   return (
     <div
@@ -170,47 +171,35 @@ function AgentAvatar({
         display: "flex",
         alignItems: "center",
         gap: 4,
-        ...(integratedEditingBadge && {
-          height: AVATAR_SIZE,
-          paddingRight: 8,
-          borderRadius: 9999,
-          backgroundColor: `${AGENT_COLOR}20`,
-        }),
       }}
     >
-      <div
-        style={{
-          ...baseAvatarStyle,
-          backgroundColor: AGENT_COLOR,
-          marginLeft: 0,
-          animation: active ? "_anPresencePulse 2s infinite" : undefined,
-          cursor: onClick ? "pointer" : "default",
-          boxShadow: isFollowing
-            ? `0 0 0 2px #3b82f6, 0 0 0 4px #fff`
-            : undefined,
-        }}
-        title={
-          isFollowing
-            ? "Following AI — click to stop"
-            : active
-              ? "AI is editing"
-              : "AI agent"
-        }
-        onClick={onClick}
-        tabIndex={onClick ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") onClick?.();
-        }}
-        role={onClick ? "button" : undefined}
-      >
-        A
-      </div>
-      {active && !isFollowing && (
-        <AgentEditingChip
-          showDot={showAgentEditingDot}
-          integrated={integratedEditingBadge}
-        />
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            style={{
+              ...baseAvatarStyle,
+              backgroundColor: AGENT_COLOR,
+              marginLeft: 0,
+              animation: active ? "_anPresencePulse 2s infinite" : undefined,
+              cursor: onClick ? "pointer" : "default",
+              boxShadow: isFollowing
+                ? // guard:allow-raw-color -- existing follow-mode ring color
+                  `0 0 0 2px #3b82f6, 0 0 0 4px #fff`
+                : undefined,
+            }}
+            aria-label={tooltipLabel}
+            onClick={onClick}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") onClick?.();
+            }}
+            role={onClick ? "button" : undefined}
+          >
+            AI
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
+      </Tooltip>
       {isFollowing && (
         <span
           style={{
@@ -230,46 +219,6 @@ function AgentAvatar({
         </span>
       )}
     </div>
-  );
-}
-
-function AgentEditingChip({
-  showDot,
-  integrated,
-}: {
-  showDot: boolean;
-  integrated: boolean;
-}) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: showDot ? 4 : 0,
-        height: integrated ? "auto" : 20,
-        padding: integrated ? "0 0 0 2px" : "0 8px",
-        borderRadius: integrated ? 0 : 9999,
-        backgroundColor: integrated ? "transparent" : `${AGENT_COLOR}20`,
-        color: AGENT_COLOR,
-        fontSize: 11,
-        fontWeight: 600,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {showDot && (
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            backgroundColor: AGENT_COLOR,
-            animation: "_anPresencePulse 2s infinite",
-            flexShrink: 0,
-          }}
-        />
-      )}
-      AI editing
-    </span>
   );
 }
 
@@ -300,7 +249,6 @@ export function PresenceBar({
   activeUsers,
   agentPresent,
   agentActive,
-  showAgentEditingDot = true,
   currentUserEmail,
   maxVisible = 5,
   className,
@@ -339,7 +287,6 @@ export function PresenceBar({
             active={!!agentActive}
             onClick={onAvatarClick ? () => onAvatarClick(null) : undefined}
             isFollowing={isFollowingAgent}
-            showAgentEditingDot={showAgentEditingDot}
           />
         )}
         {visibleUsers.length > 0 && (

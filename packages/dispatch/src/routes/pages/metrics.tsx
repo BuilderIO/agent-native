@@ -61,6 +61,14 @@ interface UserUsageMetric extends UsageMetricBucket {
   role: string | null;
 }
 
+interface AppAdoptionActionMetric {
+  key: string;
+  label: string;
+  calls: number;
+  activeUsers: number;
+  lastActiveAt: number | null;
+}
+
 interface UsageUserOption {
   email: string;
   role: string | null;
@@ -75,11 +83,17 @@ interface AppAccessMetric {
   isDispatch: boolean;
   accessLabel: string;
   accessUsers: number;
+  ownerEmail: string | null;
+  isOwnedByViewer: boolean;
+  canViewUsage: boolean;
   usersWithUsage: number;
+  dailyActiveUsers: number;
+  weeklyActiveUsers: number;
   usageCalls: number;
   chatCalls: number;
   costCents: number;
   lastActiveAt: number | null;
+  actionMetrics: AppAdoptionActionMetric[];
 }
 
 interface DailyUsageMetric {
@@ -120,8 +134,9 @@ interface UsageBillingMode {
 
 interface DispatchUsageMetrics {
   billing?: UsageBillingMode;
-  viewScope?: "me" | "workspace";
+  viewScope?: "me" | "workspace" | "app";
   selectedUserEmail?: string | null;
+  selectedAppId?: string | null;
   availableUsers?: UsageUserOption[];
   sinceDays: number;
   access: {
@@ -695,6 +710,194 @@ function AppSpendRows({
   );
 }
 
+function AppAdoptionPanel({
+  rows,
+  selectedAppId,
+  scope,
+  backScope,
+}: {
+  rows: AppAccessMetric[];
+  selectedAppId: string | null;
+  scope: "me" | "workspace" | "app";
+  backScope: "me" | "workspace";
+}) {
+  const t = useT();
+  const visibleRows = rows.filter((row) => !row.isDispatch);
+  const selectedRow = selectedAppId
+    ? visibleRows.find((row) => row.id === selectedAppId)
+    : null;
+  const isDetail = !!selectedRow;
+  const title = isDetail
+    ? t("dispatch.pages.appAdoptionFor", { name: selectedRow.name })
+    : scope === "workspace"
+      ? t("dispatch.pages.appAdoption")
+      : t("dispatch.pages.yourAppActivity");
+  const backHref =
+    backScope === "workspace"
+      ? "/admin/metrics?scope=workspace"
+      : "/admin/metrics";
+
+  if (visibleRows.length === 0) {
+    return (
+      <Panel title={title} icon={<IconApps size={16} />}>
+        <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
+          {t("dispatch.pages.noWorkspaceApps")}
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel
+      title={title}
+      icon={<IconChartBar size={16} />}
+      action={
+        isDetail ? (
+          <Link
+            to={backHref}
+            className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {t("allApps")}
+          </Link>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {t("dispatch.pages.appAdoptionDefinition")}
+          </span>
+        )
+      }
+    >
+      {isDetail ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">
+                {selectedRow.name}
+              </div>
+              <div className="font-mono text-xs text-muted-foreground">
+                {selectedRow.path}
+              </div>
+            </div>
+            <Badge variant="secondary">
+              {selectedRow.ownerEmail
+                ? selectedRow.isOwnedByViewer
+                  ? t("dispatch.pages.appMetadataOwner")
+                  : selectedRow.ownerEmail
+                : t("dispatch.pages.ownerUnavailable")}
+            </Badge>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              [
+                t("dispatch.pages.dailyActiveUsers"),
+                selectedRow.dailyActiveUsers,
+              ],
+              [
+                t("dispatch.pages.weeklyActiveUsers"),
+                selectedRow.weeklyActiveUsers,
+              ],
+              [t("dispatch.pages.trackedActions"), selectedRow.usageCalls],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="rounded-md border bg-background p-3"
+              >
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {formatNumber(Number(value))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="border-t pt-4">
+            <div className="mb-2 text-xs font-medium text-muted-foreground">
+              {t("dispatch.pages.trackedActionBreakdown")}
+            </div>
+            {selectedRow.actionMetrics.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                {t("dispatch.pages.noTrackedActions")}
+              </div>
+            ) : (
+              <div className="divide-y rounded-md border">
+                {selectedRow.actionMetrics.slice(0, 10).map((action) => (
+                  <div
+                    key={action.key}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs"
+                  >
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {action.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {formatNumber(action.calls)}{" "}
+                      {t("dispatch.pages.trackedActions")} ·{" "}
+                      {formatNumber(action.activeUsers)}{" "}
+                      {t("dispatch.pages.activeUsers")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {visibleRows.map((row) => (
+            <div key={row.id} className="rounded-md border bg-background p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-foreground">
+                    {row.name}
+                  </div>
+                  <div className="font-mono text-[11px] text-muted-foreground">
+                    {row.path}
+                  </div>
+                </div>
+                {row.isOwnedByViewer ? (
+                  <Badge variant="secondary">
+                    {t("dispatch.pages.appMetadataOwner")}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("dispatch.pages.dailyActiveUsers")}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                    {formatNumber(row.dailyActiveUsers)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("dispatch.pages.weeklyActiveUsers")}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+                    {formatNumber(row.weeklyActiveUsers)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-muted-foreground">
+                {formatNumber(row.usageCalls)}{" "}
+                {t("dispatch.pages.trackedActions")}
+              </div>
+              {row.canViewUsage ? (
+                <Link
+                  to={`/admin/metrics?app=${encodeURIComponent(row.id)}${scope === "workspace" ? "&scope=workspace" : ""}`}
+                  className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
+                >
+                  {t("dispatch.pages.viewAppMetrics")}
+                  <IconArrowUpRight size={13} />
+                </Link>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function AppAccessTable({
   rows,
   billing,
@@ -938,13 +1141,20 @@ export default function MetricsRoute() {
   const t = useT();
   const [sinceDays, setSinceDays] = useState(30);
   const [searchParams, setSearchParams] = useSearchParams();
-  const scope: "me" | "workspace" =
+  const appId = searchParams.get("app") || null;
+  const backScope: "me" | "workspace" =
     searchParams.get("scope") === "workspace" ? "workspace" : "me";
+  const scope: "me" | "workspace" | "app" = appId
+    ? "app"
+    : searchParams.get("scope") === "workspace"
+      ? "workspace"
+      : "me";
   const userEmail =
     scope === "workspace" ? searchParams.get("user") || null : null;
 
   function setScope(nextScope: "me" | "workspace") {
     const next = new URLSearchParams(searchParams);
+    next.delete("app");
     if (nextScope === "me") next.delete("scope");
     else next.set("scope", nextScope);
     if (nextScope === "me") next.delete("user");
@@ -960,9 +1170,17 @@ export default function MetricsRoute() {
 
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
-    { sinceDays, scope, userEmail: userEmail ?? undefined },
+    {
+      sinceDays,
+      scope,
+      userEmail: userEmail ?? undefined,
+      appId: appId ?? undefined,
+    },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
+  const selectedAppName = metrics?.selectedAppId
+    ? metrics.appAccess.find((row) => row.id === metrics.selectedAppId)?.name
+    : null;
   const billing = metrics?.billing ?? USD_BILLING;
   const totalTokens = useMemo(() => {
     if (!metrics) return 0;
@@ -987,22 +1205,42 @@ export default function MetricsRoute() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium text-foreground">
-              {metrics?.selectedUserEmail
-                ? `${metrics.selectedUserEmail}'s usage`
-                : scope === "workspace"
-                  ? "Workspace usage"
-                  : "Your usage"}
+              {scope === "app"
+                ? t("dispatch.pages.appAdoption")
+                : metrics?.selectedUserEmail
+                  ? `${metrics.selectedUserEmail}'s usage`
+                  : scope === "workspace"
+                    ? "Workspace usage"
+                    : "Your usage"}
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground">
-              {metrics?.selectedUserEmail
-                ? "Filtered to this workspace member"
-                : scope === "workspace"
-                  ? `${metrics?.access.totalUsers ?? 0} users with access`
-                  : metrics?.access.viewerEmail || "Signed-in account"}
+              {scope === "app"
+                ? selectedAppName || t("dispatch.pages.workspaceAppFallback")
+                : metrics?.selectedUserEmail
+                  ? "Filtered to this workspace member"
+                  : scope === "workspace"
+                    ? `${metrics?.access.totalUsers ?? 0} users with access`
+                    : metrics?.access.viewerEmail || "Signed-in account"}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ScopeSelector value={scope} onChange={setScope} />
+            {appId ? (
+              <Link
+                to={
+                  backScope === "workspace"
+                    ? "/admin/metrics?scope=workspace"
+                    : "/admin/metrics"
+                }
+                className="inline-flex h-7 items-center rounded-md border px-3 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                {t("allApps")}
+              </Link>
+            ) : (
+              <ScopeSelector
+                value={scope === "workspace" ? "workspace" : "me"}
+                onChange={setScope}
+              />
+            )}
             {scope === "workspace" && metrics ? (
               <UserSelector
                 value={metrics.selectedUserEmail ?? userEmail}
@@ -1039,12 +1277,14 @@ export default function MetricsRoute() {
               <ReviewUsageButton metrics={metrics} billing={billing} />
             </div>
 
-            <UsageAlertsPanel
-              scope={scope === "workspace" ? "workspace" : "user"}
-              appOptions={metrics.byApp
-                .filter((row) => row.key && row.key !== "unattributed")
-                .map((row) => ({ id: row.key, label: displayApp(row.key) }))}
-            />
+            {scope !== "app" ? (
+              <UsageAlertsPanel
+                scope={scope === "workspace" ? "workspace" : "user"}
+                appOptions={metrics.byApp
+                  .filter((row) => row.key && row.key !== "unattributed")
+                  .map((row) => ({ id: row.key, label: displayApp(row.key) }))}
+              />
+            ) : null}
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard
@@ -1079,6 +1319,13 @@ export default function MetricsRoute() {
               />
             </div>
 
+            <AppAdoptionPanel
+              rows={metrics.appAccess}
+              selectedAppId={metrics.selectedAppId ?? appId}
+              scope={scope}
+              backScope={backScope}
+            />
+
             <Panel
               title={
                 billing.unit === "builder-credits"
@@ -1090,26 +1337,30 @@ export default function MetricsRoute() {
               <AppSpendRows rows={metrics.byApp} billing={billing} />
             </Panel>
 
-            <Panel
-              title="Recent prompts"
-              icon={<IconMessages size={16} />}
-              action={
-                <span className="text-xs text-muted-foreground">
-                  Latest {Math.min(metrics.recent.length, 10)} of{" "}
-                  {metrics.recent.length}
-                </span>
-              }
-            >
-              <RecentTable rows={metrics.recent} billing={billing} />
-            </Panel>
+            {scope !== "app" ? (
+              <Panel
+                title="Recent prompts"
+                icon={<IconMessages size={16} />}
+                action={
+                  <span className="text-xs text-muted-foreground">
+                    Latest {Math.min(metrics.recent.length, 10)} of{" "}
+                    {metrics.recent.length}
+                  </span>
+                }
+              >
+                <RecentTable rows={metrics.recent} billing={billing} />
+              </Panel>
+            ) : null}
 
             <Panel title="Access By App" icon={<IconApps size={16} />}>
               <AppAccessTable rows={metrics.appAccess} billing={billing} />
             </Panel>
 
-            <Panel title="Users" icon={<IconUsersGroup size={16} />}>
-              <UserTable rows={metrics.byUser} billing={billing} />
-            </Panel>
+            {scope !== "app" ? (
+              <Panel title="Users" icon={<IconUsersGroup size={16} />}>
+                <UserTable rows={metrics.byUser} billing={billing} />
+              </Panel>
+            ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2">
               <Panel title="Models" icon={<IconChartBar size={16} />}>

@@ -6,8 +6,16 @@
  *
  * After first account exists, this page acts as a normal login page.
  */
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 
-import { getAppConfig } from "../app-config/index.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
+import {
+  AuthPage,
+  type AuthPageProps,
+  type AuthView,
+} from "../client/auth/AuthPage.js";
+import { ResetPasswordPage } from "../client/auth/ResetPasswordPage.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -31,7 +39,6 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
-import { signInJourneyInlineScript } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -40,7 +47,10 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
-import { normalizeAppBasePath } from "./app-base-path.js";
+import {
+  getAppBasePathFromViteEnv,
+  normalizeAppBasePath,
+} from "./app-base-path.js";
 import {
   AUTH_MARKETING_LOCALE_COPY,
   type AuthMarketingLocaleCopy,
@@ -59,7 +69,6 @@ import { hasGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import { identitySsoLoginButtonHtml } from "./identity-sso-store.js";
 import { getPublicOAuthOrigin } from "./oauth-public-origin.js";
 import { getWorkspaceGatewayReturnOrigin } from "./oauth-return-url.js";
-
 function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
 }
@@ -102,11 +111,9 @@ function workspaceBasePathFromRequest(requestPath: string | undefined): string {
   return normalizeAppBasePath(`/${firstSegment}`);
 }
 
-function withAppBasePath(path: string): string {
+function withAppBasePath(path: string, explicitBasePath?: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  const basePath = normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  const basePath = explicitBasePath ?? getAppBasePathFromViteEnv();
   return `${basePath}${cleanPath}`;
 }
 
@@ -1020,8 +1027,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
   },
 };
 
-const defaultAuthCopy = AUTH_LOCALE_COPY[DEFAULT_LOCALE];
-
 function resolveBuiltInMarketingSlug(
   marketing: AuthMarketingContent | undefined,
   opts: { requestHost?: string; requestPath?: string } = {},
@@ -1126,19 +1131,59 @@ export interface OnboardingHtmlOptions {
   googleAuthMode?: GoogleAuthMode;
 }
 
+function initialAuthView(
+  opts: OnboardingHtmlOptions,
+  authMode: OnboardingHtmlOptions["authMode"],
+  googleOnly: boolean,
+): AuthView {
+  if (googleOnly) return "googleOnly";
+  if (authMode === "magic-link") return "magicLink";
+  try {
+    const url = new URL(opts.requestPath ?? "/", "https://agent-native.local");
+    if (
+      url.searchParams.has("verified") ||
+      url.searchParams.get("error") === "verification_link_invalid"
+    ) {
+      return "login";
+    }
+    const requestedView = url.searchParams.get("tab");
+    if (requestedView === "login" || requestedView === "signup") {
+      return requestedView;
+    }
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    if (pathname.endsWith("/login")) return "login";
+    if (pathname.endsWith("/signup")) return "signup";
+  } catch (error) {
+    // coercion-ok: malformed paths use the public signup state; no session data is inferred.
+    void error;
+  }
+  return "signup";
+}
+
+function serializeAuthPageData(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("&", "\\u0026")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
+}
+
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
   const authMode = opts.authMode ?? "password";
-  const magicLinkMode = authMode === "magic-link";
   const simplifiedAuth = opts.initialPrompt === true;
-  const renderGoogleButton = showGoogle;
-  const configuredAppBasePath = normalizeAppBasePath(
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
-  );
+  const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =
     configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
+  const appHomePath = resolveAppHomePath(getAppConfig().app);
   const workspaceRuntime = isWorkspaceRuntime();
+  const trackingApp =
+    getAppConfig().app.slug ??
+    getAppConfig().app.template ??
+    getAppConfig().app.id ??
+    "";
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -1166,13 +1211,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     requestHost: opts.requestHost,
     requestPath: opts.requestPath,
   });
-  const defaultMarketingCopy: AuthMarketingLocaleCopy | undefined = marketing
-    ? {
-        tagline: marketing.tagline,
-        description: marketing.description,
-        features: marketing.features,
-      }
-    : undefined;
   const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
   if (marketingSlug) {
     for (const [locale, copyBySlug] of Object.entries(
@@ -1190,83 +1228,16 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           command: marketing.signupLocalModeNote.command.trim(),
         }
       : undefined;
-  const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
+  const brandMarkSrc = withAppBasePath(
+    "/agent-native-icon-dark.svg",
+    appBasePath,
+  );
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
-      ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH)}`
-      : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+      ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
+      : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath),
   );
-  const esc = (s: string) =>
-    s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  const t = (key: keyof typeof EN_AUTH_COPY) => defaultAuthCopy[key];
-  const i18nAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
-    key ? ` data-i18n="${key}"` : "";
-  const googleUnavailableHtml =
-    googleOnly && !showGoogle
-      ? `<p class="google-error show" id="google-err" role="status"${i18nAttr("googleNotConfigured")}>${esc(t("googleNotConfigured"))}</p>`
-      : "";
-  const i18nAriaAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
-    key ? ` data-i18n-aria-label="${key}"` : "";
-  const i18nPlaceholderAttr = (key: keyof typeof EN_AUTH_COPY | undefined) =>
-    key ? ` data-i18n-placeholder="${key}"` : "";
-  const i18nDataAttr = (
-    attr: string,
-    key: keyof typeof EN_AUTH_COPY | undefined,
-  ) => (key ? ` data-i18n-${attr}="${key}"` : "");
-  const i18nText = (key: keyof typeof EN_AUTH_COPY) =>
-    `<span${i18nAttr(key)}>${esc(t(key))}</span>`;
-  const localizedValue = (
-    value: string | undefined,
-    key: keyof typeof EN_AUTH_COPY,
-  ) => (value === undefined ? i18nText(key) : esc(value));
-  const localizedAnchorLabel = (
-    value: string | undefined,
-    key: keyof typeof EN_AUTH_COPY,
-  ) =>
-    value === undefined ? `${i18nAttr(key)}>${esc(t(key))}` : `>${esc(value)}`;
-  const localeMenuItemsHtml = [
-    `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="system">
-      <span class="locale-menu-check" aria-hidden="true">✓</span>
-      <span data-system-language>${esc(t("systemLanguage"))}</span>
-    </button>`,
-    ...SUPPORTED_LOCALES.map((locale) => {
-      const label = localeDisplayName(locale);
-      return `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="${esc(locale)}">
-      <span class="locale-menu-check" aria-hidden="true">✓</span>
-      <span>${esc(label)}</span>
-    </button>`;
-    }),
-  ].join("\n");
-  const localePickerHtml = `
-<div class="locale-picker">
-  <button type="button" class="locale-trigger" id="auth-locale-trigger" aria-haspopup="menu" aria-expanded="false" aria-controls="auth-locale-menu" aria-label="${esc(t("languageLabel"))}" title="${esc(t("languageLabel"))}"${i18nAriaAttr("languageLabel")} data-i18n-title="languageLabel">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 5h7" />
-      <path d="M7.5 4v1" />
-      <path d="M9.5 5c-.8 4.4-2.6 7.2-5.5 9" />
-      <path d="M5 9c1.2 2.1 3.2 3.8 6 5" />
-      <path d="M13 20l4-9 4 9" />
-      <path d="M14.5 17h5" />
-    </svg>
-  </button>
-  <div class="locale-menu" id="auth-locale-menu" role="menu" aria-labelledby="auth-locale-trigger" hidden>
-${localeMenuItemsHtml}
-  </div>
-</div>`;
-  const environmentBadgeHtml = `
-<div class="environment-switcher" id="environment-switcher" hidden>
-  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
-  <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
-    <div class="environment-popover-title" id="environment-popover-title">You're on Agent-Native Beta</div>
-    <div class="environment-popover-copy">Choose where you want to continue.</div>
-    <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
-    <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
-  </div>
-</div>`;
+  const t = (key: keyof typeof EN_AUTH_COPY) => EN_AUTH_COPY[key];
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
     opts.signupLegalNotice === undefined &&
     isAgentNativeHostedHost(opts.requestHost)
@@ -1279,58 +1250,12 @@ ${localeMenuItemsHtml}
     opts.signupLegalNotice === false
       ? undefined
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
-  const signupLegalNoteHtml = signupLegalNotice
-    ? `      <p class="legal-note">${localizedValue(signupLegalNotice.prefix, "legalPrefix")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.termsLabel, "legalTerms")}</a> ${localizedValue(signupLegalNotice.connector, "legalConnector")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.privacyLabel, "legalPrivacy")}</a>${localizedValue(signupLegalNotice.suffix, "legalSuffix")}</p>`
-    : "";
-  const magicLinkSuccessHtml = magicLinkMode
-    ? `    <div class="magic-link-success" id="magic-link-success" aria-live="polite" hidden>
-      <p class="magic-link-success-copy"><span${i18nAttr("magicLinkSentCopy")}>${esc(t("magicLinkSentCopy"))}</span> <strong id="magic-link-success-email"></strong>.</p>
-      <button type="button" class="link-button magic-link-back" id="magic-link-back"${i18nAttr("back")}>${esc(t("back"))}</button>
-    </div>
-`
-    : "";
-  const signupLocalModeNoteHtml = signupLocalModeNote
-    ? `      <div class="signup-local-mode-note" id="signup-local-mode-note" data-command="${esc(signupLocalModeNote.command)}">
-        <p>${esc(signupLocalModeNote.text)}</p>
-        <code>${esc(signupLocalModeNote.command)}</code>
-        <button type="button" class="copy-run-local" id="copy-signup-local-mode" onclick="__anCopySignupLocalModeCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
-      </div>`
-    : "";
-  const identitySsoHtml = identitySsoLoginButtonHtml();
-  const embeddedAuthCss = identitySsoHtml
+  const identitySsoEnabled = Boolean(identitySsoLoginButtonHtml());
+  const embeddedAuthCss = identitySsoEnabled
     ? '  html[data-agent-native-embedded="1"] #identity-sso-btn { display: none !important; }\n'
     : "";
-  const localDevHtml = `
-  <div class="local-dev-signin" id="local-dev-signin" hidden>
-    <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
-    <p class="local-dev-description" id="local-dev-description">
-      <span${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</span>
-      <a class="local-dev-help" id="local-dev-help" href="${docsUrl("authentication", { hash: "local-development-sign-in" })}" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
-    </p>
-    <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
-    <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
-  </div>`;
-  const identitySsoMagicLinkSelector = identitySsoHtml
+  const identitySsoMagicLinkSelector = identitySsoEnabled
     ? "  .card.magic-link-complete #identity-sso-btn,\n"
-    : "";
-  const identitySsoScript = identitySsoHtml
-    ? `
-    function __anIdentitySsoUrl() {
-      var params = new URLSearchParams();
-      params.set('return', __anResumeHref());
-      return __anPath('/_agent-native/identity/login') + '?' + params.toString();
-    }
-    function __anStartIdentitySso(event) {
-      if (event && event.preventDefault) event.preventDefault();
-      window.location.href = __anIdentitySsoUrl();
-      return false;
-    }
-    (function __anPrepareIdentitySsoButton() {
-      var identity = document.getElementById('identity-sso-btn');
-      if (!identity) return;
-      identity.setAttribute('href', __anIdentitySsoUrl());
-      identity.addEventListener('click', __anStartIdentitySso);
-    })();`
     : "";
 
   const marketingStyles = hasMarketing
@@ -1470,313 +1395,64 @@ ${localeMenuItemsHtml}
 `
     : "";
 
-  const marketingPanelHtml = hasMarketing
-    ? `<canvas id="starfield"></canvas>
-<div class="split">
-  <div class="marketing-panel">
-    <div class="marketing-content">
-      <h2 class="app-name">
-        <img class="brand-mark" src="${esc(brandMarkSrc)}" alt="" aria-hidden="true" />
-        <span>${esc(marketing!.appName)}</span>
-      </h2>
-      <p class="app-tagline" data-marketing-field="tagline">${esc(marketing!.tagline)}</p>
-${marketing!.description ? `      <p class="app-desc" data-marketing-field="description">${esc(marketing!.description)}</p>\n` : ""}${
-        marketing!.features?.length
-          ? `      <ul class="feature-list">\n${marketing!.features.map((f, index) => `        <li data-marketing-feature-index="${index}">${esc(f)}</li>`).join("\n")}\n      </ul>\n`
-          : ""
-      }      <div class="marketing-actions">
-        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
-        <span${i18nAttr("openSource")}>${esc(t("openSource"))}</span>
-      </a>
-      </div>
-    </div>
-  </div>
-  <div class="form-panel">`
-    : "";
+  const authMarketingLocales: AuthPageProps["marketingLocales"] =
+    Object.fromEntries(
+      Object.entries(localizedMarketingCopy).map(([locale, copy]) => [
+        locale,
+        {
+          appName: marketing?.appName ?? "",
+          tagline: copy.tagline ?? marketing?.tagline ?? "",
+          description: copy.description ?? marketing?.description,
+          features: copy.features ?? marketing?.features,
+        },
+      ]),
+    );
+  const authPageProps: AuthPageProps = {
+    authMode,
+    googleOnly,
+    initialPrompt: simplifiedAuth,
+    initialView: initialAuthView(opts, authMode, googleOnly),
+    appBasePath,
+    homePath: appHomePath,
+    workspaceRuntime,
+    trackingApp,
+    defaultLocale: DEFAULT_LOCALE,
+    localeStorageKey: LOCALE_STORAGE_KEY,
+    locales: AUTH_LOCALE_COPY,
+    localeMetadata: LOCALE_METADATA,
+    localeOptions: SUPPORTED_LOCALES.map((locale) => ({
+      value: locale,
+      label: localeDisplayName(locale),
+    })),
+    marketing: hasMarketing && marketing ? marketing : undefined,
+    marketingLocales: authMarketingLocales,
+    brandMarkSrc,
+    githubUrl: "https://github.com/BuilderIO/agent-native",
+    showGoogle,
+    signupLegalNotice,
+    signupLocalModeNote,
+    connectionLabel: getConnectionLabel(),
+    docsAuthUrl: docsUrl("authentication", {
+      hash: "local-development-sign-in",
+    }),
+    identitySsoEnabled,
+    publicOAuthOrigin,
+    workspaceGatewayReturnOrigin,
+    googleAuthMode,
+    builderPreviewLocalDevEnabled,
+    environmentBetaHosts: ENVIRONMENT_BETA_HOSTS,
+    betaForceQueryParam: BETA_FORCE_QUERY_PARAM,
+    betaForceSessionStorageKey: BETA_FORCE_SESSION_STORAGE_KEY,
+    betaOptOutQueryParam: BETA_OPT_OUT_QUERY_PARAM,
+    betaOptOutStorageKey: BETA_OPT_OUT_STORAGE_KEY,
+    betaOptOutDurationMs: BETA_OPT_OUT_DURATION_MS,
+    passwordMinLength: PASSWORD_MIN_LENGTH,
+    passwordMaxLength: PASSWORD_MAX_LENGTH,
+    passwordMaxCopy: `Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.`,
+  };
+  const authPageData = serializeAuthPageData(authPageProps);
 
-  const marketingCloseHtml = hasMarketing ? `\n  </div>\n</div>` : "";
-
-  const starfieldScript = hasMarketing
-    ? `
-  (function initStarfield() {
-    var canvas = document.getElementById('starfield');
-    if (!canvas) return;
-    var gl = canvas.getContext('webgl', { alpha: false, antialias: false });
-    if (!gl) return;
-
-    var vs = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vs, 'attribute vec2 position;void main(){gl_Position=vec4(position,0.0,1.0);}');
-    gl.compileShader(vs);
-
-    var fs = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(fs, [
-      'precision highp float;',
-      'uniform float iTime;uniform vec2 iResolution;uniform vec3 uPointer;',
-      '#define S(a,b,t) smoothstep(a,b,t)',
-      '#define NUM_LAYERS 4.',
-      'float N21(vec2 p){vec3 a=fract(vec3(p.xyx)*vec3(213.897,653.453,253.098));a+=dot(a,a.yzx+79.76);return fract((a.x+a.y)*a.z);}',
-      'vec2 GetPos(vec2 id,vec2 offs,float t){float n=N21(id+offs);float n1=fract(n*10.);float n2=fract(n*100.);float a=t+n;return offs+vec2(sin(a*n1),cos(a*n2))*.4;}',
-      'vec2 Attract(vec2 p,vec2 cursor,float strength){vec2 delta=cursor-p;float d=length(delta);float pull=1.-smoothstep(.08,1.9,d);pull=pull*pull*(3.-2.*pull);return p+delta*pull*.095*strength;}',
-      'float df_line(vec2 a,vec2 b,vec2 p){vec2 pa=p-a,ba=b-a;float h=clamp(dot(pa,ba)/dot(ba,ba),0.,1.);return length(pa-ba*h);}',
-      'float line(vec2 a,vec2 b,vec2 uv){float r1=.025;float r2=.006;float d=df_line(a,b,uv);float d2=length(a-b);float fade=S(1.5,.5,d2);fade+=S(.05,.02,abs(d2-.75));return S(r1,r2,d)*fade;}',
-      'float NetLayer(vec2 st,float n,float t,vec2 pointer,float pointerStrength){',
-      '  vec2 cell=floor(st);vec2 id=cell+n;vec2 cursor=pointer-cell;st=fract(st)-.5;',
-      '  vec2 p0=Attract(GetPos(id,vec2(-1,-1),t),cursor,pointerStrength);vec2 p1=Attract(GetPos(id,vec2(0,-1),t),cursor,pointerStrength);vec2 p2=Attract(GetPos(id,vec2(1,-1),t),cursor,pointerStrength);',
-      '  vec2 p3=Attract(GetPos(id,vec2(-1,0),t),cursor,pointerStrength);vec2 p4=Attract(GetPos(id,vec2(0,0),t),cursor,pointerStrength);vec2 p5=Attract(GetPos(id,vec2(1,0),t),cursor,pointerStrength);',
-      '  vec2 p6=Attract(GetPos(id,vec2(-1,1),t),cursor,pointerStrength);vec2 p7=Attract(GetPos(id,vec2(0,1),t),cursor,pointerStrength);vec2 p8=Attract(GetPos(id,vec2(1,1),t),cursor,pointerStrength);',
-      '  float m=0.;float sparkle=0.;float d;float s;float pulse;',
-      '  m+=line(p4,p0,st);d=length(st-p0);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p0.x)+fract(p0.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p1,st);d=length(st-p1);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p1.x)+fract(p1.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p2,st);d=length(st-p2);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p2.x)+fract(p2.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p3,st);d=length(st-p3);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p3.x)+fract(p3.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p4,st);d=length(st-p4);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p4.x)+fract(p4.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p5,st);d=length(st-p5);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p5.x)+fract(p5.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p6,st);d=length(st-p6);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p6.x)+fract(p6.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p7,st);d=length(st-p7);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p7.x)+fract(p7.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p4,p8,st);d=length(st-p8);s=(.005/(d*d));s*=S(1.,.7,d);pulse=sin((fract(p8.x)+fract(p8.y)+t)*5.)*.4+.6;pulse=pow(pulse,20.);sparkle+=s*pulse;',
-      '  m+=line(p1,p3,st);m+=line(p1,p5,st);m+=line(p7,p5,st);m+=line(p7,p3,st);',
-      '  float sPhase=(sin(t+n)+sin(t*.1))*.25+.5;sPhase+=pow(sin(t*.1)*.5+.5,50.)*5.;m+=sparkle*sPhase;',
-      '  return m;',
-      '}',
-      'void mainImage(out vec4 fragColor,in vec2 fragCoord){',
-      '  vec2 uv=(fragCoord-iResolution.xy*.5)/iResolution.y;',
-      '  float t=iTime*.03;float s=sin(t);float c=cos(t);mat2 rot=mat2(c,-s,s,c);vec2 st=uv*rot;vec2 pointerUv=(uPointer.xy-iResolution.xy*.5)/iResolution.y;',
-      '  float m=0.;',
-      '  for(float i=0.;i<1.;i+=1./NUM_LAYERS){float z=fract(t+i);float size=mix(15.,1.,z);float fade=S(0.,.6,z)*S(1.,.8,z);vec2 pointerSt=pointerUv*rot*size;vec2 layerSt=st*size;float warp=1.-smoothstep(.15,2.7,length(layerSt-pointerSt));warp=warp*warp*(3.-2.*warp)*uPointer.z;layerSt-=(pointerSt-layerSt)*warp*.035;m+=fade*NetLayer(layerSt,i,iTime*0.3,pointerSt,uPointer.z);}',
-      '  float cursorLift=1.-smoothstep(.04,.48,length(uv-pointerUv));cursorLift=cursorLift*cursorLift*(3.-2.*cursorLift)*uPointer.z;m*=1.+cursorLift*1.6;',
-      '  vec3 col=vec3(0.35)*m;col*=1.-dot(uv,uv);',
-      '  float tt=min(iTime,5.0);col*=S(0.,20.,tt);',
-      '  col=clamp(col,0.,1.);fragColor=vec4(col,1.);',
-      '}',
-      'void main(){mainImage(gl_FragColor,gl_FragCoord.xy);}'
-    ].join('\\n'));
-    gl.compileShader(fs);
-
-    var prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    var buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]), gl.STATIC_DRAW);
-    var pos = gl.getAttribLocation(prog, 'position');
-    gl.enableVertexAttribArray(pos);
-    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
-
-    var uTime = gl.getUniformLocation(prog, 'iTime');
-    var uRes = gl.getUniformLocation(prog, 'iResolution');
-    var uPointer = gl.getUniformLocation(prog, 'uPointer');
-    var reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
-    var reducedMotion = reducedMotionQuery ? reducedMotionQuery.matches : false;
-    var pointerDpr = 1, hasPointer = false;
-    var pointerX = 0, pointerY = 0, pointerStrength = 0;
-    var targetX = 0, targetY = 0, targetStrength = 0;
-
-    function resize() {
-      var w = window.innerWidth, h = window.innerHeight;
-      pointerDpr = Math.min(window.devicePixelRatio, 1.5);
-      canvas.width = w * pointerDpr; canvas.height = h * pointerDpr;
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      if (!hasPointer) {
-        pointerX = targetX = canvas.width * 0.5;
-        pointerY = targetY = canvas.height * 0.5;
-      }
-    }
-    function onPointerMove(event) {
-      var rect = canvas.getBoundingClientRect();
-      var x = event.clientX - rect.left;
-      var y = event.clientY - rect.top;
-      hasPointer = true;
-      targetX = x * pointerDpr;
-      targetY = (rect.height - y) * pointerDpr;
-      targetStrength = x >= 0 && x <= rect.width && y >= 0 && y <= rect.height ? 1 : 0;
-    }
-    function fadePointer() {
-      targetStrength = 0;
-    }
-    function easePointer(allowPointer) {
-      if (!allowPointer) {
-        pointerStrength = 0;
-        return;
-      }
-      pointerX += (targetX - pointerX) * 0.22;
-      pointerY += (targetY - pointerY) * 0.22;
-      pointerStrength += (targetStrength - pointerStrength) * 0.14;
-      if (pointerStrength < 0.001 && targetStrength === 0) pointerStrength = 0;
-    }
-    resize();
-    window.addEventListener('resize', resize);
-    window.addEventListener('pointermove', onPointerMove, { passive: true });
-    window.addEventListener('mousemove', onPointerMove, { passive: true });
-    document.addEventListener('pointerleave', fadePointer, { passive: true });
-    window.addEventListener('blur', fadePointer);
-
-    var start = performance.now(), last = 0, raf = 0, reducedMotionStaticTime = 20;
-    function draw(timeSeconds, allowPointer) {
-      easePointer(allowPointer !== false && !reducedMotion);
-      gl.uniform1f(uTime, timeSeconds);
-      gl.uniform2f(uRes, canvas.width, canvas.height);
-      gl.uniform3f(uPointer, pointerX, pointerY, pointerStrength);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }
-    function render(now) {
-      if (reducedMotion) {
-        raf = 0;
-        return;
-      }
-      raf = requestAnimationFrame(render);
-      if (now - last < 33) return;
-      last = now;
-      draw((now - start) * 0.001);
-    }
-    function startAnimation() {
-      if (!raf) raf = requestAnimationFrame(render);
-    }
-    function stopAnimation() {
-      if (raf) {
-        cancelAnimationFrame(raf);
-        raf = 0;
-      }
-    }
-    function onReducedMotionChange() {
-      reducedMotion = reducedMotionQuery ? reducedMotionQuery.matches : false;
-      if (reducedMotion) {
-        stopAnimation();
-        last = 0;
-        draw(reducedMotionStaticTime, false);
-      } else {
-        startAnimation();
-      }
-    }
-    draw(reducedMotion ? reducedMotionStaticTime : 0, !reducedMotion);
-    if (reducedMotionQuery) {
-      if (reducedMotionQuery.addEventListener) {
-        reducedMotionQuery.addEventListener('change', onReducedMotionChange);
-      } else {
-        reducedMotionQuery.addListener(onReducedMotionChange);
-      }
-    }
-    if (!reducedMotion) startAnimation();
-    })();`
-    : "";
-  const environmentBadgeScript = `
-  (function __anInitEnvironmentBadge() {
-    var switcher = document.getElementById('environment-switcher');
-    var button = document.getElementById('environment-badge');
-    var popover = document.getElementById('environment-popover');
-    var productionLink = document.getElementById('environment-production-link');
-    var hideButton = document.getElementById('environment-hide-badge');
-    if (!switcher || !button || !popover || !productionLink || !hideButton) return;
-    if (window.parent !== window) return;
-
-    try {
-      var forceUrl = new URL(window.location.href);
-      if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
-        window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
-      }
-    } catch (error) {
-      void error;
-    }
-
-    // Persist the beta opt-out before authentication replaces this cached shell.
-    try {
-      var optOutUrl = new URL(window.location.href);
-      var optOutValue = optOutUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
-      if (optOutValue !== null) {
-        var optOutExpiry = Number(optOutValue);
-        var optOutIsActive = Number.isFinite(optOutExpiry) && optOutExpiry > Date.now();
-        var optOutStorageReady = false;
-        try {
-          if (optOutIsActive) {
-            window.localStorage.setItem(
-              ${JSON.stringify(BETA_OPT_OUT_STORAGE_KEY)},
-              String(optOutExpiry),
-            );
-          }
-          optOutStorageReady = true;
-        } catch (error) {
-          void error;
-        }
-        if (optOutStorageReady) {
-          optOutUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
-          window.history.replaceState(null, '', optOutUrl.toString());
-        }
-      }
-    } catch (error) {
-      void error;
-    }
-
-    var betaHosts = ${JSON.stringify(ENVIRONMENT_BETA_HOSTS)};
-    var hostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');
-    var productionHost = hostname.indexOf('beta.') === 0 ? hostname.slice(5) : '';
-    if (!productionHost || betaHosts[productionHost] !== hostname) return;
-
-    try {
-      var productionUrl = new URL(window.location.href);
-      productionUrl.protocol = 'https:';
-      productionUrl.hostname = productionHost;
-      productionUrl.port = '';
-      productionUrl.searchParams.set(
-        ${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)},
-        String(Date.now() + ${BETA_OPT_OUT_DURATION_MS}),
-      );
-      productionLink.href = productionUrl.toString();
-    } catch (error) {
-      void error;
-      return;
-    }
-
-    function setOpen(open) {
-      popover.hidden = !open;
-      button.setAttribute('aria-expanded', String(open));
-    }
-
-    switcher.hidden = false;
-    button.addEventListener('click', function() {
-      setOpen(popover.hidden);
-    });
-    document.addEventListener('click', function(event) {
-      if (!switcher.contains(event.target)) setOpen(false);
-    });
-    document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') setOpen(false);
-    });
-    hideButton.addEventListener('click', function() {
-      setOpen(false);
-      switcher.hidden = true;
-    });
-  })();`;
-
-  return `<!DOCTYPE html>
-<html lang="${DEFAULT_LOCALE}" dir="ltr">
-<head>
-<meta charset="UTF-8">
-<script data-agent-native-locale-init>${localeInitScript}</script>
-<script data-agent-native-embedded-init>${embeddedAuthInitScript}</script>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>${hasMarketing ? esc(marketing!.appName) + " — " + esc(t("pageTitleSignIn")) : esc(t("pageTitleWelcome"))}</title>
-<link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
-<link rel="apple-touch-icon" href="${withAppBasePath("/icon-180.svg")}">
-${
-  hasMarketing
-    ? `<meta name="description" content="${esc(marketing!.tagline)}">
-<meta property="og:title" content="${esc(marketing!.appName)}">
-<meta property="og:description" content="${esc(marketing!.tagline)}">
-<meta property="og:image" content="${esc(socialImageUrl)}">
-<meta property="og:image:secure_url" content="${esc(socialImageUrl)}">
-<meta property="og:image:type" content="${AGENT_NATIVE_SOCIAL_IMAGE_TYPE}">
-<meta property="og:image:width" content="${AGENT_NATIVE_SOCIAL_IMAGE_WIDTH}">
-<meta property="og:image:height" content="${AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT}">
-<meta property="og:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="${esc(socialImageUrl)}">
-<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">`
-    : ""
-}
-<style>
+  const authDocumentStyles = `\n
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   .sr-only {
     position: absolute;
@@ -2388,1967 +2064,158 @@ ${marketingStyles}
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
   body.simplified-auth .local-note { display: none !important; }
 ${embeddedAuthCss}
-</style>
-</head>
-<body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
-${localePickerHtml}
-${environmentBadgeHtml}
-${marketingPanelHtml}
-<div class="card">
-  <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : "welcomeTitle"))}</h1>
-  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle"))}</p>
-  <p
-    class="upgrade-note"
-    id="upgrade-note"
-    data-upgrade-copy="${esc(t("upgradeCopy"))}"
-    ${i18nDataAttr("data-upgrade-copy", "upgradeCopy").trim()}
-  ></p>
-${identitySsoHtml}
-${localDevHtml}
-<div id="full-auth-options" class="full-auth-options">
-${googleUnavailableHtml}
-${
-  renderGoogleButton
-    ? `
-  <div class="google-signin" id="google-signin">
-  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()">
-    <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-    <span${i18nAttr("googleButton")}>${esc(t("googleButton"))}</span>
-  </button>
-  <p class="google-error" id="google-err"></p>
-  <p class="google-debug" id="google-debug"></p>
-  </div>
-${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("dividerOr")}>${esc(t("dividerOr"))}</div>\n`}
-`
-    : ""
-}
-${
-  googleOnly
-    ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" placeholder="' + esc(t("emailPlaceholder")) + '" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
-    <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
-    <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
-  </div>
-
-    <form id="signup-form" class="form">
-      <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-      <input id="s-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
-    <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
-    <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
-    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
-      <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
-${signupLegalNoteHtml}
-${signupLocalModeNoteHtml}
-      <p class="msg" id="s-msg"></p>
-    </form>
-
-    <div id="verification-step" class="form verification-step" aria-live="polite">
-      <div class="step-progress" aria-label="${esc(t("signupProgress"))}"${i18nAriaAttr("signupProgress")}>
-        <div class="progress-step complete"><span>1</span><strong${i18nAttr("progressAccount")}>${esc(t("progressAccount"))}</strong></div>
-        <div class="progress-step current"><span>2</span><strong${i18nAttr("progressVerify")}>${esc(t("progressVerify"))}</strong></div>
-        <div class="progress-step"><span>3</span><strong${i18nAttr("progressStart")}>${esc(t("progressStart"))}</strong></div>
-      </div>
-      <div class="verification-panel">
-        <p class="verification-kicker"${i18nAttr("verificationSent")}>${esc(t("verificationSent"))}</p>
-        <p class="verification-copy"><span${i18nAttr("verifyCopyPrefix")}>${esc(t("verifyCopyPrefix"))}</span> <strong id="verify-email"></strong><span${i18nAttr("verifyCopySuffix")}>${esc(t("verifyCopySuffix"))}</span></p>
-        <p class="verification-note"${i18nAttr("verificationNote")}>${esc(t("verificationNote"))}</p>
-      </div>
-      <button type="button" class="btn-primary" id="verify-continue"${i18nAttr("continue")}>${esc(t("continue"))}</button>
-      <div class="inline-actions">
-        <button type="button" class="link-button" id="resend-verification"${i18nAttr("resendEmail")}>${esc(t("resendEmail"))}</button>
-        <button type="button" class="link-button" id="back-to-signup"${i18nAttr("back")}>${esc(t("back"))}</button>
-      </div>
-      <p class="msg" id="verify-msg"></p>
-    </div>
-
-    <form id="login-form" class="form">
-    <label for="l-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-    <input id="l-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
-    <label for="l-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="l-pass" type="password" autocomplete="current-password" placeholder="${esc(t("enterPasswordPlaceholder"))}"${i18nPlaceholderAttr("enterPasswordPlaceholder")} required />
-    <button type="submit"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
-    <p class="msg error" id="l-msg"></p>
-    <p style="margin-top:0.75rem;font-size:0.75rem;text-align:right">
-      <a href="#" id="forgot-link" style="color:#888;text-decoration:underline;text-underline-offset:2px"${i18nAttr("forgotPassword")}>${esc(t("forgotPassword"))}</a>
-    </p>
-    ${magicLinkMode ? `<p style="margin-top:0.5rem;font-size:0.75rem;text-align:center"><a href="#" id="back-to-magic-link" class="link-button"${i18nAttr("backToMagicLink")}>${esc(t("backToMagicLink"))}</a></p>` : ""}
-  </form>
-
-  <form id="forgot-form" class="form">
-    <label for="f-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-    <input id="f-email" type="email" autocomplete="email" placeholder="${esc(t("emailPlaceholder"))}" required />
-    <button type="submit"${i18nAttr("sendResetLink")}>${esc(t("sendResetLink"))}</button>
-    <p class="msg" id="f-msg"></p>
-    <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">
-      <a href="#" id="back-to-login" style="color:#888;text-decoration:underline;text-underline-offset:2px"${i18nAttr("backToSignIn")}>${esc(t("backToSignIn"))}</a>
-    </p>
-  </form>`
-}
-</div>
-</div>
-<p class="local-note" id="local-note">
-  <span${i18nAttr("localNotePrefix")}>${esc(t("localNotePrefix"))}</span> (<strong>${getConnectionLabel()}</strong>)<span${i18nAttr("localNoteSuffix")}>${esc(t("localNoteSuffix"))}</span>
-</p>${marketingCloseHtml}
-<script>
-${environmentBadgeScript}
-  function __anBasePath() {
-    var configured = ${JSON.stringify(appBasePath)};
-    if (configured) return configured;
-    var marker = '/_agent-native';
-    var idx = window.location.pathname.indexOf(marker);
-    if (idx > 0) return window.location.pathname.slice(0, idx);
-    if (${JSON.stringify(workspaceRuntime)}) {
-      var segments = window.location.pathname.split('/');
-      for (var i = 0; i < segments.length; i++) {
-        var segment = segments[i];
-        if (segment && segment !== '_agent-native' && segment !== 'api' && segment !== 'sign-in' && segment !== 'login' && segment !== 'signup') {
-          return '/' + segment;
-        }
-      }
-    }
-    return '';
+`;
+  const authPageLayoutStyles = `
+  .auth-root { width: 100%; }
+  .auth-marketing-home { width: 100%; padding: 0; position: relative; overflow-x: hidden; }
+  .auth-marketing-shell { padding: 0; }
+  .auth-marketing-home .split { width: 100%; }
+  .auth-marketing-home .marketing-panel { min-width: 0; }
+  .auth-marketing-home .form-panel { min-width: 0; }
+  .auth-marketing-home [data-agent-native-starfield] { position: fixed; inset: 0; width: 100%; height: 100%; }
+  @media (max-width: 900px) {
+    .auth-marketing-home .auth-marketing-shell { display: block; }
   }
-    function __anPath(path) {
-      return __anBasePath() + path;
-    }
-${signInJourneyInlineScript()}
-    var __anJourney = __anCreateSignInJourney(__anBasePath());
-    /**
-     * Where this document sends the visitor once a session exists. One
-     * function, one answer — the page used to have two ("__anGetReturnPath"
-     * and "__anGetSignedInReturnPath") that disagreed about whether the
-     * sign-in page itself was an acceptable destination, which is how
-     * verification emails ended up linking back to a login form.
-     */
-    function __anResumeHref() {
-      return __anJourney.journeyForLocation(window.location).resumeHref;
-    }
-    var __AN_AUTH_DEFAULT_LOCALE = ${JSON.stringify(DEFAULT_LOCALE)};
-    var __AN_AUTH_SUPPORTED_LOCALES = ${JSON.stringify(SUPPORTED_LOCALES)};
-    var __AN_AUTH_LOCALE_STORAGE_KEY = ${JSON.stringify(LOCALE_STORAGE_KEY)};
-    var __AN_AUTH_LOCALE_METADATA = ${JSON.stringify(LOCALE_METADATA)};
-    var __AN_AUTH_LOCALES = ${JSON.stringify(AUTH_LOCALE_COPY)};
-    var __AN_AUTH_MARKETING_APP_NAME = ${JSON.stringify(marketing?.appName ?? "")};
-    var __AN_AUTH_HAS_MARKETING = ${JSON.stringify(hasMarketing)};
-    var __AN_AUTH_MARKETING_SLUG = ${JSON.stringify(marketingSlug ?? "")};
-    var __AN_AUTH_MARKETING_DEFAULT = ${JSON.stringify(defaultMarketingCopy ?? {})};
-    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(localizedMarketingCopy)};
-    var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
-    var __anAuthLocalePreference = 'system';
-    var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
-    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
-    function __anAuthLocaleIsSupported(value) {
-      return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
-    }
-    function __anNormalizeAuthLocale(value) {
-      if (typeof value !== 'string' || !value) return null;
-      if (__anAuthLocaleIsSupported(value)) return value;
-      try {
-        var canonical = Intl.getCanonicalLocales(value)[0];
-        if (__anAuthLocaleIsSupported(canonical)) return canonical;
-        var language = canonical && canonical.split('-')[0].toLowerCase();
-        for (var i = 0; i < __AN_AUTH_SUPPORTED_LOCALES.length; i++) {
-          var locale = __AN_AUTH_SUPPORTED_LOCALES[i];
-          if (locale.split('-')[0].toLowerCase() === language) return locale;
-        }
-      } catch(e) {}
-      return null;
-    }
-    function __anNormalizeAuthLocalePreference(value) {
-      if (value === 'system') return 'system';
-      return __anNormalizeAuthLocale(value);
-    }
-    function __anReadAuthLocalePreference() {
-      try {
-        return __anNormalizeAuthLocalePreference(localStorage.getItem(__AN_AUTH_LOCALE_STORAGE_KEY)) || 'system';
-      } catch(e) {
-        return 'system';
-      }
-    }
-    function __anWriteAuthLocalePreference(preference) {
-      try {
-        localStorage.setItem(__AN_AUTH_LOCALE_STORAGE_KEY, preference);
-      } catch(e) {}
-    }
-    function __anBrowserAuthLocales() {
-      try {
-        if (navigator.languages && navigator.languages.length) return navigator.languages;
-        if (navigator.language) return [navigator.language];
-      } catch(e) {}
-      return [];
-    }
-    function __anResolveAuthSystemLocale() {
-      var locales = __anBrowserAuthLocales();
-      for (var i = 0; i < locales.length; i++) {
-        var match = __anNormalizeAuthLocale(locales[i]);
-        if (match) return match;
-      }
-      return __AN_AUTH_DEFAULT_LOCALE;
-    }
-    function __anResolveAuthLocale(preference) {
-      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
-      return normalizedPreference === 'system'
-        ? __anResolveAuthSystemLocale()
-        : normalizedPreference;
-    }
-    function __anApplyAuthSystemLanguage() {
-      var systemLanguage = document.querySelector('[data-system-language]');
-      if (!systemLanguage) return;
-      var systemLocale = __anResolveAuthSystemLocale();
-      var localized = __AN_AUTH_LOCALES[systemLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
-      systemLanguage.textContent = localized.systemLanguage || 'System';
-    }
-    function __anT(key) {
-      var localized = __AN_AUTH_LOCALES[__anAuthLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
-      var fallback = __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
-      return localized[key] || fallback[key] || key;
-    }
-    function __anAuthErrorText(data, fallback) {
-      var candidate = data && (data.error || data.message);
-      if (typeof candidate !== 'string' || !candidate.trim()) return fallback;
-      var message = candidate.trim();
-      if (/failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(message)) {
-        return fallback;
-      }
-      return message;
-    }
-    function __anBindPasswordValidation(input) {
-      if (!input) return;
-      input.addEventListener('invalid', function() {
-        if (input.validity && input.validity.tooShort) {
-          input.setCustomValidity(__anT('passwordMinPlaceholder'));
-        } else if (input.validity && input.validity.tooLong) {
-          input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
-        }
-      });
-      input.addEventListener('input', function() {
-        input.setCustomValidity('');
-      });
-    }
-    function __anSetAuthI18nKey(node, key) {
-      if (!node || !key) return;
-      node.setAttribute('data-i18n', key);
-      node.textContent = __anT(key);
-    }
-    function __anAuthHeadingKeys(view) {
-      if (view === 'login') return { heading: 'welcomeBackTitle', subtitle: 'signInSubtitle' };
-      if (view === 'forgot') return { heading: 'resetPasswordTitle', subtitle: 'resetPasswordSubtitle' };
-      if (view === 'verification') return { heading: 'checkEmailTitle', subtitle: 'finishAccountSubtitle' };
-      if (view === 'googleOnly') return { heading: 'signInTitle', subtitle: 'googleOnlySubtitle' };
-      if (view === 'magicLinkSent') return { heading: 'magicLinkSent', subtitle: 'magicLinkSentCopy' };
-      if (view === 'magicLink') return { heading: 'magicLinkTitle', subtitle: 'magicLinkSubtitle' };
-      return { heading: 'welcomeTitle', subtitle: 'createAccountSubtitle' };
-    }
-    function __anRefreshAuthViewCopy() {
-      var keys = __anAuthHeadingKeys(__anAuthView);
-      __anSetAuthI18nKey(document.getElementById('heading'), keys.heading);
-      __anSetAuthI18nKey(document.getElementById('subtitle'), keys.subtitle);
-    }
-    function __anSetAuthView(view) {
-      __anAuthView = view || 'signup';
-      __anRefreshAuthViewCopy();
-    }
-    function __anMarketingCopy() {
-      if (!__AN_AUTH_MARKETING_SLUG) return __AN_AUTH_MARKETING_DEFAULT || {};
-      var localeMarketing = __AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {};
-      return {
-        tagline: localeMarketing.tagline || __AN_AUTH_MARKETING_DEFAULT.tagline,
-        description: localeMarketing.description || __AN_AUTH_MARKETING_DEFAULT.description,
-        features: localeMarketing.features || __AN_AUTH_MARKETING_DEFAULT.features || []
-      };
-    }
-    function __anApplyAuthMarketingCopy() {
-      var copy = __anMarketingCopy();
-      var tagline = document.querySelector('[data-marketing-field="tagline"]');
-      if (tagline && copy.tagline) tagline.textContent = copy.tagline;
-      var description = document.querySelector('[data-marketing-field="description"]');
-      if (description && copy.description) description.textContent = copy.description;
-      document.querySelectorAll('[data-marketing-feature-index]').forEach(function(node) {
-        var index = Number(node.getAttribute('data-marketing-feature-index'));
-        var feature = copy.features && copy.features[index];
-        if (feature) node.textContent = feature;
-      });
-    }
-    function __anApplyAuthLocale(preference) {
-      __anAuthLocalePreference = __anNormalizeAuthLocalePreference(preference) || __anReadAuthLocalePreference();
-      __anAuthLocale = __anResolveAuthLocale(__anAuthLocalePreference);
-      var root = document.documentElement;
-      var meta = __AN_AUTH_LOCALE_METADATA[__anAuthLocale] || {};
-      root.setAttribute('lang', __anAuthLocale);
-      root.setAttribute('dir', meta.dir || 'ltr');
-      root.setAttribute('data-locale', __anAuthLocale);
-      document.querySelectorAll('[data-i18n]').forEach(function(node) {
-        node.textContent = __anT(node.getAttribute('data-i18n'));
-      });
-      document.querySelectorAll('[data-i18n-placeholder]').forEach(function(node) {
-        node.setAttribute('placeholder', __anT(node.getAttribute('data-i18n-placeholder')));
-      });
-      document.querySelectorAll('[data-i18n-aria-label]').forEach(function(node) {
-        node.setAttribute('aria-label', __anT(node.getAttribute('data-i18n-aria-label')));
-      });
-      document.querySelectorAll('[data-i18n-title]').forEach(function(node) {
-        node.setAttribute('title', __anT(node.getAttribute('data-i18n-title')));
-      });
-      document.querySelectorAll('[data-i18n-data-upgrade-copy]').forEach(function(node) {
-        node.setAttribute('data-upgrade-copy', __anT(node.getAttribute('data-i18n-data-upgrade-copy')));
-      });
-      document.querySelectorAll('[data-locale-value]').forEach(function(node) {
-        var checked = node.getAttribute('data-locale-value') === __anAuthLocalePreference;
-        node.setAttribute('aria-checked', checked ? 'true' : 'false');
-      });
-      document.title = __AN_AUTH_HAS_MARKETING && __AN_AUTH_MARKETING_APP_NAME
-        ? __AN_AUTH_MARKETING_APP_NAME + ' — ' + __anT('pageTitleSignIn')
-        : __anT('pageTitleWelcome');
-      __anApplyAuthSystemLanguage();
-      __anApplyAuthMarketingCopy();
-      __anRefreshAuthViewCopy();
-    }
-    function __anSetAuthLocaleMenuOpen(open) {
-      var trigger = document.getElementById('auth-locale-trigger');
-      var menu = document.getElementById('auth-locale-menu');
-      if (!trigger || !menu) return;
-      if (open) {
-        menu.removeAttribute('hidden');
-      } else {
-        menu.setAttribute('hidden', '');
-      }
-      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-    }
-    (function __anInitAuthLocalePicker() {
-      var trigger = document.getElementById('auth-locale-trigger');
-      var menu = document.getElementById('auth-locale-menu');
-      var preference = __anReadAuthLocalePreference();
-      __anApplyAuthLocale(preference);
-      if (!trigger || !menu) return;
-      trigger.addEventListener('click', function(event) {
-        event.preventDefault();
-        __anSetAuthLocaleMenuOpen(menu.hasAttribute('hidden'));
-      });
-      menu.querySelectorAll('[data-locale-value]').forEach(function(item) {
-        item.addEventListener('click', function() {
-          var next = __anNormalizeAuthLocalePreference(item.getAttribute('data-locale-value')) || 'system';
-          __anWriteAuthLocalePreference(next);
-          __anApplyAuthLocale(next);
-          __anSetAuthLocaleMenuOpen(false);
-          trigger.focus();
-        });
-      });
-      document.addEventListener('click', function(event) {
-        var picker = document.querySelector('.locale-picker');
-        if (picker && picker.contains(event.target)) return;
-        __anSetAuthLocaleMenuOpen(false);
-      });
-      document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') __anSetAuthLocaleMenuOpen(false);
-      });
-    })();
-    var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
-    var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = ${JSON.stringify(workspaceGatewayReturnOrigin)};
-    var __AN_GOOGLE_AUTH_MODE = ${JSON.stringify(googleAuthMode)};
-    var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = ${JSON.stringify(builderPreviewLocalDevEnabled)};
-    function __anConfiguredOAuthOrigin() {
-      if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
-      try {
-        var origin = new URL(__AN_PUBLIC_OAUTH_ORIGIN).origin;
-        return origin && origin !== window.location.origin ? origin : '';
-      } catch(e) {
-        return '';
-      }
-    }
-    function __anAuthPath(path) {
-      var origin = __anIsBuilderPreview() ? __anConfiguredOAuthOrigin() : '';
-      return origin ? origin + path : __anPath(path);
-    }
-    function __anGoogleAuthUrlPath() {
-      return __anIsBuilderPreview()
-        ? __anAuthPath('/_agent-native/google/auth-url')
-        : __anPath('/_agent-native/google/auth-url');
-    }
-    function __anBuilderPreviewReturnOrigin() {
-      var candidates = [window.location.href, document.referrer || ''];
-      try {
-        if (window.location.ancestorOrigins) {
-          for (var j = 0; j < window.location.ancestorOrigins.length; j++) {
-            candidates.push(window.location.ancestorOrigins[j]);
-          }
-        }
-      } catch(e) {}
-      for (var i = 0; i < candidates.length; i++) {
-        try {
-          var url = new URL(candidates[i]);
-          var host = url.hostname.toLowerCase();
-          var isPreviewHost =
-            host === 'builderio.xyz' || host.slice(-14) === '.builderio.xyz' ||
-            host === 'builderio.dev' || host.slice(-14) === '.builderio.dev' ||
-            host === 'builder.codes' || host.slice(-14) === '.builder.codes' ||
-            host === 'builder.my' || host.slice(-11) === '.builder.my';
-          if (url.protocol === 'https:' && isPreviewHost) return url.origin;
-        } catch(e) {}
-      }
-      return '';
-    }
-    function __anWorkspaceGatewayReturnOrigin() {
-      var previewOrigin = __anBuilderPreviewReturnOrigin();
-      if (previewOrigin) return previewOrigin;
-      if (__AN_WORKSPACE_GATEWAY_RETURN_ORIGIN) return __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN;
-      return __anIsBuilderDesktop() ? 'http://127.0.0.1:8080' : '';
-    }
-    function __anNormalizeWorkspaceReturnPath(ret) {
-      try {
-        var url = new URL(ret || '/', window.location.origin);
-        var path = url.pathname || '/';
-        if (path === '/dispatch/dispatch') {
-          path = '/dispatch';
-        } else if (path.indexOf('/dispatch/') === 0) {
-          var rest = path.slice('/dispatch/'.length);
-          var first = rest.split('/')[0];
-          var dispatchRoutes = {
-            overview: true, apps: true, metrics: true, vault: true,
-            integrations: true, messaging: true, workspace: true,
-            agents: true, destinations: true, identities: true,
-            approvals: true, audit: true, team: true, 'thread-debug': true,
-            'new-app': true
-          };
-          if (first === 'dispatch') {
-            path = '/dispatch' + rest.slice(first.length);
-          } else if (first && !dispatchRoutes[first]) {
-            path = '/' + rest;
-          }
-        }
-        return path + url.search + url.hash;
-      } catch(e) {
-        return ret || '/';
-      }
-    }
-    function __anOAuthReturnTarget(ret) {
-      var path = __anNormalizeWorkspaceReturnPath(ret);
-      var origin = __anWorkspaceGatewayReturnOrigin();
-      return origin ? origin + path : path;
-    }
-    function __anSessionBridgeUrl(ret, sessionToken) {
-      try {
-        var url = new URL(ret || window.location.pathname + window.location.search, window.location.origin);
-        url.searchParams.set('_session', sessionToken);
-        return url.pathname + url.search + url.hash;
-      } catch(e) {
-        var sep = (ret || '/').indexOf('?') === -1 ? '?' : '&';
-        return (ret || '/') + sep + '_session=' + encodeURIComponent(sessionToken);
-      }
-    }
-    function __anFinishOAuthExchange(ret, flowId, sessionToken) {
-      __anStopOAuthPopupWatch();
-      __anStopNativeOAuthAbandonment();
-      __anGoogleSignInInFlight = false;
-      __anClearGoogleSignInFlow();
-      __anMagicLinkInFlight = false;
-      if (__anIsBuilderPreview()) {
-        if (sessionToken) {
-          __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
-          window.location.replace(__anSessionBridgeUrl(ret, sessionToken));
-          return;
-        }
-        __anSetOAuthDebug('OAuth exchange redeemed; reloading the embedded app', flowId);
-        window.location.reload();
-        return;
-      }
-      __anSetOAuthDebug('OAuth exchange redeemed; returning to the app', flowId);
-      __anRedirectToSignedInApp(ret);
-    }
-    function __anRedirectToSignedInApp(ret) {
-      window.location.replace(ret || __anResumeHref());
-    }
-    function __anMaybeRedirectSignedIn(ret) {
-      return fetch(__anPath('/_agent-native/auth/session'), {
-        headers: { 'Accept': 'application/json' },
-        credentials: 'include',
-        cache: 'no-store',
-      }).then(function(res) {
-        if (!res.ok) return null;
-        return res.json().catch(function() { return null; });
-      }).then(function(data) {
-        if (data && data.email && !data.error) {
-          __anRedirectToSignedInApp(ret);
-          return true;
-        }
-        return false;
-      }).catch(function() {
-        return false;
-      });
-    }
-    function __anIsLoopbackHostname() {
-      var hostname = (window.location.hostname || '').toLowerCase();
-      return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.indexOf('127.') === 0;
-    }
-    function __anIsBuilderPreviewHost() {
-      var hostname = (window.location.hostname || '').toLowerCase();
-      return hostname.endsWith('.builderio.xyz') || hostname.endsWith('.builderio.dev') || hostname.endsWith('.builder.codes') || hostname.endsWith('.builder.my');
-    }
-    function __anCanUseLocalDevSignin() {
-      return __anIsLoopbackHostname() || (__AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED && __anIsBuilderPreviewHost());
-    }
-    function __anShouldStartWithLocalDev() {
-      if (!__anCanUseLocalDevSignin()) return false;
-      var params = new URLSearchParams(window.location.search);
-      var explicitTab = params.get('tab');
-      var verifiedRedirect = typeof __anIsVerifiedRedirectSuccess === 'function' && __anIsVerifiedRedirectSuccess();
-      return explicitTab !== 'login' && explicitTab !== 'signup' && !verifiedRedirect;
-    }
-    function __anSetFullAuthOptionsVisible(visible) {
-      var options = document.getElementById('full-auth-options');
-      var toggle = document.getElementById('local-dev-full-options');
-      if (!options) return;
-      if (visible) {
-        options.removeAttribute('hidden');
-        if (toggle) toggle.setAttribute('hidden', '');
-      } else {
-        options.setAttribute('hidden', '');
-        if (toggle) toggle.removeAttribute('hidden');
-      }
-    }
-    (function __anPrepareLocalDevButton() {
-      var container = document.getElementById('local-dev-signin');
-      var button = document.getElementById('local-dev-btn');
-      var fullOptionsButton = document.getElementById('local-dev-full-options');
-      if (!container || !button || !__anCanUseLocalDevSignin()) return;
-      function __anShowLocalDevSignin() {
-        container.hidden = false;
-        var startWithLocalDev = __anShouldStartWithLocalDev();
-        __anSetFullAuthOptionsVisible(!startWithLocalDev);
-        if (startWithLocalDev) button.focus();
-        if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
-          __anSetFullAuthOptionsVisible(true);
-          var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
-          if (firstInput) firstInput.focus();
-        });
-        button.addEventListener('click', function() {
-          button.disabled = true;
-          button.textContent = __anT('localDevSigningIn');
-          fetch(__anPath('/_agent-native/auth/local-dev'), {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Accept': 'application/json' },
-          }).then(function(response) {
-            if (!response.ok) throw new Error('local-dev-auth-failed');
-          }).then(function() {
-            __anRedirectToSignedInApp(__anResumeHref());
-          }).catch(function() {
-            container.hidden = true;
-            __anSetFullAuthOptionsVisible(true);
-          });
-        });
-      }
-      fetch(__anPath('/_agent-native/auth/local-dev'), {
-        method: 'GET',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: { 'Accept': 'application/json' },
-      }).then(function(response) {
-        if (!response.ok) return null;
-        return response.json().then(function(data) {
-          return data;
-        }, function() {
-          return null;
-        });
-      }, function() {
-        return null;
-      }).then(function(data) {
-        if (data && data.available === true) {
-          __anShowLocalDevSignin();
-        } else {
-          __anSetFullAuthOptionsVisible(true);
-        }
-      });
-    })();
-${identitySsoScript}
-	    (function __anRedirectIfAlreadySignedIn() {
-	      __anMaybeRedirectSignedIn();
-	    })();
-	    function __anSafeAttributionValue(value) {
-	      return typeof value === 'string' ? value.trim().slice(0, 120) : '';
-	    }
-	    function __anGenerateAnalyticsAnonymousId() {
-	      try {
-	        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-	      } catch(e) {}
-	      return Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-	    }
-	    function __anSyncAnalyticsAnonymousId() {
-	      try {
-	        var anonymousId = '';
-	        try { anonymousId = localStorage.getItem('agent-native.anonymous_id') || ''; } catch(e) {}
-	        if (!/^[A-Za-z0-9_-]{1,128}$/.test(anonymousId)) {
-	          anonymousId = __anGenerateAnalyticsAnonymousId();
-	          try { localStorage.setItem('agent-native.anonymous_id', anonymousId); } catch(e) {}
-	        }
-	        document.cookie = 'an_aid=' + encodeURIComponent(anonymousId) + '; path=/; max-age=2592000; SameSite=Lax';
-	      } catch(e) {}
-	    }
-	    function __anFirstTouchCookiePresent() {
-	      try {
-	        return document.cookie.split(';').some(function(part) {
-	          return part.trim().indexOf('an_ft=') === 0;
-	        });
-	      } catch(e) {
-	        return false;
-	      }
-	    }
-	    function __anWriteFirstTouchCookie(json) {
-	      try {
-	        document.cookie = 'an_ft=' + encodeURIComponent(json) + '; path=/; max-age=2592000; SameSite=Lax';
-	      } catch(e) {}
-	    }
-	    function __anExternalReferrerHost(referrer) {
-	      try {
-	        var url = new URL(referrer);
-	        if (url.host.toLowerCase() === window.location.host.toLowerCase()) return '';
-	        return __anSafeAttributionValue(url.host);
-	      } catch(e) {
-	        return '';
-	      }
-	    }
-	    function __anCaptureSignupAttribution() {
-	      try {
-	        var stored = '';
-	        try { stored = localStorage.getItem('an_attribution') || ''; } catch(e) {}
-	        if (stored) {
-	          if (!__anFirstTouchCookiePresent()) __anWriteFirstTouchCookie(stored);
-	          return;
-	        }
-	        if (__anFirstTouchCookiePresent()) return;
-	        var params = new URLSearchParams(window.location.search || '');
-	        var ft = {};
-	        ['ref', 'via', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(function(key) {
-	          var value = __anSafeAttributionValue(params.get(key));
-	          if (value) ft[key] = value;
-	        });
-	        var returnPath = __anJourney.normalizeAppPath(params.get('return'));
-	        var landingPath = __anSafeAttributionValue(returnPath || window.location.pathname || '');
-	        if (landingPath) ft.landing_path = landingPath;
-	        var referrer = __anExternalReferrerHost(document.referrer || '');
-	        if (referrer) ft.landing_referrer = referrer;
-	        ft.landed_at = new Date().toISOString();
-	        var json = JSON.stringify(ft);
-	        try { localStorage.setItem('an_attribution', json); } catch(e) {}
-	        __anWriteFirstTouchCookie(json);
-	      } catch(e) {}
-	    }
-	    __anSyncAnalyticsAnonymousId();
-	    __anCaptureSignupAttribution();
-	    var __anBuilderPreviewSeen = false;
-    function __anRememberBuilderPreview() {
-      __anBuilderPreviewSeen = true;
-      try { sessionStorage.setItem('__an_builder_preview_seen', '1'); } catch(e) {}
-    }
-    function __anHasBuilderPreviewSignal() {
-      try {
-        var params = new URLSearchParams(window.location.search);
-        if (params.has('builder.preview') || params.has('builder.frameEditing') || params.has('__builder_editing__')) return true;
-      } catch(e) {}
-      return false;
-    }
-    function __anIsBuilderPreview() {
-      if (__anBuilderPreviewSeen) return true;
-      if (__anHasBuilderPreviewSignal()) {
-        __anRememberBuilderPreview();
-        return true;
-      }
-      try {
-        if (sessionStorage.getItem('__an_builder_preview_seen') === '1') {
-          __anBuilderPreviewSeen = true;
-          return true;
-        }
-      } catch(e) {}
-      try {
-        var ref = document.referrer || '';
-        var fromBuilder = ref.indexOf('builder.io') !== -1 || ref.indexOf('builder.my') !== -1 || ref.indexOf('builderio.xyz') !== -1 || ref.indexOf('builderio.dev') !== -1 || ref.indexOf('builder.codes') !== -1;
-        if (fromBuilder) __anRememberBuilderPreview();
-        return fromBuilder;
-      } catch(e) {
-        return false;
-      }
-    }
-    __anIsBuilderPreview();
-    function __anIsBuilderDesktop() {
-      try {
-        var ua = navigator.userAgent || '';
-        return ua.indexOf('Electron') !== -1 && ua.indexOf('AgentNativeDesktop') === -1;
-      } catch(e) {
-        return false;
-      }
-    }
-    function __anIsAgentNativeDesktop() {
-      try {
-        return (navigator.userAgent || '').indexOf('AgentNativeDesktop') !== -1;
-      } catch(e) {
-        return false;
-      }
-    }
-    function __anIsInFrame() {
-      try {
-        return window.self !== window.top;
-      } catch(e) {
-        return true;
-      }
-    }
-    function __anIsElectron() {
-      try {
-        return (navigator.userAgent || '').indexOf('Electron') !== -1;
-      } catch(e) {
-        return false;
-      }
-    }
-    function __anResolveAuthFlow() {
-      if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
-      // Per-session override for ad-hoc testing outside Builder: append
-      // ?authMode=popup or ?authMode=redirect to the sign-in URL.
-      var qp = new URLSearchParams(window.location.search).get('authMode');
-      if (qp === 'popup' || qp === 'redirect') return qp;
-      var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
-      if (mode === 'popup') return 'popup';
-      if (mode === 'redirect') return 'redirect';
-      return __anIsAgentNativeDesktop() ? 'redirect' : 'popup';
-    }
-    var __anOAuthPollTimer = null;
-    var __anOAuthPopupWatchTimer = null;
-    var __anOAuthPopupCloseGraceTimer = null;
-    var __anOAuthPopupCloseGraceMs = 5000;
-    var __anNativeOAuthFlowId = null;
-    var __anNativeOAuthRequestPending = false;
-    var __anNativeOAuthReturnObserved = false;
-    var __anNativeOAuthAbandonGraceTimer = null;
-    var __anNativeOAuthAbandonGraceMs = 5000;
-    var __anOAuthPollCount = 0;
-    var __anGoogleSignInInFlight = false;
-    var __anGoogleSignInFlowId = null;
-    var __anGoogleSignInRecoveryFlowId = null;
-    var __anMagicLinkInFlight = false;
-    var __anGoogleRecoverBound = false;
-    function __anNewOAuthFlowId() {
-      try {
-        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-          return window.crypto.randomUUID();
-        }
-      } catch(e) {}
-      return 'builder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
-    }
-    function __anNewOAuthVerifier() {
-      try {
-        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-          return window.crypto.randomUUID() + window.crypto.randomUUID();
-        }
-        if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
-          var bytes = new Uint8Array(32);
-          window.crypto.getRandomValues(bytes);
-          var binary = '';
-          for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-          return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
-        }
-      } catch(e) { // coercion-ok: callers reject the empty verifier fallback.
-      }
-      return '';
-    }
-    function __anFlowDebugId(flowId) {
-      return flowId ? String(flowId).slice(-10) : '';
-    }
-    function __anSetOAuthDebug(message, flowId) {
-      var text = message + (flowId ? ' (flow ' + __anFlowDebugId(flowId) + ')' : '');
-      try {
-        console.info('[agent-native][google-oauth] ' + text);
-      } catch(e) {}
-      // Only surface the debug overlay when explicitly opted in via #oauth-debug
-      // hash or ?oauth_debug=1 query — otherwise it leaks raw flow IDs and
-      // diagnostic strings into the user-facing sign-in screen.
-      var showDebugOverlay = false;
-      try {
-        var loc = window.location || {};
-        showDebugOverlay =
-          (typeof loc.hash === 'string' && loc.hash.indexOf('oauth-debug') !== -1) ||
-          (typeof loc.search === 'string' && loc.search.indexOf('oauth_debug=1') !== -1);
-      } catch(e) {}
-      var debug = document.getElementById('google-debug');
-      if (debug) {
-        debug.textContent = text;
-        if (showDebugOverlay) debug.classList.add('show');
-      }
-    }
-    function __anStopOAuthExchangePolling() {
-      if (__anOAuthPollTimer) {
-        clearInterval(__anOAuthPollTimer);
-        __anOAuthPollTimer = null;
-      }
-    }
-    function __anStopOAuthPopupWatch() {
-      if (__anOAuthPopupWatchTimer) {
-        clearInterval(__anOAuthPopupWatchTimer);
-        __anOAuthPopupWatchTimer = null;
-      }
-      if (__anOAuthPopupCloseGraceTimer) {
-        clearTimeout(__anOAuthPopupCloseGraceTimer);
-        __anOAuthPopupCloseGraceTimer = null;
-      }
-    }
-    function __anStopNativeOAuthAbandonment() {
-      __anCancelNativeOAuthAbandonment();
-      __anNativeOAuthFlowId = null;
-      __anNativeOAuthRequestPending = false;
-    }
-    function __anCancelNativeOAuthAbandonment() {
-      if (__anNativeOAuthAbandonGraceTimer) {
-        clearTimeout(__anNativeOAuthAbandonGraceTimer);
-        __anNativeOAuthAbandonGraceTimer = null;
-      }
-      __anNativeOAuthReturnObserved = false;
-    }
-    function __anBeginNativeOAuth(flowId) {
-      __anStopNativeOAuthAbandonment();
-      __anNativeOAuthFlowId = flowId;
-      __anNativeOAuthRequestPending = true;
-      __anNativeOAuthReturnObserved = false;
-    }
-    function __anMarkNativeOAuthPolling(flowId) {
-      if (__anNativeOAuthFlowId !== flowId) return;
-      __anNativeOAuthRequestPending = false;
-    }
-    function __anIsCurrentNativeOAuth(flowId) {
-      return __anNativeOAuthFlowId === flowId && __anIsCurrentGoogleSignInFlow(flowId);
-    }
-    function __anFinalizeNativeOAuthAbandonment(flowId) {
-      if (!__anIsCurrentNativeOAuth(flowId) || !__anOAuthPollTimer) return;
-      if (document.visibilityState === 'hidden') {
-        __anCancelNativeOAuthAbandonment();
-        return;
-      }
-      __anStopNativeOAuthAbandonment();
-      if (__anInvalidateGoogleSignInFlow(flowId)) {
-        __anStopOAuthExchangePolling();
-        __anRecoverGoogleSignInAfterReturn(flowId);
-      }
-    }
-    function __anScheduleNativeOAuthAbandonment(flowId) {
-      // Returning focus is the only signal that the system-browser ceremony was
-      // abandoned. Preserve the exchange poll briefly for a late deep-link.
-      if (
-        !__anIsCurrentNativeOAuth(flowId) ||
-        __anNativeOAuthRequestPending ||
-        !__anNativeOAuthReturnObserved ||
-        !__anOAuthPollTimer ||
-        __anNativeOAuthAbandonGraceTimer
-      ) return;
-      __anNativeOAuthAbandonGraceTimer = setTimeout(function() {
-        __anNativeOAuthAbandonGraceTimer = null;
-        __anFinalizeNativeOAuthAbandonment(flowId);
-      }, __anNativeOAuthAbandonGraceMs);
-    }
-    function __anBeginGoogleSignInFlow(flowId) {
-      __anGoogleSignInFlowId = flowId;
-      __anGoogleSignInRecoveryFlowId = null;
-      __anGoogleSignInInFlight = true;
-    }
-    function __anIsCurrentGoogleSignInFlow(flowId) {
-      return __anGoogleSignInInFlight && __anGoogleSignInFlowId === flowId;
-    }
-    function __anClearGoogleSignInFlow() {
-      __anGoogleSignInFlowId = null;
-      __anGoogleSignInRecoveryFlowId = null;
-    }
-    function __anInvalidateGoogleSignInFlow(flowId) {
-      if (!__anIsCurrentGoogleSignInFlow(flowId)) return false;
-      __anGoogleSignInFlowId = null;
-      __anGoogleSignInRecoveryFlowId = flowId;
-      return true;
-    }
-    function __anCanRecoverGoogleSignInFlow(flowId, expectedFlowId) {
-      // Focus can return while either the system-browser exchange or the popup
-      // exchange is still active. Let that exchange finish before recovering.
-      if (!flowId && (__anNativeOAuthFlowId || __anOAuthPollTimer || __anOAuthPopupWatchTimer)) return false;
-      if (flowId) {
-        return __anGoogleSignInInFlight &&
-          !__anGoogleSignInFlowId &&
-          __anGoogleSignInRecoveryFlowId === flowId;
-      }
-      return __anGoogleSignInInFlight && __anGoogleSignInFlowId === expectedFlowId;
-    }
-    function __anFinalizeOAuthPopupClose(flowId) {
-      if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
-      __anOAuthPopupCloseGraceTimer = null;
-      if (__anInvalidateGoogleSignInFlow(flowId)) {
-        __anStopOAuthExchangePolling();
-        __anRecoverGoogleSignInAfterReturn(flowId);
-      }
-    }
-    function __anHandleOAuthPopupClosed(flowId) {
-      __anStopOAuthPopupWatch();
-      // The success callback closes its tab 250ms after staging the token, but
-      // the opener polls once per second. Let an active exchange win that race.
-      if (__anOAuthPollTimer) {
-        __anOAuthPopupCloseGraceTimer = setTimeout(function() {
-          __anFinalizeOAuthPopupClose(flowId);
-        }, __anOAuthPopupCloseGraceMs);
-        return;
-      }
-      __anFinalizeOAuthPopupClose(flowId);
-    }
-    function __anWatchOAuthPopupClose(popup, flowId) {
-      __anStopOAuthPopupWatch();
-      __anOAuthPopupWatchTimer = setInterval(function() {
-        if (!__anIsCurrentGoogleSignInFlow(flowId)) {
-          __anStopOAuthPopupWatch();
-          return;
-        }
-        var closed = false;
-        try {
-          closed = popup.closed === true;
-        } catch(e) {
-          __anHandleOAuthPopupClosed(flowId);
-          return;
-        }
-        if (!closed) return;
-        __anHandleOAuthPopupClosed(flowId);
-      }, 500);
-    }
-    function __anShowAuthExchangeError(err, btn, message, kind) {
-      __anStopOAuthExchangePolling();
-      __anStopOAuthPopupWatch();
-      __anStopNativeOAuthAbandonment();
-      err.textContent = message;
-      err.classList.add('show', 'error');
-      btn.disabled = false;
-      if (kind === 'magic-link') {
-        __anMagicLinkInFlight = false;
-        showMagicLinkForm();
-      } else {
-        __anGoogleSignInInFlight = false;
-        __anClearGoogleSignInFlow();
-      }
-    }
-    function __anShowOAuthError(err, btn, message) {
-      __anShowAuthExchangeError(err, btn, message, 'google');
-    }
-    function __anRecoverGoogleSignInAfterReturn(flowId) {
-      // The user left for the Google sign-in window and came back. If the flow
-      // never completed (e.g. they closed the window to switch profiles), the
-      // button is stuck disabled with no error path firing for up to 5 minutes.
-      // Re-enable it so they can retry. Wait briefly first so a genuinely
-      // in-flight exchange can still finish and navigate without a flicker.
-      if (!flowId && __anNativeOAuthFlowId) {
-        __anNativeOAuthReturnObserved = true;
-        __anScheduleNativeOAuthAbandonment(__anNativeOAuthFlowId);
-        return;
-      }
-      var expectedFlowId = flowId || __anGoogleSignInFlowId;
-      if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
-      setTimeout(function() {
-        if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
-        __anMaybeRedirectSignedIn(__anResumeHref()).then(function(redirected) {
-          if (!__anCanRecoverGoogleSignInFlow(flowId, expectedFlowId)) return;
-          if (redirected) return;
-          var btn = document.getElementById('google-btn');
-          if (!btn || !btn.disabled) return;
-          // Keep the desktop-exchange poll alive. Agent-Native Desktop opens
-          // Google in the system browser, so focus can return before the
-          // callback has stored the session token.
-          btn.disabled = false;
-          __anGoogleSignInInFlight = false;
-          __anClearGoogleSignInFlow();
-        });
-      }, 1200);
-    }
-    function __anBindGoogleRecover() {
-      if (__anGoogleRecoverBound) return;
-      __anGoogleRecoverBound = true;
-      window.addEventListener('focus', function() {
-        __anRecoverGoogleSignInAfterReturn();
-      });
-      window.addEventListener('blur', function() {
-        __anCancelNativeOAuthAbandonment();
-      });
-      document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') {
-          __anRecoverGoogleSignInAfterReturn();
-        } else {
-          __anCancelNativeOAuthAbandonment();
-        }
-      });
-    }
-    function __anHandlePopupOAuthFailure(ret, btn, err, flowId, redirectReason, builderFrameMessage) {
-      if (__anIsBuilderPreview() && __anIsInFrame()) {
-        __anShowOAuthError(err, btn, builderFrameMessage + ' ' + __anT('googlePopupHelp') + ' (flow ' + __anFlowDebugId(flowId) + ').');
-        return;
-      }
-      __anStartRedirectOAuth(ret, btn, err, flowId, redirectReason);
-    }
-    function __anStartRedirectOAuth(ret, btn, err, flowId, reason) {
-      var params = new URLSearchParams();
-      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
-      if (oauthReturn) params.set('return', oauthReturn);
-      params.set('redirect', '1');
-      __anSetOAuthDebug(reason || 'Opening Google sign-in redirect', flowId);
-      try {
-        __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
-      } catch(e) {
-        __anShowOAuthError(err, btn, __anT('failedToConnect'));
-      }
-    }
-    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind, verifier) {
-      var started = Date.now();
-      var timeoutMs = 5 * 60 * 1000;
-      var isMagicLink = kind === 'magic-link';
-      __anOAuthPollCount = 0;
-      async function check() {
-        if (!isMagicLink && !__anIsCurrentGoogleSignInFlow(flowId)) return;
-        __anOAuthPollCount++;
-        try {
-          var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
-          var exchangeOptions = { credentials: 'include' };
-          if (verifier) {
-            exchangeOptions.headers = { 'X-Agent-Native-Desktop-Verifier': verifier };
-          }
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, exchangeOptions);
-          var data = await res.json().catch(function() { return {}; });
-          if (!isMagicLink && !__anIsCurrentGoogleSignInFlow(flowId)) return;
-          if (data && (data.email || data.token)) {
-            if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
-            __anOAuthPollTimer = null;
-            __anFinishOAuthExchange(ret, flowId, data.token);
-            return;
-          }
-          if (data && data.error) {
-            __anSetOAuthDebug('OAuth exchange returned an error: ' + (data.message || data.error), flowId);
-            __anShowAuthExchangeError(
-              err,
-              btn,
-              __anAuthErrorText(data, isMagicLink ? __anT('magicLinkFailed') : __anT('googleNotConfigured')),
-              isMagicLink ? 'magic-link' : 'google',
-            );
-            return;
-          }
-          if (data && data.pending && (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0)) {
-            __anSetOAuthDebug('Waiting for the Google callback; polling attempt ' + __anOAuthPollCount, flowId);
-          }
-        } catch(e) {
-          if (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0) {
-            __anSetOAuthDebug('Could not reach the OAuth exchange endpoint: ' + (e && e.message ? e.message : 'network error'), flowId);
-          }
-        }
-        if (Date.now() - started > timeoutMs) {
-          __anShowAuthExchangeError(
-            err,
-            btn,
-            isMagicLink
-              ? __anT('magicLinkFailed')
-              : __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.',
-            isMagicLink ? 'magic-link' : 'google',
-          );
-        }
-      }
-      __anStopOAuthExchangePolling();
-      __anOAuthPollTimer = setInterval(check, 1000);
-      setTimeout(check, 500);
-    }
-    async function __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn) {
-      var params = new URLSearchParams();
-      if (oauthReturn) params.set('return', oauthReturn);
-      params.set('desktop', '1');
-      params.set('flow_id', flowId);
-      var res = await fetch(__anGoogleAuthUrlPath() + '?' + params.toString(), {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json',
-          'X-Agent-Native-Desktop-Verifier': verifier
-        }
-      });
-      var data;
-      try {
-        data = await res.json();
-      } catch(e) {
-        throw new Error(__anT('failedToConnect'));
-      }
-      if (!res.ok || !data || typeof data.url !== 'string' || !data.url) {
-        throw new Error(__anAuthErrorText(data, __anT('failedToConnect')));
-      }
-      return data.url;
-    }
-    function __anStartPopupOAuth(ret, btn, err, flowId) {
-      var verifier = __anNewOAuthVerifier();
-      if (!verifier) {
-        __anShowOAuthError(err, btn, __anT('failedToConnect'));
-        return;
-      }
-      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
-      try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-      __anSetOAuthDebug('Opening Google sign-in popup', flowId);
-      var popup;
-      try {
-        popup = window.open('', '_blank', 'width=640,height=760');
-        if (!popup) {
-          __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Google popup was blocked; falling back to redirect', 'Google popup was blocked.');
-          return;
-        }
-        try { popup.opener = null; } catch(e) {}
-        __anWatchOAuthPopupClose(popup, flowId);
-      } catch(e) {
-        __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect', 'Could not open Google popup.');
-        return;
-      }
-      __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
-        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
-        try {
-          popup.location.href = url;
-          __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
-          __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
-        } catch(e) {
-          throw e;
-        }
-      }).catch(function(e) {
-        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
-        try { popup.close(); } catch(closeErr) {}
-        __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
-      });
-    }
-    function __anStartNativeDesktopOAuth(ret, btn, err, flowId) {
-      var verifier = __anNewOAuthVerifier();
-      if (!verifier) {
-        __anShowOAuthError(err, btn, __anT('failedToConnect'));
-        return;
-      }
-      var oauthReturn = ret;
-      __anBeginNativeOAuth(flowId);
-      __anSetOAuthDebug('Preparing Google sign-in in system browser', flowId);
-      __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
-        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
-        __anMarkNativeOAuthPolling(flowId);
-        __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
-        __anOpenOAuthUrl(url);
-        __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
-        __anScheduleNativeOAuthAbandonment(flowId);
-      }).catch(function(e) {
-        if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
-        __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
-      });
-    }
-    function __anOpenOAuthUrl(url) {
-      try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
-      window.location.href = url;
-    }
-    (function revealLocalNote() {
-    var h = location.hostname;
-    if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')) {
-      var n = document.getElementById('local-note');
-      if (n) n.classList.add('show');
-    }
-  })();
-  (function revealUpgradeNote() {
-    var shouldShow = false;
-    try {
-      var params = new URLSearchParams(location.search);
-      shouldShow = params.get('signin') === '1' || params.get('upgrade-from-local') === '1';
-    } catch(e) {}
-    if (!shouldShow) {
-      try { shouldShow = localStorage.getItem('an_migrate_from_local') === '1'; } catch(e) {}
-    }
-    if (!shouldShow) return;
-    var n = document.getElementById('upgrade-note');
-    if (!n) return;
-    n.textContent = n.getAttribute('data-upgrade-copy') || __anT('migrateLocalFallback');
-    n.classList.add('show');
-  })();
-${
-  googleOnly
-    ? ""
-    : `  var TAB_STORAGE_KEY = 'an.onboarding.tab';
-    var tabs = document.querySelectorAll('.tab');
-    var forms = document.querySelectorAll('.form');
-	    var pendingSignupEmail = '';
-	    var pendingSignupPassword = '';
-	    var verificationCheckInFlight = false;
-	    var RESEND_VERIFICATION_COOLDOWN_SECONDS = 60;
-	    var resendVerificationCooldownUntil = 0;
-	    var resendVerificationCooldownTimer = null;
-	    var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail';
-	    // The verification link can open in a new tab, so in-memory pending state
-	    // cannot be the only source of the account email. Keep only the address,
-	    // never the password, for the manual-login fallback.
-	    function pendingSignupEmailStorageKey() {
-	      return PENDING_SIGNUP_EMAIL_STORAGE_KEY + ':' + (__anBasePath() || '/');
-	    }
-	    function rememberPendingSignupEmail(email) {
-	      try {
-	        if (email) localStorage.setItem(pendingSignupEmailStorageKey(), email);
-	        else localStorage.removeItem(pendingSignupEmailStorageKey());
-	      // coercion-ok: localStorage is optional; the in-memory and form fallbacks remain available.
-	      } catch (e) {}
-	    }
-	    function readRememberedPendingSignupEmail() {
-	      try {
-	        var email = localStorage.getItem(pendingSignupEmailStorageKey()) || '';
-	        return __anIsValidAuthEmail(email) ? __anNormalizeAuthEmail(email) : '';
-	      // coercion-ok: localStorage is optional; callers fall back to the in-memory or form value.
-	      } catch (e) {
-	        return '';
-	      }
-	    }
-	    function clearRememberedPendingSignupEmail() {
-	      rememberPendingSignupEmail('');
-	    }
-    function hideMagicLinkSuccess() {
-      var card = document.querySelector('.card');
-      if (card) card.classList.remove('magic-link-complete');
-      var success = document.getElementById('magic-link-success');
-      if (success) {
-        success.classList.remove('is-visible');
-        success.setAttribute('hidden', '');
-      }
-    }
-    function showMagicLinkSuccess(email) {
-      var card = document.querySelector('.card');
-      if (card) card.classList.add('magic-link-complete');
-      var success = document.getElementById('magic-link-success');
-      var successEmail = document.getElementById('magic-link-success-email');
-      if (successEmail && typeof email === 'string') successEmail.textContent = email;
-      if (success) {
-        success.removeAttribute('hidden');
-        success.classList.add('is-visible');
-      }
-      forms.forEach(function(x) { x.classList.remove('active'); });
-      var authTabs = document.getElementById('auth-tabs');
-      if (authTabs) authTabs.hidden = true;
-      __anSetAuthView('magicLinkSent');
-    }
-    function showMagicLinkForm() {
-      __anStopOAuthExchangePolling();
-      __anMagicLinkInFlight = false;
-      var form = document.getElementById('magic-link-form');
-      if (!form) return;
-      hideMagicLinkSuccess();
-      forms.forEach(function(x) { x.classList.remove('active'); });
-      form.classList.add('active');
-      var authTabs = document.getElementById('auth-tabs');
-      if (authTabs) authTabs.hidden = true;
-      updateMagicLinkSubmitState();
-      __anSetAuthView('magicLink');
-    }
-    function updateMagicLinkSubmitState() {
-      var emailInput = document.getElementById('m-email');
-      var button = document.getElementById('magic-link-submit');
-      if (!emailInput || !button) return;
-      var isValid = __anIsValidAuthEmail(emailInput.value);
-      button.disabled = !isValid;
-      var googleButton = document.getElementById('google-btn');
-      if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
-    }
-    function setActiveTab(name, opts) {
-	      if (name !== 'signup' && name !== 'login') return;
-	      var form = document.getElementById(name + '-form');
-	      if (!form) return;
-      var card = document.querySelector('.card');
-      if (card) card.classList.remove('verifying');
-      var authTabs = document.getElementById('auth-tabs');
-      if (authTabs) authTabs.hidden = false;
-      tabs.forEach(function(x) { x.classList.remove('active'); });
-      forms.forEach(function(x) { x.classList.remove('active'); });
-    var btn = document.querySelector('.tab[data-tab="' + name + '"]');
-    if (btn) btn.classList.add('active');
-    form.classList.add('active');
-    __anSetAuthView(name);
-      if (opts && opts.persist) {
-        try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
-      }
-    }
-    function showVerificationStep(email, password) {
-      pendingSignupEmail = email || '';
-      pendingSignupPassword = password || '';
-      rememberPendingSignupEmail(pendingSignupEmail);
-      tabs.forEach(function(x) { x.classList.remove('active'); });
-      forms.forEach(function(x) { x.classList.remove('active'); });
-      var card = document.querySelector('.card');
-      if (card) card.classList.add('verifying');
-      var step = document.getElementById('verification-step');
-      if (step) step.classList.add('active');
-      var emailNode = document.getElementById('verify-email');
-      if (emailNode) emailNode.textContent = pendingSignupEmail;
-      __anSetAuthView('verification');
-      var msg = document.getElementById('verify-msg');
-      if (msg) {
-        msg.classList.remove('show', 'error', 'success');
-        msg.textContent = '';
-      }
-      try { localStorage.setItem(TAB_STORAGE_KEY, 'signup'); } catch (e) {}
-    }
-    function getVerificationMessageNode() {
-      var verifyStep = document.getElementById('verification-step');
-      if (verifyStep && verifyStep.classList.contains('active')) {
-        return document.getElementById('verify-msg');
-      }
-      return document.getElementById('l-msg') || document.getElementById('verify-msg');
-    }
-    function isVerificationStepActive() {
-      var verifyStep = document.getElementById('verification-step');
-      return !!(verifyStep && verifyStep.classList.contains('active'));
-    }
-    function getPendingSignupEmail() {
-      var signupEmail = document.getElementById('s-email');
-      var loginEmail = document.getElementById('l-email');
-      return (pendingSignupEmail || readRememberedPendingSignupEmail() || (signupEmail && signupEmail.value) || (loginEmail && loginEmail.value) || '').trim();
-    }
-    function getPendingSignupPassword() {
-      var signupPassword = document.getElementById('s-pass');
-      return pendingSignupPassword || (signupPassword && signupPassword.value) || '';
-    }
-    function __anNormalizeAuthEmail(value) {
-      return String(value || '').trim().toLowerCase();
-    }
-	    function __anIsValidAuthEmail(value) {
-	      return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(__anNormalizeAuthEmail(value));
-	    }
-	    function __anIsVerifiedRedirectSuccess() {
-	      try {
-	        var params = new URLSearchParams(location.search);
-	        return params.has('verified') && !params.has('error');
-	      } catch (e) {
-	        return false;
-	      }
-	    }
-	    function __anVerificationRedirectError() {
-	      try {
-	        var params = new URLSearchParams(location.search);
-        return params.get('error') === 'verification_link_invalid'
-          ? __anT('verificationLinkInvalid')
-          : '';
-      } catch (e) { // coercion-ok: malformed query has no verification error to render
-        return '';
-      }
-	    }
-	    function __anShowEmailValidationError(input, msg) {
-	      if (msg) {
-	        msg.textContent = __anT('invalidEmail');
-	        msg.classList.add('show', 'error');
-      }
-      if (input && typeof input.focus === 'function') input.focus();
-    }
-    function movePendingSignupToLogin(message) {
-      var email = getPendingSignupEmail();
-      setActiveTab('login', { persist: true });
-      var loginEmail = document.getElementById('l-email');
-      var loginPassword = document.getElementById('l-pass');
-      var msg = document.getElementById('l-msg');
-      if (loginEmail && email) loginEmail.value = email;
-      if (msg) {
-        msg.textContent = message || __anT('signInToContinue');
-        msg.classList.remove('error');
-        msg.classList.add('show', 'success');
-      }
-      setTimeout(function() { if (loginPassword) loginPassword.focus(); }, 0);
-    }
-    async function signInWithPendingSignup() {
-      var email = getPendingSignupEmail();
-      var password = getPendingSignupPassword();
-      if (!email || !password) {
-        return { ok: false, needsManualSignIn: true };
-      }
-      var res = await fetch(__anPath('/_agent-native/auth/login'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, password: password }),
-      });
-      if (res.ok) {
-        clearRememberedPendingSignupEmail();
-        __anRedirectToSignedInApp();
-        return { ok: true };
-      }
-      var data = await res.json().catch(function(error) {
-        console.warn('[auth] Could not parse sign-in response', error);
-        return null;
-      });
-      var error = __anAuthErrorText(data, __anT('finishSignInFailed'));
-      return {
-        ok: false,
-        error: error,
-        isWaitingForVerification: /not verified|verification/i.test(error),
-      };
-    }
-    async function checkVerificationSession(fallbackText, opts) {
-      opts = opts || {};
-      if (verificationCheckInFlight) return;
-      verificationCheckInFlight = true;
-      var msg = getVerificationMessageNode();
-      var continueBtn = document.getElementById('verify-continue');
-      if (continueBtn && !opts.silent) {
-        continueBtn.disabled = true;
-        continueBtn.textContent = __anT('checking');
-      }
-      if (msg && !opts.silent) {
-        msg.textContent = __anT('checkingVerification');
-        msg.classList.remove('error');
-        msg.classList.add('show', 'success');
-      }
-      try {
-        var res = await fetch(__anPath('/_agent-native/auth/session'), {
-          headers: { 'Accept': 'application/json' },
-        });
-        var data = await res.json().catch(function() { return {}; });
-        if (res.ok && data && data.email && !data.error) {
-          clearRememberedPendingSignupEmail();
-          __anRedirectToSignedInApp();
-          return;
-        }
-        var loginResult = await signInWithPendingSignup();
-        if (loginResult.ok) return;
-        if (loginResult.needsManualSignIn) {
-          if (!opts.silent) {
-            movePendingSignupToLogin(fallbackText || __anT('enterPasswordAfterVerification'));
-          }
-          return;
-        }
-        if (loginResult.error && !loginResult.isWaitingForVerification) {
-          if (!opts.silent) {
-            movePendingSignupToLogin(__anT('finishSignInManually'));
-          }
-          return;
-        }
-        if (msg && !opts.silent) {
-          msg.textContent = fallbackText || __anT('stillWaitingVerification');
-          msg.classList.remove('success');
-          msg.classList.add('show', 'error');
-        }
-      } catch (err) {
-        if (msg && !opts.silent) {
-          msg.textContent = __anT('checkVerificationFailed');
-          msg.classList.remove('success');
-          msg.classList.add('show', 'error');
-        }
-      } finally {
-        verificationCheckInFlight = false;
-        if (continueBtn && !opts.silent) {
-          continueBtn.disabled = false;
-          continueBtn.textContent = __anT('continue');
-        }
-      }
-    }
-	    function maybeCompleteVerificationAfterReturn() {
-	      if (!isVerificationStepActive()) return;
-	      checkVerificationSession(null, { silent: true });
-	    }
-	    function updateResendVerificationCooldown() {
-	      var btn = document.getElementById('resend-verification');
-	      if (!btn) return;
-	      var remaining = Math.ceil((resendVerificationCooldownUntil - Date.now()) / 1000);
-	      if (remaining > 0) {
-	        btn.disabled = true;
-	        btn.textContent = __anT('resendEmail') + ' (' + remaining + 's)';
-	        return;
-	      }
-	      if (resendVerificationCooldownTimer) {
-	        clearInterval(resendVerificationCooldownTimer);
-	        resendVerificationCooldownTimer = null;
-	      }
-	      resendVerificationCooldownUntil = 0;
-	      btn.disabled = false;
-	      btn.textContent = __anT('resendEmail');
-	    }
-	    function startResendVerificationCooldown(seconds) {
-	      resendVerificationCooldownUntil = Date.now() + seconds * 1000;
-	      updateResendVerificationCooldown();
-	      if (resendVerificationCooldownTimer) clearInterval(resendVerificationCooldownTimer);
-	      resendVerificationCooldownTimer = setInterval(updateResendVerificationCooldown, 1000);
-	    }
-	    async function resendVerificationEmail() {
-	      var btn = document.getElementById('resend-verification');
-	      var msg = document.getElementById('verify-msg');
-	      var email = getPendingSignupEmail();
-	      if (!email) return;
-	      if (resendVerificationCooldownUntil > Date.now()) {
-	        updateResendVerificationCooldown();
-	        return;
-	      }
-	      var original = btn ? btn.textContent : '';
-	      if (btn) {
-	        btn.disabled = true;
-	        btn.textContent = __anT('sending');
-      }
-      if (msg) msg.classList.remove('show', 'error', 'success');
-      try {
-        var res = await fetch(__anPath('/_agent-native/auth/ba/send-verification-email'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
-        });
-        if (res.ok) {
-	          if (msg) {
-	            msg.textContent = __anT('sentVerification');
-	            msg.classList.add('show', 'success');
-	          }
-	          startResendVerificationCooldown(RESEND_VERIFICATION_COOLDOWN_SECONDS);
-	          return;
-	        }
-	        var data = await res.json().catch(function() { return {}; });
-	        if (msg) {
-          msg.textContent = __anAuthErrorText(data, __anT('resendVerificationFailed'));
-          msg.classList.add('show', 'error');
-        }
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = original;
-        }
-      } catch (err) {
-        if (msg) {
-          msg.textContent = __anT('networkErrorRetry');
-          msg.classList.add('show', 'error');
-        }
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = original;
-        }
-      }
-    }
-    (function initActiveTab() {
-    var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
-    var verificationError = __anVerificationRedirectError();
-    try {
-      var params = new URLSearchParams(location.search);
-      var qp = params.get('tab');
-      var path = location.pathname;
-      while (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
-      if (qp === 'login' || qp === 'signup') {
-        initial = qp;
-	      } else if (__anIsVerifiedRedirectSuccess()) {
-	        initial = 'login';
-	      } else if (verificationError) {
-	        initial = 'login';
-	      } else if (path === '/login' || path.endsWith('/login')) {
-        initial = 'login';
-      } else if (path === '/signup' || path.endsWith('/signup')) {
-        initial = 'signup';
-      } else if (__AN_AUTH_MODE !== 'magic-link') {
-        var stored = localStorage.getItem(TAB_STORAGE_KEY);
-        if (stored === 'login' || stored === 'signup') initial = stored;
-      }
-    } catch (e) {}
-    if (initial === 'magicLink') showMagicLinkForm();
-    else setActiveTab(initial, { persist: false });
-	    if (verificationError) {
-	      var verificationMsg = document.getElementById('l-msg');
-	      if (verificationMsg) {
-	        verificationMsg.textContent = verificationError;
-	        verificationMsg.classList.add('show', 'error');
-	      }
-	    }
-	      try {
-	        if (__anIsVerifiedRedirectSuccess()) {
-	          var rememberedEmail = readRememberedPendingSignupEmail();
-	          var loginEmail = document.getElementById('l-email');
-	          if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail;
-	          var msg = document.getElementById('l-msg');
-          if (msg) {
-            msg.textContent = __anT('emailVerifiedFinishing');
-            msg.classList.remove('error');
-            msg.classList.add('show', 'success');
-          }
-          checkVerificationSession(__anT('emailVerifiedSignIn'));
-        }
-      } catch (e) {}
-    })();
-  tabs.forEach(function(t) { t.addEventListener('click', function() {
-    setActiveTab(t.dataset.tab, { persist: true });
-  }); });
-
-  var usePasswordLink = document.getElementById('use-password-link');
-  if (usePasswordLink) usePasswordLink.addEventListener('click', function(e) {
-    e.preventDefault();
-    setActiveTab('login', { persist: false });
-    var magicEmail = document.getElementById('m-email');
-    var loginEmail = document.getElementById('l-email');
-    if (magicEmail && loginEmail && magicEmail.value) loginEmail.value = magicEmail.value;
-  });
-  var backToMagicLink = document.getElementById('back-to-magic-link');
-  if (backToMagicLink) backToMagicLink.addEventListener('click', function(e) {
-    e.preventDefault();
-    showMagicLinkForm();
-  });
-  var magicLinkBack = document.getElementById('magic-link-back');
-  if (magicLinkBack) magicLinkBack.addEventListener('click', function(e) {
-    e.preventDefault();
-    var magicLinkEmailInput = document.getElementById('m-email');
-    if (magicLinkEmailInput) magicLinkEmailInput.value = '';
-    showMagicLinkForm();
-    if (magicLinkEmailInput) magicLinkEmailInput.focus();
-  });
-
-  var magicLinkForm = document.getElementById('magic-link-form');
-  __anBindPasswordValidation(document.getElementById('s-pass'));
-  __anBindPasswordValidation(document.getElementById('s-pass2'));
-  var magicLinkEmail = document.getElementById('m-email');
-  if (magicLinkEmail) {
-    magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState);
-    magicLinkEmail.addEventListener('change', updateMagicLinkSubmitState);
-    updateMagicLinkSubmitState();
-  }
-  if (magicLinkForm) magicLinkForm.addEventListener('submit', async function(e) {
-    e.preventDefault();
-    var btn = magicLinkForm.querySelector('button[type="submit"]');
-    var msg = document.getElementById('m-msg');
-    var emailInput = document.getElementById('m-email');
-    var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
-    var isDesktopMagicLink = __anIsAgentNativeDesktop();
-    msg.classList.remove('show', 'error', 'success');
-    if (!__anIsValidAuthEmail(email)) {
-      __anShowEmailValidationError(emailInput, msg);
-      return;
-    }
-    var originalLabel = btn.textContent;
-    btn.disabled = true;
-    __anMagicLinkInFlight = isDesktopMagicLink;
-    btn.textContent = __anT('sending');
-    try {
-      var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email,
-          callbackURL: isDesktopMagicLink
-            ? __anPath('/_agent-native/auth/magic-link/desktop-callback')
-            : __anResumeHref(),
+`;
+  const authClientScriptPath = `${appBasePath}/assets/auth-client.js`;
+  const title = hasMarketing
+    ? `${marketing!.appName} — ${t("pageTitleSignIn")}`
+    : t("pageTitleWelcome");
+  const authDocumentMarkup = renderToString(
+    createElement(
+      "html",
+      { lang: DEFAULT_LOCALE, dir: "ltr" },
+      createElement(
+        "head",
+        null,
+        createElement("meta", { charSet: "UTF-8" }),
+        createElement("script", {
+          "data-agent-native-locale-init": "",
+          dangerouslySetInnerHTML: { __html: localeInitScript },
         }),
-      });
-      var data = await res.json().catch(function(error) {
-        console.warn('[auth] Could not parse magic-link response', error);
-        return null;
-      });
-      if (res.ok) {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
-        showMagicLinkSuccess(email);
-        if (isDesktopMagicLink) {
-          var magicFlowId = data && typeof data.flowId === 'string' ? data.flowId : '';
-          var magicVerifier = data && typeof data.verifier === 'string' ? data.verifier : '';
-          if (!magicFlowId || !magicVerifier) {
-            throw new Error('The sign-in flow was not initialized.');
-          }
-          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier);
-        }
-        return;
-      }
-      __anMagicLinkInFlight = false;
-      msg.textContent = __anAuthErrorText(data, __anT('magicLinkFailed'));
-      msg.classList.add('show', 'error');
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    } catch (err) {
-      __anMagicLinkInFlight = false;
-      msg.textContent = __anT('networkErrorDashRetry');
-      msg.classList.add('show', 'error');
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    }
-  });
-
-  document.getElementById('signup-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    var form = e.currentTarget;
-    var btn = form.querySelector('button[type="submit"]');
-    var msg = document.getElementById('s-msg');
-    msg.classList.remove('show', 'error', 'success');
-    var pass = document.getElementById('s-pass').value;
-    var pass2 = document.getElementById('s-pass2').value;
-    if (pass !== pass2) {
-      msg.textContent = __anT('passwordsMismatch');
-      msg.classList.add('show', 'error');
-      return;
-    }
-    var originalLabel = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = __anT('creatingAccount');
-    try {
-      var emailInput = document.getElementById('s-email');
-      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
-      if (!__anIsValidAuthEmail(email)) {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
-        __anShowEmailValidationError(emailInput, msg);
-        return;
-      }
-      var res = await fetch(__anPath('/_agent-native/auth/register'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: email,
-            password: pass,
-            callbackURL: __anResumeHref(),
-          }),
-        });
-      var data = await res.json().catch(function() { return {}; });
-      if (res.ok) {
-        // If email verification is required, the server won't return a session.
-        // Try logging in — if it fails (unverified), show a "check your email" message.
-        var loginRes = await fetch(__anPath('/_agent-native/auth/login'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email, password: pass }),
-        });
-        if (loginRes.ok) {
-          clearRememberedPendingSignupEmail();
-          msg.textContent = __anT('accountCreatedSigningIn');
-          msg.classList.add('show', 'success');
-          __anRedirectToSignedInApp();
-          return;
-        }
-        var loginData;
-        try {
-          loginData = await loginRes.json();
-        } catch (error) {
-          console.warn('[auth] Could not parse sign-in response', error);
-        }
-        var loginError = __anAuthErrorText(loginData, __anT('registrationFailed'));
-        if (loginRes.status === 403 && /not verified|verification/i.test(loginError)) {
-          btn.disabled = false;
-          btn.textContent = originalLabel;
-          showVerificationStep(email, pass);
-          return;
-        }
-        msg.textContent = loginError;
-        msg.classList.add('show', 'error');
-        btn.disabled = false;
-        btn.textContent = originalLabel;
-        return;
-      }
-      msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
-      msg.classList.add('show', 'error');
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    } catch (err) {
-      msg.textContent = __anT('networkErrorDashRetry');
-      msg.classList.add('show', 'error');
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    }
-    });
-
-    var verifyContinue = document.getElementById('verify-continue');
-    if (verifyContinue) verifyContinue.addEventListener('click', function(e) {
-      e.preventDefault();
-      checkVerificationSession();
-    });
-    window.addEventListener('focus', maybeCompleteVerificationAfterReturn);
-    document.addEventListener('visibilitychange', function() {
-      if (document.visibilityState === 'visible') maybeCompleteVerificationAfterReturn();
-    });
-    var resendBtn = document.getElementById('resend-verification');
-    if (resendBtn) resendBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      resendVerificationEmail();
-    });
-    var backToSignup = document.getElementById('back-to-signup');
-    if (backToSignup) backToSignup.addEventListener('click', function(e) {
-      e.preventDefault();
-      clearRememberedPendingSignupEmail();
-      setActiveTab('signup', { persist: true });
-      var email = document.getElementById('s-email');
-      setTimeout(function() { if (email) email.focus(); }, 0);
-    });
-
-    var forgotLink = document.getElementById('forgot-link');
-  var backToLogin = document.getElementById('back-to-login');
-  if (forgotLink) forgotLink.addEventListener('click', function(e) {
-    e.preventDefault();
-    document.getElementById('login-form').classList.remove('active');
-    document.getElementById('forgot-form').classList.add('active');
-    __anSetAuthView('forgot');
-    var fEmail = document.getElementById('f-email');
-    var lEmail = document.getElementById('l-email');
-    if (lEmail && lEmail.value) fEmail.value = lEmail.value;
-    setTimeout(function() { fEmail.focus(); }, 0);
-  });
-  if (backToLogin) backToLogin.addEventListener('click', function(e) {
-    e.preventDefault();
-    document.getElementById('forgot-form').classList.remove('active');
-    document.getElementById('login-form').classList.add('active');
-    __anSetAuthView('login');
-  });
-
-  var forgotForm = document.getElementById('forgot-form');
-  if (forgotForm) forgotForm.addEventListener('submit', async function(e) {
-    e.preventDefault();
-    var btn = e.currentTarget.querySelector('button[type="submit"]');
-    var msg = document.getElementById('f-msg');
-    msg.classList.remove('show', 'error', 'success');
-    var original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = __anT('sending');
-    try {
-      var emailInput = document.getElementById('f-email');
-      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
-      if (!__anIsValidAuthEmail(email)) {
-        btn.disabled = false;
-        btn.textContent = original;
-        __anShowEmailValidationError(emailInput, msg);
-        return;
-      }
-      var res = await fetch(__anPath('/_agent-native/auth/ba/request-password-reset'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email }),
-      });
-      if (res.ok) {
-        msg.textContent = __anT('resetEmailSent');
-        msg.classList.add('show', 'success');
-        btn.textContent = __anT('sent');
-        return;
-      }
-      var data = await res.json().catch(function() { return {}; });
-      msg.textContent = __anAuthErrorText(data, __anT('resetEmailFailed'));
-      msg.classList.add('show', 'error');
-      btn.disabled = false;
-      btn.textContent = original;
-    } catch (err) {
-      msg.textContent = __anT('networkErrorDashRetry');
-      msg.classList.add('show', 'error');
-      btn.disabled = false;
-      btn.textContent = original;
-    }
-  });
-
-    document.getElementById('login-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    var form = e.currentTarget;
-      var btn = form.querySelector('button[type="submit"]');
-      var msg = document.getElementById('l-msg');
-      msg.classList.remove('show', 'success');
-      msg.classList.add('error');
-    var originalLabel = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = __anT('signingIn');
-    try {
-      var emailInput = document.getElementById('l-email');
-      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
-      if (!__anIsValidAuthEmail(email)) {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
-        __anShowEmailValidationError(emailInput, msg);
-        return;
-      }
-      var res = await fetch(__anPath('/_agent-native/auth/login'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email,
-          password: document.getElementById('l-pass').value,
+        createElement("script", {
+          "data-agent-native-embedded-init": "",
+          dangerouslySetInnerHTML: { __html: embeddedAuthInitScript },
         }),
-      });
-      if (res.ok) {
-        clearRememberedPendingSignupEmail();
-        __anRedirectToSignedInApp();
-        return;
-      }
-      var data = await res.json().catch(function() { return {}; });
-      msg.textContent = __anAuthErrorText(data, __anT('invalidLogin'));
-      msg.classList.add('show');
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    } catch (err) {
-      msg.textContent = __anT('networkErrorDashRetry');
-      msg.classList.add('show');
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    }
-  });
-`
-}
-${
-  renderGoogleButton
-    ? `
-    async function signInWithGoogle() {
-    var btn = document.getElementById('google-btn');
-    var err = document.getElementById('google-err');
-    var ret = __anResumeHref();
-    var flowId = __anNewOAuthFlowId();
-    btn.disabled = true;
-    __anBeginGoogleSignInFlow(flowId);
-    __anBindGoogleRecover();
-    err.classList.remove('show');
-    if (__anResolveAuthFlow() === 'popup') {
-      __anStartPopupOAuth(ret, btn, err, flowId);
-      return;
-    }
-    if (__anIsAgentNativeDesktop()) {
-      __anStartNativeDesktopOAuth(ret, btn, err, flowId);
-      return;
-    }
-    if (__anIsBuilderPreview()) {
-      __anStartRedirectOAuth(ret, btn, err, flowId, 'Opening Google sign-in redirect from Builder preview');
-      return;
-    }
-    try {
-      var authUrl = __anGoogleAuthUrlPath() + '?return=' + encodeURIComponent(ret);
-      var res = await fetch(authUrl);
-      var data = await res.json();
-      if (!__anIsCurrentGoogleSignInFlow(flowId)) return;
-      if (data.url) {
-        __anOpenOAuthUrl(data.url);
-      } else {
-        err.textContent = __anAuthErrorText(data, __anT('googleNotConfigured'));
-        err.classList.add('show');
-        btn.disabled = false;
-        __anGoogleSignInInFlight = false;
-        __anClearGoogleSignInFlow();
-      }
-    } catch (e) {
-      err.textContent = __anT('failedToConnect');
-      err.classList.add('show');
-      btn.disabled = false;
-      __anGoogleSignInInFlight = false;
-      __anClearGoogleSignInFlow();
-    }
-  }`
-    : ""
-}
-${starfieldScript}
-${
-  signupLocalModeNote
-    ? `
-  function __anCopyCommandFromPanel(panelId, buttonId) {
-    var panel = document.getElementById(panelId);
-    var button = document.getElementById(buttonId);
-    if (!panel || !button) return;
-    var command = panel.getAttribute('data-command') || '';
-    var original = button.textContent || __anT('copyCommand');
-    function markCopied() {
-      button.textContent = __anT('copied');
-      setTimeout(function() { button.textContent = original; }, 1600);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(command).then(markCopied).catch(function() {});
-    }
-  }
-  function __anCopySignupLocalModeCommand() {
-    __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
-  }
-  `
-    : ""
-}
-</script>
-</body>
-</html>`;
+        createElement("meta", {
+          name: "viewport",
+          content:
+            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+        }),
+        createElement("title", null, title),
+        createElement("link", {
+          rel: "icon",
+          type: "image/svg+xml",
+          href: withAppBasePath("/favicon.svg", appBasePath),
+        }),
+        createElement("link", {
+          rel: "apple-touch-icon",
+          href: withAppBasePath("/icon-180.svg", appBasePath),
+        }),
+        hasMarketing
+          ? [
+              createElement("meta", {
+                key: "description",
+                name: "description",
+                content: marketing!.tagline,
+              }),
+              createElement("meta", {
+                key: "og-title",
+                property: "og:title",
+                content: marketing!.appName,
+              }),
+              createElement("meta", {
+                key: "og-description",
+                property: "og:description",
+                content: marketing!.tagline,
+              }),
+              createElement("meta", {
+                key: "og-image",
+                property: "og:image",
+                content: socialImageUrl,
+              }),
+              createElement("meta", {
+                key: "og-image-secure",
+                property: "og:image:secure_url",
+                content: socialImageUrl,
+              }),
+              createElement("meta", {
+                key: "og-image-type",
+                property: "og:image:type",
+                content: AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+              }),
+              createElement("meta", {
+                key: "og-image-width",
+                property: "og:image:width",
+                content: AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+              }),
+              createElement("meta", {
+                key: "og-image-height",
+                property: "og:image:height",
+                content: AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+              }),
+              createElement("meta", {
+                key: "og-image-alt",
+                property: "og:image:alt",
+                content: AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+              }),
+              createElement("meta", {
+                key: "twitter-card",
+                name: "twitter:card",
+                content: "summary_large_image",
+              }),
+              createElement("meta", {
+                key: "twitter-image",
+                name: "twitter:image",
+                content: socialImageUrl,
+              }),
+              createElement("meta", {
+                key: "twitter-image-alt",
+                name: "twitter:image:alt",
+                content: AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+              }),
+            ]
+          : null,
+        createElement("style", {
+          dangerouslySetInnerHTML: {
+            __html: authDocumentStyles + authPageLayoutStyles,
+          },
+        }),
+        createElement("script", {
+          type: "module",
+          src: authClientScriptPath,
+        }),
+      ),
+      createElement(
+        "body",
+        {
+          className: simplifiedAuth
+            ? "simplified-auth"
+            : hasMarketing
+              ? "has-marketing"
+              : undefined,
+        },
+        createElement(
+          "div",
+          { id: "agent-native-auth-root", className: "auth-root" },
+          createElement(AuthPage, authPageProps),
+        ),
+        createElement("script", {
+          type: "application/json",
+          id: "agent-native-auth-data",
+          dangerouslySetInnerHTML: { __html: authPageData },
+        }),
+      ),
+    ),
+  );
+  return `<!DOCTYPE html>${authDocumentMarkup}`;
 }
 
 /** @deprecated Use getOnboardingHtml() instead */
 export const ONBOARDING_HTML = getOnboardingHtml();
 
-/**
- * HTML for the password reset page — shown when the user clicks the link in
- * their reset email. Posts `{ newPassword, token }` to Better Auth's
- * `/reset-password` endpoint, then redirects to the login page.
- */
-export function getResetPasswordHtml(): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Reset password</title>
-<link rel="icon" type="image/svg+xml" href="${withAppBasePath("/favicon.svg")}">
-<link rel="apple-touch-icon" href="${withAppBasePath("/icon-180.svg")}">
-<style>
+const RESET_PASSWORD_STYLES = `
+  /* guard:allow-raw-color - standalone reset page has no app theme token layer */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0a0a; color: #e5e5e5; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
   .card { width: 100%; max-width: 400px; padding: 2rem; background: #141414; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
@@ -4367,113 +2234,67 @@ export function getResetPasswordHtml(): string {
   .msg.show { display: block; }
   .back { display: inline-block; margin-top: 1rem; font-size: 0.75rem; color: #888; text-decoration: none; }
   .back:hover { color: #bbb; }
-</style>
-</head>
-<body>
-<div class="card">
-  <h1>Choose a new password</h1>
-  <p class="subtitle">Set a new password for your account.</p>
-  <form id="reset-form">
-    <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
-    <label for="p2">Confirm password</label>
-    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
-    <button type="submit">Save new password</button>
-    <p class="msg" id="msg"></p>
-  </form>
-  <a class="back" id="back-link" href="/">Back to sign in</a>
-</div>
-<script>
-  (function() {
-    // Derive the app's base path so apps mounted under a prefix
-    // (e.g. /mail, /calendar) get sent home instead of to the root domain.
-    var RESET_PATH = '/_agent-native/auth/reset';
-    var pathname = window.location.pathname;
-    var idx = pathname.indexOf(RESET_PATH);
-    var basePath = (idx >= 0 ? pathname.slice(0, idx) : '') || '';
-    var homeHref = basePath + '/';
-    var backLink = document.getElementById('back-link');
-    if (backLink) backLink.setAttribute('href', homeHref);
-    var params = new URLSearchParams(location.search);
-    var token = params.get('token') || '';
-    var msg = document.getElementById('msg');
-    var resetForm = document.getElementById('reset-form');
-    function resetErrorText(data, fallback) {
-      var candidate = data && (data.error || data.message);
-      if (typeof candidate !== 'string' || !candidate.trim()) return fallback;
-      var message = candidate.trim();
-      if (/failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(message)) {
-        return fallback;
-      }
-      if (/password.*(?:at least|minimum|min(?:imum)?|too short)/i.test(message)) {
-        return 'Choose a password with at least ${PASSWORD_MIN_LENGTH} characters.';
-      }
-      if (/password.*(?:at most|maximum|max(?:imum)?|too long)/i.test(message)) {
-        return 'Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.';
-      }
-      return message;
-    }
-    function bindPasswordValidation(input) {
-      if (!input) return;
-      input.addEventListener('invalid', function() {
-        if (input.validity && input.validity.tooShort) {
-          input.setCustomValidity('Choose a password with at least ${PASSWORD_MIN_LENGTH} characters.');
-        } else if (input.validity && input.validity.tooLong) {
-          input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
-        }
-      });
-      input.addEventListener('input', function() {
-        input.setCustomValidity('');
-      });
-    }
-    bindPasswordValidation(document.getElementById('p1'));
-    bindPasswordValidation(document.getElementById('p2'));
-    if (!token) {
-      msg.textContent = 'This password reset link is missing or invalid. Request a new one.';
-      msg.classList.add('show', 'error');
-      resetForm.style.display = 'none';
-      return;
-    }
-    resetForm.addEventListener('submit', async function(e) {
-      e.preventDefault();
-      var btn = e.currentTarget.querySelector('button[type="submit"]');
-      var p1 = document.getElementById('p1').value;
-      var p2 = document.getElementById('p2').value;
-      msg.classList.remove('show', 'error', 'success');
-      if (p1 !== p2) {
-        msg.textContent = 'Passwords do not match.';
-        msg.classList.add('show', 'error');
-        return;
-      }
-      var original = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
-      try {
-        var res = await fetch(basePath + '/_agent-native/auth/ba/reset-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newPassword: p1, token: token }),
-        });
-        if (res.ok) {
-          msg.textContent = 'Password updated — redirecting to sign in…';
-          msg.classList.add('show', 'success');
-          setTimeout(function() { window.location.href = homeHref; }, 1200);
-          return;
-        }
-        var data = await res.json().catch(function() { return {}; });
-        msg.textContent = resetErrorText(data, "We couldn't update your password. The link may have expired; request a new one.");
-        msg.classList.add('show', 'error');
-        btn.disabled = false;
-        btn.textContent = original;
-      } catch (err) {
-        msg.textContent = "We couldn't reach the server. Check your connection and try again.";
-        msg.classList.add('show', 'error');
-        btn.disabled = false;
-        btn.textContent = original;
-      }
-    });
-  })();
-</script>
-</body>
-</html>`;
+`;
+
+/** React document for the password reset page linked from auth email. */
+export function getResetPasswordHtml(requestPath?: string): string {
+  const configuredAppBasePath = getAppBasePathFromViteEnv();
+  const appBasePath =
+    configuredAppBasePath || workspaceBasePathFromRequest(requestPath);
+  const resetPageProps = {
+    pageType: "reset-password" as const,
+    appBasePath,
+    passwordMinLength: PASSWORD_MIN_LENGTH,
+    passwordMaxLength: PASSWORD_MAX_LENGTH,
+  };
+  const resetDocumentMarkup = renderToString(
+    createElement(
+      "html",
+      { lang: "en", dir: "ltr" },
+      createElement(
+        "head",
+        null,
+        createElement("meta", { charSet: "UTF-8" }),
+        createElement("meta", {
+          name: "viewport",
+          content:
+            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+        }),
+        createElement("title", null, "Reset password"),
+        createElement("link", {
+          rel: "icon",
+          type: "image/svg+xml",
+          href: withAppBasePath("/favicon.svg", appBasePath),
+        }),
+        createElement("link", {
+          rel: "apple-touch-icon",
+          href: withAppBasePath("/icon-180.svg", appBasePath),
+        }),
+        createElement("style", {
+          dangerouslySetInnerHTML: { __html: RESET_PASSWORD_STYLES },
+        }),
+        createElement("script", {
+          type: "module",
+          src: `${appBasePath}/assets/auth-client.js`,
+        }),
+      ),
+      createElement(
+        "body",
+        null,
+        createElement(
+          "div",
+          { id: "agent-native-auth-root" },
+          createElement(ResetPasswordPage, resetPageProps),
+        ),
+        createElement("script", {
+          type: "application/json",
+          id: "agent-native-auth-data",
+          dangerouslySetInnerHTML: {
+            __html: serializeAuthPageData(resetPageProps),
+          },
+        }),
+      ),
+    ),
+  );
+  return `<!DOCTYPE html>${resetDocumentMarkup}`;
 }

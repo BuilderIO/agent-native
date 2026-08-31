@@ -1,5 +1,49 @@
 # @agent-native/toolkit
 
+## 0.19.0
+
+### Minor Changes
+
+- a1869cc: Render the shared authentication surface with hydratable React and reuse its marketing composition for SSR app entry pages.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 349ce5c: Persist Agent-Native prompt drafts synchronously and keep prompt surfaces isolated across refreshes.
+- 353f95a: Split template marketing home routes from authenticated app entries and add the shared browser auth handoff.
+- f0fb6c5: Use the cube spinner for shared loading indicators and the worded loader for full-page states across apps.
+- 03711a6: Keep app launch loaders animated across remounts, randomize their labels, and smoothly resize the centered label.
+
+## 0.18.0
+
+### Minor Changes
+
+- 163dd55: Add a shared font family picker for design and editor toolbars.
+
+### Patch Changes
+
+- 844fa10: Show the AI initials in collaborator presence avatars and expose the editing status on hover.
+- 4af2889: Use the cube loader for app shells and agent activity, with long-running hints delayed to five minutes.
+- Release all public npm packages with a patch version bump.
+- dcc9f89: Remove the separate AI editing pill so the agent presence circle carries the status tooltip.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+
+## 0.17.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.17.5
+
+### Patch Changes
+
+- ac1ecfc: Keep slash-prefixed prompts when no command handler is available.
+- Release all public npm packages with a patch version bump.
+- 5a12f71: Use opaque white and soft-gray checkerboards for transparency.
+- d2b314b: Keep uploaded files and pasted text visible in chat history without importing new-deck references.
+- 5c96078: Use soft-gray checkerboards for transparency in shared visual color controls.
+
 ## 0.17.4
 
 ### Patch Changes

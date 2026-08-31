@@ -3,6 +3,7 @@ export {
   getAppConfig,
   resetAppConfigForTests,
 } from "./store.js";
+export { resolveAppHomePath } from "./app-identity.js";
 export { AppConfigurationError } from "./configuration-error.js";
 export {
   appConfigSchema,

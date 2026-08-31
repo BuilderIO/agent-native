@@ -13,6 +13,7 @@
  * automatically by the core-routes plugin).
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -545,19 +546,14 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
   }
 
-  const agentNativeAnalyticsKey =
-    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
-    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  if (
-    agentNativeAnalyticsKey &&
-    !shouldSkipAgentNativeAnalyticsForLocalhost()
-  ) {
+  const { agentNativePublicKey, agentNativeEndpoint } =
+    getAppConfig().analytics;
+  if (agentNativePublicKey && !shouldSkipAgentNativeAnalyticsForLocalhost()) {
     registerTrackingProvider(
       createAgentNativeAnalyticsProvider(
-        agentNativeAnalyticsKey,
+        agentNativePublicKey,
         (
-          process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-          AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+          agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
         ).replace(/\/+$/, ""),
       ),
     );

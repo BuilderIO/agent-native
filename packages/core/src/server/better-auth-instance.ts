@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Internal Better Auth instance — lazily created, not exported to templates.
  *
@@ -59,6 +69,7 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -68,6 +79,7 @@ import {
   getRuntimeConfigReport,
 } from "../shared/runtime-config.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
+import { isEmailDerivedName } from "../user-profile/shared.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -91,7 +103,9 @@ import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
+import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -165,6 +179,16 @@ export interface BetterAuthUserCreateContext {
   request?: { headers?: Headers | null; url?: string } | null;
 }
 
+function signupMethodFromRequestUrl(
+  url: string | undefined,
+): "magic_link" | "password" {
+  const normalized = url?.toLowerCase() ?? "";
+  return normalized.includes("newusercallbackurl") ||
+    normalized.includes("/magic-link")
+    ? "magic_link"
+    : "password";
+}
+
 /**
  * Emit the `signup` event for a freshly created Better Auth `user` row — but
  * only when that row is an actual person signing up.
@@ -223,6 +247,7 @@ export async function emitSignupEventForCreatedUser(
   await trackSignupEvent({
     authProvider: "better-auth",
     origin: scoped?.signupOrigin ?? "browser_signup",
+    signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
     name: user.name,
@@ -249,6 +274,7 @@ export async function hasGoogleAuthIdentity(
 export async function trackSignupEvent({
   authProvider,
   origin,
+  signupMethod,
   authUserId,
   email,
   name,
@@ -257,6 +283,7 @@ export async function trackSignupEvent({
 }: {
   authProvider: string;
   origin: SignupOrigin;
+  signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
   name?: string | null;
@@ -291,6 +318,7 @@ export async function trackSignupEvent({
       ...resolveSignupTrackingProperties(),
       auth_provider: authProvider,
       signup_origin: origin,
+      ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
@@ -995,11 +1023,42 @@ export interface BetterAuthInternalAdapter {
       id: string;
       email: string;
       name?: string;
+      image?: string | null;
       emailVerified?: boolean;
       onboardingRole?: string | null;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
+  listUsers?: (
+    limit?: number,
+    offset?: number,
+    sortBy?: { field: string; direction: "asc" | "desc" },
+    where?: Array<{
+      field: string;
+      value: string | number | boolean | string[] | number[] | Date | null;
+      operator?:
+        | "eq"
+        | "ne"
+        | "lt"
+        | "lte"
+        | "gt"
+        | "gte"
+        | "in"
+        | "not_in"
+        | "contains"
+        | "starts_with"
+        | "ends_with";
+      connector?: "AND" | "OR";
+      mode?: "sensitive" | "insensitive";
+    }>,
+  ) => Promise<
+    Array<{
+      id: string;
+      email: string;
+      name?: string;
+      image?: string | null;
+    }>
+  >;
   linkAccount: (account: {
     userId: string;
     providerId: string;
@@ -1008,14 +1067,23 @@ export interface BetterAuthInternalAdapter {
   createUser: (user: {
     email: string;
     name: string;
+    image?: string | null;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
+    override?: { expiresAt?: Date },
+    overrideAll?: boolean,
   ) => Promise<{ token: string }>;
+  deleteSession: (token: string) => Promise<void>;
   createOAuthUser?: (
-    user: { email: string; name: string; emailVerified?: boolean },
+    user: {
+      email: string;
+      name: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
     account: { providerId: string; accountId: string },
   ) => Promise<{ user: { id: string }; account: unknown }>;
   findAccountByProviderId: (
@@ -1169,6 +1237,7 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
       typeof ia.createSession === "function" &&
+      typeof ia.deleteSession === "function" &&
       typeof ia.findAccountByProviderId === "function"
     ) {
       return {
@@ -1182,10 +1251,129 @@ export async function getBetterAuthInternalAdapter(
   return undefined;
 }
 
+/**
+ * Run a password action with a Better Auth session for the framework's legacy
+ * session boundary, deleting a session created only for this operation.
+ */
+type BetterAuthActionSessionOverrides = {
+  auth?: BetterAuthInstance;
+  createSession?: typeof createBetterAuthSessionForEmail;
+  adapter?: BetterAuthInternalAdapter;
+};
+
+const BRIDGED_SESSION_TTL_MS = 60_000;
+const BRIDGED_SESSION_CLEANUP_TIMEOUT_MS = 5_000;
+// ponytail: the short TTL bounds cleanup leaks; add a durable retry queue if failures need stronger guarantees.
+
+export async function withBetterAuthActionSession<T>(
+  email: string,
+  requestHeaders: Headers,
+  action: (headers: Headers) => Promise<T>,
+  overrides?: BetterAuthActionSessionOverrides,
+): Promise<T> {
+  const auth = overrides?.auth ?? (await getBetterAuth());
+  const existingSession = await auth.api.getSession({
+    headers: requestHeaders,
+  });
+  if (existingSession) {
+    if (
+      existingSession.user.email.trim().toLowerCase() !==
+      email.trim().toLowerCase()
+    ) {
+      throw new Error("Authenticated user mismatch.");
+    }
+    return action(new Headers(requestHeaders));
+  }
+
+  const createSession =
+    overrides?.createSession ?? createBetterAuthSessionForEmail;
+  const session = await createSession(email, undefined, {
+    expiresAt: new Date(Date.now() + BRIDGED_SESSION_TTL_MS),
+  });
+  if (!session) throw new Error("Better Auth session is unavailable.");
+
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    const headers = new Headers(requestHeaders);
+    const authContext = await (
+      auth as unknown as {
+        $context: Promise<{
+          authCookies: {
+            sessionToken: { name: string };
+            sessionData?: { name: string };
+            dontRememberToken: { name: string };
+          };
+          secret: string;
+        }>;
+      }
+    ).$context;
+    const signCookieValue = (value: string) =>
+      crypto
+        .createHmac("sha256", authContext.secret)
+        .update(value)
+        .digest("base64");
+    const sessionCookieName = authContext.authCookies.sessionToken.name;
+    const sessionDataCookieName = authContext.authCookies.sessionData?.name;
+    const dontRememberTokenCookieName =
+      authContext.authCookies.dontRememberToken.name;
+    const sessionCookie = `${sessionCookieName}=${encodeURIComponent(`${session.token}.${signCookieValue(session.token)}`)}`;
+    const dontRememberTokenCookie = `${dontRememberTokenCookieName}=${encodeURIComponent(`true.${signCookieValue("true")}`)}`;
+    const existingCookies = (headers.get("cookie") ?? "")
+      .split(";")
+      .filter((part) => {
+        const cookieName = part.split("=", 1)[0]?.trim() ?? "";
+        return (
+          cookieName !== sessionCookieName &&
+          cookieName !== dontRememberTokenCookieName &&
+          (!sessionDataCookieName ||
+            (cookieName !== sessionDataCookieName &&
+              !cookieName.startsWith(`${sessionDataCookieName}.`)))
+        );
+      })
+      .filter(Boolean);
+    headers.set(
+      "cookie",
+      [...existingCookies, sessionCookie, dontRememberTokenCookie].join("; "),
+    );
+    outcome = { ok: true, value: await action(headers) };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+
+  try {
+    const adapter =
+      overrides?.adapter ?? (await getBetterAuthInternalAdapter());
+    if (!adapter)
+      throw new Error("Better Auth session cleanup is unavailable.");
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        adapter.deleteSession(session.token),
+        new Promise<never>((_, reject) => {
+          cleanupTimer = setTimeout(() => {
+            reject(new Error("Better Auth session cleanup timed out."));
+          }, BRIDGED_SESSION_CLEANUP_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+    }
+  } catch (error) {
+    console.error(
+      "[auth] failed to delete temporary Better Auth session",
+      error,
+    );
+  }
+
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
+}
+
 /** Create a real Better Auth session for an existing user without credentials. */
 export async function createBetterAuthSessionForEmail(
   email: string,
   config?: BetterAuthConfig,
+  options?: { expiresAt?: Date },
 ): Promise<{ email: string; token: string; userId: string } | null> {
   const adapter = await getBetterAuthInternalAdapter(config);
   if (!adapter) return null;
@@ -1193,7 +1381,9 @@ export async function createBetterAuthSessionForEmail(
     includeAccounts: false,
   });
   if (!existing) return null;
-  const session = await adapter.createSession(existing.user.id);
+  const session = options
+    ? await adapter.createSession(existing.user.id, true, options, true)
+    : await adapter.createSession(existing.user.id);
   return {
     email: existing.user.email,
     token: session.token,
@@ -1205,6 +1395,42 @@ export interface GoogleAuthIdentity {
   email: string;
   accountId: string;
   name?: string;
+  image?: string;
+}
+
+function googleProfileImage(identity: GoogleAuthIdentity): string | undefined {
+  return isGoogleProfileImageUrl(identity.image)
+    ? identity.image.trim()
+    : undefined;
+}
+
+async function syncGoogleProfile(
+  adapter: BetterAuthInternalAdapter,
+  existing: NonNullable<
+    Awaited<ReturnType<BetterAuthInternalAdapter["findUserByEmail"]>>
+  >,
+  email: string,
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  if (!adapter.updateUser) return;
+
+  const name = identity.name?.trim();
+  const image = googleProfileImage(identity);
+  const updates: {
+    name?: string;
+    image?: string;
+  } = {};
+  if (
+    name &&
+    isEmailDerivedName(existing.user.name, email) &&
+    existing.user.name?.trim() !== name
+  ) {
+    updates.name = name;
+  }
+  if (image && existing.user.image !== image) updates.image = image;
+  if (Object.keys(updates).length > 0) {
+    await adapter.updateUser(existing.user.id, updates);
+  }
 }
 
 /**
@@ -1247,6 +1473,13 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   };
 
   const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const image = googleProfileImage(identity);
+  const user = {
+    email,
+    name,
+    emailVerified: true,
+    ...(image ? { image } : {}),
+  };
   const findExisting = () =>
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
@@ -1259,16 +1492,17 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
+    await syncGoogleProfile(adapter, existing, email, identity);
     return false;
   }
 
   if (!existing) {
     if (adapter.createOAuthUser) {
       try {
-        await adapter.createOAuthUser(
-          { email, name, emailVerified: true },
-          { providerId: "google", accountId },
-        );
+        await adapter.createOAuthUser(user, {
+          providerId: "google",
+          accountId,
+        });
         return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
@@ -1288,15 +1522,12 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
+          await syncGoogleProfile(adapter, existing, email, identity);
           return false;
         }
       }
     } else {
-      const created = await adapter.createUser({
-        email,
-        name,
-        emailVerified: true,
-      });
+      const created = await adapter.createUser(user);
       await adapter.linkAccount({
         userId: created.id,
         providerId: "google",
@@ -1314,7 +1545,10 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return false;
+  if (alreadyLinked) {
+    await syncGoogleProfile(adapter, existing, email, identity);
+    return false;
+  }
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1338,6 +1572,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
+    await syncGoogleProfile(adapter, existing, email, identity);
     await reconcilePendingInvitations();
     return false;
   }
@@ -1346,6 +1581,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     providerId: "google",
     accountId,
   });
+  await syncGoogleProfile(adapter, existing, email, identity);
   return false;
 }
 
@@ -1512,7 +1748,14 @@ async function createBetterAuthInstance(
         email,
         magicLinkUrl: deliveredMagicLinkUrl,
       });
-      await sendEmail({ to: email, subject, html, text, appSender });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        appSender,
+        disableClickTracking: true,
+      });
     },
   });
 
@@ -1520,6 +1763,7 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
+    trustedOrigins: [...getConfiguredOriginAllowlist()],
     // Auth schema relations are intentionally not registered here. Keep the
     // experimental relational-query path off so a bundled Drizzle adapter
     // cannot recurse while resolving a session or account join.
@@ -1552,6 +1796,7 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
         });
       },
@@ -1585,8 +1830,20 @@ async function createBetterAuthInstance(
           html,
           text,
           appSender,
+          disableClickTracking: true,
           templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
         });
+      },
+    },
+    user: {
+      additionalFields: {
+        // Keep this internal profile field in Better Auth's adapter reads and
+        // writes without exposing it as a client-controlled auth field.
+        onboardingRole: {
+          type: "string",
+          required: false,
+          input: false,
+        },
       },
     },
     socialProviders,
@@ -1611,7 +1868,7 @@ async function createBetterAuthInstance(
               return;
             }
 
-            const path = String(context?.path ?? "").toLowerCase();
+            const path = stringifyValue(context?.path ?? "").toLowerCase();
             const requestUrl = context?.request?.url ?? "";
             const providerValues = [
               path,
@@ -1768,13 +2025,17 @@ async function createBetterAuthInstance(
     },
     plugins: [
       magicLinkPlugin,
-      // JWT: issue tokens for A2A calls, JWKS endpoint for verification
-      jwt({
-        jwt: {
-          issuer: appUrl,
-          expirationTime: "15m",
-        },
-      }),
+      // JWT: issue tokens for A2A calls, JWKS endpoint for verification.
+      // Wrapped so a rotated BETTER_AUTH_SECRET (which orphans the encrypted
+      // jwks row) heals in place instead of 500ing every get-session.
+      withJwksRotationRecovery(
+        jwt({
+          jwt: {
+            issuer: appUrl,
+            expirationTime: "15m",
+          },
+        }),
+      ),
       // Bearer: accept Bearer tokens on API requests
       bearer(),
       ...(config?.plugins ?? []),

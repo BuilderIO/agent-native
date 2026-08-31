@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clientLoader, loader } from "../app/routes/_index";
+import { clientLoader, loader } from "../app/routes/home";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -54,8 +54,8 @@ async function expectInboxRedirect(
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
 }
 
-describe("Mail root route", () => {
-  it("keeps the server redirect preference-free for the public shell", () => {
+describe("Mail private home route", () => {
+  it("keeps the private home server redirect preference-free", () => {
     return expectInboxRedirect(
       loader,
       { ok: true, pinnedLabels: [] },

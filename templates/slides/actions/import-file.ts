@@ -34,10 +34,16 @@ import {
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
 import {
+  DEFAULT_IMPORTED_DECK_TITLE,
   isOpaqueDeckTitle,
   resolveImportedDeckTitle,
 } from "../shared/deck-title.js";
 import type { SlidesPdfSidecar } from "../shared/pdf-sidecar.js";
+import {
+  assertDeckWriteApplied,
+  deckRevisionWhere,
+  nextDeckRevision,
+} from "./_deck-write.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -200,7 +206,8 @@ export default defineAction({
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
       const presentation = await parsePptx(fileBuffer);
-      const title = presentation.title || titleFromPath(filename);
+      const fallbackTitle = titleFromPath(filename);
+      const title = presentation.title || "";
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -258,6 +265,7 @@ export default defineAction({
           aspectRatio,
           sourceImport,
           pptxResults[0]?.sourceText,
+          fallbackTitle,
           presentation.theme,
         );
         return {
@@ -274,7 +282,11 @@ export default defineAction({
 
       return {
         format: "pptx",
-        title,
+        title: resolveImportedDeckTitle(
+          title,
+          presentation.slides[0]?.texts.map((text) => text.content).join("\n"),
+          fallbackTitle,
+        ),
         slideCount: presentation.slides.length,
         slides: presentation.slides.map((slide, i) => ({
           index: i,
@@ -299,7 +311,8 @@ export default defineAction({
         await import("../server/handlers/import/html-converter.js");
       const doc = await parseDocx(fileBuffer);
       const slideHtmlArray = convertSectionsToSlides(doc.sections);
-      const title = doc.title || titleFromPath(filename);
+      const fallbackTitle = titleFromPath(filename);
+      const title = doc.title || "";
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -320,6 +333,7 @@ export default defineAction({
           undefined,
           undefined,
           doc.text,
+          fallbackTitle,
         );
         return {
           format: "docx",
@@ -334,7 +348,7 @@ export default defineAction({
 
       return {
         format: "docx",
-        title,
+        title: resolveImportedDeckTitle(title, doc.text, fallbackTitle),
         sectionCount: doc.sections.length,
         text: truncateText(doc.text, sourceLimit).text,
         sections: summarizeSections(doc.sections),
@@ -363,10 +377,11 @@ export default defineAction({
         if (!deckId) throw new Error("deckId is required to import into deck");
         return importPdfPagesWithFidelity({
           fileBuffer,
-          title,
+          title: "",
           deckId,
           PDFParse,
           canvasFactory,
+          fallbackTitle: title,
         });
       }
 
@@ -405,7 +420,9 @@ export default defineAction({
       };
     }
 
-    throw new Error(`Unsupported format: ${detectedFormat}`);
+    throw new Error(
+      `Unsupported format: ${typeof detectedFormat === "string" ? detectedFormat : (JSON.stringify(detectedFormat) ?? "unknown")}`,
+    );
   },
 });
 
@@ -458,10 +475,13 @@ async function importPdfFromSidecar(args: {
 
   const importedTitle = await appendDeckSlides(
     deckId,
-    sidecar.title?.trim() || fallbackTitle,
+    sidecar.title?.trim() || "",
     slides,
     "import-file:pdf-sidecar",
     aspectRatio,
+    undefined,
+    undefined,
+    fallbackTitle,
   );
 
   return {
@@ -480,10 +500,12 @@ async function importPdfPagesWithFidelity(args: {
   fileBuffer: Buffer;
   title: string;
   deckId: string;
+  fallbackTitle: string;
   PDFParse: Awaited<ReturnType<typeof setupPdfParse>>["PDFParse"];
   canvasFactory: object | undefined;
 }) {
-  const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
+  const { fileBuffer, title, deckId, fallbackTitle, PDFParse, canvasFactory } =
+    args;
   const { convertToSlideHtml, convertSectionsToSlides } =
     await import("../server/handlers/import/html-converter.js");
   const { parsePdfFidelity } =
@@ -526,7 +548,7 @@ async function importPdfPagesWithFidelity(args: {
     if (sidecar.status === "found") {
       return await importPdfFromSidecar({
         sidecar: sidecar.sidecar,
-        fallbackTitle: title,
+        fallbackTitle,
         deckId,
       });
     }
@@ -688,6 +710,7 @@ async function importPdfPagesWithFidelity(args: {
     aspectRatio,
     sourceImport,
     imported[0]?.snapshot.text,
+    fallbackTitle,
   );
 
   return {
@@ -750,7 +773,7 @@ async function buildPptxSlide(
 
 function titleFromPath(filePath: string): string {
   const base = path.basename(filePath, path.extname(filePath)).trim();
-  return base && !isOpaqueDeckTitle(base) ? base : "Imported File";
+  return base && !isOpaqueDeckTitle(base) ? base : DEFAULT_IMPORTED_DECK_TITLE;
 }
 
 function normalizePdfPages(result: unknown): { num: number; text: string }[] {
@@ -838,6 +861,7 @@ async function appendDeckSlides(
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
   titleSource?: unknown,
+  fallbackTitle?: unknown,
   theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
 ): Promise<string> {
   await assertAccess("deck", deckId, "editor");
@@ -860,7 +884,7 @@ async function appendDeckSlides(
       throw new Error(`Deck ${deckId} not found`);
     }
 
-    const writeNow = new Date().toISOString();
+    const writeNow = nextDeckRevision(existing[0].updatedAt);
     const previousData = safeParseDeckData(existing[0].data);
     const previousSlides = Array.isArray(
       (previousData as { slides?: unknown }).slides,
@@ -873,8 +897,16 @@ async function appendDeckSlides(
     // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
     const nextTitle = hadExistingSlides
-      ? (existing[0].title ?? title)
-      : resolveImportedDeckTitle(title, titleSource ?? slides[0]?.content);
+      ? resolveImportedDeckTitle(
+          existing[0].title ?? title,
+          titleSource ?? slides[0]?.content,
+          fallbackTitle ?? title,
+        )
+      : resolveImportedDeckTitle(
+          title,
+          titleSource ?? slides[0]?.content,
+          fallbackTitle,
+        );
     resolvedTitle = nextTitle;
     const nextSourceImport = sourceImport
       ? mergeSourceImportMetadata(
@@ -900,14 +932,15 @@ async function appendDeckSlides(
       updatedAt: writeNow,
     };
 
-    await db
+    const updateResult = await db
       .update(schema.decks)
       .set({
         title: nextTitle,
         data: JSON.stringify(data),
         updatedAt: writeNow,
       })
-      .where(eq(schema.decks.id, deckId));
+      .where(deckRevisionWhere(schema.decks, deckId, existing[0].updatedAt));
+    assertDeckWriteApplied(updateResult, deckId, "file import");
 
     return writeNow;
   });

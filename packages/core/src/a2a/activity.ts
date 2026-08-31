@@ -1,7 +1,7 @@
 import { sanitizeToolErrorText } from "../agent/tool-error-redaction.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { redactArgsToJson, redactTextToSummary } from "../audit/redact.js";
-import type { DataPart, Part } from "./types.js";
+import type { DataPart } from "./types.js";
 
 export const A2A_AGENT_ACTIVITY_KIND = "agent-native/agent-activity";
 export const A2A_AGENT_ACTIVITY_VERSION = 1;
@@ -189,7 +189,7 @@ export function buildA2AAgentActivityPart(
 }
 
 export function parseA2AAgentActivityPart(
-  part: Part | unknown,
+  part: unknown,
 ): A2AAgentActivitySnapshot | null {
   if (!part || typeof part !== "object") return null;
   const candidate = part as { type?: unknown; data?: unknown };

@@ -44,6 +44,8 @@ vi.mock("../db/index.js", () => ({
       title: "title",
       ownerEmail: "owner_email",
       orgId: "org_id",
+      password: "password",
+      expiresAt: "expires_at",
     },
     recordingComments: {
       recordingId: "recording_id",
@@ -69,6 +71,8 @@ const RECORDING = {
   title: "Sprint demo",
   ownerEmail: "owner@example.com",
   orgId: null,
+  password: null as string | null,
+  expiresAt: null as string | null,
 };
 
 /**
@@ -151,6 +155,69 @@ describe("clips activity notifications", () => {
       "first@example.com",
       "second@example.com",
     ]);
+  });
+
+  it("adds mentioned organization members and marks their email", async () => {
+    await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      authorName: "Viewer",
+      content: "Can you review this, @Tagged?",
+      mentions: [{ email: "Tagged@Example.com", name: "Tagged" }],
+    });
+
+    expect(notifyArgs().candidates).toEqual([
+      "owner@example.com",
+      "tagged@example.com",
+    ]);
+
+    await notifyArgs().send("tagged@example.com");
+
+    expect(mocks.sendClipsTransactionalEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "activity-comment",
+        to: "tagged@example.com",
+        wasMentioned: true,
+      }),
+    );
+  });
+
+  it("keeps comment bodies out of password-protected recordings for viewers", async () => {
+    stubDb({
+      recording: {
+        ...RECORDING,
+        password: "stored-password-hash",
+      },
+    });
+
+    await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      content: "Private note",
+      mentions: [{ email: "member@example.com", name: "Member" }],
+    });
+
+    expect(notifyArgs().candidates).toEqual(["owner@example.com"]);
+  });
+
+  it("drops all comment activity after a recording expires", async () => {
+    stubDb({
+      recording: {
+        ...RECORDING,
+        expiresAt: "2026-07-15T11:59:59.999Z",
+      },
+    });
+
+    await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      content: "Expired note",
+    });
+
+    expect(notifyArgs().candidates).toEqual([]);
   });
 
   it("builds the reaction email for each recipient", async () => {

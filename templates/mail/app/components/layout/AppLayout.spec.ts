@@ -43,6 +43,30 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
     expect(source).toContain("id: OTHER_INBOX_TAB_ID");
     expect(source).toContain('params.set("tab", tab)');
+    expect(source).toContain('params.set("filter", filter)');
+  });
+
+  it("routes saved searches through the Gmail query path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("onSaveSearch={saveSearchAsFilter}");
+    expect(source).toContain(
+      "href: `/inbox?filter=${encodeURIComponent(filter.id)}`",
+    );
+    expect(source).toContain("savedFilters: [...savedFilters, filter]");
+    expect(source).toContain("savedFilters.length >= 20");
+    expect(source).toContain("filtersLimitReached");
+    expect(source).toContain("activeAccounts.size > 0");
+    expect(source).toContain(
+      'useEmails("all", activeSavedFilter?.query, undefined,',
+    );
+    expect(source).toContain("activeFilterHasNextPage");
+  });
+
+  it("does not show a false count for an inactive saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("? activeFilterCounts[kind]\n        : undefined");
   });
 
   it("builds pin mutations from the resolved visible pins", () => {
@@ -74,12 +98,28 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
   });
 
+  it("uses mailbox-wide counts for regular label tabs", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;",
+    );
+  });
+
   it("does not let loaded pages inflate server-backed label badges", () => {
     const source = appLayoutSource();
 
     expect(source).not.toContain("Math.max(serverCount, localCount)");
     expect(source).toContain(
-      'typeof serverCount === "number" && useServerLabelCounts',
+      'typeof serverCount === "number" ? serverCount : localCount',
+    );
+  });
+
+  it("scopes label counts to the selected accounts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
     );
   });
 

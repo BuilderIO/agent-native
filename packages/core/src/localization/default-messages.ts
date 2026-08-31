@@ -62,6 +62,26 @@ const messages = {
     mcpConnectionsDescription:
       "Connect tools and services so the agent can use them.",
     openMcpConnections: "Open integrations",
+    mcpTitle: "MCP",
+    mcpDescription:
+      "Connect this app to Claude, ChatGPT, Cursor, Codex, or another MCP host.",
+    mcpUrlLabel: "MCP server URL",
+    mcpUrlHint:
+      "Copy this URL into the AI host you want to use. The canonical path is /mcp.",
+    mcpOpenDocs: "Open MCP connection docs",
+    a2aAgentCard: "A2A agent card",
+    a2aOpenDocs: "Open A2A documentation",
+    mcpClientSetup: "Connect an AI host",
+    mcpClientSetupDescription:
+      "Choose a host for step-by-step setup, or paste the URL into any MCP-compatible client.",
+    mcpChooseAssistant: "Choose your AI assistant",
+    mcpCommand: "Command",
+    mcpConfig: "MCP config",
+    mcpCopy: "Copy",
+    mcpCopied: "Copied",
+    mcpStaticTokenDescription:
+      "Open the full connect page to create a token for clients that cannot complete OAuth.",
+    mcpOpenConnectPage: "Open full connect page",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -398,6 +418,18 @@ const messages = {
         "Workspace-wide Builder.io credit spend, chat volume, user activity, and app access.",
       metricsDescriptionLlm:
         "Workspace-wide LLM spend, chat volume, user activity, and app access.",
+      appAdoption: "App adoption",
+      appAdoptionFor: "{{name}} adoption",
+      yourAppActivity: "Your app activity",
+      appAdoptionDefinition:
+        "Active means a tracked action. App opens and views are not included.",
+      ownerUnavailable: "Owner unavailable",
+      dailyActiveUsers: "Daily active",
+      weeklyActiveUsers: "Weekly active",
+      trackedActions: "Tracked actions",
+      trackedActionBreakdown: "Tracked action breakdown",
+      noTrackedActions: "No tracked actions in this window.",
+      viewAppMetrics: "View app metrics",
       llmCalls: "LLM calls",
       activeUsers: "Active users",
       workspaceAppsStat: "Workspace apps",

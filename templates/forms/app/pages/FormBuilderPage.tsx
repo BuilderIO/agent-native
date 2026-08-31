@@ -2,6 +2,7 @@ import {
   AgentToggleButton,
   useSendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
@@ -567,7 +568,7 @@ export function FormBuilderPage() {
       {
         onSuccess: () => {
           toast.success(t("forms.movedToArchive"));
-          navigate("/forms");
+          void navigate("/forms");
         },
       },
     );
@@ -578,7 +579,15 @@ export function FormBuilderPage() {
       toast.info(t("builder.publishBeforeCopyToast"));
       return;
     }
-    navigator.clipboard.writeText(publishedFormUrl);
+    void navigator.clipboard.writeText(publishedFormUrl).then(
+      () =>
+        trackEvent("share_link_copied", {
+          resource_type: "form",
+          resource_id: loadedForm.id,
+          link_type: "share",
+        }),
+      () => undefined,
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success(t("builder.linkCopiedToast"));
@@ -1238,7 +1247,12 @@ function BuilderContent({
 function responseValueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
   if (Array.isArray(val)) return val.join(", ");
-  return String(val);
+  return typeof val === "string" ||
+    typeof val === "number" ||
+    typeof val === "boolean" ||
+    typeof val === "bigint"
+    ? String(val)
+    : JSON.stringify(val);
 }
 
 function compareResponseValues(a: unknown, b: unknown): number {
@@ -1262,7 +1276,8 @@ function compareResponseValues(a: unknown, b: unknown): number {
 
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   const { data, isLoading, error, refetch } = useFormResponses(formId);
   const [search, setSearch] = useState("");
   // `_submitted` is the synthetic Submitted column. Field columns sort by id.

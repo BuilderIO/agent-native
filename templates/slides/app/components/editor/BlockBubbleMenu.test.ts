@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildReviseSelectionPrompt } from "./BlockBubbleMenu";
+import { buildReviseSelectionContext } from "./BlockBubbleMenu";
 
-describe("buildReviseSelectionPrompt", () => {
+describe("buildReviseSelectionContext", () => {
   it("quotes the selection verbatim so the agent can find it in the slide HTML", () => {
-    const prompt = buildReviseSelectionPrompt({
+    const prompt = buildReviseSelectionContext({
       selectedText: "Breathe cleaner air at home — naturally.",
       instruction: "make it punchier",
       slideId: "slide-42",
@@ -16,7 +16,7 @@ describe("buildReviseSelectionPrompt", () => {
   });
 
   it("keeps the edit bounded to the selection", () => {
-    const prompt = buildReviseSelectionPrompt({
+    const prompt = buildReviseSelectionContext({
       selectedText: "Perfect LIGHT for every home",
       instruction: "shorter",
       slideId: "slide-1",
@@ -27,7 +27,7 @@ describe("buildReviseSelectionPrompt", () => {
   });
 
   it("omits the slide id line when the slide is unknown", () => {
-    const prompt = buildReviseSelectionPrompt({
+    const prompt = buildReviseSelectionContext({
       selectedText: "Some text",
       instruction: "fix grammar",
     });
@@ -37,7 +37,7 @@ describe("buildReviseSelectionPrompt", () => {
   });
 
   it("preserves multi-line selections", () => {
-    const prompt = buildReviseSelectionPrompt({
+    const prompt = buildReviseSelectionContext({
       selectedText: "Line one\nLine two",
       instruction: "merge into one sentence",
     });

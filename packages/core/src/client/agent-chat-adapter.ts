@@ -212,7 +212,7 @@ function jsonResponseError(body?: string): Error {
         "error" in parsed &&
         parsed.error
       ) {
-        return new Error(String(parsed.error));
+        return new Error(stringifyValue(parsed.error));
       }
       // coercion-ok: an incomplete timeout probe uses the generic JSON error.
     } catch {
@@ -911,7 +911,7 @@ function toolResultContent(result: unknown, toolName?: string): string {
   try {
     return JSON.stringify(result);
   } catch {
-    return String(result ?? "");
+    return stringifyValue(result ?? "");
   }
 }
 
@@ -1123,7 +1123,7 @@ function estimateHistoryMessageCost(message: {
     cost += Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
-        // Price the string the request actually carries. `String(result)` is
+        // Price the string the request actually carries. `stringifyValue(result)` is
         // 15 chars ("[object Object]") for every object result, which is most
         // of them.
         toolResultContent(tool.result, tool.toolName).length,
@@ -1485,7 +1485,7 @@ function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value ?? "");
+    return stringifyValue(value ?? "");
   }
 }
 
@@ -2074,7 +2074,7 @@ export function createAgentChatAdapter(
   }
 
   return {
-    async *run({ messages, abortSignal, runConfig }) {
+    async *run({ messages, abortSignal, runConfig, unstable_parentId }) {
       // Extract latest user message and build history from prior messages
       const adapterMessages = messages as readonly AdapterMessage[];
       const latestUserIndex = (() => {
@@ -2123,6 +2123,18 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      // Names what the turn is for (`sendToAgentChat({ usageLabel })`). Rides
+      // the run config so a queued send keeps its label when it finally flushes,
+      // and every auto-continuation of the turn re-sends the same one.
+      const usageLabel = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { usageLabel?: unknown }).usageLabel
+            : undefined;
+        return typeof raw === "string" && raw.trim()
+          ? raw.trim().slice(0, 120)
+          : undefined;
+      })();
       const queuedMessageId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2776,7 +2788,7 @@ export function createAgentChatAdapter(
               }
               const active = await activeRes.json();
               if (active?.active && active.runId) {
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
                 if (options?.requireCurrentTurn && activeTurnId !== turnId) {
@@ -2852,7 +2864,7 @@ export function createAgentChatAdapter(
                 }
                 const active = await activeRes.json();
                 if (!active?.active || !active.runId) return false;
-                const activeRunId = String(active.runId);
+                const activeRunId = stringifyValue(active.runId);
                 const dispatchMode =
                   typeof active.dispatchMode === "string"
                     ? active.dispatchMode
@@ -3312,7 +3324,7 @@ export function createAgentChatAdapter(
               }
               const recheckRunId =
                 recheck?.active === true && recheck.runId
-                  ? String(recheck.runId)
+                  ? stringifyValue(recheck.runId)
                   : null;
               if (recheckRunId && recheckRunId !== staleRunId) {
                 return "successor";
@@ -3427,7 +3439,9 @@ export function createAgentChatAdapter(
               typeof active?.turnId === "string" ? active.turnId : "";
             const activeStatus =
               typeof active?.status === "string" ? active.status : "";
-            const reportedRunId = active?.runId ? String(active.runId) : null;
+            const reportedRunId = active?.runId
+              ? stringifyValue(active.runId)
+              : null;
             // Some deployed readers report a terminal snapshot with
             // `active: false` while the row is being released. It is still
             // authoritative when it names this turn or a run we already
@@ -4014,7 +4028,11 @@ export function createAgentChatAdapter(
                   structuredHistory: currentStructuredHistory,
                   turnId,
                   ...(trackInRunsTray ? { trackInRunsTray: true } : {}),
+                  ...(usageLabel ? { usageLabel } : {}),
                   ...(threadId ? { threadId } : {}),
+                  ...(unstable_parentId !== undefined
+                    ? { parentId: unstable_parentId }
+                    : {}),
                   ...(internalContinuationRequest
                     ? { internalContinuation: true }
                     : {}),
@@ -4172,7 +4190,7 @@ export function createAgentChatAdapter(
                 try {
                   const body = await res.json();
                   if (body?.activeRunId) {
-                    activeRunId = String(body.activeRunId);
+                    activeRunId = stringifyValue(body.activeRunId);
                   }
                 } catch {
                   // Fall through to the generic response handling below.
@@ -4435,7 +4453,8 @@ export function createAgentChatAdapter(
             cancelDelayedJsonProbe();
             clearOwnedActiveRun();
             return;
-          } catch (err: unknown) {
+          } catch (caughtError: unknown) {
+            let err = caughtError;
             if (err instanceof Error && err.name === "AbortError") {
               cancelDelayedJsonProbe();
               // User-initiated abort (Stop button) — clear active run
@@ -4937,4 +4956,14 @@ export function createAgentChatAdapter(
       }
     },
   };
+}
+
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
 }

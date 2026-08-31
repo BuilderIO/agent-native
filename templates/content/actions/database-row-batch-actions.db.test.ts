@@ -1312,11 +1312,13 @@ describe("database row batch actions", () => {
     const concurrentAdds = 6;
     const results = await Promise.all(
       Array.from({ length: concurrentAdds }, (_, index) =>
-        runWithRequestContext({ userEmail: OWNER }, () =>
-          createRowThroughMutationContract(
-            databaseId,
-            `Concurrent ${index}`,
-            `concurrent-add-${index}`,
+        Promise.resolve(
+          runWithRequestContext({ userEmail: OWNER }, () =>
+            createRowThroughMutationContract(
+              databaseId,
+              `Concurrent ${index}`,
+              `concurrent-add-${index}`,
+            ),
           ),
         ),
       ),

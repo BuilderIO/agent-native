@@ -25,6 +25,19 @@ Every `runAgentLoop()` call is automatically instrumented via `instrumentAgentLo
 - **llm_call** span — model name, token counts (input, output, cache read/write), cost
 - **tool_call** spans — one per action invocation, with duration and success/error
 
+The run span is NAMED by what started it, because the trace list shows that name
+and nothing else: a scheduled job is `background_automation_run:<job name>`, a
+chat turn is `agent_run`, and a turn a feature sent on the user's behalf is
+`agent_run:<usageLabel>` when the caller named it:
+
+```ts
+sendToAgentChat({
+  message: "Enrich this record from the web",
+  newTab: true,
+  usageLabel: "crm:enrich-record", // → usage row label + `agent_run:crm:enrich-record`
+});
+```
+
 Content (prompts, tool args, tool results) is **redacted by default**. Opt in through the declared `observability` config domain:
 
 ```ts
@@ -308,6 +321,14 @@ Constraints that are not visible from the emit site:
   siblings under the same trace and PostHog adds their latency to the
   generation's, so tool duration is subtracted out. `duration_ms` on the same
   event is still the full run — the two differ on purpose.
+- **`$ai_http_status` is absent, not defaulted, when the status is unknown.** A
+  generation that streamed to completion reports 200, and the call the run died
+  in reports whatever status the engine named (`EngineError.statusCode`, or a
+  provider SDK error's `status`). A failure that carried no status — a socket
+  drop, an SDK throw — omits the field: a defaulted 200 would report the drop as
+  a healthy call, and a defaulted 500 would invent a rejection the provider
+  never made. Only the failing round-trip claims the error's status; earlier
+  calls that completed keep their 200.
 - **PostHog's `$ai_*` latency fields are seconds; ours are milliseconds.**
   `$ai_latency` and `$ai_time_to_first_token` are seconds;
   `duration_ms` and `time_to_first_token_ms` are the millisecond siblings the

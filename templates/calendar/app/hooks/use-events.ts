@@ -47,6 +47,7 @@ type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
+  removeGoogleMeet?: boolean;
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
   sendUpdates?: "all" | "none";
@@ -71,6 +72,7 @@ type UpdateEventResult = Partial<CalendarEvent> & {
   success?: boolean;
   updated?: string[];
   message?: string;
+  removedGoogleMeet?: boolean;
 };
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
@@ -360,7 +362,7 @@ export function useCreateEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
     },
   });
 }
@@ -379,6 +381,7 @@ export function useUpdateEvent() {
         });
         const {
           addGoogleMeet,
+          removeGoogleMeet,
           addZoom,
           addAttendees,
           targetAccountEmail,
@@ -389,7 +392,14 @@ export function useUpdateEvent() {
           workingLocationLabel,
           ...optimisticData
         } = newData;
-        const optimisticPatch = targetAccountEmail ? {} : optimisticData;
+        const optimisticPatch = targetAccountEmail
+          ? {}
+          : {
+              ...optimisticData,
+              ...(removeGoogleMeet
+                ? { hangoutLink: undefined, conferenceData: undefined }
+                : {}),
+            };
         const hasWorkingLocationUpdate =
           workingLocationType !== undefined ||
           workingLocationLabel !== undefined;
@@ -458,7 +468,9 @@ export function useUpdateEvent() {
         }
       },
       onSettled: () => {
-        queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "list-events"],
+        });
       },
     },
   );
@@ -474,6 +486,7 @@ export function reconcileUpdatedEventList(
     success: _success,
     updated: _updated,
     message: _message,
+    removedGoogleMeet: _removedGoogleMeet,
     replacedId,
     ...eventPatch
   } = result;
@@ -539,7 +552,9 @@ export function useDeleteEvent() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["action", "list-events"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-events"],
+      });
     },
   });
 }
@@ -605,8 +620,10 @@ export function useRsvpEvent() {
       }
     },
     onSettled: (_data, _error, vars) => {
-      queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: getEventQueryKey(vars.id) });
+      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      void queryClient.invalidateQueries({
+        queryKey: getEventQueryKey(vars.id),
+      });
     },
   });
 }

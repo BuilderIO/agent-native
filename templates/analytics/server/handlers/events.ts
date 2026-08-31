@@ -1,5 +1,9 @@
 import { readBody } from "@agent-native/core/server";
-import { defineEventHandler, setResponseStatus } from "h3";
+import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "@agent-native/core/shared";
+import { defineEventHandler, getHeader, setResponseStatus } from "h3";
 
 import { getAppEventsTable } from "../lib/bigquery";
 import { resolveCredential } from "../lib/credentials";
@@ -13,6 +17,11 @@ import { getAccessToken } from "../lib/gcloud";
  * Used for tracking metric views, user actions, etc.
  */
 export const handleTrackEvent = defineEventHandler(async (event) => {
+  if (isSyntheticTrafficValue(getHeader(event, SYNTHETIC_TRAFFIC_HEADER))) {
+    setResponseStatus(event, 202);
+    return { success: true, accepted: 0 };
+  }
+
   try {
     const { event: eventName, data, userId, timestamp } = await readBody(event);
 

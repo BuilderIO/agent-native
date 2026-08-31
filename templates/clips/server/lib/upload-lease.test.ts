@@ -169,9 +169,9 @@ describe("upload lease", () => {
       sql: `SELECT key FROM application_state WHERE key LIKE ? ORDER BY key`,
       args: ["resumable-session-fenced-dead%"],
     });
-    expect(rows.map((row) => String(row.key))).toEqual([
-      "resumable-session-fenced-dead",
-    ]);
+    expect(
+      rows.map((row) => (typeof row.key === "string" ? row.key : "")),
+    ).toEqual(["resumable-session-fenced-dead"]);
     expect(result.resumableSessionsAborted).toBe(1);
     expect(mockAbortResumableUploadSession).toHaveBeenCalledWith(
       expect.objectContaining({

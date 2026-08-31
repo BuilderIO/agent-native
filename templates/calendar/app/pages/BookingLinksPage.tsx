@@ -983,7 +983,7 @@ export default function BookingLinksPage({
       !isLoading &&
       !bookingLinks.some((link) => link.id === selectedId)
     ) {
-      navigate("/booking-links", { replace: true });
+      void navigate("/booking-links", { replace: true });
     }
   }, [bookingLinks, selectedId, isLoading, navigate]);
 
@@ -1081,12 +1081,12 @@ export default function BookingLinksPage({
       {
         onSuccess: (created) => {
           // Swap URL from optimistic id to the real one without a back-stack entry.
-          navigate(`/booking-links/${created.id}`, { replace: true });
+          void navigate(`/booking-links/${created.id}`, { replace: true });
           toast.success(t("bookingLinks.bookingLinkCreated"));
         },
         onError: (error) => {
           // Cache was rolled back by the hook's onError. Bring the user back.
-          navigate("/booking-links", { replace: true });
+          void navigate("/booking-links", { replace: true });
           toast.error(
             error instanceof Error
               ? error.message
@@ -1096,7 +1096,7 @@ export default function BookingLinksPage({
       },
     );
     // Navigate *immediately* — the optimistic row is already in the list cache.
-    navigate(`/booking-links/${optimisticId}`);
+    void navigate(`/booking-links/${optimisticId}`);
     setCreateDialogOpen(false);
   }
 
@@ -1135,7 +1135,7 @@ export default function BookingLinksPage({
     if (!draft.id) return;
     try {
       await deleteBookingLink.mutateAsync(draft.id);
-      navigate("/booking-links");
+      void navigate("/booking-links");
       toast.success(t("bookingLinks.bookingLinkDeleted"));
     } catch {
       toast.error(t("bookingLinks.bookingLinkDeleteFailed"));
@@ -1302,7 +1302,6 @@ export default function BookingLinksPage({
     updateBookingLink.isPending,
     hasUnsavedChanges,
     canEditSelectedLink,
-    navigate,
     activeTab,
     t,
   ]);
@@ -2007,7 +2006,7 @@ export default function BookingLinksPage({
         </TabsContent>
 
         <TabsContent value="availability">
-          <div className="mx-auto max-w-2xl space-y-6">
+          <div className="max-w-2xl space-y-6">
             {/* Weekly Schedule */}
             <Card>
               <CardHeader>

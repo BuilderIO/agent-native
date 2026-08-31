@@ -1,9 +1,11 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -14,8 +16,9 @@ import {
   IconChecks,
   IconComponents,
   IconDots,
-  IconPlus,
+  IconExternalLink,
   IconPalette,
+  IconPlus,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -75,6 +78,7 @@ import {
 import { QueryErrorState } from "../components/QueryErrorState";
 import {
   builderRefreshKey,
+  isTrustedBuilderPreviewUrl,
   parseDesignSystemData,
   shouldRefreshBuilderDesignSystem,
   type DesignSystemData,
@@ -120,6 +124,7 @@ export default function DesignSystems() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -162,18 +167,18 @@ export default function DesignSystems() {
 
   const openDesignSystemDetails = useCallback(
     (id: string) => {
-      navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
 
   const closeDesignSystemDetails = useCallback(() => {
-    navigate("/design-systems", { replace: true });
+    void navigate("/design-systems", { replace: true });
   }, [navigate]);
 
   const openSetupFromDesignSystem = useCallback(
     (id: string) => {
-      navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
@@ -252,7 +257,7 @@ export default function DesignSystems() {
 
       setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
         },
@@ -280,7 +285,7 @@ export default function DesignSystems() {
 
     deleteMutation.mutate({ id } as any, {
       onError: (error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.deleteError"), {
@@ -364,7 +369,7 @@ export default function DesignSystems() {
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
       .catch((error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.bulkDeleteError"), {
@@ -710,10 +715,18 @@ export default function DesignSystems() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() =>
-                                      handleSetDefault(ds.id, !ds.isDefault)
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleSetDefault(ds.id, !ds.isDefault);
+                                    }}
+                                    disabled={setDefaultMutation.isPending}
+                                    aria-label={
+                                      ds.isDefault
+                                        ? t("designSystems.currentlyDefault")
+                                        : t("designSystems.actions.setDefault")
                                     }
-                                    className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                                    className="absolute top-2 end-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-foreground/60 text-background hover:bg-foreground/80 disabled:pointer-events-none disabled:opacity-50"
                                   >
                                     {ds.isDefault ? (
                                       <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
@@ -731,22 +744,31 @@ export default function DesignSystems() {
                             )}
                             {ds.canManage && (
                               <div
-                                className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
+                                className={`absolute top-2 z-10 ${
+                                  openMenuId === ds.id
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                } ${
                                   ds.accessRole === "owner" ? "end-10" : "end-2"
                                 }`}
                               >
-                                <DropdownMenu>
+                                <DropdownMenu
+                                  open={openMenuId === ds.id}
+                                  onOpenChange={(open) =>
+                                    setOpenMenuId(open ? ds.id : null)
+                                  }
+                                >
                                   <DropdownMenuTrigger asChild>
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                                      className="h-7 w-7 bg-foreground/60 hover:bg-foreground/80 cursor-pointer"
                                       aria-label={t(
                                         "designSystems.moreActionsAria",
                                         { title: ds.title },
                                       )}
                                     >
-                                      <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                                      <IconDots className="w-3.5 h-3.5 text-background" />
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
@@ -869,8 +891,8 @@ function DesignSystemDetailsSheet({
     [designSystem],
   );
   const assets = useMemo(
-    () => parseDesignSystemAssets(designSystem?.assets),
-    [designSystem?.assets],
+    () => parseDesignSystemAssets(designSystem && designSystem.assets),
+    [designSystem],
   );
 
   if (!designSystem) {
@@ -928,7 +950,11 @@ function DesignSystemDetailsSheet({
             </div>
           </section>
 
-          <TokenPreview data={parsed} assets={assets} />
+          <DesignSystemPreview
+            id={designSystem.id}
+            data={parsed}
+            assets={assets}
+          />
 
           <section className="space-y-3 border-t border-border pt-6">
             <div>
@@ -980,6 +1006,95 @@ function DesignSystemDetailsSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function DesignSystemPreview({
+  id,
+  data,
+  assets,
+}: {
+  id: string;
+  data: DesignSystemData | null;
+  assets: Array<{ name?: string; url?: string; variant?: string }>;
+}) {
+  return data?.source === "builder" ? (
+    <DesignSystemPreviewLink id={id} data={data} />
+  ) : (
+    <TokenPreview data={data} assets={assets} />
+  );
+}
+
+function DesignSystemPreviewLink({
+  id,
+  data,
+}: {
+  id: string;
+  data: DesignSystemData;
+}) {
+  const t = useT();
+  const [resolvedBuilderUrl, setResolvedBuilderUrl] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedBuilderUrl(null);
+    void fetch(
+      appApiPath(
+        `/api/design-system-builder-link?id=${encodeURIComponent(id)}`,
+      ),
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { builderUrl?: string | null } | null) => {
+        if (!cancelled) setResolvedBuilderUrl(json?.builderUrl ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedBuilderUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const persistedBuilderUrl =
+    data.builderUrl && isTrustedBuilderPreviewUrl(data.builderUrl)
+      ? data.builderUrl
+      : undefined;
+  // The stored URL is the project/branch link for every source that returns a
+  // branch from indexing, so it renders straight away; the resolve only
+  // upgrades a `.fig` import whose branch was cut after the row was written.
+  const trustedBuilderUrl =
+    (resolvedBuilderUrl && isTrustedBuilderPreviewUrl(resolvedBuilderUrl)
+      ? resolvedBuilderUrl
+      : undefined) ?? persistedBuilderUrl;
+
+  return (
+    <section className="space-y-3 border-t border-border pt-6">
+      <div>
+        <h3 className="text-sm font-medium text-foreground">
+          {t("designSystems.preview.title")}
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {t("designSystems.preview.description")}
+        </p>
+      </div>
+      {trustedBuilderUrl ? (
+        <Button asChild className="cursor-pointer">
+          <a
+            href={withBuilderUtmTrackingParams(trustedBuilderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <IconExternalLink className="size-4" />
+            {"Open in Builder" /* i18n-ignore Builder link action */}
+          </a>
+        </Button>
+      ) : null}
+    </section>
   );
 }
 

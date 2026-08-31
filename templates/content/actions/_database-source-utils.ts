@@ -191,7 +191,7 @@ type SourceMetadataRecord = {
   lastReadNextOffset?: number;
   lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
-  sourceFetchState?: "idle" | "fetching" | "error" | string;
+  sourceFetchState?: "idle" | "fetching" | "error";
   builderContinuationClaimId?: string;
   builderContinuationClaimOffset?: number;
   builderContinuationClaimedAt?: string;
@@ -953,8 +953,8 @@ function sameMappedSourceFieldValue(
     // Builder option order is not meaningful. Compare the canonical option IDs
     // as sets so a reordered response does not become an outbound edit.
     return sameSourceFieldValue(
-      [...normalizedLocalValue].sort(),
-      [...normalizedSourceValue].sort(),
+      [...normalizedLocalValue].sort((a, b) => a.localeCompare(b)),
+      [...normalizedSourceValue].sort((a, b) => a.localeCompare(b)),
     );
   }
   return sameSourceFieldValue(normalizedLocalValue, normalizedSourceValue);
@@ -5828,7 +5828,7 @@ function openChangeSetKey(row: ContentDatabaseSourceChangeSetRowDb) {
     row.fieldChangesJson,
   )
     .map((field) => field.propertyId)
-    .sort()
+    .sort((a, b) => (a ?? "").localeCompare(b ?? ""))
     .join(",");
   const hasBodyChange = parseObject<ContentDatabaseSourceBodyChange>(
     row.bodyChangeJson,
@@ -5874,7 +5874,7 @@ export function sourceChangeSetKey(args: {
 }) {
   const fields = args.fieldChanges
     .map((field) => field.propertyId)
-    .sort()
+    .sort((a, b) => (a ?? "").localeCompare(b ?? ""))
     .join(",");
   return [
     args.documentId ?? args.databaseItemId ?? "database",

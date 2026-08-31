@@ -113,6 +113,13 @@ import {
   TextStreamingContext,
 } from "./chat/markdown-renderer.js";
 import {
+  AssistantChatHistoryContext,
+  assistantMessageHasCompletedSideEffect,
+  findMatchingAssistantChatHistoryVersion,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryMessage,
+  type AssistantChatHistoryVersion,
   CheckpointContext,
   MessageActionsContext,
   assistantMessageRunId,
@@ -143,6 +150,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  isBuilderReconnectRunError,
   runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
@@ -220,7 +228,7 @@ import {
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
-import { callAction } from "./use-action.js";
+import { callAction, useActionMutation, useActionQuery } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
   appendChatThreadScopeParams,
@@ -299,6 +307,8 @@ export interface AssistantChatSendOptions {
   attachments?: AgentChatAttachment[];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
 }
 
 export function createUserMessageRunConfig(
@@ -315,6 +325,7 @@ export function createUserMessageRunConfig(
     effort?: ReasoningEffort;
   },
   turnId?: string,
+  usageLabel?: string,
 ) {
   const custom: {
     references?: Reference[];
@@ -326,6 +337,7 @@ export function createUserMessageRunConfig(
     engine?: string;
     effort?: ReasoningEffort;
     turnId?: string;
+    usageLabel?: string;
   } = {};
   if (modelSnapshot?.model) custom.model = modelSnapshot.model;
   if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
@@ -347,6 +359,9 @@ export function createUserMessageRunConfig(
   }
   if (turnId) {
     custom.turnId = turnId;
+  }
+  if (usageLabel) {
+    custom.usageLabel = usageLabel;
   }
   const options: {
     runConfig?: { custom: typeof custom };
@@ -1803,6 +1818,8 @@ type QueuedMessage = {
   approvedToolCalls?: string[];
   /** Preserve the logical turn when a hidden reconnect recovery is re-issued. */
   turnId?: string;
+  /** See `AgentChatMessage.usageLabel`. */
+  usageLabel?: string;
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -1977,6 +1994,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Optional host-owned resource history used for chat-side reverts. */
+  chatHistory?: AssistantChatHistoryConfig<any, any>;
   /** Restrict server-side thread restores to the supplied app scope. */
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
@@ -2298,10 +2317,10 @@ export { extractThreadMeta };
 
 /**
  * Strip raw base64 payload from attachment content parts when a hosted URL
- * already exists in the same content entry. This keeps the periodic thread
- * save payload compact — the server already stored the URL reference when it
- * processed the POST, and re-shipping multi-megabyte base64 strings on every
- * 5-second poll save balloons the SQL thread_data column unnecessarily.
+ * already exists in the same content entry. This keeps thread save and fork
+ * payloads compact — the server already stored the URL reference when it
+ * processed the POST, and re-shipping multi-megabyte base64 strings balloons
+ * the SQL thread_data column and request body unnecessarily.
  *
  * Only strips the raw base64 data-URL string from `content[].image` / `content[].data`
  * when a `metadata.uploadUrl` reference is present on the same attachment object,
@@ -2478,6 +2497,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    chatHistory,
     isolateHistoryByScope = false,
     contextNamespace,
     isActiveComposer = true,
@@ -2991,6 +3011,137 @@ const AssistantChatInner = forwardRef<
     hasActiveServerRun: hasActiveServerRun || serverRunActive,
     hasTerminalRunError: runErrorInfo !== null,
   });
+  const chatHistoryListQuery = useActionQuery<unknown>(
+    (chatHistory?.list.action ?? "list-resource-versions") as never,
+    chatHistory?.list.args as never,
+    { enabled: chatHistory !== undefined },
+  );
+  const chatHistoryVersions = useMemo(() => {
+    if (!chatHistory || chatHistoryListQuery.data == null) return [];
+    const versions = chatHistory.list.getVersions(chatHistoryListQuery.data);
+    return Array.isArray(versions)
+      ? versions.filter(isAssistantChatHistoryVersion)
+      : [];
+  }, [chatHistory, chatHistoryListQuery.data]);
+  const chatHistoryRestoreMutation = useActionMutation<
+    unknown,
+    Record<string, unknown>
+  >((chatHistory?.restore.action ?? "restore-resource-version") as never);
+  const chatHistoryCreateMutation = useActionMutation<
+    unknown,
+    Record<string, unknown>
+  >((chatHistory?.createVersion?.action ?? "create-resource-version") as never);
+  const refetchChatHistory = chatHistoryListQuery.refetch;
+  const restoreHistory = chatHistoryRestoreMutation.mutateAsync;
+  const createHistoryVersion = chatHistoryCreateMutation.mutateAsync;
+  const restoreChatHistoryVersion = useCallback(
+    async (version: AssistantChatHistoryVersion) => {
+      if (!chatHistory) return;
+      await restoreHistory(
+        chatHistory.restore.args(version) as Record<string, unknown>,
+      );
+      try {
+        await refetchChatHistory();
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-refetch-after-restore",
+          },
+        });
+      }
+    },
+    [chatHistory, refetchChatHistory, restoreHistory],
+  );
+  const chatHistoryContext = useMemo(
+    () =>
+      chatHistory
+        ? {
+            findVersion: (message: AssistantChatHistoryMessage) =>
+              findMatchingAssistantChatHistoryVersion(
+                chatHistoryVersions,
+                message,
+                {
+                  isEditable: chatHistory.isEditable,
+                  scope: chatHistory.scope ?? contextScope ?? undefined,
+                  matchVersion: chatHistory.matchVersion,
+                },
+              ),
+            restoreVersion: restoreChatHistoryVersion,
+          }
+        : null,
+    [chatHistory, chatHistoryVersions, restoreChatHistoryVersion],
+  );
+  const chatHistoryRunObservedRef = useRef(false);
+  const chatHistoryCreateKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chatHistory) {
+      chatHistoryRunObservedRef.current = false;
+      return;
+    }
+    if (isRunning) {
+      chatHistoryRunObservedRef.current = true;
+      return;
+    }
+    if (!chatHistoryRunObservedRef.current) return;
+    chatHistoryRunObservedRef.current = false;
+
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (
+      !latestAssistantMessage ||
+      !assistantMessageHasCompletedSideEffect(latestAssistantMessage)
+    ) {
+      return;
+    }
+
+    const historyMessage: AssistantChatHistoryMessage = {
+      id: latestAssistantMessage.id,
+      createdAt: latestAssistantMessage.createdAt,
+      hasCompletedSideEffect: true,
+    };
+    if (chatHistoryCreateKeyRef.current === historyMessage.id) {
+      void refetchChatHistory();
+      return;
+    }
+    chatHistoryCreateKeyRef.current = historyMessage.id;
+
+    void (async () => {
+      try {
+        if (chatHistory.createVersion) {
+          const args =
+            typeof chatHistory.createVersion.args === "function"
+              ? chatHistory.createVersion.args(historyMessage)
+              : chatHistory.createVersion.args;
+          await createHistoryVersion(args as Record<string, unknown>);
+        }
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-create-version",
+          },
+        });
+      }
+      try {
+        await refetchChatHistory();
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-refetch-after-run",
+          },
+        });
+      }
+    })();
+  }, [
+    chatHistory,
+    createHistoryVersion,
+    isRunning,
+    messages,
+    refetchChatHistory,
+  ]);
   const textStreaming = showRunningInUI || externalStreaming;
   const storedActiveRun = getActiveRun();
   const activeChatRunId =
@@ -3296,7 +3447,7 @@ const AssistantChatInner = forwardRef<
   // instead of racing a second, separately-constructed AbortController.
   // Callers with no signal of their own keep the internal fallback timeout.
   const refreshThreadFromServer = useCallback(
-    async (signal?: AbortSignal): Promise<any | null> => {
+    async (signal?: AbortSignal): Promise<any> => {
       if (loadHistoryRepository) {
         try {
           const repo = await loadHistoryRepository();
@@ -4068,7 +4219,7 @@ const AssistantChatInner = forwardRef<
 
     if (loadHistoryRepository) {
       let cancelled = false;
-      (async () => {
+      void (async () => {
         try {
           const repo = await loadHistoryRepository();
           if (cancelled) return;
@@ -4097,7 +4248,7 @@ const AssistantChatInner = forwardRef<
       setIsRestoring(false);
     } else if (threadId) {
       let cancelled = false;
-      (async () => {
+      void (async () => {
         let canReconnect = false;
         try {
           const res = await fetch(
@@ -4402,7 +4553,7 @@ const AssistantChatInner = forwardRef<
     if (serialized === lastPersistedQueueRef.current) return;
     const queueVersion = queueMutationVersionRef.current;
     const timer = setTimeout(() => {
-      (async () => {
+      void (async () => {
         try {
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued${threadScopeQuery}`,
@@ -4776,6 +4927,7 @@ const AssistantChatInner = forwardRef<
                     effort: currentNext.effort,
                   },
                   currentNext.turnId,
+                  currentNext.usageLabel,
                 ).runConfig ?? {},
             });
             applyLocalQueuedMessages((prev) =>
@@ -4816,6 +4968,7 @@ const AssistantChatInner = forwardRef<
                   effort: currentNext.effort,
                 },
                 currentNext.turnId,
+                currentNext.usageLabel,
               ),
             } as Parameters<typeof threadRuntime.append>[0]);
           }
@@ -5217,6 +5370,7 @@ const AssistantChatInner = forwardRef<
               effort: message.effort,
             },
             message.turnId,
+            message.usageLabel,
           ),
           startRun: false,
         } as Parameters<typeof threadRuntime.append>[0]);
@@ -5259,6 +5413,7 @@ const AssistantChatInner = forwardRef<
       submitMessageId?: string,
       approvedToolCalls?: string[],
       continuationTurnId?: string,
+      usageLabel?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       const stoppedRunAtSubmitStart = userStoppedRunRef.current;
@@ -5439,6 +5594,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
             approvedToolCalls,
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(usageLabel ? { usageLabel } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5462,6 +5618,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
             approvedToolCalls,
             ...(continuationTurnId ? { turnId: continuationTurnId } : {}),
+            ...(usageLabel ? { usageLabel } : {}),
             ...modelSnapshot,
           },
         ]);
@@ -5484,6 +5641,7 @@ const AssistantChatInner = forwardRef<
               hideUserMessage,
               undefined,
               continuationTurnId,
+              usageLabel,
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
@@ -5569,7 +5727,7 @@ const AssistantChatInner = forwardRef<
       setPendingReconnectRecovery((current) =>
         current?.id === recovery.id ? null : current,
       );
-      addToQueue(
+      void addToQueue(
         recovery.message,
         undefined,
         undefined,
@@ -5598,7 +5756,7 @@ const AssistantChatInner = forwardRef<
         images?: string[],
         options?: AssistantChatSendOptions,
       ) {
-        addToQueue(
+        void addToQueue(
           text,
           images,
           undefined,
@@ -5611,6 +5769,9 @@ const AssistantChatInner = forwardRef<
           false,
           false,
           options?.submitMessageId,
+          undefined,
+          undefined,
+          options?.usageLabel,
         );
       },
       prefillMessage(text: string) {
@@ -5640,7 +5801,7 @@ const AssistantChatInner = forwardRef<
         recoveryAction: AgentRecoveryAction,
         images?: string[],
       ) {
-        addToQueue(
+        void addToQueue(
           text,
           images,
           undefined,
@@ -5651,7 +5812,7 @@ const AssistantChatInner = forwardRef<
         );
       },
       queueMessage(text: string, images?: string[]) {
-        addToQueue(text, images);
+        void addToQueue(text, images);
       },
       isRunning() {
         return isRunning;
@@ -5678,7 +5839,7 @@ const AssistantChatInner = forwardRef<
         const repo = exportPersistableThreadRepo();
         const { title, preview } = extractThreadMeta(repo);
         return {
-          threadData: JSON.stringify(repo),
+          threadData: JSON.stringify(stripBase64FromRepo(repo)),
           title,
           preview,
           messageCount: messages.length,
@@ -5792,7 +5953,7 @@ const AssistantChatInner = forwardRef<
   );
   const retryAfterRunError = useCallback(() => {
     setRunErrorInfo(null);
-    addToQueue(
+    void addToQueue(
       lastUserText
         ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
         : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
@@ -5838,18 +5999,9 @@ const AssistantChatInner = forwardRef<
   const visibleRunErrorKey = visibleRunError
     ? runErrorKey(visibleRunError)
     : null;
-  const shouldShowRunError =
-    !!visibleRunError &&
-    !showRunningInUI &&
-    visibleRunErrorKey !== dismissedRunErrorKey &&
-    !matchesUserStoppedRun(
-      userStoppedRunRef.current,
-      threadId,
-      visibleRunError.runId,
-      visibleRunError.turnId,
-    );
   const providerAuthErrorKey =
     visibleRunError &&
+    !isBuilderReconnectRunError(visibleRunError) &&
     isProviderAuthenticationError(
       [visibleRunError.message, visibleRunError.details]
         .filter(Boolean)
@@ -5861,17 +6013,34 @@ const AssistantChatInner = forwardRef<
   const showProviderAuthSetup =
     providerAuthErrorKey !== null &&
     providerAuthErrorKey !== dismissedProviderAuthErrorKey &&
-    !authError &&
-    (showRunningInUI || !shouldShowRunError);
+    !authError;
+  const shouldShowRunError =
+    !!visibleRunError &&
+    !showRunningInUI &&
+    visibleRunErrorKey !== dismissedRunErrorKey &&
+    !showProviderAuthSetup &&
+    !matchesUserStoppedRun(
+      userStoppedRunRef.current,
+      threadId,
+      visibleRunError.runId,
+      visibleRunError.turnId,
+    );
   const showMissingKeySetup =
     (engineSetupRequired || showProviderAuthSetup) && !authError;
+  const handleProviderSetupDismiss = useCallback(() => {
+    if (providerAuthErrorKey === null) return;
+    setDismissedProviderAuthErrorKey(providerAuthErrorKey);
+    setDismissedRunErrorKey(providerAuthErrorKey);
+    setRunErrorInfo(null);
+  }, [providerAuthErrorKey]);
   const handleProviderSetupConnected = useCallback(() => {
     handleBuilderConnected();
     if (providerAuthErrorKey === null) return;
     setDismissedProviderAuthErrorKey(providerAuthErrorKey);
     setDismissedRunErrorKey(providerAuthErrorKey);
     setRunErrorInfo(null);
-  }, [handleBuilderConnected, providerAuthErrorKey]);
+    retryAfterRunError();
+  }, [handleBuilderConnected, providerAuthErrorKey, retryAfterRunError]);
   // The banner covers one run; every failed turn it does not cover keeps its own
   // inline marker, so a failure stays visible after the next prompt.
   const messageActionsCtx = useMemo(
@@ -6332,25 +6501,29 @@ const AssistantChatInner = forwardRef<
                                           <ExternalTextStreamingContext.Provider
                                             value={externalStreaming}
                                           >
-                                            <ThreadPrimitive.Messages
-                                              // Deliberately NOT keyed on part structure. Doing that
-                                              // remounted the whole transcript every time a tool call
-                                              // started or a placeholder id was rewritten — a flash and a
-                                              // lost scroll position in the middle of an answer. The
-                                              // error boundary above is the mechanism for assistant-ui's
-                                              // stale tap-resource errors: it catches them, clears, and
-                                              // retries, and its retry signature includes the reset key so
-                                              // a genuinely new structure always gets a fresh budget.
-                                              // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
-                                              // rename and splice through both the import and streaming
-                                              // paths and records that no such error occurs.
-                                              components={{
-                                                UserMessage:
-                                                  AssistantChatUserMessageItem,
-                                                AssistantMessage:
-                                                  AssistantChatAssistantMessageItem,
-                                              }}
-                                            />
+                                            <AssistantChatHistoryContext.Provider
+                                              value={chatHistoryContext}
+                                            >
+                                              <ThreadPrimitive.Messages
+                                                // Deliberately NOT keyed on part structure. Doing that
+                                                // remounted the whole transcript every time a tool call
+                                                // started or a placeholder id was rewritten — a flash and a
+                                                // lost scroll position in the middle of an answer. The
+                                                // error boundary above is the mechanism for assistant-ui's
+                                                // stale tap-resource errors: it catches them, clears, and
+                                                // retries, and its retry signature includes the reset key so
+                                                // a genuinely new structure always gets a fresh budget.
+                                                // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                                // rename and splice through both the import and streaming
+                                                // paths and records that no such error occurs.
+                                                components={{
+                                                  UserMessage:
+                                                    AssistantChatUserMessageItem,
+                                                  AssistantMessage:
+                                                    AssistantChatAssistantMessageItem,
+                                                }}
+                                              />
+                                            </AssistantChatHistoryContext.Provider>
                                           </ExternalTextStreamingContext.Provider>
                                         </ExternalUserStoppedRunContext.Provider>
                                       </UserStoppedRunContext.Provider>
@@ -6362,7 +6535,7 @@ const AssistantChatInner = forwardRef<
                                           onContinue={() => {
                                             setShowContinue(false);
                                             setLoopLimitInfo(null);
-                                            addToQueue(
+                                            void addToQueue(
                                               "Continue from where you left off.",
                                               undefined,
                                               undefined,
@@ -6381,7 +6554,7 @@ const AssistantChatInner = forwardRef<
                                           info={visibleRunError}
                                           onContinue={() => {
                                             setRunErrorInfo(null);
-                                            addToQueue(
+                                            void addToQueue(
                                               RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
                                               undefined,
                                               undefined,
@@ -6608,11 +6781,22 @@ const AssistantChatInner = forwardRef<
                             )}
                             {showMissingKeySetup ? (
                               <BuilderSetupCard
+                                key={providerAuthErrorKey ?? "missing-provider"}
                                 fullWidth
                                 attached
                                 bouncePulse={missingKeyBouncePulse}
                                 layout={missingApiKeySetupLayout}
+                                onDismiss={
+                                  providerAuthErrorKey !== null
+                                    ? handleProviderSetupDismiss
+                                    : undefined
+                                }
                                 onConnected={handleProviderSetupConnected}
+                                onRetry={
+                                  providerAuthErrorKey !== null
+                                    ? retryAfterRunError
+                                    : undefined
+                                }
                               />
                             ) : null}
                             {/* Input area */}

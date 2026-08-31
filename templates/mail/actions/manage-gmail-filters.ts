@@ -703,6 +703,6 @@ export default defineAction({
       };
     }
 
-    throw new Error(`Unknown operation ${args.operation}.`);
+    throw new Error(`Unknown operation ${String(args.operation)}.`);
   },
 });

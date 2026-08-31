@@ -2201,7 +2201,7 @@ export function getDbExec(): DbExec {
                     assertSchemaMutationAllowed(s);
                     return tx.execute(sanitize(s));
                   },
-                  transaction: tx.transaction,
+                  transaction: tx.transaction?.bind(tx),
                 }),
               )
           : undefined,
@@ -2236,7 +2236,7 @@ export function getDbExec(): DbExec {
                     assertSchemaMutationAllowed(s);
                     return tx.execute(sanitize(s));
                   },
-                  transaction: tx.transaction,
+                  transaction: tx.transaction?.bind(tx),
                 }),
               )
           : undefined,
@@ -2249,7 +2249,7 @@ export function getDbExec(): DbExec {
               assertSchemaMutationAllowed(s);
               return tx.execute(sanitize(s));
             },
-            transaction: tx.transaction,
+            transaction: tx.transaction?.bind(tx),
           }),
         );
       }
@@ -2258,7 +2258,7 @@ export function getDbExec(): DbExec {
           "This database supports atomic batches, not interactive transactions.",
         );
       }
-      return explicitTransaction(wrapper.execute)(fn);
+      return explicitTransaction(wrapper.execute.bind(wrapper))(fn);
     },
     async atomicBatch(statements) {
       for (const statement of statements) {

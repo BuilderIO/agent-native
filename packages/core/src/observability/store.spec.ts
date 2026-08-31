@@ -267,7 +267,7 @@ describe("observability store: per-user isolation", () => {
       expect(call!.args).toContain("alice");
     });
 
-    it("insertFeedback already wrote user_id (regression guard)", async () => {
+    it("insertFeedback persists user_id and dedupes idempotency keys", async () => {
       await insertFeedback({
         id: "f1",
         runId: null,
@@ -275,6 +275,7 @@ describe("observability store: per-user isolation", () => {
         messageSeq: null,
         feedbackType: "thumbs_up",
         value: "",
+        idempotencyKey: "feedback-key-1",
         userId: "alice",
         createdAt: 1,
       });
@@ -283,6 +284,9 @@ describe("observability store: per-user isolation", () => {
       );
       expect(call).toBeDefined();
       expect(call!.args).toContain("alice");
+      expect(call!.args).toContain("feedback-key-1");
+      expect(call!.sql).toMatch(/idempotency_key/);
+      expect(call!.sql).toMatch(/ON CONFLICT DO NOTHING/);
     });
   });
 });

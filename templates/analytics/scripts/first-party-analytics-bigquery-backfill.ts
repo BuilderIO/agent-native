@@ -457,7 +457,7 @@ function assertCheckpointMatches(
 ): void {
   if (checkpoint.version !== 1 && checkpoint.version !== 2) {
     throw new Error(
-      `Unsupported backfill checkpoint version: ${checkpoint.version}`,
+      `Unsupported backfill checkpoint version: ${String(checkpoint.version)}`,
     );
   }
   if (

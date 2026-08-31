@@ -1,19 +1,13 @@
 import type { PullRequestCheckObservation } from "./pr-monitor.js";
 
-export const BUILDER_BOT_LOGINS = new Set([
-  "builder-io-bot",
-  "builder-io-bot[bot]",
-  "builderio-bot",
-  "builderio-bot[bot]",
-  "builderio[bot]",
-]);
-
 export const DEFAULT_BABYSIT_BOT_AUTHORS = [
   "builder-io-bot",
   "builder-io-bot[bot]",
   "builderio-bot",
   "builderio-bot[bot]",
   "builderio[bot]",
+  "builder-io-integration",
+  "builder-io-integration[bot]",
   "github-actions",
   "github-actions[bot]",
   "dependabot[bot]",
@@ -49,15 +43,10 @@ export interface BabysitProposal {
   isClean: boolean;
 }
 
-export interface BuilderBotBabysitSignal {
-  author: string;
+export interface BabysitWorkSignal {
   mergeable: boolean | null;
   mergeableState: string | null;
   snapshot: BabysitProposal;
-}
-
-export function isBuilderBotLogin(login: string): boolean {
-  return BUILDER_BOT_LOGINS.has(login.trim().toLowerCase());
 }
 
 export function hasMergeConflict(input: {
@@ -71,13 +60,8 @@ export function hasMergeConflict(input: {
   );
 }
 
-export function shouldBabysitBuilderBotPullRequest(
-  input: BuilderBotBabysitSignal,
-): boolean {
-  return (
-    isBuilderBotLogin(input.author) &&
-    (hasMergeConflict(input) || !input.snapshot.isClean)
-  );
+export function shouldRequestBabysitWork(input: BabysitWorkSignal): boolean {
+  return hasMergeConflict(input) || !input.snapshot.isClean;
 }
 
 export function babysitFingerprint(input: {
@@ -171,4 +155,21 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
       missingChangesetPackages.length === 0 &&
       pendingChecks.length === 0,
   };
+}
+
+export function formatBabysitAuditSummary(
+  pullRequestNumber: number | null | undefined,
+  clause: string,
+): string {
+  const label =
+    typeof pullRequestNumber === "number" && pullRequestNumber > 0
+      ? `#${pullRequestNumber}`
+      : "Item";
+  return `${label} ${clause}`;
+}
+
+export function babysitOutOfScopeClause(author: string | null): string {
+  return author
+    ? `skipped; author ${author} is out of scope.`
+    : "skipped; out of scope.";
 }

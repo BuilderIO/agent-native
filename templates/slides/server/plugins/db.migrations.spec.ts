@@ -48,6 +48,17 @@ describe("Slides share migrations", () => {
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )
     `);
+    await exec.execute(`
+      CREATE TABLE deck_versions (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        deck_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        change_label TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
     await exec.execute(
       "CREATE TABLE slides_migrations (version INTEGER PRIMARY KEY)",
     );
@@ -103,6 +114,13 @@ describe("Slides share migrations", () => {
     }
 
     await runSlidesMigrations({});
+
+    const { rows: commentColumns } = await exec.execute(
+      "PRAGMA table_info(slide_comments)",
+    );
+    expect(commentColumns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "anchor" })]),
+    );
 
     const { rows } = await exec.execute(
       `SELECT id, resource_id, principal_type, principal_id, role

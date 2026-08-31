@@ -28,9 +28,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "../settings/index.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { useOnboarding } from "./use-onboarding.js";
+import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
@@ -73,11 +76,28 @@ export function OnboardingPanel({
     : (steps.find((s) => s.required && !s.complete)?.id ??
       steps.find((s) => !s.complete)?.id ??
       null);
+  const checklistVisible =
+    !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
   // Default expanded. (Older code used `useState(!allComplete)`, but the first
   // render fires with `steps === []` — `[].every()` is vacuously true, so
   // `allComplete` was true and `expanded` got locked to false even after the
   // real incomplete steps loaded.)
   const [expanded, setExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!checklistVisible) return;
+    const activeStepIndex = steps.findIndex(
+      (step) => step.id === currentStepId,
+    );
+    const activeStep = steps[activeStepIndex];
+    trackOnboardingEvent("onboarding_started", { flow: "checklist" });
+    if (!activeStep) return;
+    trackOnboardingEvent("onboarding_step_viewed", {
+      flow: "checklist",
+      step_id: activeStep.id,
+      step_index: activeStepIndex,
+    });
+  }, [checklistVisible, currentStepId, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   // Preview mode (dev overlay) bypasses the auto-hide so template authors
@@ -678,32 +698,35 @@ function BuilderCliAuthMethod({
   onCompleted: () => Promise<void>;
   primary?: boolean;
 }) {
-  const { connecting, error, start } = useBuilderConnectFlow({
+  const connectFlow = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "onboarding_builder_cli_auth",
     onConnected: onCompleted,
   });
+  const { connecting, error } = connectFlow;
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => start()}
-        disabled={connecting}
-        style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
-      >
-        {connecting ? (
-          <>
-            <IconLoader2
-              size={12}
-              style={{ marginInlineEnd: 4 }}
-              className="animate-spin"
-            />
-            Waiting for Builder...
-          </>
-        ) : (
-          "Connect Builder"
-        )}
-      </button>
+      <BuilderConnectPopover flow={connectFlow}>
+        <button
+          type="button"
+          disabled={connecting}
+          style={{ ...buttonPrimary(primary), opacity: connecting ? 0.7 : 1 }}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2
+                size={12}
+                style={{ marginInlineEnd: 4 }}
+                className="animate-spin"
+              />
+              Waiting for Builder...
+            </>
+          ) : (
+            "Connect Builder"
+          )}
+        </button>
+      </BuilderConnectPopover>
       {connecting && (
         <p style={styles.methodHint}>
           A Builder tab opened. Choose your team or app space there; setup will

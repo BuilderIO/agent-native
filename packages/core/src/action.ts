@@ -30,6 +30,8 @@ import type { ActionAuditConfig } from "./audit/types.js";
  *   selected actions are attributed as `"tool"`.
  * - `"automation"` — an event-triggered automation dispatched from a stored
  *   workspace trigger with trusted trigger lineage.
+ * - `"webmcp"` — a browser agent invoking an automatically projected action
+ *   through the authenticated page-local WebMCP bridge.
  */
 export type ActionCaller =
   | "tool"
@@ -37,6 +39,7 @@ export type ActionCaller =
   | "frontend"
   | "cli"
   | "mcp"
+  | "webmcp"
   | "a2a"
   | "automation";
 

@@ -5,6 +5,8 @@ const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
 const mockWriteAppSecret = vi.fn();
+const mockDeleteAppSecret = vi.fn();
+const mockClearProviderCredentialAuthFailure = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
@@ -16,12 +18,17 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: unknown[]) => mockWriteAppSecret(...args),
-  deleteAppSecret: vi.fn(),
+  deleteAppSecret: (...args: unknown[]) => mockDeleteAppSecret(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
   isBlockedExtensionUrlWithDns: (...args: unknown[]) =>
     mockIsBlockedExtensionUrlWithDns(...args),
+}));
+
+vi.mock("./credential-provider.js", () => ({
+  clearProviderCredentialAuthFailure: (...args: unknown[]) =>
+    mockClearProviderCredentialAuthFailure(...args),
 }));
 
 import { validateProviderBaseUrl } from "../agent/engine/provider-endpoint-validation.js";

@@ -77,8 +77,8 @@ export function useNavigationState() {
         body: JSON.stringify(state),
       }).catch(() => {});
 
-    write(appStateKeyForBrowserTab("navigation", TAB_ID));
-    write("navigation");
+    void write(appStateKeyForBrowserTab("navigation", TAB_ID));
+    void write("navigation");
   }, [location.pathname, location.search]);
 
   // Listen for navigate commands from agent. Prefer the one-shot command for
@@ -150,7 +150,7 @@ export function useNavigationState() {
       method: "DELETE",
       headers: { "X-Agent-Native-CSRF": "1", "X-Request-Source": TAB_ID },
     }).catch(() => {});
-    let path = "/";
+    let path = "/home";
 
     if (cmd.deckId) {
       path = `/deck/${cmd.deckId}`;
@@ -174,7 +174,7 @@ export function useNavigationState() {
       }
     }
 
-    navigate(path);
+    void navigate(path);
     qc.setQueryData(["navigate-command", TAB_ID], null);
   }, [navCommand, navigate, qc]);
 }

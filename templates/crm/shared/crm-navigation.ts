@@ -14,6 +14,7 @@ export const CRM_SETTINGS_SECTIONS = [
   "fields",
   "lists",
   "intelligence",
+  "mcp",
   "advanced",
 ] as const;
 
@@ -49,7 +50,7 @@ export type CrmView = (typeof CRM_VIEWS)[number];
  * returns it — only `navigate` accepts it as a destination.
  */
 export const CRM_VIEW_PATHS: Record<Exclude<CrmView, "record">, string> = {
-  work: "/",
+  work: "/home",
   account: "/accounts",
   person: "/people",
   opportunity: "/opportunities",
@@ -117,7 +118,8 @@ export function crmNavigationPath(target: CrmNavigationTarget): string {
   }
 
   const params = new URLSearchParams();
-  let base = CRM_VIEW_PATHS[target.view as Exclude<CrmView, "record">] ?? "/";
+  let base =
+    CRM_VIEW_PATHS[target.view as Exclude<CrmView, "record">] ?? "/home";
   // A saved view or a list always opens on the /views surface; /lists is only
   // the index of lists.
   if (

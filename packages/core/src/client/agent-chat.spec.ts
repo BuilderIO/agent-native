@@ -53,6 +53,7 @@ const windowStub = {
   clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   location: {
     origin: "http://localhost:3000",
+    hostname: "localhost",
     pathname: "/",
     search: "",
   },
@@ -153,6 +154,30 @@ describe("sendToAgentChat", () => {
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.message).toBe("hello");
+  });
+
+  it("carries usageLabel through the postMessage payload and back out", () => {
+    sendToAgentChat({
+      message: "enrich this record",
+      usageLabel: "crm:enrich",
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.usageLabel).toBe("crm:enrich");
+
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+    } as MessageEvent);
+    expect(parsed?.usageLabel).toBe("crm:enrich");
+  });
+
+  it("drops a blank usageLabel instead of forwarding an empty label", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: { message: "hi", usageLabel: "   " },
+      },
+    } as MessageEvent);
+    expect(parsed?.usageLabel).toBeUndefined();
   });
 
   it("includes submitted image data in the postMessage payload", () => {
@@ -505,6 +530,24 @@ describe("sendToAgentChat", () => {
         detail: { isRunning: false, tabId },
       }),
     );
+  });
+
+  it("uses the wrapper relay when an MCP App send carries a usage label", () => {
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    sendToAgentChat({
+      message: "enrich this record",
+      submit: true,
+      usageLabel: "crm:enrich-record",
+    });
+
+    // The host follow-up API has no field for the label, so taking that path
+    // would record the run as an ordinary chat turn.
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload] = parentPostMessageSpy.mock.calls[0];
+    expect(payload.data.usageLabel).toBe("crm:enrich-record");
   });
 
   it("can force MCP App embeds to use the local app chat", () => {

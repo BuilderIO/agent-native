@@ -37,6 +37,18 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("persists the resource scope used by the chat turn", () => {
+    const message = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Saved." } }],
+      "run-scoped",
+      { scope: { type: "deck", id: "deck-1" } },
+    );
+
+    expect(message?.metadata).toMatchObject({
+      custom: { chatScope: { type: "deck", id: "deck-1" } },
+    });
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
     // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
     // call that already ran in an interrupted chunk. The live client coalesces
@@ -986,6 +998,85 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("preserves an explicit root parent when appending an assistant message", () => {
+    const finalMessage = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Root answer." } }],
+      "run-root",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const updated = upsertAssistantMessage(
+      {
+        messages: [
+          {
+            id: "assistant-old",
+            role: "assistant",
+            content: [{ type: "text", text: "Old answer." }],
+            status: { type: "complete", reason: "stop" },
+          },
+        ],
+      },
+      finalMessage!,
+      null,
+    );
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1].parentId).toBeNull();
+  });
+
+  it("keeps the prior answer when a regeneration targets the same user branch", () => {
+    const regenerated = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Regenerated answer." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-regenerated",
+      { turnId: "turn-regenerated" },
+    );
+    expect(regenerated).not.toBeNull();
+
+    const updated = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "assistant-original",
+              role: "assistant",
+              content: [{ type: "text", text: "Original answer." }],
+              status: { type: "complete", reason: "stop" },
+            },
+            parentId: "user-1",
+          },
+        ],
+      },
+      regenerated!,
+      {
+        turnId: "turn-regenerated",
+        runId: "run-regenerated",
+        parentId: "user-1",
+      },
+    );
+
+    expect(updated.messages).toHaveLength(3);
+    expect(updated.messages[1].message.content).toEqual([
+      { type: "text", text: "Original answer." },
+    ]);
+    expect(updated.messages[2]).toMatchObject({
+      parentId: "user-1",
+      message: {
+        content: [{ type: "text", text: "Regenerated answer." }],
+      },
+    });
+  });
+
   it("does not replace a completed different-run answer with a prefix-matching recovery answer", () => {
     const finalMessage = buildAssistantMessage(
       [
@@ -1660,6 +1751,117 @@ describe("mergeThreadDataForClientSave", () => {
       "server-run-1",
     ]);
     expect(merged.messages[1].parentId).toBe("client-user-1");
+  });
+
+  it("does not rewrite a child's parentId onto the wrong twin when two structurally identical messages are merged", () => {
+    // `a1` and `a2` are two DIFFERENT assistant turns (different ids,
+    // different runId) that happen to render identical text ("identical
+    // reply") — e.g. two regenerated answers to the same prompt. Their
+    // incoming twins (regenerated ids, same runId, no other incoming
+    // counterpart yet reachable via id) are listed with run-2's twin FIRST.
+    // A pure content fingerprint (role+content+attachments) can't tell `a1`
+    // and `a2` apart, so if a fingerprint-only match is allowed to win over
+    // an available runId match, the scan pairs existing `a1` (run-1) with
+    // incoming `ca2` (run-2) — the first unused array slot sharing ANY key —
+    // and vice versa. `followup` only exists on the existing side and still
+    // points at the OLD id `a1`; the merge's final pass must rewrite that
+    // reference onto whichever incoming id actually replaced `a1`. A wrong
+    // pairing rewrites it onto `ca2` instead — silently reparenting a reply
+    // onto an unrelated answer.
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "the prompt" }],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "a1",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1", custom: { label: "first" } },
+          },
+          parentId: "u1",
+        },
+        {
+          message: {
+            id: "a2",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-2", custom: { label: "second" } },
+          },
+          parentId: "u1",
+        },
+        {
+          // Only exists on the existing side (e.g. not yet round-tripped to
+          // the client) and still names the OLD id `a1` as its parent.
+          message: {
+            id: "followup",
+            role: "user",
+            content: [{ type: "text", text: "thanks!" }],
+            metadata: { custom: {} },
+          },
+          parentId: "a1",
+        },
+      ],
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "u1",
+            role: "user",
+            content: [{ type: "text", text: "the prompt" }],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+        // run-2's incoming twin is listed BEFORE run-1's.
+        {
+          message: {
+            id: "ca2",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-2", custom: { label: "second" } },
+          },
+          parentId: "u1",
+        },
+        {
+          message: {
+            id: "ca1",
+            role: "assistant",
+            content: [{ type: "text", text: "identical reply" }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1", custom: { label: "first" } },
+          },
+          parentId: "u1",
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(merged.messages).toHaveLength(4);
+    const byRunId = (runId: string) =>
+      merged.messages.find(
+        (entry: any) => entry.message.metadata?.runId === runId,
+      );
+    const followup = merged.messages.find(
+      (entry: any) => entry.message.id === "followup",
+    );
+    expect(byRunId("run-1").message.metadata.custom.label).toBe("first");
+    expect(byRunId("run-2").message.metadata.custom.label).toBe("second");
+    // `followup` replied to run-1's answer — its parent must resolve to
+    // whichever id now carries run-1, not run-2's unrelated twin.
+    expect(followup.parentId).toBe(byRunId("run-1").message.id);
   });
 });
 

@@ -807,7 +807,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         if (message.type === "agent-native-extension-consent-granted") {
           // Invalidate the cached extension record — author may have edited
           // since the cache was warmed.
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["extension", extensionId],
           });
           setRefreshKey((k) => k + 1);
@@ -1053,7 +1053,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
       isExtensionPathname(location.pathname, extension.id) &&
       location.pathname !== canonicalPath
     ) {
-      navigate(`${canonicalPath}${location.search}${location.hash}`, {
+      void navigate(`${canonicalPath}${location.search}${location.hash}`, {
         replace: true,
       });
     }
@@ -1116,11 +1116,15 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed }),
       });
-      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["extension", extensionId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     } catch {
-      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["extension", extensionId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }
   }, [renameValue, extension, extensionId, queryClient]);
 
@@ -1176,7 +1180,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   onChange={(e) => setRenameValue(e.target.value)}
                   onBlur={submitRename}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") submitRename();
+                    if (e.key === "Enter") void submitRename();
                     if (e.key === "Escape") setIsRenaming(false);
                   }}
                   className="min-w-0 bg-transparent px-0 py-0 text-sm font-medium outline-none border-b border-primary"
@@ -1379,7 +1383,9 @@ function ToolMoreMenu({
         { method: "DELETE" },
       );
     } finally {
-      queryClient.invalidateQueries({ queryKey: ["slot-installs", slotId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["slot-installs", slotId],
+      });
     }
   };
 
@@ -1393,9 +1399,11 @@ function ToolMoreMenu({
           queryKey: ["slot-installs", s.slotId],
         }),
       );
-      navigate("/extensions");
+      void navigate("/extensions");
     } catch {
-      queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["extension", extensionId],
+      });
     }
   };
 

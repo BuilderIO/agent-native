@@ -23,7 +23,6 @@ packages/core/docs/content/locales/ar-SA/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/ar-SA/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
@@ -154,7 +153,6 @@ packages/core/docs/content/locales/hi-IN/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Top objectives
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/hi-IN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/hi-IN/toolkit-context-knowledge.mdx|Context X-Ray
@@ -214,7 +212,6 @@ packages/core/docs/content/locales/ko-KR/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/ko-KR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ko-KR/toolkit-context-knowledge.mdx|Context X-Ray
@@ -245,7 +242,6 @@ packages/core/docs/content/locales/pt-BR/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Top objectives
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/pt-BR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/pt-BR/toolkit-context-knowledge.mdx|Context X-Ray
@@ -278,7 +274,6 @@ packages/core/docs/content/locales/zh-CN/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Top objectives
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/zh-CN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-CN/toolkit-context-knowledge.mdx|Context X-Ray
@@ -311,7 +306,6 @@ packages/core/docs/content/locales/zh-TW/template-content.mdx|Ship the onboardin
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Top objectives
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Weekly sync
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Workstreams table
-packages/core/docs/content/locales/zh-TW/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-TW/toolkit-context-knowledge.mdx|Context X-Ray

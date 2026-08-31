@@ -589,6 +589,9 @@ function LinkTab({
         <CopyButton
           value={shareUrl}
           disabled={visibilityPending || !sharesLoaded}
+          resourceType="recording"
+          resourceId={recordingId}
+          linkType="share"
         >
           {t("shareUi.copyLink")}
         </CopyButton>
@@ -647,6 +650,9 @@ function LinkTab({
             value={agentCopyValue}
             disabled={agentShareDisabled}
             className="shrink-0"
+            resourceType="recording"
+            resourceId={recordingId}
+            linkType="agent_context"
           >
             {t("shareUi.copy")}
           </CopyButton>
@@ -705,8 +711,8 @@ function ClipsEmbedConfigurator({
 
   const code =
     mode === "responsive"
-      ? `<div style="position:relative;padding-bottom:56.25%;height:0;background:#000;overflow:hidden"><iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;overflow:hidden"></iframe></div>`
-      : `<iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" width="${width}" height="${height}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="display:block;max-width:100%;border:0;background:#000;overflow:hidden"></iframe>`;
+      ? `<div style="position:relative;padding-bottom:56.25%;height:0;background:#000;overflow:hidden"><iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture; tools" style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;overflow:hidden"></iframe></div>` // guard:allow-raw-color - generated embeds use the black player backdrop; i18n-ignore - generated markup uses a localized title
+      : `<iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" width="${width}" height="${height}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture; tools" style="display:block;max-width:100%;border:0;background:#000;overflow:hidden"></iframe>`; // guard:allow-raw-color - generated embeds use the black player backdrop; i18n-ignore - generated markup uses a localized title
 
   if (!visibility) {
     return (

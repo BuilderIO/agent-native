@@ -1,10 +1,27 @@
 import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
 import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
+import { hashSlideContent } from "@shared/slide-fit";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const testString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URLSearchParams
+      ? value.toString()
+      : (JSON.stringify(value) ?? "");
+const requestString = (value: unknown) =>
+  typeof value === "string"
+    ? value
+    : value instanceof URL
+      ? value.toString()
+      : value instanceof Request
+        ? value.url
+        : testString(value);
+
+import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 const orgQueryState = vi.hoisted(() => ({
   data: undefined as unknown,
@@ -88,6 +105,8 @@ function setupFetch(options?: {
   deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
+  patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
+  putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
 }) {
   let resolveCreate: (response: Response) => void = () => {};
   let resolveDeferredPut: (() => void) | null = null;
@@ -115,7 +134,7 @@ function setupFetch(options?: {
     // is exactly what `callAction`'s timeout does. This lets a test prove the
     // timeout drains `inFlightSaves` instead of wedging it.
     if (href.includes("/_agent-native/actions/save-deck")) {
-      const deckId = String(actionCallBody(init).deckId ?? "");
+      const deckId = testString(actionCallBody(init).deckId ?? "");
       const attempts = (putAttempts.get(deckId) ?? 0) + 1;
       putAttempts.set(deckId, attempts);
       if (
@@ -150,8 +169,12 @@ function setupFetch(options?: {
       ) {
         return Promise.reject(new Error("save-deck failed"));
       }
+      const response =
+        typeof options?.putResponse === "function"
+          ? options.putResponse(actionCallBody(init))
+          : (options?.putResponse ?? { ok: true });
       return Promise.resolve(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        new Response(JSON.stringify(response), { status: 200 }),
       );
     }
 
@@ -214,7 +237,7 @@ function setupFetch(options?: {
     }
 
     if (href.includes("/_agent-native/actions/patch-deck")) {
-      const deckId = String(actionCallBody(init).deckId ?? "");
+      const deckId = testString(actionCallBody(init).deckId ?? "");
       const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
       patchAttempts.set(deckId, attempts);
       if (
@@ -236,8 +259,12 @@ function setupFetch(options?: {
       ) {
         return Promise.reject(new Error("patch-deck failed"));
       }
+      const response =
+        typeof options?.patchResponse === "function"
+          ? options.patchResponse(actionCallBody(init))
+          : (options?.patchResponse ?? { ok: true });
       return Promise.resolve(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        new Response(JSON.stringify(response), { status: 200 }),
       );
     }
 
@@ -280,7 +307,7 @@ function setupFetch(options?: {
 
 function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
-    String(url).includes("/_agent-native/actions/get-deck"),
+    requestString(url).includes("/_agent-native/actions/get-deck"),
   );
 }
 
@@ -288,7 +315,10 @@ function actionCallBody(
   init: RequestInit | undefined,
 ): Record<string, unknown> {
   try {
-    return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    return JSON.parse(testString(init?.body ?? "{}")) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return {};
   }
@@ -300,7 +330,7 @@ function deletedDeck(
 ): boolean {
   return fetchMock.mock.calls.some(
     ([url, init]) =>
-      String(url).includes("/_agent-native/actions/delete-deck") &&
+      requestString(url).includes("/_agent-native/actions/delete-deck") &&
       init?.method === "DELETE" &&
       actionCallBody(init).id === deckId,
   );
@@ -358,7 +388,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(result.current.loading).toBe(true);
     expect(
       fetchMock.mock.calls.some(([url]) =>
-        String(url).includes("/_agent-native/actions/list-decks"),
+        requestString(url).includes("/_agent-native/actions/list-decks"),
       ),
     ).toBe(false);
 
@@ -389,6 +419,7 @@ describe("DeckContext deck creation persistence", () => {
           content: "<h1>Before</h1>",
           notes: "",
           layout: "title",
+          layoutFitRevision: "initial-revision",
         },
       ],
     });
@@ -419,7 +450,7 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/_agent-native/actions/patch-deck"),
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
     ).toHaveLength(1);
 
@@ -431,7 +462,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/_agent-native/actions/patch-deck"),
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
     expect(patchCalls).toHaveLength(2);
     expect(patchCalls[1]?.[1]?.keepalive).toBe(true);
@@ -501,10 +532,250 @@ describe("DeckContext deck creation persistence", () => {
     expect(
       fetchMock.mock.calls.some(
         ([url, init]) =>
-          String(url).includes("/_agent-native/actions/patch-deck") &&
+          requestString(url).includes("/_agent-native/actions/patch-deck") &&
           init?.keepalive === true,
       ),
     ).toBe(true);
+  });
+
+  it("merges server layout-fit revisions into optimistic slide writes", async () => {
+    window.history.pushState({}, "", "/deck/fit-revision-deck");
+    const initial: Deck = {
+      id: "fit-revision-deck",
+      title: "Fit revision deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: (body: Record<string, unknown>) => {
+        const operation = (
+          body.operations as Array<{
+            slideId: string;
+            fields?: { content?: string };
+          }>
+        )[0];
+        const content = normalizeSlidePadding(operation.fields?.content ?? "");
+        return {
+          ok: true,
+          layoutFit: {
+            status: "pending",
+            slides: [
+              {
+                slideId: operation.slideId,
+                contentHash: hashSlideContent(content),
+                layoutFitRevision: "server-patch-revision",
+              },
+            ],
+          },
+        };
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: '<div class="fmd-slide"><h1>After</h1></div>' },
+        { persistence: "immediate" },
+      );
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).not.toBe("initial-revision");
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).toBe("server-patch-revision");
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      normalizeSlidePadding('<div class="fmd-slide"><h1>After</h1></div>'),
+    );
+  });
+
+  it("merges revisions returned by add-slide and save-deck", async () => {
+    window.history.pushState({}, "", "/deck/fit-revision-add-deck");
+    const initial: Deck = {
+      id: "fit-revision-add-deck",
+      title: "Fit revision add deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: (body: Record<string, unknown>) => {
+        const operation = (
+          body.operations as Array<{
+            slideId: string;
+            fields?: { content?: string };
+          }>
+        )[0];
+        return {
+          ok: true,
+          layoutFit: {
+            status: "pending",
+            slides: [
+              {
+                slideId: operation.slideId,
+                contentHash: hashSlideContent(operation.fields?.content ?? ""),
+                layoutFitRevision: "server-add-revision",
+              },
+            ],
+          },
+        };
+      },
+      putResponse: (body: Record<string, unknown>) => {
+        const deck = body.deck as { slides: Array<Record<string, unknown>> };
+        return {
+          ...deck,
+          slides: deck.slides.map((slide) => ({
+            ...slide,
+            layoutFitRevision: "server-full-revision",
+          })),
+        };
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    let addedSlideId = "";
+    act(() => {
+      addedSlideId = result.current.addSlide(initial.id, "content", undefined, {
+        persistence: "immediate",
+      });
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.find((slide) => slide.id === addedSlideId)?.layoutFitRevision,
+    ).toBe("server-add-revision");
+
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        { ...initial.slides[0]!, content: "<h1>Replaced</h1>" },
+      ]);
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current.getDeck(initial.id)?.slides[0]?.layoutFitRevision,
+    ).toBe("server-full-revision");
+  });
+
+  it("merges deck-wide fit revisions for aspect-ratio and design-system writes", async () => {
+    window.history.pushState({}, "", "/deck/deck-fit-fields");
+    const initial: Deck = {
+      id: "deck-fit-fields",
+      title: "Deck fit fields",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      designSystemId: "ds-old",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "initial-revision-1",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "title",
+          layoutFitRevision: "initial-revision-2",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch({
+      patchResponse: () => ({
+        ok: true,
+        layoutFit: {
+          status: "pending",
+          slides: initial.slides.map((slide, index) => ({
+            slideId: slide.id,
+            contentHash: hashSlideContent(slide.content),
+            layoutFitRevision: `server-deck-revision-${index}`,
+          })),
+        },
+      }),
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const beforeAspectRevisions = result.current
+      .getDeck(initial.id)
+      ?.slides.map((slide) => slide.layoutFitRevision);
+    act(() => {
+      result.current.updateDeck(initial.id, { aspectRatio: "4:3" });
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).not.toEqual(beforeAspectRevisions);
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
+
+    const beforeDesignSystemRevisions = result.current
+      .getDeck(initial.id)
+      ?.slides.map((slide) => slide.layoutFitRevision);
+    act(() => {
+      result.current.updateDeck(initial.id, { designSystemId: "ds-new" });
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).not.toEqual(beforeDesignSystemRevisions);
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(
+      result.current
+        .getDeck(initial.id)
+        ?.slides.map((slide) => slide.layoutFitRevision),
+    ).toEqual(["server-deck-revision-0", "server-deck-revision-1"]);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {
@@ -789,7 +1060,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
       return actionCallBody(init).deckId === "inline-draft-deck";
@@ -856,7 +1127,7 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCalls = fetchMock.mock.calls.filter(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
       return actionCallBody(init).deckId === "inline-revert-deck";
@@ -921,7 +1192,7 @@ describe("DeckContext deck creation persistence", () => {
     });
     expect(
       fetchMock.mock.calls.filter(([url]) =>
-        String(url).includes("/_agent-native/actions/patch-deck"),
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
       ),
     ).toHaveLength(1);
 
@@ -983,7 +1254,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const fullSaveCalls = fetchMock.mock.calls.filter(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         actionCallBody(init).deckId === "inline-render-deck"
       );
     });
@@ -1073,16 +1344,16 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
+      const body = JSON.parse(testString(init?.body ?? "{}")) as {
         deckId?: string;
       };
       return body.deckId === deckId;
     });
     expect(patchCall).toBeTruthy();
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(testString(patchCall?.[1]?.body))).toMatchObject({
       deckId,
       operations: [
         {
@@ -1391,7 +1662,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const putCall = fetchMock.mock.calls.find(
       ([url, init]) =>
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         init?.method === "PUT" &&
         actionCallBody(init).deckId === deckId,
     );
@@ -1402,16 +1673,16 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe("<div>Generated</div>");
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
-      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+      if (!requestString(url).includes("/_agent-native/actions/patch-deck")) {
         return false;
       }
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
+      const body = JSON.parse(testString(init?.body ?? "{}")) as {
         deckId?: string;
       };
       return body.deckId === deckId;
     });
     expect(patchCall).toBeTruthy();
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(testString(patchCall?.[1]?.body))).toMatchObject({
       deckId,
       operations: [
         {
@@ -1435,6 +1706,8 @@ describe("DeckContext deck creation persistence", () => {
     const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
     const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
     const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
+    const normalizedMovedContent = normalizeSlidePadding(movedContent);
+    const normalizedResizedContent = normalizeSlidePadding(resizedContent);
     setAccessibleDeck({
       id: "gesture-deck",
       title: "Gesture deck",
@@ -1482,7 +1755,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(getPatchAttempts("gesture-deck")).toBeGreaterThanOrEqual(2);
 
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/_agent-native/actions/patch-deck"),
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
     );
     const orderedRetry = patchCalls.find(([, init]) => {
       const operations = actionCallBody(init).operations;
@@ -1491,12 +1764,12 @@ describe("DeckContext deck creation persistence", () => {
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
-            movedContent,
+            normalizedMovedContent,
         ) &&
         operations.some(
           (operation) =>
             (operation as { fields?: { content?: string } }).fields?.content ===
-            resizedContent,
+            normalizedResizedContent,
         )
       );
     });
@@ -1506,17 +1779,17 @@ describe("DeckContext deck creation persistence", () => {
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: movedContent },
+          fields: { content: normalizedMovedContent },
         },
         {
           op: "patch-slide",
           slideId: "gesture-slide",
-          fields: { content: resizedContent },
+          fields: { content: normalizedResizedContent },
         },
       ],
     });
     expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
-      resizedContent,
+      normalizeSlidePadding(resizedContent),
     );
 
     act(() => result.current.undo());
@@ -1810,7 +2083,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const saveCall = fetchMock.mock.calls.find(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         init?.method === "PUT" &&
         actionCallBody(init).deckId === "shared-deck"
       );
@@ -1819,7 +2092,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/patch-deck") &&
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
         actionCallBody(init).deckId === "shared-deck"
       );
     });
@@ -1895,7 +2168,7 @@ describe("DeckContext deck creation persistence", () => {
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
       return (
-        String(url).includes("/_agent-native/actions/patch-deck") &&
+        requestString(url).includes("/_agent-native/actions/patch-deck") &&
         actionCallBody(init).deckId === "shared-deck"
       );
     });
@@ -2604,7 +2877,7 @@ describe("DeckContext deck creation persistence", () => {
     });
     const saveCalls = fetchMock.mock.calls.filter(
       ([url, init]) =>
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         actionCallBody(init).deckId === initial.id,
     );
     expect(saveCalls).toHaveLength(2);
@@ -3004,7 +3277,7 @@ describe("DeckContext deck creation persistence", () => {
     });
     const saveCalls = fetchMock.mock.calls.filter(
       ([url, init]) =>
-        String(url).includes("/_agent-native/actions/save-deck") &&
+        requestString(url).includes("/_agent-native/actions/save-deck") &&
         actionCallBody(init).deckId === initial.id,
     );
     expect(saveCalls).toHaveLength(1);

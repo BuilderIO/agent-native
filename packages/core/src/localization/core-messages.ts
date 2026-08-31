@@ -1,4 +1,5 @@
 import englishMessages from "./core-messages/en-US.js";
+import { MCP_SETTINGS_MESSAGES } from "./mcp-settings-messages.js";
 import type { LocaleCode } from "./shared.js";
 
 export type CoreLocaleMessages = Record<string, unknown>;
@@ -166,12 +167,18 @@ export async function loadAgentChatMessagesForLocale(
 export async function loadCoreMessagesForLocale(
   locale: LocaleCode,
 ): Promise<CoreLocaleMessages> {
-  return nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale));
+  return {
+    ...nestAgentChatMessages(await loadAgentChatMessagesForLocale(locale)),
+    settings: MCP_SETTINGS_MESSAGES[locale],
+  };
 }
 
 const englishCoreMessages = nestAgentChatMessages(englishAgentChatMessages);
 
 // Only English is eager. Non-English Core catalogs load with the app catalog.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
-  return locale === "en-US" ? englishCoreMessages : {};
+  return {
+    ...(locale === "en-US" ? englishCoreMessages : {}),
+    settings: MCP_SETTINGS_MESSAGES[locale],
+  };
 }

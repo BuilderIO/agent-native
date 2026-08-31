@@ -162,8 +162,8 @@ function tWithFallback(
 
 interface DocumentPropertiesProps {
   documentId: string;
-  databaseId: string;
-  databaseDocumentId: string;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
   canEdit: boolean;
   popoversPortalled?: boolean;
 }
@@ -303,6 +303,10 @@ function optionById(property: DocumentProperty, id: string | null) {
   );
 }
 
+function propertyText(value: unknown) {
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+}
+
 export function displayValue(property: DocumentProperty, t?: TFunction) {
   const value = property.value;
   const type = property.definition.type;
@@ -330,7 +334,7 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   }
 
   if (type === "created_time" || type === "last_edited_time") {
-    return <span>{formatDateTime(String(value))}</span>;
+    return <span>{formatDateTime(propertyText(value))}</span>;
   }
 
   if (type === "person") {
@@ -348,11 +352,11 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   }
 
   if (type === "created_by" || type === "last_edited_by") {
-    return <PersonPill value={String(value)} />;
+    return <PersonPill value={propertyText(value)} />;
   }
 
   if (type === "place") {
-    return <PlacePill value={String(value)} />;
+    return <PlacePill value={propertyText(value)} />;
   }
 
   if (type === "files_media") {
@@ -392,11 +396,11 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
   }
 
   if (type === "select" || type === "status") {
-    const option = optionById(property, String(value));
+    const option = optionById(property, propertyText(value));
     return option ? (
       <OptionPill option={option} />
     ) : (
-      <span>{String(value)}</span>
+      <span>{propertyText(value)}</span>
     );
   }
 
@@ -421,7 +425,7 @@ export function displayValue(property: DocumentProperty, t?: TFunction) {
     );
   }
 
-  return <span>{String(value)}</span>;
+  return <span>{propertyText(value)}</span>;
 }
 
 function OptionPill({ option }: { option: DocumentPropertyOption }) {
@@ -807,6 +811,17 @@ export function DocumentProperties({
     databaseId,
     data,
   );
+  const canEditValues =
+    canEdit &&
+    loaded &&
+    databaseDocumentId !== null &&
+    data.canEditValues === true;
+  const canManageSchema =
+    canEdit &&
+    loaded &&
+    databaseId !== null &&
+    databaseDocumentId !== null &&
+    data.canManageSchema === true;
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
@@ -831,8 +846,9 @@ export function DocumentProperties({
               key={property.definition.id}
               property={property}
               documentId={documentId}
-              databaseDocumentId={databaseDocumentId}
-              canEdit={canEdit}
+              databaseDocumentId={databaseDocumentId ?? documentId}
+              canEditValues={canEditValues}
+              canManageSchema={canManageSchema}
               popoversPortalled={popoversPortalled}
               t={t}
             />
@@ -840,7 +856,7 @@ export function DocumentProperties({
         </div>
       ) : null}
 
-      {loaded && canEdit && hiddenProperties.length > 0 ? (
+      {loaded && canManageSchema && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
           databaseId={databaseId}
@@ -849,7 +865,7 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {loaded && canEdit && databaseId ? (
+      {loaded && canManageSchema && databaseId ? (
         <AddProperty
           documentId={documentId}
           databaseId={databaseId}
@@ -938,14 +954,16 @@ function PropertyRow({
   property,
   documentId,
   databaseDocumentId,
-  canEdit,
+  canEditValues,
+  canManageSchema,
   popoversPortalled,
   t,
 }: {
   property: DocumentProperty;
   documentId: string;
   databaseDocumentId: string;
-  canEdit: boolean;
+  canEditValues: boolean;
+  canManageSchema: boolean;
   popoversPortalled: boolean;
   t: TFunction;
 }) {
@@ -958,7 +976,7 @@ function PropertyRow({
 
   return (
     <div className="grid min-h-8 grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
-      {canEdit && !property.definition.systemRole ? (
+      {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
@@ -987,7 +1005,7 @@ function PropertyRow({
           )}
         </div>
       )}
-      {canEdit && property.editable ? (
+      {canEditValues && property.editable ? (
         <PropertyValuePopover
           property={property}
           documentId={documentId}
@@ -1087,10 +1105,10 @@ export function PropertyManagementPopover({
     BindContentDatabaseSourceFieldRequest
   >("bind-content-database-source-field", {
     onSuccess: () => {
-      bindQueryClient.invalidateQueries({
+      void bindQueryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      bindQueryClient.invalidateQueries({
+      void bindQueryClient.invalidateQueries({
         queryKey: [
           "action",
           "list-document-properties",
@@ -2814,7 +2832,7 @@ function ScalarValueEditor({
       ? property.value.slice(0, 10)
       : property.value === null || Array.isArray(property.value)
         ? ""
-        : String(property.value);
+        : propertyText(property.value);
   const [value, setValue] = useState(initialValue);
   const scalarValueInputRef = useRef<HTMLInputElement>(null);
 

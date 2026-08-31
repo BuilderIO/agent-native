@@ -169,13 +169,16 @@ describe("EventAttendeesSection attendee controls", () => {
     const attendeeRows = Array.from(
       document.querySelectorAll('[data-testid="attendee-details"]'),
     );
+    // Rows show the display name and keep the address in the accessible text.
     const organizerRow = attendeeRows.find((row) =>
-      row.textContent?.includes("sami@example.com"),
+      row.textContent?.includes("Sami"),
     );
     const selfRow = attendeeRows.find((row) =>
-      row.textContent?.includes("saee@example.com"),
+      row.textContent?.includes("Saee"),
     );
 
+    expect(organizerRow?.textContent).toContain("sami@example.com");
+    expect(selfRow?.textContent).toContain("saee@example.com");
     expect(organizerRow?.textContent).toContain(organizerLabel);
     expect(selfRow?.textContent).toContain(browserLabel);
   }, 15_000);

@@ -172,6 +172,18 @@ describe("AgentTerminal", () => {
     );
   });
 
+  it("keeps host authentication when adding the CLI command", async () => {
+    renderTerminal({
+      wsUrl: "ws://127.0.0.1:12345/ws?token=desktop-secret",
+      command: "codex",
+    });
+    await waitForSocketCount(1);
+
+    expect(MockWebSocket.instances[0].url).toBe(
+      "ws://127.0.0.1:12345/ws?token=desktop-secret&command=codex",
+    );
+  });
+
   it("shows setup-status errors and suppresses reconnects", async () => {
     renderTerminal({
       wsUrl: "ws://127.0.0.1:12345/ws",
