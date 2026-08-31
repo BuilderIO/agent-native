@@ -18,7 +18,7 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -955,21 +955,24 @@ function AutomationsView({
     );
   }
 
-  function selectAutomation(id: string) {
-    const nextAutomation = automations.find(
-      (automation) => automation.id === id,
-    );
-    if (nextAutomation) setDraft(draftForAutomation(nextAutomation));
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set("automationId", id);
-        next.delete("createAutomation");
-        return next;
-      },
-      { replace: true },
-    );
-  }
+  const selectAutomation = useCallback(
+    (id: string) => {
+      const nextAutomation = automations.find(
+        (automation) => automation.id === id,
+      );
+      if (nextAutomation) setDraft(draftForAutomation(nextAutomation));
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set("automationId", id);
+          next.delete("createAutomation");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [automations, setSearchParams],
+  );
 
   useEffect(() => {
     if (!selected) {
@@ -1000,7 +1003,7 @@ function AutomationsView({
       }
       return nextDraft;
     });
-  }, [selected, selectedId]);
+  }, [selectAutomation, selected, selectedId]);
 
   useEffect(() => {
     if (Object.keys(queuedRuns).length === 0 || !response) return;
@@ -1417,19 +1420,6 @@ function formatAutomationDate(value: string | number | null | undefined) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
-}
-
-function formatInboxDateTime(value: string | number | null | undefined) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }
 
 function formatModelName(model: string | null | undefined) {

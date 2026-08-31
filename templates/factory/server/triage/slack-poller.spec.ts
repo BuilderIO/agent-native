@@ -17,7 +17,8 @@ const mockedSlackReader = {
   getCompleteThread: vi.fn(),
   verifyAgentNativeIdentity: vi.fn(),
   getAgentNativeIdentity: vi.fn(),
-  addEyesReaction: vi.fn(),
+  addReaction: vi.fn(),
+  hasReaction: vi.fn(),
   postThreadReply: vi.fn(),
 };
 
@@ -36,7 +37,8 @@ beforeEach(() => {
   mockedSlackReader.getCompleteThread.mockReset();
   mockedSlackReader.verifyAgentNativeIdentity.mockReset();
   mockedSlackReader.getAgentNativeIdentity.mockReset();
-  mockedSlackReader.addEyesReaction.mockReset();
+  mockedSlackReader.addReaction.mockReset();
+  mockedSlackReader.hasReaction.mockReset();
   mockedSlackReader.postThreadReply.mockReset();
   mockedSlackReader.getTeamInfo
     .mockReset()

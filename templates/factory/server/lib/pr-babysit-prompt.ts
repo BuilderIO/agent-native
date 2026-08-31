@@ -10,12 +10,11 @@ const OBSOLETE_BUILDER_BOT_ONLY_BOUND =
   "Runtime safety bound: call list-triage-items with needsReview true, source github, builderBotOnly true, and limit 3; process at most three builder-bot pull-request items.";
 
 export function repairPrBabysitPrompt(content: string): string {
-  let next = renameFactoryActionMentions(content).replaceAll(
-    OBSOLETE_BUILDER_BOT_ONLY_BOUND,
-    BABYSIT_LIST_BOUND,
-  );
-  next = next.replaceAll("builderBotOnly true, ", "");
-  next = next.replaceAll("builderBotOnly true", "");
+  let next = renameFactoryActionMentions(content)
+    .split(OBSOLETE_BUILDER_BOT_ONLY_BOUND)
+    .join(BABYSIT_LIST_BOUND);
+  next = next.split("builderBotOnly true, ").join("");
+  next = next.split("builderBotOnly true").join("");
   next = next.replace(/\s+,/g, ",");
   if (!next.includes(BABYSIT_LIST_BOUND)) {
     next = `${next.trimEnd()}\n\n${BABYSIT_LIST_BOUND}\n`;

@@ -9,7 +9,7 @@ export const FACTORY_ACTION_RENAMES = [
 export function renameFactoryActionMentions(content: string): string {
   let next = content;
   for (const [from, to] of FACTORY_ACTION_RENAMES) {
-    next = next.replaceAll(from, to);
+    next = next.split(from).join(to);
   }
   return next;
 }

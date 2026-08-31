@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";

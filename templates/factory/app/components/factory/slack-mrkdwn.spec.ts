@@ -47,6 +47,20 @@ describe("parseSlackMrkdwn", () => {
     ]);
   });
 
+  it("does not turn mailto or other non-http schemes into links", () => {
+    const nodes = parseSlackMrkdwn(
+      "Ping <mailto:attacker@example.com|support> and <javascript:alert(1)|click>",
+    );
+    expect(nodes.some((node) => node.type === "link")).toBe(false);
+    expect(nodes).toEqual([
+      {
+        type: "text",
+        value:
+          "Ping <mailto:attacker@example.com|support> and <javascript:alert(1)|click>",
+      },
+    ]);
+  });
+
   it("uses mention labels, Builder id, then Slack pipe labels", () => {
     expect(
       parseSlackMrkdwn("<@U1> pinged <@U096KN3EL2Y> and <@U2|Ada>", {

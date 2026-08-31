@@ -24,6 +24,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import type { IngestionEnvelope } from "../server/triage/contracts.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import {
   hasTriageSourceChanged,
@@ -96,7 +97,7 @@ export default defineAction({
     const configRowId = config
       ? triageConfigUpdateRowId(config, orgId, factoryId)
       : null;
-    const accepted = [];
+    const accepted: IngestionEnvelope[] = [];
     let nextLastSlackTs =
       result.envelopes.length === 0
         ? (result.nextLastSlackTs ?? priorLastSlackTs)
@@ -128,7 +129,7 @@ export default defineAction({
       ? (historyCursor ?? null)
       : result.nextHistoryCursor;
 
-    const ingested = [];
+    const ingested: IngestionEnvelope[] = [];
     let added = 0;
     await db.transaction(async (tx) => {
       for (const envelope of accepted) {

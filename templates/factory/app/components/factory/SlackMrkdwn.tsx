@@ -1,3 +1,4 @@
+import { safeHttpUrl } from "../../lib/safe-http-url";
 import {
   parseSlackMrkdwn,
   type SlackMrkdwnNode,
@@ -75,10 +76,12 @@ function SlackMrkdwnPart({
       return <em>{node.value}</em>;
     case "strike":
       return <s className="text-muted-foreground">{node.value}</s>;
-    case "link":
+    case "link": {
+      const href = safeHttpUrl(node.href);
+      if (!href) return node.label;
       return (
         <a
-          href={node.href}
+          href={href}
           target="_blank"
           rel="noreferrer"
           className="text-primary underline-offset-2 hover:underline"
@@ -86,6 +89,7 @@ function SlackMrkdwnPart({
           {node.label}
         </a>
       );
+    }
     case "mention":
       return (
         <span className="rounded bg-primary/10 px-1 font-medium text-primary">

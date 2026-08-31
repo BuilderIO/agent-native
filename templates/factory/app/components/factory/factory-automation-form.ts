@@ -109,10 +109,12 @@ export function formatDailyTime(hour: number, minute: number): string {
 }
 
 export function timezoneOptions(): string[] {
-  const supported =
-    typeof Intl !== "undefined" && "supportedValuesOf" in Intl
-      ? Intl.supportedValuesOf("timeZone")
-      : [];
+  const supportedValuesOf = (
+    Intl as typeof Intl & {
+      supportedValuesOf?: (key: "timeZone") => string[];
+    }
+  ).supportedValuesOf;
+  const supported = supportedValuesOf ? supportedValuesOf("timeZone") : [];
   const detected = browserTimezone();
   return [...new Set([detected, ...supported])];
 }

@@ -1,3 +1,4 @@
+import { safeHttpUrl } from "../../lib/safe-http-url";
 import { slackEmojiFor } from "./slack-emoji";
 
 export type SlackMrkdwnNode =
@@ -18,7 +19,7 @@ export type SlackMrkdwnOptions = {
 
 const FENCE_RE = /```(?:[\w-]*\n)?([\s\S]*?)```/;
 const INLINE_RE =
-  /`([^`]+)`|<((?:https?:\/\/|mailto:)[^|>]+)(?:\|([^>]+))?>|:([a-z0-9_+-]+):|<@([UW][A-Z0-9]+)(?:\|([^>]+))?>|\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/i;
+  /`([^`]+)`|<((?:https?:\/\/)[^|>]+)(?:\|([^>]+))?>|:([a-z0-9_+-]+):|<@([UW][A-Z0-9]+)(?:\|([^>]+))?>|\*([^*\n]+)\*|_([^_\n]+)_|~([^~\n]+)~/i;
 
 export const BUILDER_SLACK_MENTION_LABEL = "@Builder.io";
 
@@ -81,11 +82,16 @@ function parseInline(
     if (match[1] !== undefined) {
       nodes.push({ type: "code", value: match[1] });
     } else if (match[2] !== undefined) {
-      nodes.push({
-        type: "link",
-        href: match[2],
-        label: match[3] || match[2],
-      });
+      const href = safeHttpUrl(match[2]);
+      if (href) {
+        nodes.push({
+          type: "link",
+          href,
+          label: match[3] || href,
+        });
+      } else {
+        nodes.push({ type: "text", value: match[0] });
+      }
     } else if (match[4] !== undefined) {
       const shortcode = match[4];
       const emoji = slackEmojiFor(shortcode);

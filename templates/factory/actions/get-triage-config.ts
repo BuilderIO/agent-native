@@ -32,8 +32,14 @@ export default defineAction({
     const [slackConnections, githubConnections, sentryConnections] =
       await Promise.all([
         listWorkspaceConnectionsForApp({ appId: "factory", provider: "slack" }),
-        listWorkspaceConnectionsForApp({ appId: "factory", provider: "github" }),
-        listWorkspaceConnectionsForApp({ appId: "factory", provider: "sentry" }),
+        listWorkspaceConnectionsForApp({
+          appId: "factory",
+          provider: "github",
+        }),
+        listWorkspaceConnectionsForApp({
+          appId: "factory",
+          provider: "sentry",
+        }),
       ]);
     const connections = {
       slack: localFallback || slackConnections.length > 0,
