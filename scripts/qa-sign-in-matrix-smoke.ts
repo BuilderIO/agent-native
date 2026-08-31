@@ -103,6 +103,10 @@ function appEnv(appUrl: string, basePath: string, dbPath: string) {
   return {
     ...process.env,
     APP_NAME: "chat",
+    // This smoke launches Vite directly rather than through `pnpm run`, so
+    // provide the package identity that first-party home resolution normally
+    // gets from the package-manager environment.
+    npm_package_name: "chat",
     APP_URL: appUrl,
     BETTER_AUTH_URL: appUrl,
     NODE_ENV: "development",
@@ -369,13 +373,15 @@ async function navigateAndSettle(
   page.on("framenavigated", listener);
   try {
     for (let attempt = 0; attempt < 4; attempt += 1) {
+      const reloadAtStart = viteReload?.lastReloadAt ?? 0;
+      let interrupted = false;
       try {
         await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
-        break;
       } catch (error) {
         if (!isNavigationInterruption(error) || attempt === 3) {
           throw error;
         }
+        interrupted = true;
         if (viteReload && logs) {
           await waitForViteDepsQuiet(viteReload, logs);
         } else {
@@ -387,8 +393,20 @@ async function navigateAndSettle(
           // The page may still be moving between documents; the next attempt
           // will preserve the original navigation error if it never settles.
         }
-        if (page.url() === url) break;
       }
+      if (viteReload && logs) await waitForViteDepsQuiet(viteReload, logs);
+      if (
+        viteReload &&
+        viteReload.lastReloadAt > reloadAtStart &&
+        attempt < 3
+      ) {
+        // A dependency optimizer reload can emit the same auth-entry URL
+        // twice. Re-run after it settles so a real auth loop remains visible.
+        seen.length = 0;
+        continue;
+      }
+      if (interrupted && page.url() !== url) continue;
+      break;
     }
     if (viteReload && logs) await waitForViteDepsQuiet(viteReload, logs);
     await page.waitForTimeout(settleMs);
