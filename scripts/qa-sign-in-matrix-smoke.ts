@@ -344,6 +344,13 @@ function fullPathOf(url: string): string {
   return parsed.pathname + parsed.search + parsed.hash;
 }
 
+function isNavigationInterruption(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /net::ERR_ABORTED|navigation.*(?:abort|interrupt)|(?:abort|interrupt).*navigation/i.test(
+    message,
+  );
+}
+
 /**
  * Navigate and let the page settle, then report every main-frame URL it passed
  * through. A return-path loop shows up here as repeated auth-entry entries.
@@ -352,6 +359,8 @@ async function navigateAndSettle(
   page: Page,
   url: string,
   settleMs = 6_000,
+  viteReload?: ViteReloadTracker,
+  logs?: string[],
 ): Promise<string[]> {
   const seen: string[] = [];
   const listener = (frame: Frame) => {
@@ -359,7 +368,29 @@ async function navigateAndSettle(
   };
   page.on("framenavigated", listener);
   try {
-    await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+        break;
+      } catch (error) {
+        if (!isNavigationInterruption(error) || attempt === 3) {
+          throw error;
+        }
+        if (viteReload && logs) {
+          await waitForViteDepsQuiet(viteReload, logs);
+        } else {
+          await page.waitForTimeout(500);
+        }
+        try {
+          await page.waitForLoadState("domcontentloaded", { timeout: 10_000 });
+        } catch {
+          // The page may still be moving between documents; the next attempt
+          // will preserve the original navigation error if it never settles.
+        }
+        if (page.url() === url) break;
+      }
+    }
+    if (viteReload && logs) await waitForViteDepsQuiet(viteReload, logs);
     await page.waitForTimeout(settleMs);
   } finally {
     page.off("framenavigated", listener);
@@ -386,14 +417,7 @@ async function reachSignIn(
     try {
       await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (
-        !/net::ERR_ABORTED|navigation.*(?:abort|interrupt)|(?:abort|interrupt).*navigation/i.test(
-          message,
-        )
-      ) {
-        throw error;
-      }
+      if (!isNavigationInterruption(error)) throw error;
       lastUrl = page.url();
       continue;
     }
@@ -505,7 +529,13 @@ async function runDeploySuite(
     SIGN_IN_LEGACY_ENTRY_PATH,
   ]) {
     const entryPath = `${app.basePath}${entry}`;
-    const visited = await navigateAndSettle(page, `${app.origin}${entryPath}`);
+    const visited = await navigateAndSettle(
+      page,
+      `${app.origin}${entryPath}`,
+      6_000,
+      app.viteReload,
+      app.logs,
+    );
     const landed = pathnameOf(page.url());
     assert.equal(
       isAuthEntryPath(landed, app.basePath),
@@ -541,7 +571,13 @@ async function runDeploySuite(
     // in-app route there and is only an escape under a base path.
     if (name === "sibling app" && !app.basePath) continue;
     const target = `${app.origin}${app.basePath}${SIGN_IN_ENTRY_PATH}?c=${encodeURIComponent(badToken)}`;
-    const visited = await navigateAndSettle(page, target);
+    const visited = await navigateAndSettle(
+      page,
+      target,
+      6_000,
+      app.viteReload,
+      app.logs,
+    );
     const landed = pathnameOf(page.url());
     // The trail separates the two failures this assertion can catch: a
     // continuation that was accepted (the visitor moved somewhere it should
