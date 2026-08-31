@@ -131,6 +131,14 @@ export function setSlideObjectDimension(
   element.style.setProperty(property, value);
 }
 
+export function restoreSlideObjectStyle(
+  element: HTMLElement,
+  style: string | null,
+): void {
+  if (style === null) element.removeAttribute("style");
+  else element.setAttribute("style", style);
+}
+
 export function createSlideObjectPlacementGeometry(
   start: { x: number; y: number },
   end: { x: number; y: number },

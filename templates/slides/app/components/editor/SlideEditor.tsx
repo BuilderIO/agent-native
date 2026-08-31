@@ -167,6 +167,7 @@ import {
   resolveSlideObjectContainingBlock,
   resizeSlideObjectMembers,
   resolveSlideClipboardElement,
+  restoreSlideObjectStyle,
   setSlideObjectDimension,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
@@ -4656,7 +4657,7 @@ export default function SlideEditor({
         if (promotedToFreeform) {
           restorePromotedElement();
         } else {
-          if (!clone && origin) applyObjectGeometry(element, origin);
+          if (!clone && origin) restoreSlideObjectStyle(element, originalStyle);
           if (originalObjectId) {
             element.setAttribute("data-slide-object-id", originalObjectId);
           } else {
@@ -4962,7 +4963,7 @@ export default function SlideEditor({
         cancel: () => {
           if (promotedToFreeform) restorePromotedElement();
           else {
-            applyObjectGeometry(element, resizeOrigin);
+            restoreSlideObjectStyle(element, originalStyle);
             if (originalObjectId) {
               element.setAttribute("data-slide-object-id", originalObjectId);
             } else {

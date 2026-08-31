@@ -32,6 +32,7 @@ import {
   preserveSlideObjectLayoutSpacer,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
+  restoreSlideObjectStyle,
   resizeSlideObject,
   resizeSlideObjectMembers,
   setSlideObjectDimension,
@@ -67,6 +68,18 @@ describe("slide object interactions", () => {
     expect(image.style.getPropertyPriority("height")).toBe("important");
     expect(image.style.getPropertyValue("max-height")).toBe("none");
     expect(image.style.getPropertyPriority("max-height")).toBe("important");
+  });
+
+  it("restores capped image styles after a canceled resize", () => {
+    const image = document.createElement("img");
+    const originalStyle =
+      "position:absolute;width:260px;height:auto!important;max-width:260px!important;max-height:32px!important;";
+    image.setAttribute("style", originalStyle);
+
+    setSlideObjectDimension(image, "height", "64px");
+    restoreSlideObjectStyle(image, originalStyle);
+
+    expect(image.getAttribute("style")).toBe(originalStyle);
   });
 
   it("rejects nesting into void layer targets while keeping containers valid", () => {
