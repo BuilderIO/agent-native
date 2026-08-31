@@ -24,6 +24,11 @@ re-read it before finishing and verify the invoking identity posted **Fixed**,
 ownership and must be revisited; an eye, bot forward, or other person's reply
 alone is never enough.
 
+Every Slack reply from this workflow must clearly disclose that it is
+automated. Append `sent from ChatGPT - automated review.` to each reporter-facing
+reply, including clarification, in-progress, fixed, and post-ship follow-ups.
+Keep the required thank-you and plain-language status before the disclosure.
+
 ## Per-parent eye ledger
 
 The start cursor is not a stop cursor. After selecting it, continue newest to
@@ -233,6 +238,12 @@ left in **In progress**, oldest open ownership first. Verify the claimed fix or
 continue the handoff; do not ask the reporter to repeat details. Keep doing
 this until each open ownership item is **Fixed** or has a genuinely new,
 specific missing reporter or product input.
+
+Before declaring the run complete, re-read every thread where this workflow
+posted a reply through the current end and inspect responses to those replies.
+Treat any response as new evidence: attempt and verify any needed fix, post the
+next disclosed update, and repeat the read-back until no unprocessed follow-up
+remains. The final recap and ship handoff must come after this pass.
 
 ## Resolution and ownership gate
 

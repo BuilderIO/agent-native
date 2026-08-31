@@ -127,6 +127,14 @@ source seam and focused verification, with one explicit disposition: fixed,
 awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
+The handoff must preserve the feedback workflow's automation disclosure:
+every Slack reply it posts ends with `sent from ChatGPT - automated review.`
+Before treating the sweep as fully wrapped, re-read every thread where it
+replied through the current end and inspect replies to those messages. Treat
+new responses as evidence, make and verify any needed fix, then post another
+disclosed update and repeat until no unprocessed follow-up remains. Do not
+merge while this reply follow-up pass is incomplete.
+
 Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
 
 - Never add or duplicate `👀` on a Slack parent. If the latest readable parent
