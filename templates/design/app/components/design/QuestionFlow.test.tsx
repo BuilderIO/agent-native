@@ -83,6 +83,117 @@ async function renderQuestionFlow(
   };
 }
 
+function setTextareaValue(element: HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set?.call(element, value);
+  element.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("QuestionFlow Other answers", () => {
+  it("offers a write-in answer by default for text options", async () => {
+    const onSubmit = vi.fn();
+    const { container, findButton, cleanup } = await renderQuestionFlow({
+      onSubmit,
+      onSkip: vi.fn(),
+      questions: [
+        {
+          id: "direction",
+          type: "text-options",
+          question: "What direction should I take?",
+          required: true,
+          options: [{ label: "Minimal", value: "minimal" }],
+          includeExplore: false,
+          includeDecide: false,
+        },
+      ],
+    });
+
+    const otherButton = findButton("Other");
+    expect(otherButton).toBeTruthy();
+    await act(async () => {
+      otherButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      setTextareaValue(textarea!, "A hand-drawn editorial look");
+    });
+
+    const continueButton = findButton("Continue");
+    expect(continueButton?.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      continueButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      direction: "Other: A hand-drawn editorial look",
+    });
+    await cleanup();
+  });
+
+  it("offers a write-in answer for color options and keeps other selections", async () => {
+    const onSubmit = vi.fn();
+    const { container, findButton, cleanup } = await renderQuestionFlow({
+      onSubmit,
+      onSkip: vi.fn(),
+      questions: [
+        {
+          id: "palette",
+          type: "color-options",
+          question: "Which palettes should I explore?",
+          required: true,
+          multiSelect: true,
+          options: [
+            {
+              label: "Ocean",
+              value: "ocean",
+              color: "var(--design-editor-accent-color)",
+            },
+            {
+              label: "Clay",
+              value: "clay",
+              color: "var(--design-editor-panel-bg)",
+            },
+          ],
+          includeExplore: false,
+          includeDecide: false,
+        },
+      ],
+    });
+
+    await act(async () => {
+      findButton("Ocean")!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await act(async () => {
+      findButton("Other")!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      setTextareaValue(textarea!, "a muted forest green");
+    });
+
+    await act(async () => {
+      findButton("Continue")!.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      palette: ["ocean", "Other: a muted forest green"],
+    });
+    await cleanup();
+  });
+});
+
 describe("QuestionFlow double-submit guard", () => {
   it("only calls onSubmit once when Continue is clicked twice in a row", async () => {
     const onSubmit = vi.fn();
