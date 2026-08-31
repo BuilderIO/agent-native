@@ -7,6 +7,7 @@ import type {
   UpdateEventScope,
 } from "@shared/api";
 import { getWeekStartsOn } from "@shared/calendar-week";
+import { isCalendarEventOrganizer } from "@shared/event-permissions";
 import {
   IconCheck,
   IconChevronLeft,
@@ -1084,10 +1085,7 @@ export default function CalendarView() {
         notificationMessage?: string;
       },
     ) => {
-      const isOrganizer =
-        ev.organizer?.self ||
-        ev.attendees?.find((a) => a.self)?.organizer ||
-        !ev.attendees?.length;
+      const isOrganizer = isCalendarEventOrganizer(ev);
       const hasOtherAttendees =
         ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
       const removeOnly = !isOrganizer && !!hasOtherAttendees;
@@ -1163,6 +1161,7 @@ export default function CalendarView() {
 
   const handleDeleteEvent = useCallback(
     (eventId: string) => {
+      if (deleteEvent.isPending) return;
       if (calendarDraftIdFromEventId(eventId)) {
         discardDraftEvent(eventId);
         return;
@@ -1170,10 +1169,7 @@ export default function CalendarView() {
       const ev = events.find((e) => e.id === eventId);
       if (!ev) return;
       const isRecurring = !!(ev.recurringEventId || ev.recurrence?.length);
-      const isOrganizer =
-        ev.organizer?.self ||
-        ev.attendees?.find((a) => a.self)?.organizer ||
-        !ev.attendees?.length;
+      const isOrganizer = isCalendarEventOrganizer(ev);
       const hasOtherAttendees =
         ev.attendees && ev.attendees.filter((a) => !a.self).length > 0;
       const removeOnly = !isOrganizer && !!hasOtherAttendees;
@@ -1183,13 +1179,14 @@ export default function CalendarView() {
         void handleDirectDelete(ev);
       }
     },
-    [discardDraftEvent, events, handleDirectDelete],
+    [deleteEvent.isPending, discardDraftEvent, events, handleDirectDelete],
   );
 
   // Move event to a new date (drag-and-drop from MonthView)
   async function handleEventDrop(eventId: string, newDate: Date) {
     const event = events.find((e) => e.id === eventId);
-    if (!event) return;
+    if (!event || !isCalendarEventOrganizer(event) || updateEvent.isPending)
+      return;
 
     const moved = moveEventToCalendarDate(event, newDate, displayTimezone);
     if (!moved) return;
@@ -1261,7 +1258,8 @@ export default function CalendarView() {
     async (eventId: string, newStart: Date, newEnd: Date) => {
       // Skip no-op drags (dropped back in same spot)
       const event = events.find((e) => e.id === eventId);
-      if (!event) return;
+      if (!event || !isCalendarEventOrganizer(event) || updateEvent.isPending)
+        return;
 
       // Guard against a zero/negative duration reaching the server —
       // gesture math should already prevent this, but never commit it.

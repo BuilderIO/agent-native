@@ -1,5 +1,56 @@
 # @agent-native/core
 
+## 1.0.0
+
+### Major Changes
+
+- ea6123a: Remove the legacy settings view from agent chat surfaces.
+
+### Minor Changes
+
+- e977e59: Automatically expose eligible backend actions as WebMCP tools on authenticated app pages.
+
+### Patch Changes
+
+- 0a07d1a: Route chat "What went wrong?" feedback through the shared Agent-Native form so its configured Slack integration receives the chat and request context.
+- 4af2889: Use the cube loader for app shells and agent activity, with long-running hints delayed to five minutes.
+- a1b4ae8: Make recurring automation actions available to delegated Agent-Native turns.
+- 8fe0f75: fix: keep authentication email links on their canonical HTTPS origin
+- 6675922: Fail closed when collaborative client initialization cannot load a valid state, with typed retryable errors and no outbound updates before synchronization succeeds.
+- 0fee765: Keep MCP OAuth callbacks from returning to chat until the saved server is connected.
+- 1f8e13c: Route managed Google OAuth through the provider-aware root callback on standalone apps.
+- Release all public npm packages with a patch version bump.
+- c2b2ca7: Track usage of the MCP server an app exposes. Every `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read` now emits an analytics event through the framework's provider-agnostic `track()`, so the metrics land in whichever provider the app has configured (PostHog, Mixpanel, Amplitude, webhook, Agent-Native Analytics).
+
+  Event and property names follow PostHog's MCP analytics vocabulary — `$mcp_tool_call`, `$mcp_tool_name`, `$mcp_duration_ms`, `$mcp_is_error`, `$mcp_client_name`, `$mcp_vendor_client`, … — so PostHog's MCP dashboards work with no mapping layer. Both transports report identically: the events are emitted from the shared server builder, with the handshake captured at the HTTP mount where the client's own name and version are on the wire.
+
+  Tool results are never sent. Tool arguments are off by default; set `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`) to include them as redacted `$mcp_parameters`, or `MCP_ANALYTICS=false` (`observability.mcpEvents`) to turn the events off entirely.
+
+- 5820376: Use a monochrome Agent-Native mark in app sidebars.
+- c2b2ca7: Name agent traces by what started them. Background automation runs now emit `background_automation_run:<job name>` as their span name (plus a `run_label` property carrying `recurring-job:` / `manual-automation:` / `automation:`), and a chat turn that sets `usageLabel` emits `agent_run:<label>` instead of a bare `agent_run`.
+
+  `sendToAgentChat` accepts a `usageLabel`, which rides the submit payload through the composer and the chat request body to that label.
+
+- 8edbd88: Preserve custom OpenRouter model IDs selected in Agent settings.
+- 3feb9ce: Make Builder.io free-credit activation consent a compact one-click popover with an existing-account fallback during onboarding.
+- 8239ce1: Show the Connect AI setup card above shared chat composers when provider credentials fail.
+- c2b2ca7: Make the agent output-token ceiling configurable and stop scheduled runs from silently getting a smaller one than chat.
+  - `agent.maxOutputTokens` (env `AGENT_MAX_OUTPUT_TOKENS`), `agent.mainChatMaxOutputTokens` (default 64K) and `agent.emptyResponseRetryMaxOutputTokens` (default 128K) are declared app-config fields, so the global cap is no longer a bare `process.env` read and an app can set it from `defineAppConfig`. Every value is still clamped down to the model's documented ceiling.
+  - The background automation runner now passes the same model-aware ceiling the interactive paths pass. It previously passed none, so every scheduled job and dispatched automation ran at the flat per-engine default — a lower completion budget than chat, on exactly the runs that emit the largest single tool call.
+  - A `max_tokens` stop is now recognised as truncation when tool-call parts are present, not only when they are absent. A tool call cut off mid-arguments used to read as a schema error: the model was told to "retry with arguments that match the tool schema" and re-sent the same oversized payload against the same ceiling until the identical-error breaker ended the turn, with the tool never executed. The retry now raises the ceiling and the error names the real cause.
+
+- ef5d097: Restore hosted first-run onboarding after email verification and sign-in redirects.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+- 48b09d5: Add shared shine and rotating loading labels to the app shell, and slightly enlarge active tool-call cube loaders.
+- Updated dependencies [844fa10]
+- Updated dependencies [4af2889]
+- Updated dependencies
+- Updated dependencies [dcc9f89]
+- Updated dependencies [163dd55]
+- Updated dependencies [5b7a8ea]
+  - @agent-native/toolkit@0.18.0
+  - @agent-native/recap-cli@0.5.21
+
 ## 0.176.1
 
 ### Patch Changes
@@ -1854,15 +1905,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
   schemas bypassed the sanitizer entirely, so `extension-data-set` shipped a `data`
   property with no `type` and OpenAI 400'd the whole request — every tool in the
   payload, not just that one.
-
-## 0.161.16
-
-### Patch Changes
-
-- c940f4c: Record a rejected Builder credential on the transcription path so it is not
-  retried forever. The chat engine already marks a 401/403 and stops reusing that
-  credential for the auth-failure TTL; transcription threw the raw upstream text
-  and marked nothing, so one unusable credential re-sent the same doomed request
-  on every attempt — 24 identical "Missing Authentication header" 401s in a day.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

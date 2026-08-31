@@ -13,7 +13,10 @@ import { createWorkspaceAppChatProxyHandler } from "../lib/workspace-app-chat-pr
 // above the auto-generated Slack/Telegram steps (order 60). Idempotent.
 registerDispatchOnboardingSteps();
 
-const corePlugin = createCoreRoutesPlugin({ envKeys });
+const corePlugin = createCoreRoutesPlugin({
+  googleOAuthManagedConnection: "required",
+  envKeys,
+});
 
 const dispatchCoreRoutesPlugin: NitroPluginDef = (nitroApp) => {
   const coreInit = corePlugin(nitroApp);

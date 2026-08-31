@@ -406,7 +406,8 @@ const dashboardsSchema = [
   title TEXT NOT NULL,
   config TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  created_by TEXT`,
+  created_by TEXT,
+  chat_context TEXT`,
   ),
   sharesTable("crm_dashboard_shares"),
   `CREATE INDEX IF NOT EXISTS crm_dashboards_owner_updated_idx ON crm_dashboards (owner_email, org_id, updated_at)`,
@@ -646,6 +647,11 @@ export const runCrmMigrations = runMigrations(
       // retries on the next boot.
       sql: {},
       run: backfillNativeStageOptions,
+    },
+    {
+      version: 8,
+      name: "crm-dashboard-revision-chat-context",
+      sql: addColumn("crm_dashboard_revisions", "chat_context TEXT"),
     },
   ],
   { table: "crm_migrations" },

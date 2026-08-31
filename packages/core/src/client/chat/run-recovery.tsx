@@ -28,6 +28,7 @@ import {
   localizeKnownChatErrorText,
 } from "../error-format.js";
 import { useFormatters, useT } from "../i18n.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -240,11 +241,12 @@ export function BuilderConnectCta({
   onConnected?: () => void;
 }) {
   const t = useT();
-  const { configured, orgName, connecting, error, start } =
-    useBuilderConnectFlow({
-      trackingSource: "assistant_chat_builder_cta",
-      onConnected,
-    });
+  const flow = useBuilderConnectFlow({
+    provisionAccount: true,
+    trackingSource: "assistant_chat_builder_cta",
+    onConnected,
+  });
+  const { configured, orgName, connecting, error } = flow;
 
   if (variant === "compact") {
     if (configured) {
@@ -260,22 +262,23 @@ export function BuilderConnectCta({
 
     return (
       <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
-        <button
-          type="button"
-          onClick={() => start()}
-          disabled={connecting}
-          className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
-          aria-busy={connecting}
-        >
-          {connecting ? (
-            <>
-              <IconLoader2 size={10} className="animate-spin" />
-              {t("agentChat.common.waiting")}
-            </>
-          ) : (
-            t("agentChat.setup.connectBuilder")
-          )}
-        </button>
+        <BuilderConnectPopover flow={flow}>
+          <button
+            type="button"
+            disabled={connecting}
+            className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+            aria-busy={connecting}
+          >
+            {connecting ? (
+              <>
+                <IconLoader2 size={10} className="animate-spin" />
+                {t("agentChat.common.waiting")}
+              </>
+            ) : (
+              t("agentChat.setup.connectBuilder")
+            )}
+          </button>
+        </BuilderConnectPopover>
         {error && (
           <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
             {error}
@@ -320,22 +323,23 @@ export function BuilderConnectCta({
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
-      <button
-        type="button"
-        onClick={() => start()}
-        disabled={connecting}
-        className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
-        aria-busy={connecting}
-      >
-        {connecting ? (
-          <>
-            <IconLoader2 size={10} className="animate-spin" />
-            {t("agentChat.common.waiting")}
-          </>
-        ) : (
-          t("agentChat.common.connect")
-        )}
-      </button>
+      <BuilderConnectPopover flow={flow}>
+        <button
+          type="button"
+          disabled={connecting}
+          className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
+          aria-busy={connecting}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2 size={10} className="animate-spin" />
+              {t("agentChat.common.waiting")}
+            </>
+          ) : (
+            t("agentChat.common.connect")
+          )}
+        </button>
+      </BuilderConnectPopover>
     </div>
   );
 }
@@ -550,6 +554,7 @@ export function RunErrorRecoveryCard({
   const retryRequestedRef = useRef(false);
   const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
@@ -756,19 +761,20 @@ export function RunErrorRecoveryCard({
       </div>
       <div className="mt-3 flex min-w-0 items-center gap-2">
         {shouldShowBuilderReconnect && !builderReconnectResolved && (
-          <button
-            type="button"
-            onClick={() => builderReconnect.start()}
-            disabled={builderReconnect.connecting}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
-          >
-            {builderReconnect.connecting ? (
-              <IconLoader2 size={13} className="animate-spin" />
-            ) : null}
-            {builderReconnect.connecting
-              ? t("agentChat.recovery.connectingBuilder")
-              : t("agentChat.recovery.reconnectBuilder")}
-          </button>
+          <BuilderConnectPopover flow={builderReconnect}>
+            <button
+              type="button"
+              disabled={builderReconnect.connecting}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
+            >
+              {builderReconnect.connecting ? (
+                <IconLoader2 size={13} className="animate-spin" />
+              ) : null}
+              {builderReconnect.connecting
+                ? t("agentChat.recovery.connectingBuilder")
+                : t("agentChat.recovery.reconnectBuilder")}
+            </button>
+          </BuilderConnectPopover>
         )}
         {canRecover && (
           <button

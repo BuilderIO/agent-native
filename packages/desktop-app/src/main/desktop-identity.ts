@@ -1735,13 +1735,30 @@ export class DesktopIdentityBroker {
         throw new Error(`Embed session returned ${response.status}`);
       }
       const targetCookies = await app.session.cookies.get({});
-      const sessionCookieNames = targetCookies
-        .filter(
-          (cookie) =>
-            cookieMatchesOrigin(cookie, app.origin) &&
-            app.cookieNames.includes(cookie.name),
-        )
-        .map((cookie) => cookie.name);
+      const sessionCookies = targetCookies.filter(
+        (cookie) =>
+          cookieMatchesOrigin(cookie, app.origin) &&
+          app.cookieNames.includes(cookie.name),
+      );
+      const sessionCookieNames = sessionCookies.map((cookie) => cookie.name);
+      // The embed redirect can leave a Partitioned cookie in the main-process
+      // fetch context. Mirror the allow-listed child cookies through the same
+      // app partition without a partition key so the WebView's page requests
+      // send the session too. Never copy the parent identity cookie here.
+      for (const cookie of sessionCookies) {
+        await app.session.cookies.set({
+          url: app.origin,
+          name: cookie.name,
+          value: cookie.value,
+          path: cookie.path || "/",
+          httpOnly: cookie.httpOnly,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite,
+          ...(cookie.expirationDate
+            ? { expirationDate: cookie.expirationDate }
+            : {}),
+        });
+      }
       console.info("[desktop identity] workspace app session response", {
         appId: app.id,
         responseOrigin: safeResponseOrigin(response.url),
@@ -1970,32 +1987,34 @@ export class DesktopIdentityBroker {
     }
 
     const remaining = orderedApps.filter((app) => app.id !== firstApp.id);
-    const operations = remaining.map((app) =>
-      this.ensureAppSessionInternal(app.id, {
-        interactive: false,
-        skipAvailabilityProbe: true,
-        preserveStatus: app.id !== appId,
-      }),
-    );
-    // A child that has no SSO-capable login path must not strand the parent
-    // or the requested app; failed children are retried when opened.
-    const allResults = Promise.allSettled(operations);
-    const requestedIndex = remaining.findIndex((app) => app.id === appId);
-    const requestedOperation =
-      requestedIndex >= 0 ? operations[requestedIndex] : null;
-    let requestedSucceeded = firstApp.id === appId;
-    if (requestedOperation) {
-      let requestedResult = false;
+    const ensureChild = async (
+      app: DesktopIdentityApp,
+      preserveStatus: boolean,
+    ): Promise<boolean> => {
       try {
-        requestedResult = await requestedOperation;
+        return await this.ensureAppSessionInternal(app.id, {
+          interactive: false,
+          skipAvailabilityProbe: true,
+          preserveStatus,
+        });
       } catch (error) {
-        console.warn("[desktop identity] requested app session failed", {
-          appId,
+        console.warn("[desktop identity] app session failed", {
+          appId: app.id,
           reason: error instanceof Error ? error.message : "unknown error",
         });
+        return false;
       }
+    };
+
+    // The requested app is ordered first so the sign-in UI can finish as soon
+    // as its session is usable. The remaining apps are adopted one at a time
+    // so a sign-in does not fan out concurrent hosted-session mints.
+    const requestedChild = remaining[0]?.id === appId ? remaining[0] : null;
+    let requestedSucceeded = firstApp.id === appId;
+    if (requestedChild) {
       requestedSucceeded =
-        requestedResult === true && this.isCeremonyCurrent(generation);
+        (await ensureChild(requestedChild, false)) &&
+        this.isCeremonyCurrent(generation);
     }
     if (!requestedSucceeded) {
       if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
@@ -2006,19 +2025,19 @@ export class DesktopIdentityBroker {
     if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
       this.setStatus("signed-in");
     }
-    void allResults.then((results) => {
-      const failedAppIds = remaining
-        .filter((_app, index) => {
-          const result = results[index];
-          return result.status === "rejected" || !result.value;
-        })
-        .map((app) => app.id);
+    void (async () => {
+      const failedAppIds: string[] = [];
+      const backgroundApps = requestedChild ? remaining.slice(1) : remaining;
+      for (const app of backgroundApps) {
+        if (!this.isCeremonyCurrent(generation)) return;
+        if (!(await ensureChild(app, true))) failedAppIds.push(app.id);
+      }
       if (failedAppIds.length > 0) {
         console.warn("[desktop identity] app session fan-out had failures", {
           appIds: failedAppIds,
         });
       }
-    });
+    })();
     return true;
   }
 
@@ -2197,25 +2216,32 @@ export class DesktopIdentityBroker {
       }
 
       const apps = this.listIdentityApps(sourceApp, authority);
-      const remaining = apps.filter((app) => app.id !== authority.id);
-      const results = await Promise.allSettled(
-        remaining.map((app) =>
-          this.ensureAppSessionInternal(app.id, {
+      const failedAppIds: string[] = [];
+      // Keep session adoption serial as well as sign-in fan-out. Each child
+      // request can mint a separate hosted session and parallel calls trigger
+      // provider rate limits before the parent session is useful.
+      for (const app of apps.filter(
+        (candidate) => candidate.id !== authority.id,
+      )) {
+        let succeeded = false;
+        try {
+          succeeded = await this.ensureAppSessionInternal(app.id, {
             interactive: false,
             skipIfPresent: true,
             expectedSessionValue: sourceCookie.value,
             waitForSignOut: false,
             skipAvailabilityProbe: true,
             preserveStatus: true,
-          }),
-        ),
-      );
-      const failedAppIds = remaining
-        .filter((_app, index) => {
-          const result = results[index];
-          return result.status === "rejected" || !result.value;
-        })
-        .map((app) => app.id);
+          });
+        } catch (error) {
+          console.warn("[desktop identity] automatic app session failed", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        }
+        if (!succeeded) failedAppIds.push(app.id);
+        if (!this.isCeremonyCurrent(generation)) return false;
+      }
       if (failedAppIds.length > 0) {
         // The verified source and authority sessions remain usable. A failed
         // app is retried when its webview is opened instead of locking the

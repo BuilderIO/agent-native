@@ -382,6 +382,59 @@ const messages = {
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
+    aiFilter: {
+      title: "AI フィルター",
+      subtitle: "判断から学習する、いつでも戻せるラベルです。",
+      lunaBadge: "Luna（利用可能な場合）",
+      toggle: "AI フィルターを切り替え",
+      autoFilterTitle: "確信度の高いメールを自動でフィルター",
+      autoFilterDescription:
+        "明らかに一致するメールだけを受信トレイから移動し、残りはここで確認します。",
+      autoFilterToggle: "確信度の高いメールを自動でフィルター",
+      thresholdLabel: "自動フィルターの確信度しきい値",
+      labelName: "Gmail ラベル",
+      labelHelp:
+        "agent-native-filtered は Gmail や他のクライアントでも表示されます。Gmail の迷惑メールではありません。",
+      reviewLabel: "フィルター済みを確認",
+      instructionsTitle: "指示",
+      instructionCount: "{{count}} 件の指示",
+      instructionPlaceholder:
+        "例：「question for you, Steve」のような件名は不要",
+      addInstruction: "追加",
+      noInstructions: "指示はまだありません。",
+      instructionExample: "「政治キャンペーンのメールはすべて不要」を試す",
+      toggleInstruction: "指示を切り替え：{{instruction}}",
+      deleteInstruction: "指示を削除",
+      activityTitle: "最近のアクティビティ",
+      suggestionCount: "{{count}} 件を確認",
+      viewAll: "すべて表示",
+      noActivity: "AI フィルターのアクティビティはまだありません。",
+      unknownSender: "不明な送信者",
+      noSubject: "（件名なし）",
+      filterTitle: "AI でフィルター",
+      keepTitle: "受信トレイに残す",
+      filterDescription:
+        "{{count}} 件のスレッドをアーカイブし、agent-native-filtered ラベルを追加します。",
+      keepDescription:
+        "{{count}} 件のスレッドを受信トレイに戻し、フィルターに学習させます。",
+      labelNote:
+        "agent-native-filtered ラベルを追加してスレッドをアーカイブします。いつでも元に戻せます。",
+      learningNote:
+        "メールを受信トレイに残し、同じ間違いを繰り返さないようフィルターに学習させます。",
+      rememberLabel: "今後のメールのために記憶（任意）",
+      correctLabel: "何を学習させますか？（任意）",
+      rememberPlaceholder: "例：政治キャンペーンからのこのようなメールは不要",
+      correctPlaceholder:
+        "例：この送信者は顧客なので、今後のメールは受信トレイに残す",
+      commentHint: "メモは編集可能なルールまたは学習例になります。",
+      filterButton: "フィルター",
+      keepButton: "残す",
+      filteredToast: "{{count}} 件のスレッドをフィルターしました。",
+      keptToast: "{{count}} 件のスレッドを受信トレイに残しました。",
+      actionFailed: "AI フィルターを更新できませんでした。",
+      settingsFailed: "AI フィルターの設定を保存できませんでした。",
+      instructionFailed: "AI フィルターの指示を保存できませんでした。",
+    },
     draftQueue: {
       title: "Cola de borradores",
       queueDraft: "Poner borrador en cola",
@@ -560,6 +613,7 @@ const messages = {
     deleteSnippetDescription:
       "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
+    aiFilter: "AI フィルター",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",
     tracking: "トラッキング",

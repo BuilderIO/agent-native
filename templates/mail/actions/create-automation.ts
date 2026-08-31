@@ -14,6 +14,7 @@ export default defineAction({
       .array(automationActionSchema)
       .describe("Actions applied when the condition matches"),
     domain: z.enum(["mail", "calendar"]).optional().describe("Rule domain"),
+    kind: z.enum(["automation", "ai-filter"]).optional().describe("Rule kind"),
     enabled: z.boolean().optional().describe("Whether the rule starts enabled"),
   }),
   agentTool: false,

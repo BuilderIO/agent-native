@@ -70,7 +70,7 @@ describe("page-chat handoff defaults", () => {
 
   it("lets Chat and Assets restore the shared active thread at chat home", () => {
     for (const template of ["chat", "assets"] as const) {
-      const route = readTemplateFile(template, "app/routes/_index.tsx");
+      const route = readTemplateFile(template, "app/routes/home.tsx");
       expect(route).toContain("const threadUrlSync = threadId");
       expect(route).toContain("threadUrlSync={threadUrlSync}");
       expect(route).not.toContain("routeThreadId: threadId ?? null");

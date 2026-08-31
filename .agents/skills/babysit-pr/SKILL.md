@@ -101,6 +101,13 @@ can change within minutes, so re-check before every actionable push.
    fi
    ```
 
+   If either publishable-path check is non-empty, do not attempt an in-place
+   isolation. Preserve the exact dirty paths and unpublished commits, leave the
+   checkout untouched, and wait for the owning session to publish or move its
+   work. A separate clean PR worktree may perform this recovery when one is
+   already available. Never use `git stash`, reset, restore, or a temporary
+   branch as a substitute for retaining concurrent work.
+
    Do not merge an obsolete local head.
    **Publish any intentional actionable fix first (Step 0)**, after verifying
    every dirty path and unpushed commit belongs to that fix; then prefer a
@@ -114,9 +121,10 @@ can change within minutes, so re-check before every actionable push.
    merge commit, and push (a normal push, never `--force`). This resets the soak
    timer. If unrelated or incomplete concurrent work keeps the worktree dirty,
    preserve it and wait for its owner instead of stashing, restoring, or
-   forcing the merge. Do not merge `origin/main` again while the PR remains
-   conflict-free.
-   Only rebase if the user explicitly asks for a linear history.
+   forcing the merge. Do not merge `origin/main` again while the PR is
+   `MERGEABLE` or `UNKNOWN`, or while checks are merely pending; a conflict-free
+   PR does not need another main merge. Only rebase if the user explicitly asks
+   for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 ## Latest-feedback handoff

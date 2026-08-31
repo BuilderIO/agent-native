@@ -7,6 +7,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 export default createAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
+  workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Calendar",
     tagline:

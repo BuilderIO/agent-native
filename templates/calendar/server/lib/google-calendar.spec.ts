@@ -1828,4 +1828,13 @@ describe("calendar Google OAuth exchange", () => {
       "https://app.example.com/_agent-native/google/callback",
     );
   });
+
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+  });
 });

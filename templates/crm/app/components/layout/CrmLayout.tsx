@@ -3,14 +3,17 @@ import {
   AgentToggleButton,
   focusAgentChat,
   isAgentChatHomeHandoffActive,
+  isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { IconMenu2, IconSearch } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { CrmSidebar } from "@/components/layout/CrmSidebar";
@@ -29,6 +32,36 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isAskRoute = location.pathname === "/ask";
+  const dashboardChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (location.pathname !== "/dashboard") return undefined;
+    const dashboardId = new URLSearchParams(location.search).get("id");
+    if (!dashboardId) return undefined;
+    return {
+      list: {
+        action: "list-crm-dashboard-revisions",
+        args: { id: dashboardId },
+        getVersions: (result: unknown) =>
+          Array.isArray(result)
+            ? result.filter(isAssistantChatHistoryVersion)
+            : [],
+      },
+      restore: {
+        action: "restore-crm-dashboard-revision",
+        args: (version: AssistantChatHistoryVersion) => ({
+          id: dashboardId,
+          revisionId: version.id,
+        }),
+      },
+    };
+  }, [location.pathname, location.search]);
+  const dashboardScope = dashboardChatHistory
+    ? {
+        type: "crm-dashboard" as const,
+        id: new URLSearchParams(location.search).get("id")!,
+      }
+    : undefined;
   const handoffActive = useAgentChatHomeHandoff({
     storageKey: "crm",
     activePath: location.pathname,
@@ -111,6 +144,8 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         chatViewTransition
         chatViewTransitionHandoff={handoffPending}
         openOnChatRunning={handoffActive}
+        scope={dashboardScope}
+        chatHistory={dashboardChatHistory}
         onFullscreenRequest={() => {
           focusAgentChat();
           navigateWithAgentChatViewTransition(navigate, "/ask");

@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
   assertDeckWriteApplied,
@@ -22,7 +25,7 @@ export default defineAction({
     deckId: z.string().describe("Deck ID"),
     aspectRatio: z.enum(ASPECT_RATIO_VALUES).describe("Target aspect ratio"),
   }),
-  run: async ({ deckId, aspectRatio }) => {
+  run: async ({ deckId, aspectRatio }, ctx) => {
     await assertAccess("deck", deckId, "editor");
     const db = getDb();
     const rows = await db
@@ -43,7 +46,11 @@ export default defineAction({
           data: rows[0].data,
           ownerEmail: rows[0].ownerEmail,
         },
-        { label: "Before aspect ratio change", db: tx },
+        {
+          chatContext: deckVersionChatContextFromAction(ctx),
+          label: "Before aspect ratio change",
+          db: tx,
+        },
       );
       const updateResult = await tx
         .update(schema.decks)

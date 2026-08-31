@@ -39,6 +39,14 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
+  firstOriginFromEnv,
+  getConfiguredOriginAllowlist,
+  isLoopbackHost,
+  normalizeOrigin,
+  WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
+} from "./origin-allowlist.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
@@ -109,73 +117,6 @@ export function isMobile(event: H3Event): boolean {
   return /iPhone|iPad|iPod|Android/i.test(getHeader(event, "user-agent") || "");
 }
 
-/**
- * Build the static allowlist of origins we trust for `getOrigin`. Reads
- * deployment-known public URLs. Each entry is normalised to
- * `${proto}://${host}` (no path). Duplicates collapse, invalid entries are
- * dropped silently.
- */
-const EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_OAUTH_ORIGIN",
-  "VITE_WORKSPACE_OAUTH_ORIGIN",
-  "APP_URL",
-  "VITE_APP_URL",
-  "BETTER_AUTH_URL",
-  "VITE_BETTER_AUTH_URL",
-  "URL",
-  "DEPLOY_URL",
-] as const;
-
-const WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS = [
-  "WORKSPACE_GATEWAY_URL",
-  "VITE_WORKSPACE_GATEWAY_URL",
-] as const;
-
-function normalizeOrigin(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const u = new URL(raw);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function addNormalizedOrigin(
-  out: Set<string>,
-  raw: string | undefined,
-  options: { allowLoopback: boolean },
-): void {
-  const origin = normalizeOrigin(raw);
-  if (!origin) return;
-  if (!options.allowLoopback && isLoopbackOrigin(origin)) return;
-  out.add(origin);
-}
-
-function firstOriginFromEnv(
-  keys: readonly string[],
-  options: { allowLoopback: boolean },
-): string | undefined {
-  for (const key of keys) {
-    const origin = normalizeOrigin(process.env[key]);
-    if (!origin) continue;
-    if (!options.allowLoopback && isLoopbackOrigin(origin)) continue;
-    return origin;
-  }
-  return undefined;
-}
-
-function getConfiguredOriginAllowlist(): Set<string> {
-  const out = new Set<string>();
-  for (const key of EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: true });
-  }
-  for (const key of WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS) {
-    addNormalizedOrigin(out, process.env[key], { allowLoopback: false });
-  }
-  return out;
-}
-
 /** Return whether a candidate is one of this deployment's configured origins. */
 export function isConfiguredAppOrigin(value: string | undefined): boolean {
   const origin = normalizeOrigin(value);
@@ -191,30 +132,6 @@ function getWorkspaceCallbackOrigin(): string | undefined {
   return firstOriginFromEnv(WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS, {
     allowLoopback: false,
   });
-}
-
-function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) return false;
-  try {
-    const parsed = new URL(`http://${host}`);
-    return (
-      parsed.hostname === "localhost" ||
-      parsed.hostname === "127.0.0.1" ||
-      parsed.hostname === "::1" ||
-      parsed.hostname === "[::1]"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isLoopbackOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    return isLoopbackHost(new URL(origin).host);
-  } catch {
-    return false;
-  }
 }
 
 function isBuilderPreviewHost(host: string | undefined): boolean {
@@ -346,10 +263,19 @@ function isRequestUnderAppBasePath(event: H3Event): boolean {
   );
 }
 
-function getDefaultOAuthRedirectUrl(event: H3Event, path: string): string {
+export type OAuthRedirectUriOptions = {
+  /** Allow a known framework callback to bypass an app mount prefix. */
+  allowRootCallback?: boolean;
+};
+
+function getDefaultOAuthRedirectUrl(
+  event: H3Event,
+  path: string,
+  options: OAuthRedirectUriOptions = {},
+): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   if (
-    isWorkspaceOAuthCallbackRelayEnabled() &&
+    (isWorkspaceOAuthCallbackRelayEnabled() || options.allowRootCallback) &&
     isFrameworkOAuthCallbackPath(cleanPath)
   ) {
     return `${getOrigin(event)}${cleanPath}`;
@@ -389,6 +315,7 @@ export function isAllowedOAuthRedirectUri(
   candidate: string,
   event: H3Event,
   expectedOrigin = getOrigin(event),
+  options: OAuthRedirectUriOptions = {},
 ): boolean {
   if (typeof candidate !== "string" || candidate.length === 0) return false;
   let url: URL;
@@ -415,7 +342,8 @@ export function isAllowedOAuthRedirectUri(
     basePath && isRequestUnderAppBasePath(event)
       ? [
           `${basePath}/_agent-native/`,
-          ...(isWorkspaceOAuthCallbackRelayEnabled() &&
+          ...((isWorkspaceOAuthCallbackRelayEnabled() ||
+            options.allowRootCallback) &&
           isFrameworkOAuthCallbackPath(url.pathname)
             ? ["/_agent-native/"]
             : []),
@@ -444,12 +372,15 @@ export function isAllowedOAuthRedirectUri(
 export function resolveOAuthRedirectUri(
   event: H3Event,
   defaultPath = "/_agent-native/google/callback",
+  options: OAuthRedirectUriOptions = {},
 ): string | null {
   const supplied = getQuery(event).redirect_uri;
   if (typeof supplied === "string" && supplied.length > 0) {
-    return isAllowedOAuthRedirectUri(supplied, event) ? supplied : null;
+    return isAllowedOAuthRedirectUri(supplied, event, getOrigin(event), options)
+      ? supplied
+      : null;
   }
-  return getDefaultOAuthRedirectUrl(event, defaultPath);
+  return getDefaultOAuthRedirectUrl(event, defaultPath, options);
 }
 
 // ─── OAuth State ─────────────────────────────────────────────────────────────
@@ -660,8 +591,9 @@ export function encodeOAuthState(
 
 /**
  * Decode and verify OAuth state from the callback's state query parameter.
- * Rejects forged or tampered state by checking the HMAC signature.
- * Falls back to the provided URI if decoding or verification fails.
+ * A fallback-shaped payload is returned when state is missing, malformed, or
+ * fails HMAC verification. That payload is untrusted; callers must validate
+ * the fields their flow requires before exchanging a code or redirecting.
  */
 export function decodeOAuthState(
   stateParam: string | undefined,

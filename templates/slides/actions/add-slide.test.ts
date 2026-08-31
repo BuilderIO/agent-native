@@ -114,6 +114,7 @@ vi.mock("./patch-deck.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
 vi.mock("drizzle-orm", () => ({

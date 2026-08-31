@@ -63,6 +63,7 @@ const arSA = {
     dialogLabel: "البحث في الوثائق",
     placeholder: "ابحث في الوثائق...",
     empty: "اكتب للبحث في كل الوثائق",
+    toggleChatSidebar: "تبديل الشريط الجانبي للدردشة",
     loadError: "تعذر تحميل البحث. حاول مرة أخرى.",
     retry: "حاول مرة أخرى",
     noResults: "لا توجد نتائج لـ “{{query}}”",

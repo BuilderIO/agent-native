@@ -194,6 +194,11 @@ Pick a preset by `projectType`:
 ## Measurable rules (bake these in)
 
 - 8px spacing grid — all padding/margins/gaps are multiples of 4/8.
+- Absolute `left`/`top` are whole pixels, and multiples of the screen's
+  `layoutGrid.size` when `design-selection` reports one. A fractional or
+  off-grid position reads as a mistake to a designer and does not match what
+  dragging the same element produces. Set a screen's grid with
+  `set-layout-grid`.
 - Body text ≥ 16px, labels ≥ 12px.
 - Big type-scale jumps for hierarchy (don't rely on tiny size deltas).
 - WCAG contrast: 4.5:1 normal text, 3:1 large text. Verify accent-on-background.

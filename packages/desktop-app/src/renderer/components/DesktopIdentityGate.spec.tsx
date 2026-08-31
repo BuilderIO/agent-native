@@ -71,6 +71,14 @@ describe("DesktopIdentityGate", () => {
     expect(container.textContent).toContain("Sign in with Google");
     expect(container.textContent).toContain("Welcome");
     expect(container.textContent).toContain("Create an account or sign in");
+    expect(
+      container.querySelector(".desktop-identity-gate__app-name"),
+    ).toBeNull();
+    expect(
+      container
+        .querySelector(".desktop-identity-gate")
+        ?.getAttribute("aria-label"),
+    ).toBe("Mail sign-in");
     expect(container.textContent).toContain("Email");
     expect(container.textContent).toContain(
       "By signing up, you accept our Terms and Privacy Policy.",
@@ -184,6 +192,12 @@ describe("DesktopIdentityGate", () => {
     renderGate("checking");
     expect(container.textContent).toContain("Checking...");
     expect(container.querySelector("form")).toBeNull();
+  });
+
+  it("does not wedge the shell on a transient identity failure", () => {
+    renderGate("failed");
+    expect(container.textContent).toBe("");
+    expect(container.querySelector(".desktop-identity-gate")).toBeNull();
   });
 
   it("renders nothing after the broker has fanned out app sessions", () => {

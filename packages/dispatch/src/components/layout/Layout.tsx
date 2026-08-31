@@ -63,7 +63,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -1223,7 +1223,10 @@ export function NavContent({
   );
   const organizationPicker = (
     <div
-      className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
+      className={cn(
+        "py-2 empty:hidden",
+        collapsed ? "flex justify-center px-1" : "px-3",
+      )}
     >
       <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
     </div>
@@ -1254,26 +1257,11 @@ export function NavContent({
             collapsed ? "justify-center" : "gap-2",
           )}
         >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
+          <AgentNativeIcon
             aria-hidden="true"
-            width={35}
-            height={20}
             className={cn(
-              "block shrink-0 object-contain object-center dark:hidden",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
-            )}
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={35}
-            height={20}
-            className={cn(
-              "hidden shrink-0 object-contain object-center dark:block",
-              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+              "shrink-0 text-foreground",
+              collapsed ? "h-3.5 w-6" : "h-[17px] w-[30px]",
             )}
           />
           {!collapsed && (

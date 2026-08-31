@@ -8,6 +8,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import type {
   BreakpointDefinition,
   BreakpointSet,
@@ -70,8 +71,9 @@ export default defineAction({
       .optional()
       .describe("Optional pre-generated id. Omit to auto-generate."),
   }),
-  run: async ({ designId, label, widthPx, id: providedId }) => {
+  run: async ({ designId, label, widthPx, id: providedId }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const breakpointId = providedId ?? nanoid();
     const breakpointSetId = nanoid();

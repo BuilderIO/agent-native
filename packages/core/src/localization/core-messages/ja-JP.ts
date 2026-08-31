@@ -46,6 +46,32 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "その他",
   "onboarding.skipForNow": "今はスキップ",
   "onboarding.saveRoleError": "役割を保存できませんでした。",
+  "onboarding.builderActivateCredits": "Builder.io 無料クレジットを有効化",
+  "onboarding.builderConnectCredits": "Builder.io 無料クレジットに接続",
+  "onboarding.builderActivateDescription":
+    "Builder.io アカウントを作成または再利用し、ワンクリックで無料クレジットを有効化します。",
+  "onboarding.builderActiveCredits":
+    "有効な Builder.io 無料クレジットに含まれるもの",
+  "onboarding.builderCredits": "Builder.io 無料クレジットに含まれるもの",
+  "onboarding.builderActivateTitle": "無料クレジットを有効化",
+  "onboarding.builderAccountExistsTitle":
+    "Builder.io アカウントをすでにお持ちです",
+  "onboarding.builderAccountExistsDescription":
+    "接続するにはログインしてください。",
+  "onboarding.builderActivationDescription":
+    "ワンクリックで Builder.io アカウントを自動的に作成します。",
+  "onboarding.builderCreateAndActivate": "作成して有効化",
+  "onboarding.builderConsentPrefix": "続行すると、Builder.io の",
+  "onboarding.builderTerms": "利用規約",
+  "onboarding.builderPrivacy": "プライバシー",
+  "onboarding.builderConsentAnd": "および",
+  "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
+  "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
+  "onboarding.builderConnecting": "Builder.io 無料クレジットに接続しています",
+  "onboarding.builderProvisioningDescription":
+    "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
+  "onboarding.builderConnectionDescription":
+    "新しいウィンドウでワンクリック接続を完了してください。",
   "aboutAgentNative.title": "Agent-Native について",
   "aboutAgentNative.version": "バージョン",
   "aboutAgentNative.environment": "環境",

@@ -229,7 +229,7 @@ describe("loadDesktopWorkspaceApps", () => {
         identitySession: sessionFor(fetch),
         dispatchOrigin: "https://dispatch.example.com",
       }),
-    ).resolves.toEqual({ enabled: true, apps: [] });
+    ).resolves.toEqual({ enabled: true, apps: [], unavailable: true });
 
     fetch.mockReset();
     fetch.mockResolvedValue(response({}, 401));
@@ -238,6 +238,6 @@ describe("loadDesktopWorkspaceApps", () => {
         identitySession: sessionFor(fetch),
         dispatchOrigin: "https://dispatch.example.com",
       }),
-    ).resolves.toEqual({ enabled: false, apps: [] });
+    ).resolves.toEqual({ enabled: true, apps: [], unavailable: true });
   });
 });

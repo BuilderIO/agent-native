@@ -2207,6 +2207,8 @@ export default function RecordRoute() {
     fileUploadRecordingIdRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
+    engineRef.current = null;
+    pendingRef.current = null;
     liveTranscription.stop();
     browserDiagnosticsRef.current?.dispose();
     browserDiagnosticsRef.current = null;
@@ -2253,8 +2255,6 @@ export default function RecordRoute() {
     setIsPaused(false);
     setUiState("idle");
     setUploadProgress(null);
-    pendingRef.current = null;
-    engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
 
   const playCountdownAudioCue = useCallback(() => {

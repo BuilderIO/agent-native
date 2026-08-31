@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   babysitFingerprint,
+  babysitOutOfScopeClause,
+  formatBabysitAuditSummary,
   hasMergeConflict,
-  isBuilderBotLogin,
   reconcileBabysitState,
-  shouldBabysitBuilderBotPullRequest,
+  shouldRequestBabysitWork,
   type BabysitInput,
   type ReviewCommentObservation,
 } from "./pr-babysit.js";
@@ -245,12 +246,10 @@ describe("reconcileBabysitState", () => {
   });
 });
 
-describe("builder bot babysit policy", () => {
+describe("babysit work policy", () => {
   const clean = reconcileBabysitState(baseInput);
 
-  it("recognizes Builder bot login variants and conflicts", () => {
-    expect(isBuilderBotLogin("builder-io-bot[bot]")).toBe(true);
-    expect(isBuilderBotLogin("human-reviewer")).toBe(false);
+  it("recognizes merge conflicts", () => {
     expect(
       hasMergeConflict({ mergeable: false, mergeableState: "dirty" }),
     ).toBe(true);
@@ -259,10 +258,9 @@ describe("builder bot babysit policy", () => {
     ).toBe(false);
   });
 
-  it("only requests work for a Builder bot PR with outstanding evidence", () => {
+  it("requests work for outstanding evidence, not for a clean snapshot", () => {
     expect(
-      shouldBabysitBuilderBotPullRequest({
-        author: "builder-io-bot",
+      shouldRequestBabysitWork({
         mergeable: true,
         mergeableState: "clean",
         snapshot: clean,
@@ -273,21 +271,19 @@ describe("builder bot babysit policy", () => {
       checks: [check("ci", "failed")],
     });
     expect(
-      shouldBabysitBuilderBotPullRequest({
-        author: "builder-io-bot[bot]",
+      shouldRequestBabysitWork({
         mergeable: true,
         mergeableState: "clean",
         snapshot: failing,
       }),
     ).toBe(true);
     expect(
-      shouldBabysitBuilderBotPullRequest({
-        author: "human-reviewer",
+      shouldRequestBabysitWork({
         mergeable: false,
         mergeableState: "dirty",
-        snapshot: failing,
+        snapshot: clean,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("changes the durable fingerprint when review state changes", () => {
@@ -307,6 +303,15 @@ describe("builder bot babysit policy", () => {
         snapshot: clean,
         reviewStates: ["changes_requested"],
       }),
+    );
+  });
+
+  it("names the pull request and author in the audit sentence", () => {
+    expect(
+      formatBabysitAuditSummary(3917, babysitOutOfScopeClause("steve8708")),
+    ).toBe("#3917 skipped; author steve8708 is out of scope.");
+    expect(formatBabysitAuditSummary(null, babysitOutOfScopeClause(null))).toBe(
+      "Item skipped; out of scope.",
     );
   });
 });

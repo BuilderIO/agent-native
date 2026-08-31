@@ -3,6 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  BuilderConnectPopover,
+  useBuilderConnectFlow,
+} from "@agent-native/core/client/settings";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { propNameToDataAttribute } from "@shared/component-model";
 import {
@@ -110,10 +114,25 @@ function MakeItRealCard({
   featureLabel: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const { data, isLoading } = useActionQuery<ConnectBuilderAppResult>(
     "connect-builder-app",
     { designId },
   );
+  const builderConnect = useBuilderConnectFlow({
+    popupUrl:
+      data?.cta?.kind === "connect-builder" ? data.cta.connectUrl : undefined,
+    provisionAccount: true,
+    trackingSource: "design_editor_make_real",
+    trackingFlow: "design_migration",
+    onConnected: () => {
+      if (data?.cta?.kind === "connect-builder") {
+        void queryClient.invalidateQueries({
+          queryKey: ["action", "connect-builder-app", { designId }],
+        });
+      }
+    },
+  });
 
   const migrateMutation = useActionMutation("migrate-inline-design-to-app");
 
@@ -139,12 +158,6 @@ function MakeItRealCard({
 
   // "Make it real" primary action: open the connect URL or migrate.
   const handlePrimary = () => {
-    if (cta.kind === "connect-builder") {
-      // Open the Builder OAuth connect flow in a new tab.  The user completes
-      // it there and comes back; the card will re-query on next render.
-      window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
     if (cta.kind === "configure-project") {
       window.open(cta.connectUrl, "_blank", "noopener,noreferrer");
       return;
@@ -211,16 +224,30 @@ function MakeItRealCard({
         >
           {summary}
         </p>
-        <Button
-          type="button"
-          size="sm"
-          onClick={handlePrimary}
-          title={cta.primaryAction}
-          className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-white hover:bg-[var(--design-editor-accent-hover-color)]"
-        >
-          {primaryLabel}
-          <IconArrowRight className="size-2.5" />
-        </Button>
+        {cta.kind === "connect-builder" ? (
+          <BuilderConnectPopover flow={builderConnect}>
+            <Button
+              type="button"
+              size="sm"
+              title={cta.primaryAction}
+              className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-[var(--design-editor-accent-hover-color)]"
+            >
+              {primaryLabel}
+              <IconArrowRight className="size-2.5" />
+            </Button>
+          </BuilderConnectPopover>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            onClick={handlePrimary}
+            title={cta.primaryAction}
+            className="h-6 shrink-0 gap-1 rounded-md bg-[var(--design-editor-accent-color)] px-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-[var(--design-editor-accent-hover-color)]"
+          >
+            {primaryLabel}
+            <IconArrowRight className="size-2.5" />
+          </Button>
+        )}
 
         {/* When Builder is fully connected, also offer direct migration */}
         {data.connected && data.builderEnabled && (
