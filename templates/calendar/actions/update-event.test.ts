@@ -561,6 +561,27 @@ describe("update-event working locations", () => {
     );
   });
 
+  it("passes Google Meet removal through to the calendar service", async () => {
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          removeGoogleMeet: true,
+        }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "event-1",
+      { accountEmail: "owner@example.com" },
+      expect.objectContaining({ removeGoogleMeet: true }),
+    );
+    expect(result).toMatchObject({
+      id: "google-event-1",
+      removedGoogleMeet: true,
+    });
+  });
+
   it("does not try to convert a normal event into a working-location event", async () => {
     getEventMock.mockResolvedValue({
       id: "google-event-1",

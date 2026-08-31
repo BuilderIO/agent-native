@@ -16,7 +16,7 @@ import {
   isInboxScopedAppLabel,
   normalizeMailLabel,
 } from "@shared/gmail-labels";
-import type { Label } from "@shared/types";
+import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconMenu2,
   IconSettings,
@@ -101,6 +101,7 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
 
 const BARE_ROUTES = new Set(["/email"]);
+const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
 
 type SnoozeTarget = {
   emailId: string;
@@ -265,6 +266,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
+  const activeFilterId = searchParams.get("filter");
   const composeInitialExpanded =
     searchParams.get(COMPOSE_FULLSCREEN_PARAM) === "1";
   const clearComposeInitialExpanded = useCallback(() => {
@@ -288,21 +290,29 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     view: string;
     label: string | null;
     tab: string | null;
-  }>({ view, label: activeLabel, tab: activeInboxTab });
+    filter: string | null;
+  }>({
+    view,
+    label: activeLabel,
+    tab: activeInboxTab,
+    filter: activeFilterId,
+  });
   useEffect(() => {
     if (!activeSearchQuery) {
       preSearchViewRef.current = {
         view,
         label: activeLabel,
         tab: activeInboxTab,
+        filter: activeFilterId,
       };
     }
-  }, [view, activeLabel, activeInboxTab, activeSearchQuery]);
+  }, [view, activeLabel, activeInboxTab, activeFilterId, activeSearchQuery]);
   const restorePreSearchPath = useCallback(() => {
-    const { view: v, label: l, tab } = preSearchViewRef.current;
+    const { view: v, label: l, tab, filter } = preSearchViewRef.current;
     const params = new URLSearchParams();
     if (l) params.set("label", l);
     if (tab) params.set("tab", tab);
+    if (filter) params.set("filter", filter);
     const search = params.toString();
     return `/${v}${search ? `?${search}` : ""}`;
   }, []);
@@ -384,6 +394,17 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
   const labelAliases = settings?.labelAliases ?? {};
+  const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilter = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  );
+  const {
+    data: activeFilterEmails = [],
+    totalEstimate: activeFilterTotalEstimate,
+    hasNextPage: activeFilterHasNextPage,
+  } = useEmails("all", activeSavedFilter?.query, undefined, {
+    enabled: Boolean(activeSavedFilter),
+  });
   const {
     data: rawInboxEmails = [],
     isLoading: emailsLoading,
@@ -569,6 +590,36 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return { total, unread };
   }, [inboxEmails, pinnedLabels, activeAccounts, labels]);
 
+  const activeFilterCounts = useMemo(() => {
+    const threadUnread = new Map<string, boolean>();
+    const scopedEmails =
+      activeAccounts.size > 0
+        ? activeFilterEmails.filter(
+            (email) =>
+              email.accountEmail && activeAccounts.has(email.accountEmail),
+          )
+        : activeFilterEmails;
+    for (const email of scopedEmails) {
+      const key = `${email.accountEmail ?? ""}:${email.threadId || email.id}`;
+      threadUnread.set(key, (threadUnread.get(key) ?? false) || !email.isRead);
+    }
+    return {
+      total:
+        activeAccounts.size === 0 &&
+        typeof activeFilterTotalEstimate === "number"
+          ? activeFilterTotalEstimate
+          : threadUnread.size,
+      unread: activeFilterHasNextPage
+        ? undefined
+        : [...threadUnread.values()].filter(Boolean).length,
+    };
+  }, [
+    activeAccounts,
+    activeFilterEmails,
+    activeFilterHasNextPage,
+    activeFilterTotalEstimate,
+  ]);
+
   // Tabs to show in the bar: pinned triage filters first, then the inbox
   // remainder as "Other". Without pinned filters, the inbox is just "Inbox".
   const hasPinnedFilters = pinnedLabels.some(
@@ -584,7 +635,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       href: string;
       isActive: boolean;
       color?: string;
-      type: "system" | "label";
+      type: "system" | "label" | "filter";
     }[] = [];
 
     if (!hasPinnedFilters) {
@@ -595,6 +646,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isActive:
           view === "inbox" &&
           !activeLabel &&
+          !activeFilterId &&
           activeInboxTab !== OTHER_INBOX_TAB_PARAM,
         type: "system",
       });
@@ -649,6 +701,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       }
     }
 
+    for (const filter of savedFilters) {
+      const id = `filter:${filter.id}`;
+      if (seenLabels.has(id)) continue;
+      seenLabels.add(id);
+      tabs.push({
+        id,
+        label: filter.name,
+        href: `/inbox?filter=${encodeURIComponent(filter.id)}`,
+        isActive: view === "inbox" && activeFilterId === filter.id,
+        type: "filter",
+      });
+    }
+
     if (hasPinnedFilters) {
       tabs.push({
         id: OTHER_INBOX_TAB_ID,
@@ -657,6 +722,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isActive:
           view === "inbox" &&
           !activeLabel &&
+          !activeFilterId &&
           activeInboxTab === OTHER_INBOX_TAB_PARAM,
         type: "system",
       });
@@ -667,9 +733,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     labels,
     pinnedLabels,
     labelAliases,
+    savedFilters,
     view,
     activeLabel,
     activeInboxTab,
+    activeFilterId,
     hasPinnedFilters,
     t,
   ]);
@@ -854,6 +922,54 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       updateSettings.mutate({ pinnedLabels: next });
     },
     [pinnedLabels, updateSettings],
+  );
+
+  const saveSearchAsFilter = useCallback(
+    async (query: string, name: string) => {
+      const normalizedQuery = query.trim().slice(0, 500);
+      const normalizedName = name.trim().slice(0, 80);
+      if (!normalizedQuery || !normalizedName) return;
+      if (savedFilters.length >= 20) {
+        throw new Error(t("mail.search.filtersLimitReached"));
+      }
+
+      const existing = savedFilters.find(
+        (filter) =>
+          filter.query.trim().toLowerCase() === normalizedQuery.toLowerCase(),
+      );
+      if (existing) {
+        void navigate(`/inbox?filter=${encodeURIComponent(existing.id)}`);
+        return;
+      }
+
+      const id = `filter-${Date.now().toString(36)}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      const filter: SavedMailFilter = {
+        id,
+        name: normalizedName,
+        query: normalizedQuery,
+      };
+      try {
+        await updateSettings.mutateAsync({
+          savedFilters: [...savedFilters, filter],
+        });
+      } catch {
+        throw new Error(t("mail.search.saveAsTabFailed"));
+      }
+      void navigate(`/inbox?filter=${encodeURIComponent(id)}`);
+    },
+    [navigate, savedFilters, t, updateSettings],
+  );
+
+  const removeSavedFilter = useCallback(
+    (id: string) => {
+      updateSettings.mutate({
+        savedFilters: savedFilters.filter((filter) => filter.id !== id),
+      });
+      if (activeFilterId === id) void navigate("/inbox");
+    },
+    [activeFilterId, navigate, savedFilters, updateSettings],
   );
 
   // Drag-to-reorder tab handlers
@@ -1091,6 +1207,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const getTabCount = (viewId: string, kind: CountKind) => {
     if (viewId === OTHER_INBOX_TAB_ID) return getOtherCount(kind);
     if (viewId === "inbox") return getInboxCount(kind);
+    if (viewId.startsWith("filter:")) {
+      return viewId === `filter:${activeFilterId}`
+        ? activeFilterCounts[kind]
+        : undefined;
+    }
     const label = resolveLabelForCount(viewId);
     const countField = countFieldForKind(kind);
     const localCounts = localCountsForKind(kind);
@@ -1246,7 +1367,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           />
                         )}
                         {tab.label}
-                        {count > 0 && (
+                        {count !== undefined && count > 0 && (
                           <span
                             className={cn(
                               "text-[11px] tabular-nums",
@@ -1320,10 +1441,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     systemViews={collapsibleViews}
                     userLabels={userLabels}
                     pinnedLabels={pinnedLabels}
+                    savedFilters={savedFilters}
                     labelAliases={labelAliases}
                     search={labelSearch}
                     onSearchChange={setLabelSearch}
                     onToggle={togglePinned}
+                    onRemoveFilter={removeSavedFilter}
                     onRename={(id, alias) => {
                       const next = { ...labelAliases };
                       if (alias) next[id] = alias;
@@ -1351,6 +1474,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               initialQuery={activeSearchQuery ?? ""}
               autoFocus={searchFocused && !activeSearchQuery}
               hasActiveSearch={!!activeSearchQuery}
+              onSaveSearch={saveSearchAsFilter}
               onClose={() => {
                 setSearchFocused(false);
                 setSearchQuery("");
@@ -1806,7 +1930,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                       {tab.label}
                                     </span>
                                   </span>
-                                  {count > 0 && (
+                                  {count !== undefined && count > 0 && (
                                     <span className="text-[12px] text-muted-foreground/50 tabular-nums">
                                       {count}
                                     </span>
@@ -2341,19 +2465,23 @@ function TabSettingsPopover({
   systemViews,
   userLabels,
   pinnedLabels,
+  savedFilters,
   labelAliases,
   search,
   onSearchChange,
   onToggle,
+  onRemoveFilter,
   onRename,
 }: {
   systemViews: { id: string; labelKey: string }[];
   userLabels: Label[];
   pinnedLabels: string[];
+  savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
   search: string;
   onSearchChange: (v: string) => void;
   onToggle: (id: string) => void;
+  onRemoveFilter: (id: string) => void;
   onRename: (id: string, alias: string) => void;
 }) {
   const t = useT();
@@ -2364,6 +2492,13 @@ function TabSettingsPopover({
   const filteredViews = search
     ? systemViews.filter((v) => t(v.labelKey).toLowerCase().includes(q))
     : systemViews;
+  const filteredSavedFilters = search
+    ? savedFilters.filter(
+        (filter) =>
+          filter.name.toLowerCase().includes(q) ||
+          filter.query.toLowerCase().includes(q),
+      )
+    : savedFilters;
 
   // Split labels into Gmail categories and regular user labels
   // Keep Important with regular labels so it can be toggled like any other tab.
@@ -2410,9 +2545,11 @@ function TabSettingsPopover({
   });
 
   const showViews = filteredViews.length > 0;
+  const showSavedFilters = filteredSavedFilters.length > 0;
   const showCategories = filteredCategories.length > 0;
   const showLabels = sortedLabels.length > 0;
-  const noResults = !showViews && !showCategories && !showLabels && search;
+  const noResults =
+    !showViews && !showSavedFilters && !showCategories && !showLabels && search;
 
   return (
     <>
@@ -2446,6 +2583,28 @@ function TabSettingsPopover({
                 checked={pinnedLabels.includes(v.id)}
                 label={t(v.labelKey)}
                 onToggle={() => onToggle(v.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Query-backed tabs saved from the search bar */}
+        {showSavedFilters && (
+          <div>
+            <p
+              className={cn(
+                "px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider",
+                showViews && "border-t border-border/20 mt-1",
+              )}
+            >
+              {t("mail.tabSettings.savedFilters")}
+            </p>
+            {filteredSavedFilters.map((filter) => (
+              <CheckboxRow
+                key={filter.id}
+                checked
+                label={filter.name}
+                onToggle={() => onRemoveFilter(filter.id)}
               />
             ))}
           </div>

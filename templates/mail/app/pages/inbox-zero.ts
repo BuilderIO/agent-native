@@ -6,6 +6,7 @@ export interface InboxZeroState {
   isError: boolean;
   hasThread: boolean;
   searchQuery: string | undefined;
+  isSavedFilter?: boolean;
   threadCount: number;
   hasNextPage: boolean;
 }
@@ -18,6 +19,7 @@ export function shouldShowInboxZero({
   isError,
   hasThread,
   searchQuery,
+  isSavedFilter = false,
   threadCount,
   hasNextPage,
 }: InboxZeroState): boolean {
@@ -27,7 +29,7 @@ export function shouldShowInboxZero({
     !isLoading &&
     !isError &&
     !hasThread &&
-    !searchQuery &&
+    (!searchQuery || isSavedFilter) &&
     threadCount === 0 &&
     !hasNextPage
   );

@@ -57,6 +57,7 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
+  CreativeContextShareSheet,
   CreativeContextShareTab,
   parseCreativeContexts,
   useCreativeContexts,
@@ -160,6 +161,7 @@ import {
   IconTemplate,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
+  IconLibraryPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -3517,6 +3519,11 @@ function DesignEditor() {
   });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
+  // Standalone entry point into the same Creative Context submission flow
+  // the Share popover's "Context" tab already offers — kept as its own
+  // always-visible button because the Share popover buries it behind two
+  // other tabs, which is the opposite of "clearly visible."
+  const [addToContextOpen, setAddToContextOpen] = useState(false);
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
@@ -8883,12 +8890,30 @@ function DesignEditor() {
   // setAgentChatContextItem would re-fire itself every commit — an infinite
   // render loop (caught live: "Maximum update depth exceeded" in overview
   // mode). Instead, only the narrow "was our key removed" check reads the
-  // store, via a ref updated by a SEPARATE effect below whose only job is
+  // store, via a ref updated by a SEPARATE effect above whose only job is
   // bookkeeping (it never calls setAgentChatContextItem itself, so it cannot
   // feed back into this one).
   const mirroredSelectionIdRef = useRef<string | null>(null);
+  const mirroredExcerptRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+
+  // Bookkeeping only — mirrors "does the shared composer context still carry
+  // our key" into a ref for the effect below to read. This is intentionally
+  // NOT a dependency of that effect (see its comment): this effect only ever
+  // writes a ref, never calls setAgentChatContextItem or any other state
+  // setter, so it can run on every store change without feeding back into a
+  // re-render loop. Declared (and thus run) before the mirror effect so a
+  // send that lands in the same commit as an unrelated content change is
+  // already reflected in the ref by the time the mirror effect reads it.
+  const composerContextItemsForBookkeeping =
+    useAgentChatContext(isSignedIn).items;
+  useEffect(() => {
+    const key = "design:selected-element";
+    composerContextHasOurKeyRef.current =
+      composerContextItemsForBookkeeping.some((item) => item.key === key);
+  }, [composerContextItemsForBookkeeping]);
+
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -8898,6 +8923,7 @@ function DesignEditor() {
         design,
         id,
         isSignedIn,
+        mirroredExcerptRef,
         mirroredSelectionIdRef,
         selectedCodeLayerNode,
         selectedElement,
@@ -8913,20 +8939,6 @@ function DesignEditor() {
       selectedElement,
     ],
   );
-
-  // Bookkeeping only — mirrors "does the shared composer context still carry
-  // our key" into a ref for the effect above to read. This is intentionally
-  // NOT a dependency of that effect (see its comment): this effect only ever
-  // writes a ref, never calls setAgentChatContextItem or any other state
-  // setter, so it can run on every store change without feeding back into a
-  // re-render loop.
-  const composerContextItemsForBookkeeping =
-    useAgentChatContext(isSignedIn).items;
-  useEffect(() => {
-    const key = "design:selected-element";
-    composerContextHasOurKeyRef.current =
-      composerContextItemsForBookkeeping.some((item) => item.key === key);
-  }, [composerContextItemsForBookkeeping]);
 
   useEffect(() => {
     const key = "design:design-system";
@@ -19087,6 +19099,17 @@ function DesignEditor() {
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
             </Button>
           ) : null}
+          {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddToContextOpen(true)}
+              className="h-8 gap-1.5 rounded-md px-3 text-sm"
+            >
+              <IconLibraryPlus className="size-4" />
+              {"Add to Context" /* i18n-ignore prominent context entry point */}
+            </Button>
+          ) : null}
           <Popover
             open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
@@ -19234,6 +19257,20 @@ function DesignEditor() {
           ) : null}
         </div>
       </div>
+      {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
+        <CreativeContextShareSheet
+          resource={{
+            appId: "design",
+            resourceType: "design",
+            resourceId: id ?? "",
+            title: design.title ?? "Untitled design",
+            updatedAt: design?.updatedAt ?? undefined,
+            preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+          }}
+          open={addToContextOpen}
+          onOpenChange={setAddToContextOpen}
+        />
+      ) : null}
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (

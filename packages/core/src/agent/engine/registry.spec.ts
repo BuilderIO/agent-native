@@ -1554,6 +1554,29 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
+    it("reports the builder engine as runnable in a Fusion preview", async () => {
+      // The preview pod is a hosted workspace runtime with a signed-in app
+      // user, which blocks the identity-lane env fallback. The credits pair
+      // still has to resolve, or the composer's model picker has nothing
+      // selectable in the one place the gateway is the only credential.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        getAgentEngineEntry,
+        isStoredEngineUsableForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      await expect(
+        isStoredEngineUsableForRequest({ engine: "builder" }, entry),
+      ).resolves.toBe(true);
+    });
+
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
       const { hasBuilderOAuthSession, resolveBuilderOAuthRequestAccess } =
         await import("../../server/builder-oauth.js");

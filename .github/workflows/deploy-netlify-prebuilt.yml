@@ -181,7 +181,7 @@ jobs:
           cache: pnpm
 
       - name: Install the pinned Netlify CLI
-        run: npm install --global netlify-cli@27.1.2 --ignore-scripts
+        run: npm install --global netlify-cli@27.0.0 --ignore-scripts
 
       - name: Validate rollout mode
         env:

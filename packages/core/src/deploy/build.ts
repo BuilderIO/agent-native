@@ -35,6 +35,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { declaredEnvKeys } from "../app-config/describe.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -73,7 +74,6 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
-import { getSsrAuthRedirectScript } from "../shared/ssr-auth-redirect.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createAgentNativeConfigContext,
@@ -131,6 +131,136 @@ export function isCloudflareModulePreset(targetPreset: string): boolean {
 }
 
 export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
+
+const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
+  "A2A_SECRET",
+  "AGENT_CHAT_DURABLE_BACKGROUND",
+  "AGENT_INTEGRATION_DURABLE_DISPATCH",
+  "AGENT_NATIVE_DISABLE_KEEP_WARM",
+  "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND",
+  "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+  "AGENT_NATIVE_ENABLE_KEEP_WARM",
+  "AGENT_NATIVE_ENABLE_RECURRING_JOBS",
+  "APP_BASE_PATH",
+  "APP_NAME",
+  "APP_URL",
+  "BETTER_AUTH_SECRET",
+  "BETTER_AUTH_URL",
+  "DATABASE_AUTH_TOKEN",
+  "DATABASE_URL",
+  "DATABASE_URL_UNPOOLED",
+  "DB_OP_TIMEOUT_MS",
+  "EMAIL_FROM",
+  "EMAIL_AGENT_ADDRESS",
+  "EMAIL_INBOUND_WEBHOOK_SECRET",
+  "ANTHROPIC_API_KEY",
+  "AGENT_NATIVE_BUILDER_RELAY_SECRET",
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS",
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES",
+  "BUILDER_GATEWAY_SPACE_ID",
+  "BUILDER_GATEWAY_TOKEN",
+  "COHERE_API_KEY",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GOOGLE_LEGACY_CLIENT_ID",
+  "GOOGLE_LEGACY_CLIENT_SECRET",
+  "GOOGLE_PICKER_APP_ID",
+  "GOOGLE_SIGN_IN_CLIENT_ID",
+  "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
+  "NOTION_CLIENT_ID",
+  "NOTION_CLIENT_SECRET",
+  "OLLAMA_BASE_URL",
+  "OAUTH_STATE_SECRET",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "OPENROUTER_API_KEY",
+  "RESEND_API_KEY",
+  "SENDGRID_API_KEY",
+  "SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
+] as const;
+
+function appScopedRuntimeEnvKeys(appName: string | undefined): string[] {
+  const databasePrefix = appName?.toUpperCase().replace(/-/g, "_");
+  const encryptionPrefix = appName
+    ?.trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return [
+    ...(databasePrefix
+      ? [
+          `${databasePrefix}_DATABASE_URL`,
+          `${databasePrefix}_DATABASE_AUTH_TOKEN`,
+          `${databasePrefix}_DATABASE_URL_UNPOOLED`,
+        ]
+      : []),
+    ...(encryptionPrefix ? [`${encryptionPrefix}_SECRETS_ENCRYPTION_KEY`] : []),
+  ];
+}
+
+function readEnvExampleKeys(filePath: string): string[] {
+  if (!fs.existsSync(filePath)) return [];
+
+  const keys = new Set<string>();
+  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const match = line.match(
+      /^\s*#?\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/,
+    );
+    if (match) keys.add(match[1]);
+  }
+  return [...keys];
+}
+
+/**
+ * Amplify makes build variables available to the build container but does not
+ * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
+ * write only app-declared runtime keys beside it for Node's native env loader.
+ */
+export function configureAwsAmplifyRuntimeOutput(
+  serverDir: string,
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const declaredKeys = new Set<string>([
+    ...AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS,
+    ...declaredEnvKeys(),
+    ...readEnvExampleKeys(path.join(appDir, ".env.example")),
+  ]);
+  for (const key of appScopedRuntimeEnvKeys(env.APP_NAME)) {
+    declaredKeys.add(key);
+  }
+  const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
+    const value = env[key];
+    return typeof value === "string" ? [`${key}=${JSON.stringify(value)}`] : [];
+  });
+  const envPath = path.join(serverDir, ".env");
+  const serverEntryPath = path.join(serverDir, "server.js");
+  if (!fs.existsSync(path.join(serverDir, "index.mjs"))) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${path.join(serverDir, "index.mjs")} for aws_amplify`,
+    );
+  }
+  fs.writeFileSync(
+    envPath,
+    runtimeEnv.length > 0 ? `${runtimeEnv.join("\n")}\n` : "",
+    { encoding: "utf8", mode: 0o600 },
+  );
+  fs.chmodSync(envPath, 0o600);
+  fs.writeFileSync(
+    serverEntryPath,
+    "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+      'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+      'import("./index.mjs");\n',
+  );
+  console.log(
+    `[deploy] Prepared Amplify runtime env with ${runtimeEnv.length} declared key(s).`,
+  );
+}
 
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
@@ -925,10 +1055,8 @@ export function generateWorkerEntry(
   // deployment-wide SSR cache policy is baked in from this build's env.
   const ssrCacheHeaders = resolveSsrCacheHeaders();
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const ssrAuthRedirectScript = getSsrAuthRedirectScript(
-    frameworkSessionHintCookieName(
-      resolveAuthCookieNamespace().frameworkCookieName,
-    ),
+  const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
+    resolveAuthCookieNamespace().frameworkCookieName,
   );
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
@@ -1018,7 +1146,11 @@ ${["post", "put", "delete"]
   const pluginCalls: string[] = [];
   const providedPluginStems = new Set<string>();
   pluginImports.push(
-    `import { getAppConfig as getAgentNativeAppConfig } from "${EDGE_SERVER_ENTRYPOINT}";`,
+    `import {
+  getAppConfig as getAgentNativeAppConfig,
+  getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
+  resolveAppHomePath as resolveAgentNativeAppHomePath,
+} from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
   for (let i = 0; i < edgePlugins.length; i++) {
@@ -1445,7 +1577,9 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
+  const appHomePath = resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app);
   const config = {
+    appHomePath,
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
@@ -1471,7 +1605,7 @@ function injectHeadScript(html, script) {
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
-const SSR_AUTH_REDIRECT_SCRIPT = ${JSON.stringify(ssrAuthRedirectScript)};
+const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1498,6 +1632,13 @@ const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = ${JSON.stringify(
 const OG_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bproperty=(["'])og:image\\1)[^>]*>/i;
 const TWITTER_CARD_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:card\\1)[^>]*>/i;
 const TWITTER_IMAGE_META_RE = /<meta\\b(?=[^>]*\\bname=(["'])twitter:image\\1)[^>]*>/i;
+
+function getAgentNativeAuthRedirectScript() {
+  return getAgentNativeSsrAuthRedirectScript(
+    SSR_AUTH_REDIRECT_COOKIE_NAME,
+    resolveAgentNativeAppHomePath(getAgentNativeAppConfig().app),
+  );
+}
 
 function withAgentNativeSocialImageCacheBuster(image) {
   const separator = image.includes("?") ? "&" : "?";
@@ -1624,7 +1765,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
-      pathname === "/" ? SSR_AUTH_REDIRECT_SCRIPT : null,
+      pathname === "/" ? getAgentNativeAuthRedirectScript() : null,
     ]
       .filter(Boolean)
       .join("") || null;
@@ -4652,6 +4793,18 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
 }
 
 /**
+ * Let the Netlify function own the app root. React Router's generated static
+ * index bypasses the framework auth guard, so it can publish the marketing
+ * route without the shared AuthPage or its root handoff script.
+ */
+export function removeNetlifyStaticRootShell(publishDir: string): void {
+  const indexPath = path.join(publishDir, "index.html");
+  if (!fs.existsSync(indexPath)) return;
+  fs.rmSync(indexPath);
+  console.log("[deploy] Removed static Netlify root shell; / is SSR-owned.");
+}
+
+/**
  * Whether the emitted bundle actually imports the `libsql` native addon.
  *
  * The `@libsql/client` node entry `require`s it; `@libsql/client/web` and
@@ -5673,12 +5826,17 @@ export default bundle;
     }
 
     writeSingleTemplateNetlifyRedirects(cwd);
+    removeNetlifyStaticRootShell(nitro.options.output.publicDir);
     // React Router prerendered pages bypass the SSR function and are served
     // directly from Netlify's static backing store. Keep that artifact on the
     // same public SWR policy as runtime SSR and .data responses.
     writeNetlifyStaticHeaders(path.join(cwd, "dist"));
     runAppServerlessFunctionPruning(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
+  }
+
+  if (isAwsAmplifyPreset(preset)) {
+    configureAwsAmplifyRuntimeOutput(nitro.options.output.serverDir, cwd);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

@@ -28,6 +28,11 @@ describe("agent clip context helpers", () => {
     expect(payload.instructions).toMatch(/still uploading/i);
     expect(payload.instructions).toMatch(/wait 15 seconds/i);
     expect(payload.instructions).not.toMatch(/JPEG frame URLs/i);
+    expect(payload.webmcp.tools.map((tool) => tool.name)).toEqual([
+      "clips-get-context",
+      "clips-get-transcript",
+      "clips-get-frame",
+    ]);
   });
 
   it("scopes private agent access tokens separately from media tokens", () => {

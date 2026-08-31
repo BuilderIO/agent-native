@@ -27,6 +27,13 @@ function viewScreenSource(): string {
   );
 }
 
+function navigateActionSource(): string {
+  return readFileSync(
+    new URL("../../actions/navigate.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 describe("Inbox navigation commands", () => {
   it("focuses compose drafts opened by MCP deep links", () => {
     const source = inboxSource();
@@ -38,7 +45,9 @@ describe("Inbox navigation commands", () => {
   it("clears selection when switching inbox partitions", () => {
     const source = inboxSource();
 
-    expect(source).toContain("[view, activeLabel, activeInboxTab]");
+    expect(source).toContain(
+      "[view, activeLabel, activeInboxTab, activeFilterId]",
+    );
   });
 
   it("keeps the first-use Important default on a plain inbox route", () => {
@@ -56,25 +65,44 @@ describe("Inbox navigation commands", () => {
 
     expect(source).toContain("const mailboxWideLabelTab =");
     expect(source).toContain(
-      'const emailView = mailboxWideLabelTab ? "all" : view;',
+      'const emailView = activeSavedFilter\n    ? "all"',
     );
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel)",
     );
   });
 
+  it("uses the saved filter query instead of a Gmail label query", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "const activeSavedFilter = settings?.savedFilters?.find(",
+    );
+    expect(source).toContain(
+      'activeSavedFilter?.query ?? searchParams.get("q") ?? undefined',
+    );
+    expect(source).toContain("isSavedFilter: Boolean(activeSavedFilter)");
+  });
+
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
+    expect(navigationHookSource()).toContain("filter?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");
     expect(inboxSource()).toContain(
       "activeInboxTab: activeInboxTab ?? undefined",
     );
+    expect(inboxSource()).toContain("filter: activeFilterId ?? undefined");
+    expect(inboxSource()).toContain("const searchQ = searchQuery;");
     expect(inboxSource()).toContain(
       "activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined",
     );
     expect(viewScreenSource()).toContain(
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
+    expect(viewScreenSource()).toContain("filter: nav.filter ?? null");
+    expect(viewScreenSource()).toContain("nav.filter,");
+    expect(navigateActionSource()).toContain("filter: z");
+    expect(navigateActionSource()).toContain("nav.filter = args.filter");
   });
 
   it("filters the view-screen snapshot to the active Other partition", () => {

@@ -2,7 +2,12 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { getOnboardingHtml } from "../../server/onboarding-html.js";
-import { AuthPage, type AuthPageProps } from "./AuthPage.js";
+import {
+  AuthPage,
+  oauthReturnTarget,
+  resolveGoogleAuthUrlPath,
+  type AuthPageProps,
+} from "./AuthPage.js";
 
 function propsFromHtml(html: string): AuthPageProps {
   const match = html.match(
@@ -49,5 +54,43 @@ describe("AuthPage", () => {
     expect(html).toContain('id="magic-link-success"');
     expect(html).toContain('id="magic-link-success-email"');
     expect(html).toContain('id="use-password-link"');
+  });
+
+  it("returns Builder Electron OAuth to the local workspace gateway", () => {
+    const target = "/agent?tab=context";
+    const genericElectron = "Mozilla/5.0 Electron/32.0 BuilderDesktop";
+
+    expect(oauthReturnTarget(target, "", genericElectron)).toBe(
+      "http://127.0.0.1:8080/agent?tab=context",
+    );
+    expect(
+      oauthReturnTarget(
+        target,
+        "",
+        "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
+      ),
+    ).toBe("http://127.0.0.1:8080/agent?tab=context");
+    expect(oauthReturnTarget(target, "", "Mozilla/5.0 Chrome/138.0")).toBe(
+      target,
+    );
+  });
+
+  it("keeps Builder preview OAuth at the public app root", () => {
+    expect(
+      resolveGoogleAuthUrlPath({
+        builderPreview: true,
+        currentOrigin: "https://preview.builder.codes",
+        publicOAuthOrigin: "https://dispatch.agent-native.com",
+        runtimeAppBasePath: "/dispatch",
+      }),
+    ).toBe("https://dispatch.agent-native.com/_agent-native/google/auth-url");
+    expect(
+      resolveGoogleAuthUrlPath({
+        builderPreview: true,
+        currentOrigin: "https://agent-workspace.builder.io",
+        publicOAuthOrigin: "https://agent-workspace.builder.io",
+        runtimeAppBasePath: "/dispatch",
+      }),
+    ).toBe("/dispatch/_agent-native/google/auth-url");
   });
 });

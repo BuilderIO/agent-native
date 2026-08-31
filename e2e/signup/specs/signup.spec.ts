@@ -14,42 +14,37 @@ interface SessionResult {
   body: unknown;
 }
 
-async function readSession(page: Page) {
-  return page.evaluate(async (): Promise<SessionResult> => {
-    const response = await fetch("/_agent-native/auth/session", {
-      cache: "no-store",
+/** Read an authenticated session endpoint with the browser context's cookies. */
+async function readJson(page: Page, path: string): Promise<SessionResult> {
+  const response = await page
+    .context()
+    .request.get(new URL(path, page.url()).toString(), {
       headers: { Accept: "application/json" },
+      timeout: 60_000,
     });
-    const raw = await response.text();
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      body = raw;
-    }
-    return { status: response.status, body };
-  });
+  const raw = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    body = raw;
+  }
+  return { status: response.status(), body };
+}
+
+async function readSession(page: Page) {
+  return readJson(page, "/_agent-native/auth/session");
 }
 
 async function readBetterAuthSession(page: Page) {
-  return page.evaluate(async (): Promise<SessionResult> => {
-    const response = await fetch("/_agent-native/auth/ba/get-session", {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    });
-    const raw = await response.text();
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      body = raw;
-    }
-    return { status: response.status, body };
-  });
+  return readJson(page, "/_agent-native/auth/ba/get-session");
 }
 
 function assertSession(session: SessionResult, email: string, label: string) {
-  expect(session.status, `${label} returned HTTP ${session.status}`).toBe(200);
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
   expect(
     (session.body as { email?: unknown }).email,
     `${label} did not identify the canary account`,
@@ -61,7 +56,10 @@ function assertBetterAuthSession(
   email: string,
   label: string,
 ) {
-  expect(session.status, `${label} returned HTTP ${session.status}`).toBe(200);
+  expect(
+    session.status,
+    `${label} returned HTTP ${session.status}: ${JSON.stringify(session.body).slice(0, 500)}`,
+  ).toBe(200);
   expect(
     (session.body as { user?: { email?: unknown } }).user?.email,
     `${label} did not identify the canary account`,
@@ -121,7 +119,7 @@ for (const target of targets) {
     await test.step("request a fresh magic link", async () => {
       const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
       await page.locator("#m-email").fill(email);
-      await page.locator("#magic-link-submit").click();
+      await page.locator("#magic-link-submit").click({ noWaitAfter: true });
       await expect(page.locator("#magic-link-success")).toBeVisible();
       await expect(page.locator("#magic-link-success-email")).toHaveText(email);
       expect(

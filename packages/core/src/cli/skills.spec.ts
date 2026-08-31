@@ -1652,6 +1652,44 @@ describe("agent-native skills", () => {
     ).toBe("https://assets.agent-native.com/mcp");
   });
 
+  it("installs /an with the Dispatch MCP connector and slash command", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "an",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--no-connect",
+      ]),
+      { baseDir: root },
+    );
+
+    expect(result).toMatchObject({
+      id: "agent-native",
+      displayName: "Agent-Native",
+      skillNames: ["an"],
+      mcpUrl: "https://dispatch.agent-native.com/mcp",
+      mcpClients: ["claude-code"],
+    });
+    expect(
+      fs.readFileSync(
+        path.join(root, ".claude", "skills", "an", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("`/an slides`");
+    expect(
+      fs.readFileSync(path.join(root, ".claude", "commands", "an.md"), "utf8"),
+    ).toContain("call `open_app` with app `slides`");
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, ".mcp.json"), "utf8"))
+        .mcpServers["agent-native-dispatch"].url,
+    ).toBe("https://dispatch.agent-native.com/mcp");
+  });
+
   it("installs visual-plan into Claude Code user skills idempotently", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
@@ -2085,6 +2123,7 @@ describe("agent-native skills", () => {
 
     expect(promptSkills).toHaveBeenCalledTimes(1);
     expect(context?.options.map((o) => o.value)).toEqual([
+      "an",
       "visual-plan",
       "visual-recap",
       "visualize-repo",
@@ -2172,6 +2211,7 @@ describe("agent-native skills", () => {
     });
 
     expect(allContext?.options.map((option) => option.value)).toEqual([
+      "an",
       "visual-plan",
       "visual-recap",
       "visualize-repo",

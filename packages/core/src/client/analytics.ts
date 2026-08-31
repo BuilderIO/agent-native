@@ -73,6 +73,8 @@ declare global {
        * ever answered "how does this reach the browser", which the shell
        * answers better. Impersonal, so safe in the CDN-cached shell.
        */
+      /** Public authenticated-app route used by client session fallbacks. */
+      appHomePath?: string;
       appUrl?: string;
       workspaceGatewayUrl?: string;
       workspaceOAuthOrigin?: string;

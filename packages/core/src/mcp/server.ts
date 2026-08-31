@@ -76,6 +76,9 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const clientName = getRequestHeader(event, "user-agent")?.trim() || undefined;
   const clientHint =
     getRequestHeader(event, "x-agent-native-mcp-client")?.trim() || undefined;
+  const mcpRetryToken =
+    getRequestHeader(event, "x-agent-native-mcp-retry-token")?.trim() ||
+    undefined;
   const fullCatalogHeader = getRequestHeader(
     event,
     "x-agent-native-mcp-full-catalog",
@@ -100,6 +103,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     transport: "http",
     clientName,
     clientHint,
+    ...(mcpRetryToken ? { mcpRetryToken } : {}),
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
   };

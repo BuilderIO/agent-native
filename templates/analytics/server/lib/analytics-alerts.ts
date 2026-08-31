@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { recordChange } from "@agent-native/core/server";
+import { recordChange, runWithRequestContext } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   and,
@@ -17,6 +17,8 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
+import { queryFirstPartyAnalytics } from "./first-party-analytics.js";
 
 export type AnalyticsAlertFilterOp =
   | "equals"
@@ -141,6 +143,7 @@ const DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD = 3;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES = 10;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;
 const DEFAULT_ALERT_SCOPE_PAGE_SIZE = 500;
+const BIGQUERY_ALERT_PAGE_SIZE = 5_000;
 const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -967,7 +970,303 @@ export function evaluateAnalyticsAlertRuleRows(
   };
 }
 
+export function buildBigQueryAlertQuery(
+  rule: Pick<
+    AnalyticsAlertRule,
+    "eventName" | "filters" | "orgId" | "ownerEmail"
+  >,
+  windowStart: string,
+  windowEnd: string,
+  cursor?: { timestamp: string; id: string },
+): string {
+  const predicates = [
+    `event_date >= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowStart)}))`,
+    `event_date <= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowEnd)}))`,
+    `timestamp >= TIMESTAMP(${bigQuerySqlLiteral(windowStart)})`,
+    `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(windowEnd)})`,
+    rule.orgId
+      ? `org_id = ${bigQuerySqlLiteral(rule.orgId)}`
+      : `(org_id IS NULL AND LOWER(owner_email) = LOWER(${bigQuerySqlLiteral(rule.ownerEmail)}))`,
+    ...(rule.eventName
+      ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
+      : []),
+    // Ambiguous JSON filters stay in evaluateAnalyticsAlertRuleRows. The caller
+    // paginates this ordered candidate query before evaluating those filters.
+    ...rule.filters.flatMap((filter) => {
+      const predicate = bigQueryAlertFilterSql(filter);
+      return predicate ? [predicate] : [];
+    }),
+  ];
+
+  const cursorPredicate = cursor
+    ? `(timestamp < TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) OR (timestamp = TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) AND id < ${bigQuerySqlLiteral(cursor.id)}))`
+    : null;
+  const candidateSql = `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")}`;
+  return `SELECT * FROM (${candidateSql}) AS analytics_alert_page${cursorPredicate ? ` WHERE ${cursorPredicate}` : ""} ORDER BY timestamp DESC, id DESC`;
+}
+
+function bigQuerySqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function bigQueryAlertFieldExpression(field: string): string | null {
+  const normalized = field.trim();
+  const jsonPath = bigQueryAlertJsonPath(normalized);
+  if (jsonPath) {
+    return `JSON_VALUE(${jsonPath.column}, ${bigQuerySqlLiteral(jsonPath.path)})`;
+  }
+  const columns: Record<string, string> = {
+    id: "id",
+    event_name: "event_name",
+    eventName: "event_name",
+    user_id: "user_id",
+    userId: "user_id",
+    anonymous_id: "anonymous_id",
+    anonymousId: "anonymous_id",
+    user_key: "user_key",
+    userKey: "user_key",
+    session_id: "session_id",
+    sessionId: "session_id",
+    timestamp: "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', timestamp)",
+    event_date: "CAST(event_date AS STRING)",
+    eventDate: "CAST(event_date AS STRING)",
+    received_at: "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', received_at)",
+    receivedAt: "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', received_at)",
+    url: "url",
+    path: "path",
+    hostname: "hostname",
+    referrer: "referrer",
+    app: "app",
+    template: "template",
+    signed_in: "signed_in",
+    signedIn: "signed_in",
+  };
+  return columns[normalized] ?? null;
+}
+
+function bigQueryAlertJsonPath(
+  field: string,
+): { column: "properties" | "context"; path: string } | null {
+  const match = /^(properties|context)\.(.+)$/.exec(field);
+  if (
+    !match ||
+    !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(match[2])
+  ) {
+    return null;
+  }
+  return {
+    column: match[1] as "properties" | "context",
+    path: `$.${match[2]}`,
+  };
+}
+
+function bigQueryAlertValueLiteral(value: unknown): string | null {
+  if (typeof value === "string") return bigQuerySqlLiteral(value);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return bigQuerySqlLiteral(String(value));
+  }
+  if (typeof value === "boolean") {
+    return bigQuerySqlLiteral(value ? "true" : "false");
+  }
+  if (value !== null && typeof value === "object") {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? null : bigQuerySqlLiteral(serialized);
+  }
+  return null;
+}
+
+function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
+  const expression = bigQueryAlertFieldExpression(filter.field);
+  if (!expression) {
+    throw new Error(
+      `BigQuery alert filter uses an unsupported field: ${filter.field}`,
+    );
+  }
+  const op = filter.op ?? "equals";
+  if (op === "exists") {
+    if (bigQueryAlertJsonPath(filter.field.trim())) return null;
+    const existsExpression = `NULLIF(${expression}, '')`;
+    return filter.value === false
+      ? `${existsExpression} IS NULL`
+      : `${existsExpression} IS NOT NULL`;
+  }
+  const jsonPath = bigQueryAlertJsonPath(filter.field.trim());
+  if (
+    jsonPath &&
+    filter.value !== null &&
+    typeof filter.value === "object" &&
+    op !== "contains"
+  ) {
+    return null;
+  }
+  if (op === "contains") {
+    if (jsonPath) return null;
+    const literal = bigQueryAlertValueLiteral(filter.value);
+    if (literal === null) return null;
+    return `STRPOS(COALESCE(${expression}, ''), ${literal}) > 0`;
+  }
+  if (op === "in") {
+    if (!Array.isArray(filter.value)) {
+      throw new Error("BigQuery alert IN filters require an array value");
+    }
+    if (
+      jsonPath &&
+      filter.value.some(
+        (value) =>
+          value === null || (value !== null && typeof value === "object"),
+      )
+    ) {
+      return null;
+    }
+    const hasNull = filter.value.some((value) => value === null);
+    const nonNullLiterals = filter.value
+      .filter((value) => value !== null)
+      .map(bigQueryAlertValueLiteral);
+    if (nonNullLiterals.some((literal) => literal === null)) {
+      throw new Error("BigQuery alert filter contains an unsupported value");
+    }
+    const predicates = nonNullLiterals.length
+      ? [`${expression} IN (${nonNullLiterals.join(", ")})`]
+      : [];
+    if (hasNull) predicates.push(`${expression} IS NULL`);
+    return predicates.length ? `(${predicates.join(" OR ")})` : "FALSE";
+  }
+  const literal = bigQueryAlertValueLiteral(filter.value);
+  if (literal === null) {
+    if (jsonPath && (filter.value === null || filter.value === undefined)) {
+      return null;
+    }
+    if (filter.value === null || filter.value === undefined) {
+      if (op === "equals") return `${expression} IS NULL`;
+      if (op === "not_equals") return `${expression} IS NOT NULL`;
+    }
+    throw new Error("BigQuery alert filter contains an unsupported value");
+  }
+  if (op === "not_equals") {
+    return `(${expression} IS NULL OR ${expression} <> ${literal})`;
+  }
+  if (op !== "equals") {
+    throw new Error(
+      `BigQuery alert filter uses an unsupported operator: ${op}`,
+    );
+  }
+  return `${expression} = ${literal}`;
+}
+
 async function loadCandidateEvents(
+  rule: AnalyticsAlertRule,
+  windowStart: string,
+  windowEnd: string,
+): Promise<AnalyticsAlertEventRow[]> {
+  const backend = await getFirstPartyAnalyticsBackend({
+    userEmail: rule.ownerEmail,
+    orgId: rule.orgId,
+  });
+  if (backend.sink === "bigquery") {
+    return runWithRequestContext(
+      {
+        userEmail: rule.ownerEmail,
+        ...(rule.orgId ? { orgId: rule.orgId } : {}),
+      },
+      async () => {
+        const rows: AnalyticsAlertEventRow[] = [];
+        let cursor: { timestamp: string; id: string } | undefined;
+        while (true) {
+          const result = await queryFirstPartyAnalytics(
+            buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
+            { userEmail: rule.ownerEmail, orgId: rule.orgId },
+          );
+          if (result.truncated) {
+            throw new Error(
+              `BigQuery alert evaluation for rule ${rule.id} returned a transport-truncated page; refusing to evaluate partial data`,
+            );
+          }
+          const page = result.rows.map(normalizeBigQueryAlertEventRow);
+          rows.push(...page);
+          if (!page.length) break;
+          if (page.length < BIGQUERY_ALERT_PAGE_SIZE) break;
+          const lastRaw = result.rows[result.rows.length - 1]!;
+          cursor = {
+            timestamp: requiredBigQueryAlertString(lastRaw, "timestamp"),
+            id: requiredBigQueryAlertString(lastRaw, "id"),
+          };
+        }
+        return rows;
+      },
+    );
+  }
+
+  return loadCandidateEventsFromSql(rule, windowStart, windowEnd);
+}
+
+function requiredBigQueryAlertString(
+  row: Record<string, unknown>,
+  field: string,
+): string {
+  const value = row[field];
+  if (typeof value !== "string" || !value) {
+    throw new Error(`BigQuery alert event is missing ${field}`);
+  }
+  return value;
+}
+
+function nullableBigQueryAlertString(
+  row: Record<string, unknown>,
+  field: string,
+): string | null {
+  const value = row[field];
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new Error(`BigQuery alert event field ${field} is not text`);
+  }
+  return value;
+}
+
+function normalizeBigQueryAlertTimestamp(value: string, field: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error(`BigQuery alert event field ${field} is not a timestamp`);
+  }
+  return timestamp.toISOString();
+}
+
+function nullableBigQueryAlertTimestamp(
+  row: Record<string, unknown>,
+  field: string,
+): string | null {
+  const value = nullableBigQueryAlertString(row, field);
+  return value === null ? null : normalizeBigQueryAlertTimestamp(value, field);
+}
+
+function normalizeBigQueryAlertEventRow(
+  row: Record<string, unknown>,
+): AnalyticsAlertEventRow {
+  return {
+    id: requiredBigQueryAlertString(row, "id"),
+    eventName: requiredBigQueryAlertString(row, "event_name"),
+    userId: nullableBigQueryAlertString(row, "user_id"),
+    anonymousId: nullableBigQueryAlertString(row, "anonymous_id"),
+    userKey: nullableBigQueryAlertString(row, "user_key"),
+    sessionId: nullableBigQueryAlertString(row, "session_id"),
+    timestamp: normalizeBigQueryAlertTimestamp(
+      requiredBigQueryAlertString(row, "timestamp"),
+      "timestamp",
+    ),
+    eventDate: nullableBigQueryAlertString(row, "event_date"),
+    receivedAt: nullableBigQueryAlertTimestamp(row, "received_at"),
+    url: nullableBigQueryAlertString(row, "url"),
+    path: nullableBigQueryAlertString(row, "path"),
+    hostname: nullableBigQueryAlertString(row, "hostname"),
+    referrer: nullableBigQueryAlertString(row, "referrer"),
+    app: nullableBigQueryAlertString(row, "app"),
+    template: nullableBigQueryAlertString(row, "template"),
+    signedIn: nullableBigQueryAlertString(row, "signed_in"),
+    properties: nullableBigQueryAlertString(row, "properties"),
+    context: nullableBigQueryAlertString(row, "context"),
+  };
+}
+
+async function loadCandidateEventsFromSql(
   rule: AnalyticsAlertRule,
   windowStart: string,
   windowEnd: string,

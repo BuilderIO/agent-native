@@ -3,6 +3,69 @@
 All notable user-facing changes to Chat are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-08-29
+
+### Added
+
+- New factories start with an empty Automations tab. Create one Slack, GitHub, or Sentry job at a time, with author ids and hard inbox and work limits.
+
+### Improved
+
+- Audit recent runs support automation and day filters, pagination, and smooth scroll when a run is selected.
+
+### Changed
+
+- `dispatch-factory-item` no longer always adds 👀. Pass optional `reaction` (for example `robot_face`) to mark the item source when Slack or GitHub can; omit it to add none.
+- Factory now names its dispatch and PR review actions after what they do, so the agent can tell a write apart from a proposal.
+
+## 2026-08-28
+
+### Improved
+
+- PR babysit runs now list each reviewed pull request and skip reason on the audit page.
+
+### Fixed
+
+- PR babysitting now reviews the next GitHub pull requests like Slack reviews the next messages, and only acts on authors named in that factory's prompt.
+- PR babysitting now leaves out-of-scope pull requests out of the review window until the author changes, and audit runs count only new or changed PRs.
+- PR babysitting now reads review comments and CI through the workspace GitHub connection, so watching Builder-bot pull requests no longer needs Builder AI services credentials.
+
+### Changed
+
+- Factory automations now use only the workspace Slack and GitHub connections, so this template does not need Builder AI services credentials and is not locked to that vendor API.
+
+### Removed
+
+- Inbox no longer has Approve and start. Clear bugs are started by tagging Builder in Slack or @builderio-bot on a GitHub issue.
+
+## 2026-08-27
+
+### Added
+
+- Inbox can filter by date, status, risk, and source. Filters stay in the URL and clear when you leave Inbox.
+
+### Improved
+
+- Audit recent runs stack name, status, time, and outcome when the list is narrow, including when chat is open.
+- Opening a factory now lands on Inbox, with signal, decision, and run counts above the list.
+- GitHub source settings accept a repository page URL. Trailing slashes and extra path are stripped automatically.
+
+### Fixed
+
+- Long automation names in Audit recent runs wrap instead of overflowing the list.
+- The Builder-bot PR babysitter can refresh open pull requests when it runs, instead of stopping before it looks at the queue.
+
+### Changed
+
+- Enabling Slack, GitHub, or Sentry polling no longer turns on the related automations. Enable those jobs from Automations when you want them to run.
+
+## 2026-08-26
+
+### Improved
+
+- Inbox opens the full list first, then a full-screen thread with named people, standard emoji, and a back arrow.
+- Inbox is a two-pane workbench with the Slack thread and item actions beside the reason, and Audit now labels runs clearly and shows the full message when a row is open.
+
 ## 2026-08-24
 
 ### Added
