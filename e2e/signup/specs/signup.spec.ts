@@ -134,7 +134,7 @@ for (const target of targets) {
     await test.step("request a fresh magic link", async () => {
       const emailPromise = waitForVerificationEmail(email, emailRequestedAt);
       await page.locator("#m-email").fill(email);
-      await page.locator("#magic-link-submit").click();
+      await page.locator("#magic-link-submit").click({ noWaitAfter: true });
       await expect(page.locator("#magic-link-success")).toBeVisible();
       await expect(page.locator("#magic-link-success-email")).toHaveText(email);
       expect(
