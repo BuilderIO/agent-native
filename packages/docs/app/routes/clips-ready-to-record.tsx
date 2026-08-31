@@ -31,9 +31,9 @@ import {
   IconSettings,
   IconShare,
   IconTrash,
+  IconAppWindow,
   IconUpload,
   IconUsersGroup,
-  IconWindow,
   IconWorld,
 } from "@tabler/icons-react";
 
@@ -202,20 +202,8 @@ function LibrarySidebar() {
           <span className="library-nav-label">Settings</span>
         </div>
         <div className="library-nav-item">
-          <IconWindow size={15} />
+          <IconAppWindow size={15} />
           <span className="library-nav-label">Open desktop app</span>
-        </div>
-        <div className="library-nav-item">
-          <span className="library-builder-mark" aria-hidden />
-          <span className="library-nav-label">Builder.io</span>
-        </div>
-        <div className="library-nav-item">
-          <IconMessage2 size={15} />
-          <span className="library-nav-label">Feedback</span>
-          <span className="library-beta-badge">BETA</span>
-        </div>
-        <div className="library-share-url">
-          clips.agent-native.com/shared
         </div>
       </div>
     </aside>
@@ -579,9 +567,6 @@ const LIBRARY_BACKDROP_CSS = [
   ".library-sidebar-empty { padding: 6px 8px 0; color: #6b6b6b; font-size: 12px; }",
   ".library-sidebar-spacer { flex: 1; }",
   ".library-sidebar-bottom { display: flex; flex-direction: column; gap: 1px; border-top: 1px solid #2c2c2c; padding-top: 8px; }",
-  ".library-builder-mark { width: 15px; height: 15px; border-radius: 4px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); flex-shrink: 0; }",
-  ".library-beta-badge { padding: 1px 5px; border-radius: 4px; background: #2e2e2e; color: #999999; font-size: 9px; font-weight: 700; letter-spacing: 0.03em; }",
-  ".library-share-url { padding: 2px 8px 0; color: #5c5c5c; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
 
   ".library-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }",
   ".library-topbar { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #333333; }",
