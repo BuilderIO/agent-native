@@ -3564,6 +3564,7 @@ function createAuthGuardFn(
       p.endsWith(".ico") ||
       p.endsWith(".png") ||
       p.endsWith(".svg") ||
+      p.endsWith(".webp") ||
       p.endsWith(".woff2") ||
       p.endsWith(".woff")
     ) {

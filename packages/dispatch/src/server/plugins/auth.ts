@@ -4,10 +4,6 @@ import { getDispatchConfig } from "../index.js";
 
 const DEFAULT_MARKETING = {
   appName: "Dispatch",
-  screenshotPath: "/auth-marketing/dispatch.webp",
-  screenshotWidth: 914,
-  screenshotHeight: 818,
-  learnMoreUrl: "https://agent-native.com/apps/dispatch",
   tagline:
     "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
   features: [
@@ -26,9 +22,9 @@ const DEFAULT_MARKETING = {
 const dispatchAuthPlugin = async (nitroApp: any) => {
   const { auth: authConfig = {} } = getDispatchConfig();
   const googleOnly = authConfig.googleOnly ?? false;
-  const marketing =
-    (authConfig.marketing as Record<string, unknown> | undefined) ??
-    DEFAULT_MARKETING;
+  const marketing = authConfig.marketing
+    ? { ...DEFAULT_MARKETING, ...authConfig.marketing }
+    : DEFAULT_MARKETING;
   const plugin = createAuthPlugin({
     googleOnly,
     marketing: marketing as any,
