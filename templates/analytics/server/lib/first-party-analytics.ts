@@ -47,6 +47,7 @@ export interface IncomingAnalyticsEvent {
 export interface AnalyticsQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
+  truncated?: boolean;
 }
 
 export interface AnalyticsQueryOptions {

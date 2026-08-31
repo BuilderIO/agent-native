@@ -984,7 +984,7 @@ export function buildBigQueryAlertQuery(
     `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(windowEnd)})`,
     rule.orgId
       ? `org_id = ${bigQuerySqlLiteral(rule.orgId)}`
-      : `(org_id IS NULL AND owner_email = ${bigQuerySqlLiteral(rule.ownerEmail)})`,
+      : `(org_id IS NULL AND LOWER(owner_email) = LOWER(${bigQuerySqlLiteral(rule.ownerEmail)}))`,
     ...(rule.eventName
       ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
       : []),
@@ -1101,6 +1101,11 @@ async function loadCandidateEvents(
           buildBigQueryAlertQuery(rule, windowStart, windowEnd),
           { userEmail: rule.ownerEmail, orgId: rule.orgId },
         );
+        if (result.truncated) {
+          throw new Error(
+            `BigQuery alert evaluation for rule ${rule.id} returned truncated results; refusing to evaluate partial data`,
+          );
+        }
         return result.rows.map(normalizeBigQueryAlertEventRow);
       },
     );

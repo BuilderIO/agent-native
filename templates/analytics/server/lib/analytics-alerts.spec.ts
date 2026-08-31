@@ -341,6 +341,62 @@ describe("analytics alert evaluation", () => {
     );
   });
 
+  it("normalizes personal BigQuery alert scope by email case", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [],
+        ownerEmail: "Owner@Example.Test",
+        orgId: null,
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
+
+    expect(query).toContain("LOWER(owner_email) = LOWER('Owner@Example.Test')");
+  });
+
+  it("fails loudly when BigQuery returns truncated alert results", async () => {
+    backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
+    firstPartyMocks.query.mockResolvedValue({
+      rows: [],
+      schema: [],
+      truncated: true,
+    });
+
+    await expect(
+      evaluateAndNotifyAnalyticsAlertRule(
+        {
+          id: "rule-1",
+          name: "Production chat errors",
+          description: "",
+          eventName: "agent_run_terminal",
+          filters: [],
+          thresholdMode: "event_count",
+          distinctBy: null,
+          threshold: 1,
+          windowMinutes: 10,
+          cooldownMinutes: 60,
+          severity: "critical",
+          channels: ["inbox"],
+          emailRecipients: [],
+          slackWebhookUrl: null,
+          webhookUrl: null,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          lastStatus: null,
+          lastError: null,
+          createdAt: "2026-08-31T12:00:00.000Z",
+          updatedAt: "2026-08-31T12:00:00.000Z",
+          ownerEmail: "owner@example.test",
+          orgId: "org-1",
+        },
+        new Date("2026-08-31T12:05:00.000Z"),
+      ),
+    ).rejects.toThrow("refusing to evaluate partial data");
+  });
+
   it("keeps sweep ordering fair instead of cycling only recently evaluated rules", () => {
     const source = readFileSync(
       new URL("./analytics-alerts.ts", import.meta.url),
