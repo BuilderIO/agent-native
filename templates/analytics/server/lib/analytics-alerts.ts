@@ -1137,7 +1137,7 @@ async function loadCandidateEvents(
         if (
           result.truncated ||
           (result.rows.length > 0 &&
-            (typeof totalRows !== "number" || totalRows > result.rows.length))
+            (typeof totalRows !== "number" || totalRows !== result.rows.length))
         ) {
           throw new Error(
             `BigQuery alert evaluation for rule ${rule.id} returned truncated results; refusing to evaluate partial data`,
