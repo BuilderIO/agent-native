@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
+import { DEFAULT_BIG_NUDGE_PX } from "../shared/canvas-math";
+
 /**
  * Grouping and selection traversal, asserted against Figma's documented
  * behaviour. Doc facts are quoted in each failure message so a reviewer can
@@ -275,7 +277,7 @@ test.describe("keyboard selection traversal", () => {
     ).toBe("Kid One");
   });
 
-  test("Shift+Arrow nudges a collapsed container 10px on the first press", async ({
+  test("Shift+Arrow nudges a collapsed container by the big nudge on the first press", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -297,7 +299,7 @@ test.describe("keyboard selection traversal", () => {
           styleNum(styleOf(html, "wrap"), "left"),
         ),
       )
-      .toBe(before + 10);
+      .toBe(before + DEFAULT_BIG_NUDGE_PX);
     await expect(
       row.getByRole("button", { name: "Expand layer" }),
     ).toBeVisible();
