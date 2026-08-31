@@ -44,15 +44,15 @@ const messages = {
       noMatches: "Sin coincidencias",
       localResults: "En esta bandeja de entrada",
       searchingGmail: "Buscando en Gmail...",
-      saveAsTab: "Save as tab",
-      saveAsTabPrompt: "Name this tab",
+      saveAsTab: "Guardar como pestaña",
+      saveAsTabPrompt: "Nombra esta pestaña",
     },
     tabSettings: {
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
       renameTab: "Renombrar pestaña",
-      savedFilters: "Saved filters",
+      savedFilters: "Filtros guardados",
       help: "Los elementos marcados se muestran como pestañas. Los emails con etiquetas se separan de la bandeja de entrada.",
     },
     accounts: {

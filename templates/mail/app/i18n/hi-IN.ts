@@ -44,15 +44,15 @@ const messages = {
       noMatches: "कोई परिणाम नहीं",
       localResults: "इस इनबॉक्स में",
       searchingGmail: "Gmail खोजा जा रहा है...",
-      saveAsTab: "Save as tab",
-      saveAsTabPrompt: "Name this tab",
+      saveAsTab: "टैब के रूप में सहेजें",
+      saveAsTabPrompt: "इस टैब का नाम दें",
     },
     tabSettings: {
       views: "दृश्य",
       categories: "श्रेणियां",
       rename: "नाम बदलें",
       renameTab: "टैब का नाम बदलें",
-      savedFilters: "Saved filters",
+      savedFilters: "सहेजे गए फ़िल्टर",
       help: "चुने गए आइटम टैब के रूप में दिखते हैं। लेबल वाले ईमेल इनबॉक्स से अलग हो जाते हैं।",
     },
     accounts: {

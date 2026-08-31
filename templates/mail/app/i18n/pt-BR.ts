@@ -44,15 +44,15 @@ const messages = {
       noMatches: "Nenhum resultado",
       localResults: "Nesta caixa de entrada",
       searchingGmail: "Pesquisando no Gmail...",
-      saveAsTab: "Save as tab",
-      saveAsTabPrompt: "Name this tab",
+      saveAsTab: "Salvar como aba",
+      saveAsTabPrompt: "Nomeie esta aba",
     },
     tabSettings: {
       views: "Visualizações",
       categories: "Categorias",
       rename: "Renomear",
       renameTab: "Renomear aba",
-      savedFilters: "Saved filters",
+      savedFilters: "Filtros salvos",
       help: "Itens marcados aparecem como abas. Emails com marcador ficam separados da caixa de entrada.",
     },
     accounts: {
