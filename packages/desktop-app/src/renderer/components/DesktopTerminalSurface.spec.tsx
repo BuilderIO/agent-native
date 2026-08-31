@@ -95,4 +95,43 @@ describe("DesktopTerminalSurface", () => {
     await act(async () => item?.click());
     expect(onToggleSidebar).toHaveBeenCalledOnce();
   });
+
+  it("offers the supported terminal providers", async () => {
+    act(() => {
+      root.render(
+        <DesktopTerminalSurface
+          agent="codex"
+          theme="dark"
+          onAgentChange={vi.fn()}
+        />,
+      );
+    });
+
+    await act(async () => {
+      const trigger = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Terminal options"]',
+      );
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const providerItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Provider"));
+    expect(providerItem).not.toBeUndefined();
+    expect(
+      providerItem?.querySelector(".desktop-dropdown-item__main"),
+    ).not.toBeNull();
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).some((item) => item.textContent?.includes("Terminal provider")),
+    ).toBe(false);
+  });
 });

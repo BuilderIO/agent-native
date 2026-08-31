@@ -530,20 +530,28 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
-  it("keeps the shared sidebar reachable from an empty full-screen chat", () => {
+  it("only exposes the shared sidebar from an active full-screen chat", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
     );
 
     expect(hubSource).toContain("!showTerminalSurface");
+    expect(hubSource).toContain("hasChatFirstActiveChat");
+    expect(hubSource).toContain("!chatFirstAppSelected");
     expect(hubSource).toContain("chatFirstSurfacePanel.toggle");
     expect(hubSource).toContain("sidebarOpen={chatFirstSurfacePanel.open}");
     expect(hubSource).toContain(
       "onToggleSidebar={chatFirstSurfacePanel.toggle}",
     );
     expect(hubSource).toContain(
-      "{chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (",
+      "{chatFirstSurfacePanel.open &&\n        (hasChatFirstActiveChat ||",
+    );
+    expect(hubSource).toContain(
+      "if (!hasChatFirstActiveChat) setChatFirstSurfacePanelOpen(false);",
+    );
+    expect(hubSource).not.toContain(
+      "if (tabCount > 0 && (previousTabCount === null || previousTabCount === 0))",
     );
     expect(hubSource).not.toContain(
       "(hasChatFirstActiveChat || terminalPreferences.enabled) &&\n        chatFirstSurfacePanel.open",

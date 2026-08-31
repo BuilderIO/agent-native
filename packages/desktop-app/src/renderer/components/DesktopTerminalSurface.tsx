@@ -1,22 +1,29 @@
-import type { ChatFirstAppItem } from "@agent-native/core/client/chat-first";
 import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
-import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import {
+  IconCheck,
+  IconDotsVertical,
+  IconPlus,
+  IconTerminal2,
+  IconX,
+} from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 
-import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
-import type { RendererTheme } from "../lib/theme.js";
 import {
-  DesktopChatFirstSurfaceMenuItems,
-  type DesktopChatFirstSurfaceMenuProps,
-} from "./DesktopChatFirstSurfaceMenu.js";
+  DESKTOP_TERMINAL_AGENT_OPTIONS,
+  type DesktopTerminalAgentId,
+} from "../lib/desktop-terminal-preferences.js";
+import type { RendererTheme } from "../lib/theme.js";
+import { DesktopChatFirstSurfaceMenuItems } from "./DesktopChatFirstSurfaceMenu.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 
 export interface DesktopTerminalPromptRequest extends AgentTerminalSubmitRequest {}
@@ -30,9 +37,7 @@ interface DesktopTerminalSurfaceProps {
   onNewUiTab?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
-  apps?: readonly ChatFirstAppItem[];
-  onOpenApp?: DesktopChatFirstSurfaceMenuProps["onOpenApp"];
-  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
+  onAgentChange?: (agent: DesktopTerminalAgentId) => void;
 }
 
 interface DesktopTerminalTab {
@@ -56,9 +61,7 @@ export default function DesktopTerminalSurface({
   onNewUiTab,
   sidebarOpen,
   onToggleSidebar,
-  apps = [],
-  onOpenApp,
-  renderAppIcon,
+  onAgentChange,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
@@ -176,16 +179,41 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
-              {onToggleSidebar ||
-              (apps.length > 0 && onOpenApp) ||
-              onNewUiTab ? (
+              {onAgentChange ? (
+                <>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span className="desktop-dropdown-item__main">
+                        <IconTerminal2 size={14} className="shrink-0" />
+                        Provider
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-52">
+                      {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
+                        <DropdownMenuItem
+                          key={option.id}
+                          onSelect={() => onAgentChange(option.id)}
+                        >
+                          <IconCheck
+                            size={14}
+                            className={
+                              option.id === agent ? "shrink-0" : "invisible"
+                            }
+                            aria-hidden="true"
+                          />
+                          <span>{option.label}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
+              {onToggleSidebar || onNewUiTab ? (
                 <>
                   <DesktopChatFirstSurfaceMenuItems
                     sidebarOpen={sidebarOpen}
-                    apps={apps}
                     onToggleSidebar={onToggleSidebar}
-                    onOpenApp={onOpenApp}
-                    renderAppIcon={renderAppIcon}
                     onNewUiTab={onNewUiTab}
                   />
                   <DropdownMenuSeparator />
@@ -217,6 +245,7 @@ export default function DesktopTerminalSurface({
             hidden={tab.id !== activeTabId}
           >
             <DesktopTerminalTabs
+              key={`${tab.id}:${agent}`}
               agent={agent}
               theme={theme}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}

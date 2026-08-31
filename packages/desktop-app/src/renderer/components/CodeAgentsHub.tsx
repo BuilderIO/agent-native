@@ -120,6 +120,7 @@ import type {
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
+  type DesktopTerminalAgentId,
   writeDesktopTerminalPreferences,
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
@@ -1143,6 +1144,12 @@ export default function CodeAgentsHub({
     () => setDesktopTerminalMode(true, true),
     [setDesktopTerminalMode],
   );
+  const handleTerminalAgentChange = useCallback(
+    (agent: DesktopTerminalAgentId) => {
+      writeDesktopTerminalPreferences({ agent });
+    },
+    [],
+  );
   const handleNewUiTab = useCallback(
     () => setDesktopTerminalMode(false),
     [setDesktopTerminalMode],
@@ -1477,17 +1484,15 @@ export default function CodeAgentsHub({
   useEffect(() => {
     const tabCount = visibleChatFirstSurfaceTabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
-    if (tabCount > 0 && (previousTabCount === null || previousTabCount === 0)) {
-      setChatFirstSurfacePanelOpen(true);
-    } else if (
-      tabCount === 0 &&
-      previousTabCount !== null &&
-      previousTabCount > 0
-    ) {
+    if (tabCount === 0 && previousTabCount !== null && previousTabCount > 0) {
       setChatFirstSurfacePanelOpen(false);
     }
     previousChatFirstSurfaceTabCountRef.current = tabCount;
   }, [setChatFirstSurfacePanelOpen, visibleChatFirstSurfaceTabs.length]);
+
+  useEffect(() => {
+    if (!hasChatFirstActiveChat) setChatFirstSurfacePanelOpen(false);
+  }, [hasChatFirstActiveChat, setChatFirstSurfacePanelOpen]);
 
   useEffect(() => {
     if (!terminalPreferences.enabled) return;
@@ -2648,6 +2653,7 @@ export default function CodeAgentsHub({
       if (tab.kind === "terminal") {
         return (
           <DesktopTerminalTabs
+            key={`${tab.id}:${terminalPreferences.agent}`}
             agent={terminalPreferences.agent}
             theme={theme}
             className="desktop-terminal-tabs--side-surface"
@@ -2874,15 +2880,11 @@ export default function CodeAgentsHub({
             !showTerminalSurface &&
             !chatFirstAllAppsOpen &&
             !scheduledTasksOpen &&
-            !chatFirstAppTakesMain ? (
+            hasChatFirstActiveChat &&
+            !chatFirstAppSelected ? (
               <DesktopChatFirstSurfaceMenu
                 sidebarOpen={chatFirstSurfacePanel.open}
-                apps={chatFirstAppItems}
                 onToggleSidebar={chatFirstSurfacePanel.toggle}
-                onOpenApp={(app) =>
-                  openChatFirstApp(app.id, undefined, undefined, "side")
-                }
-                renderAppIcon={renderChatFirstAppIcon}
                 onNewCliTab={handleNewCliTab}
               />
             ) : undefined
@@ -2930,13 +2932,15 @@ export default function CodeAgentsHub({
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
                 onNewUiTab={handleNewUiTab}
-                sidebarOpen={chatFirstSurfacePanel.open}
-                onToggleSidebar={chatFirstSurfacePanel.toggle}
-                apps={chatFirstAppItems}
-                onOpenApp={(app) =>
-                  openChatFirstApp(app.id, undefined, undefined, "side")
+                sidebarOpen={
+                  chatFirstAppSelected ? undefined : chatFirstSurfacePanel.open
                 }
-                renderAppIcon={renderChatFirstAppIcon}
+                onToggleSidebar={
+                  chatFirstAppSelected
+                    ? undefined
+                    : chatFirstSurfacePanel.toggle
+                }
+                onAgentChange={handleTerminalAgentChange}
               />
             ) : undefined
           }
@@ -3093,7 +3097,11 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {chatFirstSurfacePanel.open && !chatFirstAppTakesMain ? (
+        {chatFirstSurfacePanel.open &&
+        (hasChatFirstActiveChat ||
+          (activeChatFirstSurfaceTab?.kind === "app" &&
+            activeChatFirstSurfaceTab.placement === "side")) &&
+        !chatFirstAppTakesMain ? (
           <ChatFirstSurfacePanel
             width={chatFirstSurfaceResize.width}
             onResizePointerDown={chatFirstSurfaceResize.onPointerDown}
