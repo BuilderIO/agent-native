@@ -25,41 +25,59 @@ function setCubeAnimationPhase(
 
 export type CubeLoaderProps = Omit<
   React.SVGProps<SVGSVGElement>,
-  "children"
+  "children" | "stroke"
 > & {
+  absoluteStrokeWidth?: boolean;
   size?: number | string;
+  stroke?: string | number;
+  title?: string;
 };
 
 export function CubeLoader({
+  absoluteStrokeWidth,
   className,
   size,
+  stroke,
+  title,
   width,
   height,
   ref,
   ...props
 }: CubeLoaderProps) {
   const hasRole = Object.prototype.hasOwnProperty.call(props, "role");
+  const isAriaHidden =
+    props["aria-hidden"] === true || props["aria-hidden"] === "true";
   const hasExplicitSize =
     size !== undefined || width !== undefined || height !== undefined;
-  const ariaLabel = props["aria-label"] ?? (hasRole ? undefined : "Loading");
+  const ariaLabel =
+    props["aria-label"] ??
+    title ??
+    (hasRole || isAriaHidden ? undefined : "Loading");
+  const role = hasRole ? props.role : isAriaHidden ? undefined : "status";
   const setRefs = useCallback(
     (svg: SVGSVGElement | null) => setCubeAnimationPhase(svg, ref),
     [ref],
   );
+  const strokeColor = stroke === undefined ? undefined : String(stroke);
 
   return (
     <svg
       {...props}
       ref={setRefs}
-      role={hasRole ? props.role : "status"}
+      role={role}
       aria-label={ariaLabel}
       width={width ?? size ?? 24}
       height={height ?? size ?? 24}
       viewBox="0 0 24 24"
       fill="currentColor"
+      stroke={strokeColor}
+      vectorEffect={
+        absoluteStrokeWidth ? "non-scaling-stroke" : props.vectorEffect
+      }
       className={cn(!hasExplicitSize && "size-4", className)}
       data-agent-native-cube-loader="true"
     >
+      {title ? <title>{title}</title> : null}
       <style>{`
         @keyframes an-cube-pulse {
           0%, 100% { opacity: 0.15; }

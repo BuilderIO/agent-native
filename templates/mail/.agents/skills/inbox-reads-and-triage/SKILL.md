@@ -47,7 +47,7 @@ relying on ambient screen text.
 `navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `scheduled`,
 `archive`, `trash`, `draft-queue`, `settings`), plus `threadId`,
 `settingsSection` (`drafting`, `automations`, `gmail-filters`, `aliases`,
-`tracking`, `slack`, `team`), `queuedDraftId`, or `composeDraftId`.
+  `ai-filter`, `tracking`, `slack`, `team`), `queuedDraftId`, or `composeDraftId`.
 
 ## Related Skills
 

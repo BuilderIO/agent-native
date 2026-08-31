@@ -53,6 +53,7 @@ Dispatch hub
 GET /api/auth/user
 getSession callback
 gh · ffmpeg · stripe
+GitHub
 GitHub OAuth
 Google Calendar
 Google OAuth
@@ -104,10 +105,12 @@ Same signed app route
 Sandboxed iframe
 Secret proxy
 Secret vault
+Sentry
 session.orgId
 Shell & Hooks
 Signed app route
 Signed processor
+Slack
 Slack webhook URL
 Slack · Granola · GitHub · Clips · webhooks
 Slack · Stripe · email

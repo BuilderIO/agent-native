@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import {
+  factoryAuditEvents,
   triageDecisions,
   triageFeedback,
   triageItems,
@@ -12,6 +13,7 @@ import {
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import {
   factoryIdSchema,
+  orgFactoryAuditEventFilter,
   orgFactoryDecisionFilter,
   orgFactoryFeedbackFilter,
   orgFactoryItemFilter,
@@ -22,10 +24,18 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import { triageItemAuthor } from "../server/triage/metadata.js";
+import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
+
+const ITEM_ACTION_KINDS = [
+  "decision",
+  "external_action",
+  "governance",
+] as const;
 
 export default defineAction({
   description:
-    "Inspect one Factory item, including its append-only shadow decisions, feedback, and run reconciliation state.",
+    "Inspect one Factory item, including its append-only shadow decisions, feedback, item-scoped audit actions, and run reconciliation state.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     itemId: z.string().min(1),
@@ -76,6 +86,17 @@ export default defineAction({
         ),
       )
       .orderBy(asc(triageRuns.startedAt));
+    const events = await db
+      .select()
+      .from(factoryAuditEvents)
+      .where(
+        and(
+          eq(factoryAuditEvents.itemId, itemId),
+          orgFactoryAuditEventFilter(orgId, factoryId),
+          inArray(factoryAuditEvents.kind, [...ITEM_ACTION_KINDS]),
+        ),
+      )
+      .orderBy(asc(factoryAuditEvents.createdAt));
 
     const matchingFeedback = feedback.filter((entry) =>
       decisions.some((decision) => decision.id === entry.decisionId),
@@ -94,6 +115,7 @@ export default defineAction({
           decisionCount: decisions.length,
           feedbackCount: matchingFeedback.length,
           runCount: runs.length,
+          eventCount: events.length,
           coverage: item.coverage,
           itemTitle: item.title,
           itemSummary: item.summary,
@@ -104,6 +126,9 @@ export default defineAction({
 
     return {
       ...item,
+      itemId: item.id,
+      author: triageItemAuthor(item.metadataJson) || null,
+      userLabels: readStoredUserLabels(item.metadataJson),
       decisions: decisions.map((decision) => ({
         decisionId: decision.id,
         outcome: decision.outcome,
@@ -114,6 +139,28 @@ export default defineAction({
       })),
       feedback: matchingFeedback,
       runs,
+      events: events.map((event) => ({
+        id: event.id,
+        action: event.action,
+        kind: event.kind,
+        status: event.status,
+        summary: event.summary,
+        details: parseDetails(event.detailsJson),
+        createdAt: event.createdAt,
+      })),
     };
   },
 });
+
+function parseDetails(value: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("Factory audit details are unreadable.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Factory audit details are unreadable.");
+  }
+  return parsed as Record<string, unknown>;
+}

@@ -3,7 +3,10 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { summarizePlanVersionRow } from "../server/lib/plan-versions.js";
+import {
+  parsePlanVersionChatContext,
+  summarizePlanVersionRow,
+} from "../server/lib/plan-versions.js";
 import { assertPlanEditor } from "../server/plans.js";
 
 export default defineAction({
@@ -47,6 +50,7 @@ export default defineAction({
         hasCanvas: schema.planVersions.hasCanvas,
         hasPrototype: schema.planVersions.hasPrototype,
         previewText: schema.planVersions.previewText,
+        chatContext: schema.planVersions.chatContext,
       })
       .from(schema.planVersions)
       .where(
@@ -77,12 +81,23 @@ export default defineAction({
     return {
       planId,
       count: versions.length,
-      versions: versions.map((version) =>
-        summarizePlanVersionRow({
+      versions: versions.map((version) => {
+        const summary = summarizePlanVersionRow({
           ...version,
           snapshotJson: legacySnapshotById.get(version.id) ?? null,
-        }),
-      ),
+        });
+        let chatContext;
+        try {
+          chatContext = parsePlanVersionChatContext(version.chatContext);
+        } catch {
+          chatContext = undefined;
+        }
+        return {
+          ...summary,
+          editable: Boolean(chatContext),
+          ...(chatContext ? { chatContext } : {}),
+        };
+      }),
     };
   },
 });

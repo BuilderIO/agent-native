@@ -102,6 +102,10 @@ export interface ChatRequestLog {
   count: number;
 }
 
+export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
+  return `Agent chat requests: ${JSON.stringify(log)}`;
+}
+
 /**
  * Record the model on every agent-chat POST this page makes.
  *
@@ -201,6 +205,87 @@ export const COMPOSER = {
 } as const;
 
 /**
+ * The suite opens the AgentSidebar, but some apps also render a page-level
+ * composer and chat keeps inactive tabs mounted. Scope actions to the open
+ * sidebar root before selecting its visible controls.
+ */
+const VISIBLE_AGENT_COMPOSER_ROOT =
+  '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="root"]:visible';
+
+export const VISIBLE_COMPOSER = {
+  root: VISIBLE_AGENT_COMPOSER_ROOT,
+  input: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.input}:visible`,
+  send: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.send}:visible`,
+  stop: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.stop}:visible`,
+  model: `${VISIBLE_AGENT_COMPOSER_ROOT} ${COMPOSER.model}:visible`,
+} as const;
+
+export async function readComposerRuntimeState(page: Page): Promise<unknown> {
+  return page.evaluate(() => {
+    const isVisible = (element: Element): boolean => {
+      const style = window.getComputedStyle(element);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        element.getClientRects().length > 0
+      );
+    };
+    const panel = document.querySelector<HTMLElement>(
+      '.agent-sidebar-panel[data-agent-sidebar-state="open"]',
+    );
+    const roots = Array.from(
+      (panel ?? document).querySelectorAll<HTMLElement>(
+        '[data-agent-composer-slot="root"]',
+      ),
+    );
+    const root = roots.find(isVisible) ?? roots[0];
+    const surface = root ?? panel ?? document;
+    const inputs = Array.from(
+      surface.querySelectorAll<HTMLElement>(
+        '[data-agent-composer-slot="editor-input"]',
+      ),
+    );
+    const sends = Array.from(
+      surface.querySelectorAll<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      ),
+    );
+    const input = inputs.find(isVisible) ?? inputs[0];
+    const send = sends.find(isVisible) ?? sends[0];
+    return {
+      href: window.location.href,
+      composerRootCount: roots.length,
+      visibleComposerRootCount: roots.filter(isVisible).length,
+      inputCount: inputs.length,
+      visibleInputCount: inputs.filter(isVisible).length,
+      input: input
+        ? {
+            textContent: input.textContent,
+            innerText: input.innerText,
+            contentEditable: input.contentEditable,
+            ariaDisabled: input.getAttribute("aria-disabled"),
+            active: document.activeElement === input,
+          }
+        : null,
+      sendCount: sends.length,
+      visibleSendCount: sends.filter(isVisible).length,
+      send: send
+        ? {
+            disabled: send.disabled,
+            ariaDisabled: send.getAttribute("aria-disabled"),
+          }
+        : null,
+      panel: panel
+        ? {
+            state: panel.getAttribute("data-agent-sidebar-state"),
+            text: panel.innerText.slice(-500),
+          }
+        : null,
+    };
+  });
+}
+
+/**
  * Error text the product renders when a turn fails. Every one of these is a
  * shape real users reported on beta; matching any of them fails the turn.
  */
@@ -247,18 +332,24 @@ export async function sendPromptAndAwaitTurn(
   prompt: string,
   { turnTimeoutMs = 180_000 }: { turnTimeoutMs?: number } = {},
 ): Promise<void> {
-  const input = page.locator(COMPOSER.input).first();
+  const input = page.locator(VISIBLE_COMPOSER.input).first();
   await input.waitFor({ state: "visible", timeout: 60_000 });
   await input.click();
   // The composer is a ProseMirror surface; `fill()` does not produce the input
   // events it needs to enable the send button.
   await input.pressSequentially(prompt, { delay: 8 });
 
-  const send = page.locator(COMPOSER.send).first();
+  const send = page.locator(VISIBLE_COMPOSER.send).first();
   await send.waitFor({ state: "visible", timeout: 30_000 });
-  await send.click();
+  try {
+    await send.click();
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+    );
+  }
 
-  const stop = page.locator(COMPOSER.stop).first();
+  const stop = page.locator(VISIBLE_COMPOSER.stop).first();
   // A turn short enough to finish before the stop button paints is still a
   // completed turn, so a missed appearance is not itself a failure.
   await stop

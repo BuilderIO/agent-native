@@ -113,6 +113,13 @@ import {
   TextStreamingContext,
 } from "./chat/markdown-renderer.js";
 import {
+  AssistantChatHistoryContext,
+  assistantMessageHasCompletedSideEffect,
+  findMatchingAssistantChatHistoryVersion,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryMessage,
+  type AssistantChatHistoryVersion,
   CheckpointContext,
   MessageActionsContext,
   assistantMessageRunId,
@@ -221,7 +228,7 @@ import {
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
-import { callAction } from "./use-action.js";
+import { callAction, useActionMutation, useActionQuery } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
   appendChatThreadScopeParams,
@@ -1987,6 +1994,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Optional host-owned resource history used for chat-side reverts. */
+  chatHistory?: AssistantChatHistoryConfig<any, any>;
   /** Restrict server-side thread restores to the supplied app scope. */
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
@@ -2308,10 +2317,10 @@ export { extractThreadMeta };
 
 /**
  * Strip raw base64 payload from attachment content parts when a hosted URL
- * already exists in the same content entry. This keeps the periodic thread
- * save payload compact — the server already stored the URL reference when it
- * processed the POST, and re-shipping multi-megabyte base64 strings on every
- * 5-second poll save balloons the SQL thread_data column unnecessarily.
+ * already exists in the same content entry. This keeps thread save and fork
+ * payloads compact — the server already stored the URL reference when it
+ * processed the POST, and re-shipping multi-megabyte base64 strings balloons
+ * the SQL thread_data column and request body unnecessarily.
  *
  * Only strips the raw base64 data-URL string from `content[].image` / `content[].data`
  * when a `metadata.uploadUrl` reference is present on the same attachment object,
@@ -2488,6 +2497,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    chatHistory,
     isolateHistoryByScope = false,
     contextNamespace,
     isActiveComposer = true,
@@ -3001,6 +3011,137 @@ const AssistantChatInner = forwardRef<
     hasActiveServerRun: hasActiveServerRun || serverRunActive,
     hasTerminalRunError: runErrorInfo !== null,
   });
+  const chatHistoryListQuery = useActionQuery<unknown>(
+    (chatHistory?.list.action ?? "list-resource-versions") as never,
+    chatHistory?.list.args as never,
+    { enabled: chatHistory !== undefined },
+  );
+  const chatHistoryVersions = useMemo(() => {
+    if (!chatHistory || chatHistoryListQuery.data == null) return [];
+    const versions = chatHistory.list.getVersions(chatHistoryListQuery.data);
+    return Array.isArray(versions)
+      ? versions.filter(isAssistantChatHistoryVersion)
+      : [];
+  }, [chatHistory, chatHistoryListQuery.data]);
+  const chatHistoryRestoreMutation = useActionMutation<
+    unknown,
+    Record<string, unknown>
+  >((chatHistory?.restore.action ?? "restore-resource-version") as never);
+  const chatHistoryCreateMutation = useActionMutation<
+    unknown,
+    Record<string, unknown>
+  >((chatHistory?.createVersion?.action ?? "create-resource-version") as never);
+  const refetchChatHistory = chatHistoryListQuery.refetch;
+  const restoreHistory = chatHistoryRestoreMutation.mutateAsync;
+  const createHistoryVersion = chatHistoryCreateMutation.mutateAsync;
+  const restoreChatHistoryVersion = useCallback(
+    async (version: AssistantChatHistoryVersion) => {
+      if (!chatHistory) return;
+      await restoreHistory(
+        chatHistory.restore.args(version) as Record<string, unknown>,
+      );
+      try {
+        await refetchChatHistory();
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-refetch-after-restore",
+          },
+        });
+      }
+    },
+    [chatHistory, refetchChatHistory, restoreHistory],
+  );
+  const chatHistoryContext = useMemo(
+    () =>
+      chatHistory
+        ? {
+            findVersion: (message: AssistantChatHistoryMessage) =>
+              findMatchingAssistantChatHistoryVersion(
+                chatHistoryVersions,
+                message,
+                {
+                  isEditable: chatHistory.isEditable,
+                  scope: chatHistory.scope ?? contextScope ?? undefined,
+                  matchVersion: chatHistory.matchVersion,
+                },
+              ),
+            restoreVersion: restoreChatHistoryVersion,
+          }
+        : null,
+    [chatHistory, chatHistoryVersions, restoreChatHistoryVersion],
+  );
+  const chatHistoryRunObservedRef = useRef(false);
+  const chatHistoryCreateKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chatHistory) {
+      chatHistoryRunObservedRef.current = false;
+      return;
+    }
+    if (isRunning) {
+      chatHistoryRunObservedRef.current = true;
+      return;
+    }
+    if (!chatHistoryRunObservedRef.current) return;
+    chatHistoryRunObservedRef.current = false;
+
+    const latestAssistantMessage = [...messages]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (
+      !latestAssistantMessage ||
+      !assistantMessageHasCompletedSideEffect(latestAssistantMessage)
+    ) {
+      return;
+    }
+
+    const historyMessage: AssistantChatHistoryMessage = {
+      id: latestAssistantMessage.id,
+      createdAt: latestAssistantMessage.createdAt,
+      hasCompletedSideEffect: true,
+    };
+    if (chatHistoryCreateKeyRef.current === historyMessage.id) {
+      void refetchChatHistory();
+      return;
+    }
+    chatHistoryCreateKeyRef.current = historyMessage.id;
+
+    void (async () => {
+      try {
+        if (chatHistory.createVersion) {
+          const args =
+            typeof chatHistory.createVersion.args === "function"
+              ? chatHistory.createVersion.args(historyMessage)
+              : chatHistory.createVersion.args;
+          await createHistoryVersion(args as Record<string, unknown>);
+        }
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-create-version",
+          },
+        });
+      }
+      try {
+        await refetchChatHistory();
+      } catch (error) {
+        captureError(error, {
+          tags: {
+            source: "agent-chat-client",
+            phase: "chat-history-refetch-after-run",
+          },
+        });
+      }
+    })();
+  }, [
+    chatHistory,
+    createHistoryVersion,
+    isRunning,
+    messages,
+    refetchChatHistory,
+  ]);
   const textStreaming = showRunningInUI || externalStreaming;
   const storedActiveRun = getActiveRun();
   const activeChatRunId =
@@ -5698,7 +5839,7 @@ const AssistantChatInner = forwardRef<
         const repo = exportPersistableThreadRepo();
         const { title, preview } = extractThreadMeta(repo);
         return {
-          threadData: JSON.stringify(repo),
+          threadData: JSON.stringify(stripBase64FromRepo(repo)),
           title,
           preview,
           messageCount: messages.length,
@@ -6360,25 +6501,29 @@ const AssistantChatInner = forwardRef<
                                           <ExternalTextStreamingContext.Provider
                                             value={externalStreaming}
                                           >
-                                            <ThreadPrimitive.Messages
-                                              // Deliberately NOT keyed on part structure. Doing that
-                                              // remounted the whole transcript every time a tool call
-                                              // started or a placeholder id was rewritten — a flash and a
-                                              // lost scroll position in the middle of an answer. The
-                                              // error boundary above is the mechanism for assistant-ui's
-                                              // stale tap-resource errors: it catches them, clears, and
-                                              // retries, and its retry signature includes the reset key so
-                                              // a genuinely new structure always gets a fresh budget.
-                                              // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
-                                              // rename and splice through both the import and streaming
-                                              // paths and records that no such error occurs.
-                                              components={{
-                                                UserMessage:
-                                                  AssistantChatUserMessageItem,
-                                                AssistantMessage:
-                                                  AssistantChatAssistantMessageItem,
-                                              }}
-                                            />
+                                            <AssistantChatHistoryContext.Provider
+                                              value={chatHistoryContext}
+                                            >
+                                              <ThreadPrimitive.Messages
+                                                // Deliberately NOT keyed on part structure. Doing that
+                                                // remounted the whole transcript every time a tool call
+                                                // started or a placeholder id was rewritten — a flash and a
+                                                // lost scroll position in the middle of an answer. The
+                                                // error boundary above is the mechanism for assistant-ui's
+                                                // stale tap-resource errors: it catches them, clears, and
+                                                // retries, and its retry signature includes the reset key so
+                                                // a genuinely new structure always gets a fresh budget.
+                                                // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                                // rename and splice through both the import and streaming
+                                                // paths and records that no such error occurs.
+                                                components={{
+                                                  UserMessage:
+                                                    AssistantChatUserMessageItem,
+                                                  AssistantMessage:
+                                                    AssistantChatAssistantMessageItem,
+                                                }}
+                                              />
+                                            </AssistantChatHistoryContext.Provider>
                                           </ExternalTextStreamingContext.Provider>
                                         </ExternalUserStoppedRunContext.Provider>
                                       </UserStoppedRunContext.Provider>

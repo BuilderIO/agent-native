@@ -95,6 +95,7 @@ const enUS = {
       typography: "Typography",
       autoLayout: "Auto layout",
       positionLayout: "Position",
+      layoutGrid: "Layout grid",
       flexLayout: "Flex Layout",
       layout: "Layout",
       spacing: "Spacing",
@@ -152,6 +153,10 @@ const enUS = {
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
+      addGrid: "Add grid",
+      removeGrid: "Remove grid",
+      showGrid: "Show grid",
+      hideGrid: "Hide grid",
       reorderLayer: "Reorder layer",
       stylesComingSoon: "Styles — Coming soon",
       linkSides: "Link sides",
@@ -837,8 +842,12 @@ const enUS = {
         previousSibling: "Previous sibling",
         nextScreen: "Next screen",
         previousScreen: "Previous screen",
+        toggleLayoutGrids: "Show/hide layout grids",
         nudge: "Nudge",
-        nudgeLarge: "Nudge by 10",
+        // i18n-copy-ignore: dropped the hardcoded "10" — every locale's value
+        // for this row is built from the already-translated nudgeAmountBig
+        // label in i18n-keyboard-shortcuts.ts, changed in this same diff.
+        nudgeLarge: "Big nudge",
         copy: "Copy",
         copyPng: "Copy as PNG",
         cut: "Cut",
@@ -1676,6 +1685,11 @@ const enUS = {
       saving: "Saving...",
       saveChanges: "Save changes",
     },
+    preview: {
+      title: "Preview",
+      description:
+        "This design system is managed by Builder Design System Intelligence. Open the linked project to see the full design system, including all tokens, components, and usage guidance.",
+    },
     tokenPreview: {
       title: "Token preview",
       description:
@@ -2162,6 +2176,11 @@ const designLocaleOverrides = {
         saving: "保存...",
         saveChanges: "保存更改",
       },
+      preview: {
+        title: "预览",
+        description:
+          "此设计系统由 Builder 设计系统智能管理。打开关联的项目即可查看完整的设计系统，包括所有令牌、组件和使用指南。",
+      },
       tokenPreview: {
         title: "代币预览",
         description: "当前存储的颜色、类型、间距和资源的快照。",
@@ -2608,6 +2627,11 @@ const designLocaleOverrides = {
         useAsStartingPoint: "Usar como punto de partida",
         saving: "Ahorro...",
         saveChanges: "Guardar cambios",
+      },
+      preview: {
+        title: "Vista previa",
+        description:
+          "Este sistema de diseño se gestiona con Builder Design System Intelligence. Abre el proyecto vinculado para ver el sistema de diseño completo, incluidos todos los tokens, componentes y guías de uso.",
       },
       tokenPreview: {
         title: "Vista previa del token",
@@ -3063,6 +3087,11 @@ const designLocaleOverrides = {
         saving: "Économie...",
         saveChanges: "Enregistrer les modifications",
       },
+      preview: {
+        title: "Aperçu",
+        description:
+          "Ce système de conception est géré par Builder Design System Intelligence. Ouvrez le projet associé pour voir le système de conception complet, y compris tous les jetons, composants et conseils d’utilisation.",
+      },
       tokenPreview: {
         title: "Aperçu du jeton",
         description:
@@ -3517,6 +3546,11 @@ const designLocaleOverrides = {
         saving: "Sparen...",
         saveChanges: "Änderungen speichern",
       },
+      preview: {
+        title: "Vorschau",
+        description:
+          "Dieses Designsystem wird von Builder Design System Intelligence verwaltet. Öffnen Sie das verknüpfte Projekt, um das vollständige Designsystem einzusehen, einschließlich aller Tokens, Komponenten und Nutzungshinweise.",
+      },
       tokenPreview: {
         title: "Token-Vorschau",
         description:
@@ -3966,6 +4000,11 @@ const designLocaleOverrides = {
         saving: "保存中...",
         saveChanges: "変更を保存する",
       },
+      preview: {
+        title: "プレビュー",
+        description:
+          "このデザインシステムは Builder Design System Intelligence によって管理されています。リンクされたプロジェクトを開くと、すべてのトークン、コンポーネント、使用ガイダンスを含む完全なデザインシステムを確認できます。",
+      },
       tokenPreview: {
         title: "トークンのプレビュー",
         description:
@@ -4407,6 +4446,11 @@ const designLocaleOverrides = {
         useAsStartingPoint: "출발점으로 사용",
         saving: "절약...",
         saveChanges: "변경사항 저장",
+      },
+      preview: {
+        title: "미리보기",
+        description:
+          "이 디자인 시스템은 Builder Design System Intelligence에서 관리합니다. 연결된 프로젝트를 열어 모든 토큰, 구성 요소 및 사용 가이드를 포함한 전체 디자인 시스템을 확인하세요.",
       },
       tokenPreview: {
         title: "토큰 미리보기",
@@ -4856,6 +4900,11 @@ const designLocaleOverrides = {
         saving: "Salvando...",
         saveChanges: "Salvar alterações",
       },
+      preview: {
+        title: "Visualização",
+        description:
+          "Este sistema de design é gerenciado pelo Builder Design System Intelligence. Abra o projeto vinculado para ver o sistema de design completo, incluindo todos os tokens, componentes e diretrizes de uso.",
+      },
       tokenPreview: {
         title: "Visualização do token",
         description:
@@ -5293,6 +5342,11 @@ const designLocaleOverrides = {
         saving: "सहेजा जा रहा है...",
         saveChanges: "परिवर्तनों को सुरक्षित करें",
       },
+      preview: {
+        title: "पूर्वावलोकन",
+        description:
+          "इस डिज़ाइन सिस्टम को Builder डिज़ाइन सिस्टम इंटेलिजेंस द्वारा प्रबंधित किया जाता है। सभी टोकन, घटकों और उपयोग मार्गदर्शन सहित पूरा डिज़ाइन सिस्टम देखने के लिए लिंक की गई परियोजना खोलें।",
+      },
       tokenPreview: {
         title: "टोकन पूर्वावलोकन",
         description:
@@ -5729,6 +5783,11 @@ const designLocaleOverrides = {
         useAsStartingPoint: "استخدم كنقطة انطلاق",
         saving: "توفير...",
         saveChanges: "حفظ التغييرات",
+      },
+      preview: {
+        title: "معاينة",
+        description:
+          "يتم إدارة نظام التصميم هذا بواسطة Builder Design System Intelligence. افتح المشروع المرتبط لعرض نظام التصميم الكامل، بما في ذلك جميع الرموز والمكونات وإرشادات الاستخدام.",
       },
       tokenPreview: {
         title: "معاينة الرمز المميز",
@@ -8097,6 +8156,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自動布局",
         positionLayout: "位置",
+        layoutGrid: "版面格線",
         stroke: "描邊",
         effects: "效果",
         codeConfidence: "程式碼",
@@ -8270,6 +8330,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "自动布局",
         positionLayout: "位置",
+        layoutGrid: "布局网格",
         stroke: "描边",
         effects: "效果",
         codeConfidence: "代码",
@@ -8442,6 +8503,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Diseño automático",
         positionLayout: "Posición",
+        layoutGrid: "Cuadrícula de diseño",
         stroke: "Trazo",
         effects: "Efectos",
         codeConfidence: "Código",
@@ -8638,6 +8700,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Mise en page auto",
         positionLayout: "Position",
+        layoutGrid: "Grille de mise en page",
         stroke: "Contour",
         effects: "Effets",
         codeConfidence: "Code",
@@ -8829,6 +8892,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Auto-Layout",
         positionLayout: "Position",
+        layoutGrid: "Layoutraster",
         stroke: "Kontur",
         effects: "Effekte",
         codeConfidence: "Code",
@@ -9027,6 +9091,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "オートレイアウト",
         positionLayout: "位置",
+        layoutGrid: "レイアウトグリッド",
         stroke: "線",
         effects: "効果",
         codeConfidence: "コード",
@@ -9219,6 +9284,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "자동 레이아웃",
         positionLayout: "위치",
+        layoutGrid: "레이아웃 그리드",
         stroke: "획",
         effects: "효과",
         codeConfidence: "코드",
@@ -9408,6 +9474,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "Layout automático",
         positionLayout: "Posição",
+        layoutGrid: "Grade de layout",
         stroke: "Traço",
         effects: "Efeitos",
         codeConfidence: "Código",
@@ -9597,6 +9664,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "ऑटो लेआउट",
         positionLayout: "स्थिति",
+        layoutGrid: "लेआउट ग्रिड",
         stroke: "स्ट्रोक",
         effects: "प्रभाव",
         codeConfidence: "कोड",
@@ -9786,6 +9854,7 @@ const designModeFeatureOverrides = {
       sections: {
         autoLayout: "تخطيط تلقائي",
         positionLayout: "الموضع",
+        layoutGrid: "شبكة التخطيط",
         stroke: "الحد",
         effects: "التأثيرات",
         codeConfidence: "الكود",
@@ -10047,6 +10116,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
+        addGrid: "添加网格",
+        removeGrid: "移除网格",
+        showGrid: "显示网格",
+        hideGrid: "隐藏网格",
         reorderLayer: "重新排序图层",
         linkSides: "链接四边",
         unlinkSides: "取消链接四边",
@@ -10150,6 +10223,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
+        addGrid: "Añadir cuadrícula",
+        removeGrid: "Eliminar cuadrícula",
+        showGrid: "Mostrar cuadrícula",
+        hideGrid: "Ocultar cuadrícula",
         reorderLayer: "Reordenar capa",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10255,6 +10332,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
+        addGrid: "Ajouter une grille",
+        removeGrid: "Supprimer la grille",
+        showGrid: "Afficher la grille",
+        hideGrid: "Masquer la grille",
         reorderLayer: "Réorganiser le calque",
         linkSides: "Lier les côtés",
         unlinkSides: "Délier les côtés",
@@ -10360,6 +10441,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
+        addGrid: "Raster hinzufügen",
+        removeGrid: "Raster entfernen",
+        showGrid: "Raster anzeigen",
+        hideGrid: "Raster ausblenden",
         reorderLayer: "Ebene neu anordnen",
         linkSides: "Seiten verknüpfen",
         unlinkSides: "Seiten lösen",
@@ -10461,6 +10546,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
+        addGrid: "グリッドを追加",
+        removeGrid: "グリッドを削除",
+        showGrid: "グリッドを表示",
+        hideGrid: "グリッドを非表示",
         reorderLayer: "レイヤーを並べ替え",
         linkSides: "辺をリンク",
         unlinkSides: "辺のリンクを解除",
@@ -10562,6 +10651,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
+        addGrid: "그리드 추가",
+        removeGrid: "그리드 제거",
+        showGrid: "그리드 표시",
+        hideGrid: "그리드 숨기기",
         reorderLayer: "레이어 순서 변경",
         linkSides: "면 연결",
         unlinkSides: "면 연결 해제",
@@ -10665,6 +10758,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
+        addGrid: "Adicionar grade",
+        removeGrid: "Remover grade",
+        showGrid: "Mostrar grade",
+        hideGrid: "Ocultar grade",
         reorderLayer: "Reordenar camada",
         linkSides: "Vincular lados",
         unlinkSides: "Desvincular lados",
@@ -10766,6 +10863,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
+        addGrid: "ग्रिड जोड़ें",
+        removeGrid: "ग्रिड हटाएं",
+        showGrid: "ग्रिड दिखाएं",
+        hideGrid: "ग्रिड छिपाएं",
         reorderLayer: "परत पुनः क्रमित करें",
         linkSides: "किनारे लिंक करें",
         unlinkSides: "किनारे अनलिंक करें",
@@ -10867,6 +10968,10 @@ const designCanvasFeatureOverrides = {
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",
+        addGrid: "إضافة شبكة",
+        removeGrid: "إزالة الشبكة",
+        showGrid: "إظهار الشبكة",
+        hideGrid: "إخفاء الشبكة",
         reorderLayer: "إعادة ترتيب الطبقة",
         linkSides: "ربط الجوانب",
         unlinkSides: "إلغاء ربط الجوانب",

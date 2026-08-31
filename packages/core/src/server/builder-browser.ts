@@ -84,6 +84,23 @@ export interface BuilderRelayRequestBody {
   credentials: BuilderRelayCredentials;
 }
 
+export class BuilderAccountProvisioningError extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "BuilderAccountProvisioningError";
+    this.code = code ?? null;
+  }
+}
+
+export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
+  return (
+    error instanceof BuilderAccountProvisioningError &&
+    (error.code === "account_incomplete" || error.code === "account_exists")
+  );
+}
+
 function builderRelaySecret(): string {
   const secret = process.env[BUILDER_RELAY_SECRET_ENV]?.trim();
   if (!secret) {
@@ -597,6 +614,7 @@ export const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 export const BUILDER_CONNECT_MODE_PARAM = "_an_mode";
 export const BUILDER_AGENT_NATIVE_PROVISION_MODE = "agent-native";
 export const BUILDER_PROVISIONING_TOKEN_PARAM = "_an_provision";
+export const BUILDER_CONNECT_ATTEMPT_PARAM = "_an_connect_attempt";
 
 const BUILDER_CONNECT_STATE_COOKIE_MAX_ENTRIES = 4;
 
@@ -744,7 +762,7 @@ export interface BuilderBrowserStatus {
    * in-progress cli-auth callback.
    */
   authError?: { message: string; at: number };
-  connectError?: { message: string; at: number };
+  connectError?: { message: string; at: number; code?: string };
   appHost: string;
   apiHost: string;
   /**
@@ -1842,9 +1860,10 @@ function safeOriginFromUrl(value: string | null | undefined): string | null {
 
 export function createBuilderBrowserCallbackPage(
   previewUrl: string,
-  opts: { parentOrigin?: string } = {},
+  opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
   const escapedUrl = JSON.stringify(previewUrl);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
   // postMessage requires a specific target origin for cross-origin opener
@@ -1887,13 +1906,13 @@ export function createBuilderBrowserCallbackPage(
       // mirror the parent-side listener in useBuilderStatus / useBuilderConnectUrl.
       try {
         var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-        bc.postMessage({ type: "builder-connect-success" });
+        bc.postMessage({ type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined });
         bc.close();
       } catch (e) {}
       try {
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage(
-            { type: "builder-connect-success" },
+            { type: "builder-connect-success", attemptId: ${escapedAttemptId} || undefined },
             ${escapedTargetOrigin},
           );
         }
@@ -1936,9 +1955,13 @@ export function createBuilderBrowserCallbackErrorPage(
     body?: string;
     closeHint?: string;
     parentOrigin?: string;
+    code?: string;
+    attemptId?: string;
   } = {},
 ): string {
   const escapedMessage = JSON.stringify(message);
+  const escapedCode = JSON.stringify(opts.code ?? null);
+  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
   const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
@@ -1972,6 +1995,7 @@ export function createBuilderBrowserCallbackErrorPage(
     <script>
       try {
         var msg = ${escapedMessage};
+        var code = ${escapedCode};
         document.getElementById("msg").textContent = msg;
         // Notify the parent tab immediately so its polling loop stops
         // without waiting for the next /builder/status tick.
@@ -1984,13 +2008,13 @@ export function createBuilderBrowserCallbackErrorPage(
         // fallback for non-BroadcastChannel environments.
         try {
           var bc = new BroadcastChannel("builder-connect:" + window.location.host);
-          bc.postMessage({ type: "builder-connect-error", message: msg });
+          bc.postMessage({ type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined });
           bc.close();
         } catch (e) {}
         if (window.opener && !window.opener.closed) {
           try {
             window.opener.postMessage(
-              { type: "builder-connect-error", message: msg },
+              { type: "builder-connect-error", message: msg, code: code || undefined, attemptId: ${escapedAttemptId} || undefined },
               ${escapedTargetOrigin},
             );
           } catch (e) {}
@@ -2349,11 +2373,12 @@ export async function provisionBuilderAccount(input: {
   );
   const parsed = await readBuilderApiObject(response, "account provisioning");
   if (!response.ok) {
-    throw new Error(
+    throw new BuilderAccountProvisioningError(
       builderApiErrorMessage(
         parsed,
         `Builder account provisioning failed (${response.status})`,
       ),
+      typeof parsed.code === "string" ? parsed.code : undefined,
     );
   }
   return parseBuilderAccountProvisioningResponse(parsed);

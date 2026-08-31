@@ -24,11 +24,6 @@ import type {
 import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -50,6 +45,7 @@ import {
   useCreateMcpServer,
   useMcpServers,
 } from "../resources/use-mcp-servers.js";
+import { BuilderConnectPopover } from "../settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
@@ -152,7 +148,6 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
-  const [builderActivationOpen, setBuilderActivationOpen] = useState(false);
   const [builderConnectionMode, setBuilderConnectionMode] = useState<
     "existing" | "provision"
   >("existing");
@@ -606,97 +601,28 @@ export function FirstRunOnboarding({
                   </Tooltip>
                 </div>
               </div>
-              {canActivateBuilderFreeCredits ? (
-                <Popover
-                  open={builderActivationOpen}
-                  onOpenChange={setBuilderActivationOpen}
-                >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      data-testid="first-run-connect-builder"
-                      className={cn(primaryButtonClass, "mt-5 w-full")}
-                    >
-                      {t("agentChat.onboarding.builderActivateCredits")}
-                      <IconArrowRight size={15} />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    side="bottom"
-                    sideOffset={-40}
-                    aria-labelledby="first-run-builder-consent-title"
-                    data-testid="first-run-builder-consent"
-                    className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-3 text-left"
-                  >
-                    <div className="space-y-2.5">
-                      <h2
-                        id="first-run-builder-consent-title"
-                        className="text-sm font-semibold text-foreground"
-                      >
-                        {t("agentChat.onboarding.builderActivateTitle")}
-                      </h2>
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        {t("agentChat.onboarding.builderActivationDescription")}
-                      </p>
-                      <button
-                        type="button"
-                        data-testid="first-run-builder-create-and-activate"
-                        className={cn(primaryButtonClass, "w-full")}
-                        onClick={() => {
-                          setBuilderActivationOpen(false);
-                          handleBuilder();
-                        }}
-                      >
-                        {t("agentChat.onboarding.builderCreateAndActivate")}
-                        <IconArrowRight size={15} />
-                      </button>
-                      <p className="text-[11px] leading-4 text-muted-foreground">
-                        {t("agentChat.onboarding.builderConsentPrefix")}{" "}
-                        <a
-                          href="https://www.builder.io/legal/terms"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {t("agentChat.onboarding.builderTerms")}
-                        </a>{" "}
-                        {t("agentChat.onboarding.builderConsentAnd")}{" "}
-                        <a
-                          href="https://www.builder.io/legal/privacy"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {t("agentChat.onboarding.builderPrivacy")}
-                        </a>
-                        .
-                      </p>
-                      <button
-                        type="button"
-                        data-testid="first-run-builder-existing-account"
-                        className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-                        onClick={() => {
-                          setBuilderActivationOpen(false);
-                          handleBuilder(false);
-                        }}
-                      >
-                        {t("agentChat.onboarding.builderExistingAccount")}
-                      </button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              ) : (
+              <BuilderConnectPopover
+                flow={connectFlow}
+                onConnect={(provisionAccount) =>
+                  handleBuilder(provisionAccount)
+                }
+                contentTestId="first-run-builder-consent"
+                primaryTestId="first-run-builder-create-and-activate"
+                secondaryTestId="first-run-builder-existing-account"
+              >
                 <button
                   type="button"
                   data-testid="first-run-connect-builder"
                   className={cn(primaryButtonClass, "mt-5 w-full")}
-                  onClick={() => handleBuilder()}
                 >
-                  {t("agentChat.onboarding.builderConnectCredits")}
+                  {t(
+                    canActivateBuilderFreeCredits
+                      ? "agentChat.onboarding.builderActivateCredits"
+                      : "agentChat.onboarding.builderConnectCredits",
+                  )}
                   <IconArrowRight size={15} />
                 </button>
-              )}
+              </BuilderConnectPopover>
             </section>
 
             <div
@@ -1029,7 +955,9 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "connecting") {
-    const provisioning = builderConnectionMode === "provision";
+    const accountExists = connectFlow.accountExists;
+    const provisioning =
+      builderConnectionMode === "provision" && !accountExists;
     return (
       <OnboardingShell profile={profile} screen="choice">
         <div
@@ -1039,41 +967,65 @@ export function FirstRunOnboarding({
           aria-busy={connectFlow.connecting}
         >
           <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <IconLoader2 className="animate-spin" size={19} />
+            {accountExists ? (
+              <IconKey size={19} />
+            ) : (
+              <IconLoader2 className="animate-spin" size={19} />
+            )}
           </div>
           <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
-            {provisioning
-              ? t("agentChat.onboarding.builderActivating")
-              : t("agentChat.onboarding.builderConnecting")}
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsTitle")
+              : provisioning
+                ? t("agentChat.onboarding.builderActivating")
+                : t("agentChat.onboarding.builderConnecting")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {provisioning
-              ? t("agentChat.onboarding.builderProvisioningDescription")
-              : t("agentChat.onboarding.builderConnectionDescription")}
+            {accountExists
+              ? t("agentChat.onboarding.builderAccountExistsDescription")
+              : provisioning
+                ? t("agentChat.onboarding.builderProvisioningDescription")
+                : t("agentChat.onboarding.builderConnectionDescription")}
           </p>
-          <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </div>
-            <Skeleton className="mt-4 h-8 w-full" />
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-              <Skeleton className="h-7 w-full" />
-            </div>
-          </div>
-          {connectFlow.error && (
-            <div className="mt-4 flex flex-col items-center gap-2">
-              <p className="text-xs text-destructive">{connectFlow.error}</p>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                onClick={() => setScreen("choice")}
-              >
-                Try again
-              </button>
-            </div>
+          {accountExists ? (
+            <button
+              type="button"
+              className={cn(primaryButtonClass, "mt-7 w-full")}
+              onClick={() => handleBuilder(false)}
+              disabled={connectFlow.connecting}
+            >
+              {t("agentChat.auth.logIn")}
+              <IconArrowRight size={15} />
+            </button>
+          ) : (
+            <>
+              <div className="mt-7 w-full rounded-xl bg-muted/35 p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="mt-4 h-8 w-full" />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                </div>
+              </div>
+              {connectFlow.error && (
+                <div className="mt-4 flex flex-col items-center gap-2">
+                  <p className="text-xs text-destructive">
+                    {connectFlow.error}
+                  </p>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => setScreen("choice")}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </OnboardingShell>

@@ -800,6 +800,19 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   // flag re-POSTs the exact chain the server just refused to continue.
   if (ev.recoverable === false) return false;
 
+  // These messages can carry `recoverable: true` for banner rendering, but
+  // repeating the request would retry the same rejected credential or a run
+  // the user already stopped.
+  if (
+    msg.includes(
+      "the provider rejected the credential used for this request",
+    ) ||
+    msg.includes("stopped before finishing") ||
+    msg.includes("stopped before it finished")
+  ) {
+    return false;
+  }
+
   if (
     code === "context_length_exceeded" ||
     code === "input_too_long" ||

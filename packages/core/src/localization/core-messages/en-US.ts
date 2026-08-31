@@ -51,6 +51,9 @@ const messages = {
     "Included with active Builder.io free credits",
   "onboarding.builderCredits": "Included with Builder.io free credits",
   "onboarding.builderActivateTitle": "Activate free credits",
+  "onboarding.builderAccountExistsTitle":
+    "You already have a Builder.io account",
+  "onboarding.builderAccountExistsDescription": "Log in to connect it.",
   "onboarding.builderActivationDescription":
     "We'll automatically create your Builder.io account for you in one click.",
   "onboarding.builderCreateAndActivate": "Create and activate",

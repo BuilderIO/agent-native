@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { injectAnalyticsIntoHtml, wrapWithAnalytics } from "./analytics.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const previousGaMeasurementId = process.env.GA_MEASUREMENT_ID;
 const previousBakedGaMeasurementId =
@@ -111,6 +112,9 @@ describe("wrapWithAnalytics", () => {
       "https://www.googletagmanager.com/gtag/js?id=G-UNITTEST123",
     );
     expect(html).toContain(`gtag('config',"G-UNITTEST123")`);
+    expect(html).toContain(
+      'window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!=="beta-e2e"',
+    );
     expect(html.indexOf("googletagmanager.com")).toBeLessThan(
       html.indexOf("</head>"),
     );
@@ -146,6 +150,9 @@ describe("wrapWithAnalytics", () => {
     expect(html).toContain("https://www.googletagmanager.com/gtm.js?id='+i+dl");
     expect(html).toContain('"GTM-UNIT123"');
     expect(html).toContain(
+      'window.__AGENT_NATIVE_SYNTHETIC_TRAFFIC__!=="beta-e2e"',
+    );
+    expect(html).toContain(
       "https://www.googletagmanager.com/ns.html?id=GTM-UNIT123",
     );
     expect(html).not.toContain("gtag('config',\"G-IGNORED123\")");
@@ -174,6 +181,20 @@ describe("wrapWithAnalytics", () => {
 });
 
 describe("injectAnalyticsIntoHtml", () => {
+  it("keeps analytics injection invariant for synthetic traffic", () => {
+    process.env.GA_MEASUREMENT_ID = "G-UNITTEST123";
+    process.env.GTM_CONTAINER_ID = "GTM-AUTH123";
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_test";
+
+    const source = "<html><head></head><body>synthetic</body></html>";
+    const normal = injectAnalyticsIntoHtml(source);
+    const synthetic = runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      injectAnalyticsIntoHtml(source),
+    );
+
+    expect(synthetic).toBe(normal);
+  });
+
   it("injects first-party analytics config for public auth events", () => {
     process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_auth_test";
     process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT =

@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getDbMock = vi.hoisted(() => vi.fn());
 const pollSlackChannelMock = vi.hoisted(() => vi.fn());
 const requireFactoryAutomationMock = vi.hoisted(() => vi.fn());
+const readCallingFactoryAutomationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -42,6 +43,15 @@ vi.mock("../server/lib/factory-automation-repair.js", () => ({
   repairFactoryAutomationsFromConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../server/lib/factory-automation-caller.js", () => ({
+  readCallingFactoryAutomation: readCallingFactoryAutomationMock,
+}));
+
+vi.mock("../server/lib/factory-poll-cursors.js", () => ({
+  readFactoryPollCursor: vi.fn().mockResolvedValue(null),
+  writeFactoryPollCursor: vi.fn().mockResolvedValue(undefined),
+}));
+
 const mockedGetRequestOrgId = vi.mocked(getRequestOrgId);
 const mockedGetRequestUserEmail = vi.mocked(getRequestUserEmail);
 
@@ -56,6 +66,7 @@ beforeEach(() => {
     nextLastSlackTs: "10.0",
   });
   requireFactoryAutomationMock.mockResolvedValue(undefined);
+  readCallingFactoryAutomationMock.mockResolvedValue(null);
 
   const limit = vi
     .fn()
@@ -132,6 +143,49 @@ describe("poll-slack-channel action", () => {
       historyCursor: null,
       ownerEmail: "owner@example.com",
       orgId: "org-1",
+    });
+  });
+
+  it("does not add Slack authors excluded by the calling job", async () => {
+    readCallingFactoryAutomationMock.mockResolvedValue({
+      name: "factory-slack-feedback",
+      content: "",
+      config: {
+        source: "slack",
+        slackChannelId: "C123",
+        authorMode: "exclude",
+        authorIds: ["U123"],
+        inboxLimit: 25,
+      },
+    });
+    pollSlackChannelMock.mockResolvedValue({
+      envelopes: [
+        {
+          source: "slack",
+          externalId: "msg-1",
+          title: "skip me",
+          metadata: { authorId: "U123", messageTs: "11.0" },
+        },
+      ],
+      hasMore: false,
+      nextHistoryCursor: null,
+      nextLastSlackTs: "11.0",
+    });
+
+    const { default: action } = await import("./poll-slack-channel.js");
+    await expect(
+      action.run(
+        { factoryId: "product-feedback" },
+        {
+          caller: "automation",
+          userEmail: "Owner@Example.com",
+          orgId: "org-1",
+        },
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      observed: 0,
+      nextLastSlackTs: "11.0",
     });
   });
 });

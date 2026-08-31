@@ -418,6 +418,18 @@ const messages = {
         "Workspace-wide Builder.io credit spend, chat volume, user activity, and app access.",
       metricsDescriptionLlm:
         "Workspace-wide LLM spend, chat volume, user activity, and app access.",
+      appAdoption: "App adoption",
+      appAdoptionFor: "{{name}} adoption",
+      yourAppActivity: "Your app activity",
+      appAdoptionDefinition:
+        "Active means a tracked action. App opens and views are not included.",
+      ownerUnavailable: "Owner unavailable",
+      dailyActiveUsers: "Daily active",
+      weeklyActiveUsers: "Weekly active",
+      trackedActions: "Tracked actions",
+      trackedActionBreakdown: "Tracked action breakdown",
+      noTrackedActions: "No tracked actions in this window.",
+      viewAppMetrics: "View app metrics",
       llmCalls: "LLM calls",
       activeUsers: "Active users",
       workspaceAppsStat: "Workspace apps",

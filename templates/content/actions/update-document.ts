@@ -15,6 +15,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  documentVersionChatContextFromAction,
+  serializeDocumentVersionChatContext,
+} from "../server/lib/document-version-context.js";
+import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
@@ -580,6 +584,7 @@ export default defineAction({
             .orderBy(desc(schema.documentVersions.createdAt))
             .limit(1);
           const shouldSnapshot =
+            isAgentCaller ||
             clearsNonEmptyContent ||
             !latestVersion ||
             Date.now() - new Date(latestVersion.createdAt).getTime() >
@@ -592,6 +597,9 @@ export default defineAction({
               documentId: id,
               title: existing.title,
               content: existing.content,
+              chatContext: serializeDocumentVersionChatContext(
+                documentVersionChatContextFromAction(ctx),
+              ),
               createdAt: new Date().toISOString(),
             });
           }

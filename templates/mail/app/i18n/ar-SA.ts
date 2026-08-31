@@ -385,6 +385,59 @@ const messages = {
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
+    aiFilter: {
+      title: "فلتر الذكاء الاصطناعي",
+      subtitle: "تصنيف قابل للعكس يتعلم من قراراتك.",
+      lunaBadge: "Luna عند توفرها",
+      toggle: "تبديل فلتر الذكاء الاصطناعي",
+      autoFilterTitle: "تصفية تلقائية بدرجة ثقة عالية",
+      autoFilterDescription:
+        "انقل المطابقات الواضحة فقط خارج البريد الوارد؛ راجع الباقي هنا.",
+      autoFilterToggle: "تصفية الرسائل ذات الثقة العالية تلقائيا",
+      thresholdLabel: "حد الثقة للتصفية التلقائية",
+      labelName: "تصنيف Gmail",
+      labelHelp:
+        "يبقى agent-native-filtered ظاهرا في Gmail والعملاء الآخرين. ليس مجلد Spam في Gmail.",
+      reviewLabel: "مراجعة الرسائل المصفاة",
+      instructionsTitle: "التعليمات",
+      instructionCount: "{{count}} تعليمات",
+      instructionPlaceholder:
+        "مثال: اعتبر مواضيع مثل «سؤال لك يا Steve» غير مرغوب فيها",
+      addInstruction: "إضافة",
+      noInstructions: "لا توجد تعليمات بعد.",
+      instructionExample: "جرّب «كل رسائل الحملات السياسية غير مرغوب فيها».",
+      toggleInstruction: "تبديل التعليمات: {{instruction}}",
+      deleteInstruction: "حذف التعليمات",
+      activityTitle: "النشاط الأخير",
+      suggestionCount: "{{count}} قيد المراجعة",
+      viewAll: "عرض الكل",
+      noActivity: "لا يوجد نشاط لفلتر الذكاء الاصطناعي بعد.",
+      unknownSender: "مرسل غير معروف",
+      noSubject: "(بلا موضوع)",
+      filterTitle: "تصفية بالذكاء الاصطناعي",
+      keepTitle: "إبقاء في الوارد",
+      filterDescription:
+        "سيؤرشف ذلك {{count}} من المحادثات ويضيف تصنيف agent-native-filtered.",
+      keepDescription:
+        "سيعيد ذلك {{count}} من المحادثات إلى الوارد ويعلّم الفلتر.",
+      labelNote:
+        "يضيف تصنيف agent-native-filtered ويؤرشف المحادثة. يمكنك التراجع في أي وقت.",
+      learningNote: "يبقي الرسالة في الوارد ويعلّم الفلتر ألا يكرر الخطأ.",
+      rememberLabel: "تذكّر للرسائل المستقبلية (اختياري)",
+      correctLabel: "ما الذي يجب أن يتعلمه؟ (اختياري)",
+      rememberPlaceholder:
+        "مثال: الرسائل المشابهة من الحملات السياسية غير مرغوب فيها",
+      correctPlaceholder:
+        "مثال: هذا المرسل عميل؛ أبقِ الرسائل المستقبلية في الوارد",
+      commentHint: "تصبح ملاحظتك قاعدة قابلة للتعديل أو مثال تعلّم.",
+      filterButton: "تصفية",
+      keepButton: "إبقاء",
+      filteredToast: "تمت تصفية {{count}} من المحادثات.",
+      keptToast: "تم إبقاء {{count}} من المحادثات في الوارد.",
+      actionFailed: "تعذّر تحديث فلتر الذكاء الاصطناعي.",
+      settingsFailed: "تعذّر حفظ إعدادات فلتر الذكاء الاصطناعي.",
+      instructionFailed: "تعذّر حفظ تعليمات فلتر الذكاء الاصطناعي.",
+    },
     draftQueue: {
       title: "Cola de borradores",
       queueDraft: "Poner borrador en cola",
@@ -561,6 +614,7 @@ const messages = {
     deleteSnippetDescription:
       'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
     automations: "الأتمتة",
+    aiFilter: "فلتر الذكاء الاصطناعي",
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",
     tracking: "التتبع",

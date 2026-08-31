@@ -1705,6 +1705,16 @@ export async function listWorkspaceConnections(
   );
 }
 
+export async function listWorkspaceConnectionsForUser(
+  options: ListWorkspaceConnectionsOptions = {},
+): Promise<SerializedWorkspaceConnection[]> {
+  const connections = await listWorkspaceConnections(options);
+  return filterWorkspaceConnectionsForUser(
+    connections,
+    requireWorkspaceConnectionScope(),
+  );
+}
+
 export async function getWorkspaceConnection(
   id: string,
 ): Promise<SerializedWorkspaceConnection | null> {

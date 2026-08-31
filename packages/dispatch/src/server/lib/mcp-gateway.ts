@@ -988,6 +988,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function httpStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  const nested =
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : undefined;
+  const status = record.status ?? nested?.status ?? record.code ?? nested?.code;
+  return typeof status === "number" && status >= 100 && status <= 599
+    ? status
+    : undefined;
+}
+
 function isRetryableTargetMcpError(error: unknown): boolean {
   const message =
     error instanceof Error
@@ -995,6 +1008,25 @@ function isRetryableTargetMcpError(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : safeJson(error);
+  const status = httpStatusFromError(error);
+  if (status !== undefined) {
+    if (
+      status === 408 ||
+      status === 429 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    )
+      return true;
+    if (status >= 400 && status < 500) return false;
+  }
+  if (
+    /^(?:MCP server\b.*?\bnot connected:\s+)?HTTP(?:\/\d+(?:\.\d+)?)?\s+(?:502|503|504)\b/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
   if (
     /rejected the request|unauthorized|forbidden|401|403|404|405|html/i.test(
       message,
@@ -1002,7 +1034,7 @@ function isRetryableTargetMcpError(error: unknown): boolean {
   ) {
     return false;
   }
-  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout|502|503|504/i.test(
+  return /streamable http|handshake|failed to fetch|fetch failed|networkerror|econnrefused|enotfound|timed out|timeout/i.test(
     message,
   );
 }
@@ -1073,7 +1105,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: `${appBaseUrl(input.app)}/mcp`,
+            url: `${appHomeBaseUrl(input.app)}/mcp`,
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1126,7 +1158,7 @@ async function createTargetMcpTokenAttempts(input: {
       tokenInput.secret,
       {
         expiresIn: "5m",
-        audience: canonicalA2AAudience(appBaseUrl(input.target)),
+        audience: canonicalA2AAudience(appHomeBaseUrl(input.target)),
         preferGlobalSecret: tokenInput.preferGlobalSecret,
       },
     );

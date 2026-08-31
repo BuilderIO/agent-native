@@ -58,6 +58,7 @@ import {
 import { updateThreadData } from "../chat-threads/store.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
@@ -1416,7 +1417,7 @@ async function processIncomingMessage(
           // fallback. A completed write must not be reported as though nothing
           // happened merely because the model ran out of time before its prose
           // summary. Read-only and unverified tool results do not qualify.
-          const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const baseUrl = getAppProductionUrl(undefined, { fallback: "" });
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const toolResults = collectToolResultSummaries(completedRun);
           const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(

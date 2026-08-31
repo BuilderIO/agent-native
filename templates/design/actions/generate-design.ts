@@ -29,6 +29,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -694,21 +695,25 @@ const generateDesignAction = defineAction({
       height: 680,
     }),
   },
-  run: async ({
-    designId,
-    prompt,
-    files,
-    designSystemId,
-    projectType,
-    tweaks,
-    canvasFrames,
-    primaryViewport,
-    devices,
-    contextPackId,
-    contextModeOverride,
-    reuseLabels,
-  }) => {
+  run: async (
+    {
+      designId,
+      prompt,
+      files,
+      designSystemId,
+      projectType,
+      tweaks,
+      canvasFrames,
+      primaryViewport,
+      devices,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    },
+    context,
+  ) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }

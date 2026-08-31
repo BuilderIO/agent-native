@@ -13,6 +13,7 @@ import type { UserSettings } from "../shared/types.js";
 
 const mobileActionId = z.enum([
   "archive",
+  "aiFilter",
   "trash",
   "star",
   "reply",

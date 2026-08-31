@@ -1,22 +1,38 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import path from "node:path";
 
+import { createPtyWebSocketServer } from "@agent-native/core/terminal/server";
 import {
+  getDesktopVisibleApps,
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
   type AppConfig,
 } from "@shared/app-registry";
 import { IPC } from "@shared/ipc-channels";
-import { ipcMain, net, session, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  net,
+  session,
+  type IpcMainInvokeEvent,
+} from "electron";
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
+import {
+  DesktopSurfaceMcpBridge,
+  type DesktopSurfaceMcpRegistration,
+} from "../desktop-surface-mcp";
 
 const RELAY_ROOT = "/desktop-chat";
+const DESKTOP_TERMINAL_INFO_ROOT = "/desktop-terminal-info";
 const RELAY_ALLOWED_PREFIX = "/_agent-native/";
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -33,6 +49,11 @@ const RESTRICTED_REQUEST_HEADERS = new Set([
   "content-length",
   "cookie2",
 ]);
+const RESTRICTED_RESPONSE_HEADERS = new Set([
+  ...HOP_BY_HOP_HEADERS,
+  "content-encoding",
+  "content-length",
+]);
 const RELAY_FAILURE_MESSAGE =
   "Desktop app chat relay failed. Update or restart the desktop app, then try again.";
 
@@ -47,7 +68,156 @@ interface RelayPath {
 }
 
 let relayPromise: Promise<RelayState> | null = null;
+let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
+  null;
 let ipcRegistered = false;
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlInlineTable(headers: Record<string, string>): string {
+  return `{${Object.entries(headers)
+    .map(([key, value]) => `${tomlString(key)}=${tomlString(value)}`)
+    .join(",")}}`;
+}
+
+export function desktopTerminalMcpArgs(
+  command: string,
+  registration: DesktopSurfaceMcpRegistration,
+  claudeConfigPath: string,
+): string[] {
+  if (command === "claude") {
+    return ["--mcp-config", claudeConfigPath];
+  }
+  if (command === "codex") {
+    return [
+      "-c",
+      `mcp_servers.agent-native-desktop.url=${tomlString(registration.url)}`,
+      "-c",
+      `mcp_servers.agent-native-desktop.http_headers=${tomlInlineTable({
+        Authorization: `Bearer ${registration.bearerToken}`,
+      })}`,
+    ];
+  }
+  return [];
+}
+
+function removeDesktopTerminalConfig(filePath: string | undefined): void {
+  if (!filePath) return;
+  try {
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    console.warn(
+      "[desktop-terminal] Could not remove temporary MCP config:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+}
+
+function reportDesktopTerminalCleanupFailure(error: unknown): void {
+  console.warn(
+    "[desktop-terminal] Could not close the desktop surface bridge:",
+    error instanceof Error ? error.message : "unknown error",
+  );
+}
+
+async function createDesktopTerminal() {
+  const token = randomUUID().replaceAll("-", "");
+  const surfaceMcp = new DesktopSurfaceMcpBridge({
+    listApps: () =>
+      getDesktopVisibleApps(AppStore.loadApps())
+        .filter((appConfig) => appConfig.enabled !== false)
+        .map(({ id, name }) => ({ id, name })),
+    openApp: (request) => {
+      const win = BrowserWindow.getAllWindows().find(
+        (candidate) => !candidate.isDestroyed(),
+      );
+      if (!win) throw new Error("The desktop shell is not available.");
+      win.webContents.send(IPC.DESKTOP_CHAT_OPEN_APP, request);
+    },
+  });
+  let claudeConfigPath: string | undefined;
+  try {
+    const surfaceMcpUrl = await surfaceMcp.start();
+    const surfaceMcpRegistration = surfaceMcp.register();
+    claudeConfigPath = path.join(
+      app.getPath("temp"),
+      `agent-native-desktop-${randomUUID()}.json`,
+    );
+    fs.writeFileSync(
+      claudeConfigPath,
+      JSON.stringify(
+        {
+          mcpServers: {
+            "agent-native-desktop": {
+              type: "http",
+              url: surfaceMcpUrl,
+              headers: {
+                Authorization: `Bearer ${surfaceMcpRegistration.bearerToken}`,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+    const terminal = await createPtyWebSocketServer({
+      appDir: app.getPath("home"),
+      authCheck: (request) => {
+        try {
+          const url = new URL(
+            request.url ?? "",
+            `http://${request.headers.host ?? "127.0.0.1"}`,
+          );
+          return url.searchParams.get("token") === token;
+        } catch {
+          // coercion-ok: malformed websocket URLs are authentication denials, never success.
+          return false;
+        }
+      },
+      getCommandArgs: (command) =>
+        desktopTerminalMcpArgs(
+          command,
+          surfaceMcpRegistration,
+          claudeConfigPath!,
+        ),
+      logPrefix: "[desktop-terminal]",
+    });
+    const close = () => {
+      terminal.close();
+      void surfaceMcp.close().catch(reportDesktopTerminalCleanupFailure);
+      removeDesktopTerminalConfig(claudeConfigPath);
+    };
+    app.once("before-quit", close);
+    return { terminal, token };
+  } catch (error) {
+    removeDesktopTerminalConfig(claudeConfigPath);
+    try {
+      await surfaceMcp.close();
+    } catch (closeError) {
+      reportDesktopTerminalCleanupFailure(closeError);
+    }
+    throw error;
+  }
+}
+
+function ensureDesktopTerminal() {
+  desktopTerminalPromise ??= createDesktopTerminal().catch((error) => {
+    desktopTerminalPromise = null;
+    throw error;
+  });
+  return desktopTerminalPromise;
+}
+
+export function desktopTerminalInfo(port: number, token: string) {
+  return {
+    available: true,
+    wsUrl: `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`,
+  };
+}
 
 function desktopTemplateGatewayOverridesDevUrls(): boolean {
   const value =
@@ -149,6 +319,14 @@ export function shouldForwardRequestHeader(
     normalizedName !== "referer" &&
     normalizedName !== "cookie"
   );
+}
+
+export function shouldForwardResponseHeader(
+  name: string,
+  value: string | string[] | undefined,
+  blockedHeaders: ReadonlySet<string> = RESTRICTED_RESPONSE_HEADERS,
+): boolean {
+  return shouldForwardRequestHeader(name, value, blockedHeaders);
 }
 
 function corsHeaders(request: IncomingMessage): Record<string, string> {
@@ -259,7 +437,7 @@ async function proxyRequest(
       ...corsHeaders(request),
     };
     for (const [name, value] of Object.entries(upstreamResponse.headers)) {
-      if (!HOP_BY_HOP_HEADERS.has(name) && value !== undefined) {
+      if (shouldForwardResponseHeader(name, value)) {
         headers[name] = value;
       }
     }
@@ -299,6 +477,28 @@ function ensureRelay(): Promise<RelayState> {
         parsed = new URL(request.url ?? "/", "http://desktop-chat.invalid");
       } catch {
         sendError(request, response, 400, "Invalid relay URL");
+        return;
+      }
+      if (parsed.pathname === `${DESKTOP_TERMINAL_INFO_ROOT}/${secret}`) {
+        void ensureDesktopTerminal()
+          .then(({ terminal, token }) => {
+            response.writeHead(200, {
+              ...corsHeaders(request),
+              "Content-Type": "application/json; charset=utf-8",
+            });
+            response.end(
+              JSON.stringify(desktopTerminalInfo(terminal.port, token)),
+            );
+          })
+          .catch((error) => {
+            console.warn("[desktop-terminal] failed to start", error);
+            sendError(
+              request,
+              response,
+              503,
+              "The desktop terminal could not be started.",
+            );
+          });
         return;
       }
       const relayPath = parseRelayPath(parsed.pathname, secret);
@@ -348,6 +548,10 @@ export function registerDesktopChatIpc(): void {
   ipcMain.handle(
     IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL,
     async (_event: IpcMainInvokeEvent, appId: unknown) => {
+      if (appId === undefined || appId === null) {
+        const relay = await ensureRelay();
+        return `http://127.0.0.1:${relay.port}${DESKTOP_TERMINAL_INFO_ROOT}/${relay.secret}`;
+      }
       if (typeof appId !== "string" || !appId.trim()) return null;
       const appConfig = AppStore.loadApps().find(
         (candidate) => candidate.id === appId,

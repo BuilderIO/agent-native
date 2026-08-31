@@ -11,7 +11,10 @@ import {
   getBrowserTabId,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import {
+  buildSignInReturnHref,
+  DefaultSpinner,
+} from "@agent-native/core/client/ui";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -877,9 +880,7 @@ export default function ShareRoute() {
     return (
       <>
         {agentDiscovery}
-        <div className="flex items-center justify-center h-screen w-full bg-background">
-          <Spinner className="h-8 w-8 text-muted-foreground" />
-        </div>
+        <DefaultSpinner />
       </>
     );
   }

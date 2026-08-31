@@ -177,7 +177,7 @@ export function TemplateShowcase() {
     <PageSection>
       <GridInner className="flex flex-col gap-[var(--spacing-6)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
         <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
-          {t("homepage.showcase.title")}
+          {t("homepage.showcase.title").replace("Agent-Native", "Agent‑Native")}
         </h2>
         <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
           {t("homepage.showcase.body")}

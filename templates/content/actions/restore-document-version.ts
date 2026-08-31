@@ -6,6 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  documentVersionChatContextFromAction,
+  serializeDocumentVersionChatContext,
+} from "../server/lib/document-version-context.js";
+import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
@@ -26,7 +30,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Document ID"),
     versionId: z.string().optional().describe("Version ID"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     if (!args.documentId) throw new Error("--documentId is required");
     if (!args.versionId) throw new Error("--versionId is required");
 
@@ -56,6 +60,9 @@ export default defineAction({
       documentId: args.documentId,
       title: doc.title,
       content: doc.content,
+      chatContext: serializeDocumentVersionChatContext(
+        documentVersionChatContextFromAction(ctx),
+      ),
       createdAt: now,
     });
 
