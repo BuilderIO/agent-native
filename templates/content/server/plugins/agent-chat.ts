@@ -3,9 +3,16 @@ import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, desc, eq, notInArray } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
+import * as schema from "../db/schema.js";
+import {
+  documentVersionChatContextFromRun,
+  serializeDocumentVersionChatContext,
+} from "../lib/document-version-context.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -21,8 +28,156 @@ const INJECTED_INITIAL_TOOL_NAMES = [
   "query-staged-dataset",
 ];
 
+const DOCUMENT_EDIT_TOOLS = new Set([
+  "edit-document",
+  "restore-document-version",
+  "update-document",
+]);
+const CHAT_VERSION_LIMIT = 100;
+
+async function enforceDocumentVersionLimit(
+  db: ReturnType<typeof import("../db/index.js").getDb>,
+  documentId: string,
+  ownerEmail: string,
+): Promise<void> {
+  const keep = await db
+    .select({ id: schema.documentVersions.id })
+    .from(schema.documentVersions)
+    .where(
+      and(
+        eq(schema.documentVersions.documentId, documentId),
+        eq(schema.documentVersions.ownerEmail, ownerEmail),
+      ),
+    )
+    .orderBy(
+      desc(schema.documentVersions.createdAt),
+      desc(schema.documentVersions.id),
+    )
+    .limit(CHAT_VERSION_LIMIT);
+  if (keep.length < CHAT_VERSION_LIMIT) return;
+  await db.delete(schema.documentVersions).where(
+    and(
+      eq(schema.documentVersions.documentId, documentId),
+      eq(schema.documentVersions.ownerEmail, ownerEmail),
+      notInArray(
+        schema.documentVersions.id,
+        keep.map((version) => version.id),
+      ),
+    ),
+  );
+}
+
+function eventRecord(entry: unknown): Record<string, unknown> | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const event = (entry as { event?: unknown }).event;
+  return event && typeof event === "object"
+    ? (event as Record<string, unknown>)
+    : undefined;
+}
+
+function inputForCompletedTool(
+  events: readonly unknown[],
+  index: number,
+  completed: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (completed.input && typeof completed.input === "object") {
+    return completed.input as Record<string, unknown>;
+  }
+  const id = typeof completed.id === "string" ? completed.id : undefined;
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const candidate = eventRecord(events[cursor]);
+    if (
+      candidate?.type !== "tool_start" ||
+      candidate.tool !== completed.tool ||
+      (id && candidate.id !== id)
+    ) {
+      continue;
+    }
+    return candidate.input && typeof candidate.input === "object"
+      ? (candidate.input as Record<string, unknown>)
+      : undefined;
+  }
+  return undefined;
+}
+
+function hasDocumentEdit(
+  run: { events: readonly unknown[] },
+  documentId: string,
+): boolean {
+  return run.events.some((entry, index) => {
+    const record = eventRecord(entry);
+    const input = record
+      ? inputForCompletedTool(run.events, index, record)
+      : undefined;
+    const targetId =
+      record?.tool === "restore-document-version"
+        ? input?.documentId
+        : input?.id;
+    return (
+      record?.type === "tool_done" &&
+      record.completedSideEffect === true &&
+      record.isError !== true &&
+      typeof record.tool === "string" &&
+      DOCUMENT_EDIT_TOOLS.has(record.tool) &&
+      targetId === documentId
+    );
+  });
+}
+
+async function autosaveDocumentAfterAgentTurn(
+  scope: { type: string; id: string },
+  run: {
+    events: readonly unknown[];
+    threadId?: string;
+    runId?: string;
+    turnId?: string;
+  },
+): Promise<void> {
+  if (scope.type !== "document" || !hasDocumentEdit(run, scope.id)) return;
+
+  const access = await assertAccess("document", scope.id, "editor");
+  const document = access.resource as {
+    ownerEmail: string;
+    title: string;
+    content: string;
+  };
+  const { getDb, schema } = await import("../db/index.js");
+  const db = getDb();
+  const [latest] = await db
+    .select({
+      title: schema.documentVersions.title,
+      content: schema.documentVersions.content,
+    })
+    .from(schema.documentVersions)
+    .where(
+      and(
+        eq(schema.documentVersions.documentId, scope.id),
+        eq(schema.documentVersions.ownerEmail, document.ownerEmail),
+      ),
+    )
+    .orderBy(desc(schema.documentVersions.createdAt))
+    .limit(1);
+  if (latest?.title === document.title && latest.content === document.content) {
+    return;
+  }
+
+  await db.insert(schema.documentVersions).values({
+    id: crypto.randomUUID(),
+    ownerEmail: document.ownerEmail,
+    documentId: scope.id,
+    title: document.title,
+    content: document.content,
+    chatContext: serializeDocumentVersionChatContext(
+      documentVersionChatContextFromRun(run),
+    ),
+    createdAt: new Date().toISOString(),
+  });
+  await enforceDocumentVersionLimit(db, scope.id, document.ownerEmail);
+}
+
 export default createAgentChatPlugin({
   appId: "content",
+  onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
   durableBackgroundRuns: true,
   a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
   actions: loadActionsFromStaticRegistry(actionsRegistry),

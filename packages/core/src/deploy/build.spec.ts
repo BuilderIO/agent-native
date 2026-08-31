@@ -4,12 +4,15 @@ import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -53,6 +56,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isAwsAmplifyPreset,
   isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
@@ -69,6 +73,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  stubBundledLocalOnlySqliteDriverForServerless,
   stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
@@ -87,10 +92,13 @@ import {
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+  it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("awsAmplify")).toBe(true);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
@@ -103,7 +111,7 @@ describe("nitroNoExternalsForPreset", () => {
 });
 
 describe("shouldBundleYjsRuntimeForPreset", () => {
-  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+  it("covers Node and serverless output but leaves self-contained edge presets to Nitro", () => {
     for (const preset of [
       "node",
       "node-server",
@@ -115,6 +123,15 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("isAwsAmplifyPreset", () => {
+  it("accepts Nitro's standard name and alias", () => {
+    expect(isAwsAmplifyPreset("aws_amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
+    expect(isAwsAmplifyPreset("node")).toBe(false);
   });
 });
 
@@ -156,6 +173,68 @@ describe("resolveNitroBuildReplacements", () => {
     expect(
       replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
     ).toBe(JSON.stringify("beta"));
+  });
+  it("embeds only the app's runtime package declarations for bundled engine checks", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-marker-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            ai: "^7",
+            "@ai-sdk/openai": "^4",
+          },
+          optionalDependencies: { "optional-provider": "^1" },
+          devDependencies: { "dev-only-provider": "^1" },
+        }),
+      );
+
+      const replacements = resolveNitroBuildReplacements(
+        {},
+        undefined,
+        projectCwd,
+      );
+
+      expect(
+        replacements["process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      ).toBe(
+        JSON.stringify(
+          JSON.stringify(["@ai-sdk/openai", "ai", "optional-provider"]),
+        ),
+      );
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not infer optional engine packages from a core-only app", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-core-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: { "@agent-native/core": "workspace:*" },
+        }),
+      );
+
+      const marker = JSON.parse(
+        JSON.parse(
+          resolveNitroBuildReplacements({}, undefined, projectCwd)[
+            "process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"
+          ],
+        ),
+      ) as string[];
+
+      expect(marker).toContain("@agent-native/core");
+      expect(marker).not.toContain("ai");
+      expect(marker).not.toContain("@ai-sdk/openai");
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -639,6 +718,30 @@ export default (event) =>
     expect(redirect.headers.get("location")).toBe("/docs/login");
   });
 
+  it("injects the auth handoff into the public root only", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const rootResponse = await worker.fetch(
+      new Request("https://app.test/"),
+      {},
+      {},
+    );
+    const rootHtml = await rootResponse.text();
+    const handoff = rootHtml.indexOf("data-agent-native-auth-redirect");
+    expect(handoff).toBeGreaterThan(rootHtml.indexOf("<head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("</head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("<body>"));
+
+    const appResponse = await worker.fetch(
+      new Request("https://app.test/home"),
+      {},
+      {},
+    );
+    expect(await appResponse.text()).not.toContain(
+      "data-agent-native-auth-redirect",
+    );
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1045,6 +1148,12 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).toContain("Churning");
+    expect(html).toContain("__agentNativeLoadingLabelIndex");
+    expect(html).toContain("Math.random()");
+    expect(html).toContain("an-cube-pulse");
+    expect(html).toContain(renderToStaticMarkup(createElement(DefaultSpinner)));
+    expect(html).not.toContain("an-spin");
     expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
@@ -1087,6 +1196,91 @@ export default (event) =>
 
     expect(html).toContain("data-agent-native-sentry-config");
     expect(html).toContain("https://public@example/4511270423822336");
+  });
+
+  it("injects runtime Agent-Native Analytics config into generated worker SSR HTML", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_test"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/track"',
+    );
+  });
+
+  it("bakes build-time Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", "anpk_build");
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/build-track",
+    );
+
+    const source = generateWorkerEntry([], []);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_build"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/build-track"',
+    );
+  });
+
+  it("bakes code-defined Agent-Native Analytics config into workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_PUBLIC_KEY", undefined);
+    vi.stubEnv("AGENT_NATIVE_BUILD_ANALYTICS_ENDPOINT", undefined);
+
+    const source = generateWorkerEntry([], [], [], [], null, [], "/", {
+      analytics: {
+        agentNativePublicKey: "anpk_config",
+        agentNativeEndpoint: "https://analytics.example.test/config-track",
+      },
+    });
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-analytics-config");
+    expect(html).toContain('"agentNativeAnalyticsPublicKey":"anpk_config"');
+    expect(html).toContain(
+      '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/config-track"',
+    );
+    expect(source).toContain(
+      "const configuredAnalytics = getAgentNativeAppConfig().analytics;",
+    );
   });
 
   it("normalizes explicit deployment environment in generated browser telemetry", async () => {
@@ -3734,5 +3928,50 @@ describe("stubLocalOnlySqliteDriverForServerless", () => {
     expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
       /declares no version/,
     );
+  });
+});
+
+describe("stubBundledLocalOnlySqliteDriverForServerless", () => {
+  it("replaces Nitro's bundled SQLite chunk with a throwing stub", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const chunk = path.join(libsDir, "better-sqlite3+[...].mjs");
+      fs.writeFileSync(
+        chunk,
+        "const nativePath = __filename; export default class Real {};",
+      );
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(1);
+      const source = fs.readFileSync(chunk, "utf8");
+      expect(source).not.toContain("__filename");
+      expect(source).toContain("better-sqlite3 is not available");
+
+      const bundled = await import(
+        `${pathToFileURL(chunk).href}?t=${Date.now()}`
+      );
+      expect(bundled.t()).toBe(bundled.default);
+      expect(() => new (bundled.t())()).toThrow(
+        /not available in a serverless/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves unrelated Nitro library chunks alone", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const unrelated = path.join(libsDir, "some-package.mjs");
+      fs.writeFileSync(unrelated, "export default 1;\n");
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(0);
+      expect(fs.readFileSync(unrelated, "utf8")).toBe("export default 1;\n");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

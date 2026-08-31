@@ -50,13 +50,15 @@ claiming a brand match.
   `generate-image-batch`, `generate-video`, `refresh-generation-run`, and
   `export-asset`.
 - In chat, consume composer `@` references as structured generation inputs:
-  `brand-kit` maps to `libraryId`, `preset` maps to `presetId`, and
+  `brand-kit` maps to `libraryId`, `template` maps to `templateId`, and
   `media-type` chooses image generation versus video generation. If no mention
   is available, use `view-screen`, `list-libraries`, and
-  `list-generation-presets` to choose explicit args.
-- Use generation presets when the user asks for a repeatable output format
-  like social image, blog hero, or diagram. Call `list-generation-presets` for
-  the library and pass `presetId` through generation/refinement actions.
+  `list-templates` to choose explicit args.
+- Use Templates when the user asks for a repeatable output format like social
+  image, blog hero, or diagram. Call `list-templates` and pass `templateId`
+  through generation/refinement actions. Templates may be global or associated
+  with one brand kit; only associated templates can pin images, skeletons, or
+  a canonical logo. `*-generation-preset` actions are deprecated aliases.
 - Use generation sessions when another person needs to continue improving a
   candidate. Sessions carry the brief, preset, active asset, feedback, and run
   IDs without requiring the original chat thread.
@@ -90,7 +92,7 @@ claiming a brand match.
    `generate-image-batch` returns, use its returned `images` / asset fields
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs.
-5. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
+5. For template-backed work, pass a mentioned or selected `templateId`; for handoff
    work, pass `sessionId`.
 6. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from

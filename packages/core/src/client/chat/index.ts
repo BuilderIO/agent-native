@@ -1,5 +1,9 @@
 export { AgentChatHome, type AgentChatHomeProps } from "../AgentChatHome.js";
 export {
+  MAX_ESTIMATED_BODY_BYTES,
+  estimateAttachmentBodyBytes,
+} from "./attachment-adapters.js";
+export {
   AgentChatSurface,
   AgentPanel,
   AgentSidebar,

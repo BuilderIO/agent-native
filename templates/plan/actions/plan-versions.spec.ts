@@ -273,6 +273,7 @@ beforeAll(async () => {
       change_label TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
       created_at TEXT NOT NULL,
+      chat_context TEXT,
       summary_status TEXT,
       summary_source TEXT,
       block_count INTEGER,

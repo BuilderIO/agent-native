@@ -4,6 +4,7 @@ const rawAppTitle = "{{APP_TITLE}}";
 const appTitle = rawAppTitle === "{" + "{APP_TITLE}}" ? "Chat" : rawAppTitle;
 
 export default createAuthPlugin({
+  workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: appTitle,
     tagline:

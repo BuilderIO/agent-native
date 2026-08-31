@@ -22,7 +22,7 @@ export interface InsertReviewCommentInput {
   parentCommentId?: string | null;
   targetId?: string | null;
   kind?: ReviewCommentKind;
-  anchor?: unknown | null;
+  anchor?: unknown;
   body: string;
   authorEmail?: string | null;
   authorName?: string | null;
@@ -936,7 +936,7 @@ function stringifyOptionalJson(value: unknown): string | null {
   return value === null || value === undefined ? null : JSON.stringify(value);
 }
 
-function parseOptionalJson(value: unknown): unknown | null {
+function parseOptionalJson(value: unknown): unknown {
   if (value === null || value === undefined || value === "") {
     return null;
   }

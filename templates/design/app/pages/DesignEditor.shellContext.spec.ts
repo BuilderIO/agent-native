@@ -40,4 +40,13 @@ describe("DesignEditor shell context changes", () => {
       "previewOrigin: builderPreviewOrigin(previewUrl),",
     );
   });
+
+  it("does not expose the persisted audit action in the Builder shell", () => {
+    const review = source.slice(
+      source.indexOf("const resolvedReviewPanelProps"),
+      source.indexOf("const dispatchReviewFeedbackToAgent"),
+    );
+    expect(review).toContain("if (!id || !activeFile || shellMode)");
+    expect(review).toContain("onRunAudit: handleRunDesignAudit");
+  });
 });

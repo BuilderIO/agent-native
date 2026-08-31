@@ -21,7 +21,7 @@ export interface SaveFileContentArgs {
   canEditDesignRef: RefObject<boolean>;
   createFileSaveOutboxEntry: (
     pending: FileContentSaveRequest,
-    expectedVersionHash?: string | undefined,
+    expectedVersionHash?: string,
   ) => DesignSaveOutboxEntry | null;
   fileSaveChainsRef: RefObject<Record<string, Promise<void>>>;
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
@@ -153,7 +153,7 @@ export function runSaveFileContent(
           // back into Yjs when newer remote content arrives. expectedContent
           // keeps a newer in-flight overlay (the user kept typing).
           clearPendingLocalFileContent(pending.id, pending.content);
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
         }
@@ -195,7 +195,7 @@ export function runSaveFileContent(
         // content, and the next save proceeds unguarded from that
         // rebased state instead of failing forever on a dead hash.
         delete lastAckedFileContentHashRef.current[pending.id];
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
         const failureKind = classifyDesignSaveFailure(error, navigator.onLine);

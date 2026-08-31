@@ -67,10 +67,22 @@ export interface FormIntegration {
 // Form settings
 // ---------------------------------------------------------------------------
 
+export type FormCompletionMode =
+  | "message"
+  | "redirect"
+  | "message_then_refresh"
+  | "refresh";
+
+export const DEFAULT_FORM_COMPLETION_REFRESH_SECONDS = 5;
+export const MIN_FORM_COMPLETION_REFRESH_SECONDS = 1;
+export const MAX_FORM_COMPLETION_REFRESH_SECONDS = 3600;
+
 export interface FormSettings {
   submitText?: string;
   successMessage?: string;
   redirectUrl?: string;
+  completionMode?: FormCompletionMode;
+  completionRefreshSeconds?: number;
   showProgressBar?: boolean;
   /** Send new response summaries to the form owner's account email. */
   emailOnNewResponses?: boolean;
@@ -103,7 +115,64 @@ export interface PublicFormSettings {
   submitText?: string;
   successMessage?: string;
   redirectUrl?: string;
+  completionMode?: FormCompletionMode;
+  completionRefreshSeconds?: number;
   showProgressBar?: boolean;
+}
+
+/** Resolve legacy forms that only have a redirect URL into the current mode. */
+export function getFormCompletionMode(
+  settings: Pick<FormSettings, "completionMode" | "redirectUrl">,
+): FormCompletionMode {
+  switch (settings.completionMode) {
+    case "message":
+    case "redirect":
+    case "message_then_refresh":
+    case "refresh":
+      return settings.completionMode;
+    default:
+      return settings.redirectUrl ? "redirect" : "message";
+  }
+}
+
+export function getFormCompletionRefreshSeconds(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return DEFAULT_FORM_COMPLETION_REFRESH_SECONDS;
+  }
+  return Math.min(
+    MAX_FORM_COMPLETION_REFRESH_SECONDS,
+    Math.max(MIN_FORM_COMPLETION_REFRESH_SECONDS, value),
+  );
+}
+
+export function assertValidFormCompletionSettings(
+  settings: FormSettings,
+): void {
+  if (settings.completionMode !== undefined) {
+    switch (settings.completionMode) {
+      case "message":
+      case "redirect":
+      case "message_then_refresh":
+      case "refresh":
+        break;
+      default:
+        throw new Error(
+          "settings.completionMode must be message, redirect, message_then_refresh, or refresh",
+        );
+    }
+  }
+
+  const seconds = settings.completionRefreshSeconds;
+  if (
+    seconds !== undefined &&
+    (!Number.isInteger(seconds) ||
+      seconds < MIN_FORM_COMPLETION_REFRESH_SECONDS ||
+      seconds > MAX_FORM_COMPLETION_REFRESH_SECONDS)
+  ) {
+    throw new Error(
+      `settings.completionRefreshSeconds must be an integer between ${MIN_FORM_COMPLETION_REFRESH_SECONDS} and ${MAX_FORM_COMPLETION_REFRESH_SECONDS}`,
+    );
+  }
 }
 
 /**
@@ -120,6 +189,8 @@ export function toPublicFormSettings(
     submitText: s.submitText,
     successMessage: s.successMessage,
     redirectUrl: s.redirectUrl,
+    completionMode: s.completionMode,
+    completionRefreshSeconds: s.completionRefreshSeconds,
     showProgressBar: s.showProgressBar,
   };
 }

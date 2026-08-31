@@ -30,9 +30,15 @@ Todo app publicado precisa de um banco SQL persistente. Defina `DATABASE_URL` no
 
 Apps independentes precisam de um `BETTER_AUTH_SECRET` estável. Workspaces com requisições assinadas entre apps precisam de `A2A_SECRET`.
 
+## O envio de e-mail é opcional, mas recomendado {#email-provider}
+
+Um provedor de e-mail não é necessário para a autenticação com e-mail e senha. Sem ele, os apps publicados usam cadastro e login com e-mail e senha, ignoram a verificação de e-mail no cadastro e não oferecem autenticação por link mágico.
+
+Conecte o Resend ou o SendGrid antes do deploy se quiser links mágicos, verificação de e-mail, redefinição de senha, convites ou notificações de compartilhamento. Defina `RESEND_API_KEY` ou `SENDGRID_API_KEY`; o SendGrid também precisa de `EMAIL_FROM`. Consulte [Autenticação](/docs/authentication) para conhecer os modos de autenticação disponíveis.
+
 ## Destinos compatíveis
 
-O Agent-Native oferece suporte a [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) e [Render](/docs/render).
+O Agent-Native oferece suporte a [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) e [Render](/docs/render).
 
 Consulte a [referência de variáveis de ambiente de deploy](/docs/deployment-environment-variables) para configurações avançadas, segredos e produção.
 

@@ -665,12 +665,18 @@ describe("Chromium reparent matrix", () => {
           position: getComputedStyle(item).position,
           left: rect.left,
           top: rect.top,
+          inlineLeft: Number.parseFloat(item.style.left),
+          inlineTop: Number.parseFloat(item.style.top),
         };
       });
       expect(after.parent).toBe("target");
       expect(after.position).toBe("absolute");
-      expect(after.left).toBeCloseTo(beforeRelease.left, 1);
-      expect(after.top).toBeCloseTo(beforeRelease.top, 1);
+      // Whole authored offsets cost up to a scaled half-pixel of drop accuracy
+      // under a rotate+scale parent. That trade is deliberate.
+      expect(Number.isInteger(after.inlineLeft)).toBe(true);
+      expect(Number.isInteger(after.inlineTop)).toBe(true);
+      expect(Math.abs(after.left - beforeRelease.left)).toBeLessThan(1);
+      expect(Math.abs(after.top - beforeRelease.top)).toBeLessThan(1);
       await page.close();
     },
   );

@@ -145,6 +145,8 @@ export interface MentionProvider {
 export interface AgentChatAttachment {
   type: string;
   name: string;
+  /** Keep a user-visible chip without sending the attachment as model input. */
+  displayOnly?: boolean;
   data?: string;
   /** Stable object-storage URL for this attachment, when uploaded. */
   url?: string;
@@ -190,6 +192,8 @@ export interface AgentChatRequest {
   structuredHistory?: AgentChatStructuredMessage[];
   references?: AgentChatReference[];
   threadId?: string;
+  /** Parent message for assistant-ui sends and regenerations. */
+  parentId?: string | null;
   attachments?: AgentChatAttachment[];
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;

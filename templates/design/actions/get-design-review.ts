@@ -15,11 +15,12 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { readDesignVersionSnapshot } from "../server/lib/design-versions.js";
 import type {
   A11yFinding,
   DesignReviewSnapshot,
@@ -40,34 +41,15 @@ import type {
  * stores — typically an object with a `files` array.  We extract a lightweight
  * set of each file's token/style references for structural comparison.
  */
-function parseSnapshotNodes(
-  snapshotRaw: string,
+function snapshotNodes(
+  files: ReadonlyArray<{ filename: string; content: string }>,
 ): Record<string, Record<string, unknown>> {
-  try {
-    const obj = JSON.parse(snapshotRaw) as unknown;
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
-    const record = obj as Record<string, unknown>;
-
-    // Flatten files → content strings into a map keyed by filename.
-    const files = record["files"];
-    if (!Array.isArray(files)) return {};
-
-    const out: Record<string, Record<string, unknown>> = {};
-    for (const file of files) {
-      if (!file || typeof file !== "object") continue;
-      const f = file as Record<string, unknown>;
-      const name = typeof f["filename"] === "string" ? f["filename"] : "?";
-      const content =
-        typeof f["content"] === "string" ? f["content"] : undefined;
-      out[name] = {
-        content,
-        bytes: typeof content === "string" ? content.length : 0,
-      };
-    }
-    return out;
-  } catch {
-    return {};
-  }
+  return Object.fromEntries(
+    files.map((file) => [
+      file.filename,
+      { content: file.content, bytes: file.content.length },
+    ]),
+  );
 }
 
 /** Produce a visual diff entry list by comparing two snapshot node maps. */
@@ -112,7 +94,7 @@ function diffSnapshotNodes(
         entries.push({
           id: `modified:${key}`,
           kind: "modified" as VisualDiffChangeKind,
-          description: `File modified: ${key} (${baseBytes}B → ${compareBytes}B)`,
+          description: `File modified: ${key} (${JSON.stringify(baseBytes)}B → ${JSON.stringify(compareBytes)}B)`,
         });
       }
     }
@@ -251,7 +233,15 @@ export default defineAction({
             snapshot: schema.designVersions.snapshot,
           })
           .from(schema.designVersions)
-          .where(and(eq(schema.designVersions.designId, designId)));
+          .where(
+            and(
+              eq(schema.designVersions.designId, designId),
+              inArray(schema.designVersions.id, [
+                baseVersionId,
+                effectiveCompareId,
+              ]),
+            ),
+          );
 
         const byId = Object.fromEntries(
           versionRows.map((r) => [r.id, r.snapshot]),
@@ -261,8 +251,12 @@ export default defineAction({
         const compareSnapshot = byId[effectiveCompareId];
 
         if (baseSnapshot && compareSnapshot) {
-          const baseNodes = parseSnapshotNodes(baseSnapshot);
-          const compareNodes = parseSnapshotNodes(compareSnapshot);
+          const [baseVersion, compareVersion] = await Promise.all([
+            readDesignVersionSnapshot(baseSnapshot, designId),
+            readDesignVersionSnapshot(compareSnapshot, designId),
+          ]);
+          const baseNodes = snapshotNodes(baseVersion.files);
+          const compareNodes = snapshotNodes(compareVersion.files);
           visualDiff = diffSnapshotNodes(baseNodes, compareNodes);
           resolvedBaseVersionId = baseVersionId;
           resolvedCompareVersionId = effectiveCompareId;

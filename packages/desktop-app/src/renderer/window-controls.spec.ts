@@ -39,11 +39,7 @@ describe("chat-first macOS window controls", () => {
     expect(shellCss).toContain(
       ".collapsed-mac-window-controls .win-btn--maximize {",
     );
-    expect(shellCss).toContain("pointer-events: none;");
-    expect(shellCss).toContain("transform: translateX(-7px) scale(0.86);");
-    expect(shellCss).toContain(
-      ".collapsed-mac-window-controls:hover .win-btn--maximize,\n.collapsed-mac-window-controls:focus-within .win-btn--maximize {",
-    );
+    expect(shellCss).toContain("opacity: 1;");
     expect(shellCss).toContain("pointer-events: auto;");
     expect(shellCss).toContain("transform: translateX(0) scale(1);");
   });

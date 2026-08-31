@@ -349,6 +349,12 @@ function isStandalonePublicPath(pathname: string): boolean {
 
 function AppContent() {
   const location = useLocation();
+  if (location.pathname === "/") return <Outlet />;
+  return <PrivateAppContent />;
+}
+
+function PrivateAppContent() {
+  const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
@@ -402,18 +408,21 @@ export default function Root() {
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const isMarketingHome = location.pathname === "/";
+  const isPublicPath =
+    isMarketingHome || isStandalonePublicPath(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isStandalonePublicPath(location.pathname)}
+        isPublicPath={isPublicPath}
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,
           initialPreference: loaderData.preference,
           initialMessages: loaderData.messages,
-          persistPreference: !isStandalonePublicPath(location.pathname),
+          persistPreference: !isPublicPath,
         }}
       >
         <AppContent />

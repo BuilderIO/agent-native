@@ -51,6 +51,7 @@ interface BuildAssistantMessageOptions {
    */
   turnId?: string;
   runDurationMs?: number;
+  scope?: { type: string; id: string } | null;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -361,6 +362,12 @@ export function buildAssistantMessage(
 
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
+  if (options.scope?.type && options.scope.id) {
+    custom.chatScope = {
+      type: options.scope.type,
+      id: options.scope.id,
+    };
+  }
   if (runId) custom.foldedRunIds = [runId];
   if (
     typeof options.runDurationMs === "number" &&
@@ -1490,6 +1497,20 @@ function buildStoredAttachments(
   return (attachments ?? [])
     .map((att, index) => {
       const id = `server-${runId ?? Date.now()}-attachment-${index}`;
+      if (att.displayOnly === true) {
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content:
+            typeof att.text === "string" && att.text.length > 0
+              ? [{ type: "text", text: textAttachmentEnvelope(att, att.text) }]
+              : [],
+          metadata: { displayOnly: true },
+        };
+      }
       // When the attachment was successfully pre-uploaded, store only the URL
       // reference. This keeps the SQL thread_data row compact regardless of
       // file size, and lets the transcript render from the hosted URL instead
@@ -1810,6 +1831,7 @@ function shouldReplaceLastAssistant(
 export function upsertAssistantMessage(
   repo: any,
   assistantMsg: AssistantMessage,
+  parentId?: string | null,
 ): any {
   const nextRepo = normalizeThreadRepository(repo);
 
@@ -1817,9 +1839,11 @@ export function upsertAssistantMessage(
   const lastEntry = lastIndex >= 0 ? nextRepo.messages[lastIndex] : undefined;
   const lastMsg = getStoredMessage(lastEntry);
   const lastRole = lastMsg?.role;
+  const lastParentId = lastEntry ? getStoredParentId(lastEntry) : undefined;
 
   if (
     lastRole === "assistant" &&
+    (parentId === undefined || lastParentId === parentId) &&
     shouldReplaceLastAssistant(lastMsg, assistantMsg)
   ) {
     nextRepo.messages[lastIndex] = { ...lastEntry, message: assistantMsg };
@@ -1827,13 +1851,21 @@ export function upsertAssistantMessage(
     return nextRepo;
   }
 
-  const parentId =
+  const fallbackParentId =
     nextRepo.messages.length > 0
       ? (messageId(
           getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
         ) ?? null)
       : null;
-  nextRepo.messages.push({ message: assistantMsg, parentId });
+  const resolvedParentId =
+    parentId === null ||
+    (typeof parentId === "string" &&
+      nextRepo.messages.some(
+        (entry: any) => messageId(getStoredMessage(entry)) === parentId,
+      ))
+      ? parentId
+      : fallbackParentId;
+  nextRepo.messages.push({ message: assistantMsg, parentId: resolvedParentId });
   nextRepo.headId = assistantMsg.id;
   return nextRepo;
 }
@@ -1919,11 +1951,12 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
 export function foldAssistantTurn(
   repo: any,
   assistantMsg: AssistantMessage,
-  options: { turnId?: string; runId?: string },
+  options: { turnId?: string; runId?: string; parentId?: string | null },
 ): any {
   const turnId = options.turnId;
   const runId = options.runId;
-  if (!turnId) return upsertAssistantMessage(repo, assistantMsg);
+  if (!turnId)
+    return upsertAssistantMessage(repo, assistantMsg, options.parentId);
 
   const nextRepo = normalizeThreadRepository(repo);
   const lastIndex = nextRepo.messages.length - 1;
@@ -1932,6 +1965,8 @@ export function foldAssistantTurn(
 
   const sameTurn =
     lastMsg?.role === "assistant" &&
+    (options.parentId === undefined ||
+      getStoredParentId(lastEntry) === options.parentId) &&
     (turnIdOf(lastMsg) === turnId ||
       // A message the client wrote for one of this turn's runs before it
       // carried a turnId stamp.
@@ -1941,7 +1976,7 @@ export function foldAssistantTurn(
     // First chunk of this turn (or the previous assistant belongs to an
     // earlier turn) — append as a fresh message; buildAssistantMessage already
     // stamped turnId + foldedRunIds onto it.
-    return upsertAssistantMessage(repo, assistantMsg);
+    return upsertAssistantMessage(repo, assistantMsg, options.parentId);
   }
 
   const existingContent = Array.isArray(lastMsg.content) ? lastMsg.content : [];

@@ -123,7 +123,8 @@ async function addColumnIfMissing(
 }
 
 function isDuplicateColumnError(err: unknown): boolean {
-  const code = String((err as { code?: unknown })?.code ?? "");
+  const codeValue = (err as { code?: unknown })?.code;
+  const code = typeof codeValue === "string" ? codeValue : "";
   const message = String((err as { message?: unknown })?.message ?? err)
     .toLowerCase()
     .trim();
@@ -434,7 +435,9 @@ function sanitizeOptionalString(
 function parseJson(value: unknown, fallback: unknown): unknown {
   if (value == null) return fallback;
   try {
-    return JSON.parse(String(value));
+    return JSON.parse(
+      typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
+    );
   } catch {
     return fallback;
   }

@@ -102,6 +102,10 @@ export interface ChatRequestLog {
   count: number;
 }
 
+export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
+  return `Agent chat requests: ${JSON.stringify(log)}`;
+}
+
 /**
  * Record the model on every agent-chat POST this page makes.
  *
@@ -200,6 +204,45 @@ export const COMPOSER = {
   model: '[data-agent-composer-slot="model-button"]',
 } as const;
 
+export async function readComposerRuntimeState(page: Page): Promise<unknown> {
+  return page.evaluate(() => {
+    const input = document.querySelector<HTMLElement>(
+      '[data-agent-composer-slot="editor-input"]',
+    );
+    const send = document.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
+    return {
+      href: window.location.href,
+      inputCount: document.querySelectorAll(
+        '[data-agent-composer-slot="editor-input"]',
+      ).length,
+      input: input
+        ? {
+            textContent: input.textContent,
+            innerText: input.innerText,
+            contentEditable: input.contentEditable,
+            ariaDisabled: input.getAttribute("aria-disabled"),
+            active: document.activeElement === input,
+          }
+        : null,
+      send: send
+        ? {
+            disabled: send.disabled,
+            ariaDisabled: send.getAttribute("aria-disabled"),
+          }
+        : null,
+      panel: panel
+        ? {
+            state: panel.getAttribute("data-agent-sidebar-state"),
+            text: panel.innerText.slice(-500),
+          }
+        : null,
+    };
+  });
+}
+
 /**
  * Error text the product renders when a turn fails. Every one of these is a
  * shape real users reported on beta; matching any of them fails the turn.
@@ -256,7 +299,13 @@ export async function sendPromptAndAwaitTurn(
 
   const send = page.locator(COMPOSER.send).first();
   await send.waitFor({ state: "visible", timeout: 30_000 });
-  await send.click();
+  try {
+    await send.click();
+  } catch (error) {
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\nComposer runtime: ${JSON.stringify(await readComposerRuntimeState(page))}`,
+    );
+  }
 
   const stop = page.locator(COMPOSER.stop).first();
   // A turn short enough to finish before the stop button paints is still a

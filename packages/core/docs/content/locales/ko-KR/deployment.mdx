@@ -30,9 +30,15 @@ Agent-Native 앱은 Nitro에서 실행됩니다. 배포 대상에 맞는 경로�
 
 독립 앱에는 안정적인 `BETTER_AUTH_SECRET`이 필요합니다. 서명된 앱 간 요청을 사용하는 워크스페이스에는 `A2A_SECRET`이 필요합니다.
 
+## 이메일 전송은 선택 사항이지만 권장됩니다 {#email-provider}
+
+이메일 제공업체는 이메일/비밀번호 인증에 필수가 아닙니다. 제공업체가 없으면 배포된 앱은 이메일/비밀번호로 가입 및 로그인을 사용하고, 가입 이메일 인증을 건너뛰며, 매직 링크 인증을 제공하지 않습니다.
+
+매직 링크, 이메일 인증, 비밀번호 재설정, 초대 또는 공유 알림이 필요하면 배포 전에 Resend 또는 SendGrid를 연결하세요. 배포 환경에 `RESEND_API_KEY` 또는 `SENDGRID_API_KEY`를 설정하고, SendGrid에는 `EMAIL_FROM`도 필요합니다. 인증 방식은 [인증](/docs/authentication)을 참조하세요.
+
 ## 지원되는 대상
 
-Agent-Native는 [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb), [Render](/docs/render)를 지원합니다.
+Agent-Native는 [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb), [Render](/docs/render)를 지원합니다.
 
 고급 설정, 시크릿, 프로덕션 값은 [배포 환경 변수 참조](/docs/deployment-environment-variables)에서 확인하세요.
 

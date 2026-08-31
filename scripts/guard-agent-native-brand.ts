@@ -52,7 +52,7 @@ function readCandidateFiles(): BrandFile[] {
   const files = execFileSync(
     "git",
     ["ls-files", "-co", "--exclude-standard", "-z"],
-    { encoding: "utf8" },
+    { encoding: "utf8", maxBuffer: 1 << 28 },
   )
     .split("\0")
     .filter(Boolean);

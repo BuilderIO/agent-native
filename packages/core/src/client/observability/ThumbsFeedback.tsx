@@ -5,7 +5,9 @@ import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
 import { useState, useCallback, useId, useRef } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { submitFeedbackForm } from "../FeedbackButton.js";
 import { useT } from "../i18n.js";
+import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 
 export interface ThumbsFeedbackProps {
@@ -17,6 +19,23 @@ export interface ThumbsFeedbackProps {
 
 type Selection = "up" | "down" | null;
 
+type TextFeedbackDelivery = {
+  value: string;
+  observabilityDelivered: boolean;
+  sharedFormDelivered: boolean;
+  idempotencyKey: string;
+};
+
+function createFeedbackIdempotencyKey(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return `feedback-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function ThumbsFeedback({
   threadId,
   runId,
@@ -24,23 +43,34 @@ export function ThumbsFeedback({
   className,
 }: ThumbsFeedbackProps) {
   const t = useT();
+  const { session } = useSession();
   const [selection, setSelection] = useState<Selection>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [textFeedback, setTextFeedback] = useState("");
+  const [textSubmitting, setTextSubmitting] = useState(false);
   const feedbackInputId = useId();
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
+  const feedbackOpenedAtRef = useRef(0);
+  const textSubmissionInFlightRef = useRef(false);
+  const textFeedbackDeliveryRef = useRef<TextFeedbackDelivery | null>(null);
 
   const sendFeedback = useCallback(
     async (
       feedbackType: "thumbs_up" | "thumbs_down" | "text",
       value?: string,
+      idempotencyKey?: string,
     ): Promise<boolean> => {
       try {
         const response = await fetch(
           agentNativePath("/_agent-native/observability/feedback"),
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(feedbackType === "text" && idempotencyKey
+                ? { "Idempotency-Key": idempotencyKey }
+                : {}),
+            },
             body: JSON.stringify({
               threadId,
               runId,
@@ -73,25 +103,81 @@ export function ThumbsFeedback({
 
   const handleThumbsDown = useCallback(() => {
     if (selection === "down") {
-      setPopoverOpen((prev) => !prev);
+      const nextOpen = !popoverOpen;
+      if (nextOpen) feedbackOpenedAtRef.current = Date.now();
+      setPopoverOpen(nextOpen);
       return;
     }
+    feedbackOpenedAtRef.current = Date.now();
     setSelection("down");
     setPopoverOpen(true);
     void sendFeedback("thumbs_down").then((submitted) => {
       if (!submitted) setSelection(null);
     });
-  }, [selection, sendFeedback]);
+  }, [popoverOpen, selection, sendFeedback]);
 
   const handleTextFeedback = useCallback(() => {
     const value = textFeedback.trim();
-    if (!value) return;
-    void sendFeedback("text", value).then((submitted) => {
-      if (!submitted) return;
-      setTextFeedback("");
-      setPopoverOpen(false);
-    });
-  }, [sendFeedback, textFeedback]);
+    if (!value || textSubmissionInFlightRef.current) return;
+    const delivery =
+      textFeedbackDeliveryRef.current?.value === value
+        ? textFeedbackDeliveryRef.current
+        : {
+            value,
+            observabilityDelivered: false,
+            sharedFormDelivered: false,
+            idempotencyKey: createFeedbackIdempotencyKey(),
+          };
+    textFeedbackDeliveryRef.current = delivery;
+    textSubmissionInFlightRef.current = true;
+    setTextSubmitting(true);
+
+    const deliveries: Promise<void>[] = [];
+    if (!delivery.observabilityDelivered) {
+      deliveries.push(
+        sendFeedback("text", value, delivery.idempotencyKey).then(
+          (submitted) => {
+            delivery.observabilityDelivered = submitted;
+          },
+        ),
+      );
+    }
+    if (!delivery.sharedFormDelivered) {
+      deliveries.push(
+        submitFeedbackForm({
+          value,
+          openedAt: feedbackOpenedAtRef.current,
+          idempotencyKey: delivery.idempotencyKey,
+          chatSessionId: threadId,
+          activeRunId: runId,
+          submitterEmail: session?.email,
+        })
+          .then(() => {
+            delivery.sharedFormDelivered = true;
+          })
+          .catch((reason) => {
+            console.error(
+              "[ThumbsFeedback] shared feedback form submission failed",
+              reason,
+            );
+          }),
+      );
+    }
+
+    void Promise.all(deliveries)
+      .then(() => {
+        if (!delivery.observabilityDelivered || !delivery.sharedFormDelivered) {
+          return;
+        }
+        textFeedbackDeliveryRef.current = null;
+        setTextFeedback("");
+        setPopoverOpen(false);
+      })
+      .finally(() => {
+        textSubmissionInFlightRef.current = false;
+        setTextSubmitting(false);
+      });
+  }, [runId, sendFeedback, session?.email, textFeedback, threadId]);
 
   return (
     <div className={cn("inline-flex items-center gap-0.5", className)}>
@@ -165,6 +251,7 @@ export function ThumbsFeedback({
                 autoFocus
                 value={textFeedback}
                 onChange={(event) => setTextFeedback(event.target.value)}
+                disabled={textSubmitting}
                 onKeyDown={(event) => {
                   if (
                     (event.metaKey || event.ctrlKey) &&
@@ -192,7 +279,7 @@ export function ThumbsFeedback({
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={!textFeedback.trim()}
+                  disabled={textSubmitting || !textFeedback.trim()}
                   className="h-7 px-2.5 text-xs"
                 >
                   {t("agentChat.feedback.submit")}

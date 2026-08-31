@@ -95,7 +95,7 @@ export function useCreateBookingLink() {
     },
     onSettled: () => {
       // Sync with server eventually — non-blocking.
-      queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      void queryClient.invalidateQueries({ queryKey: LIST_KEY });
     },
   });
 }
@@ -121,7 +121,7 @@ export function useUpdateBookingLink() {
             : link,
         ),
       );
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
     },
@@ -139,7 +139,7 @@ export function useDeleteBookingLink() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
+      void queryClient.invalidateQueries({
         queryKey: LIST_KEY,
       });
     },

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import {
   and,
   asc,
@@ -27,6 +28,7 @@ import {
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { profileNameFor } from "../server/lib/user-identities.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -199,7 +201,7 @@ export default defineAction({
       // the proxy throws rather than silently building wrong SQL. The subquery
       // filters out NULLs so NOT IN doesn't collapse to an empty result under
       // SQL NULL semantics.
-      const resolvedDb = await db;
+      const resolvedDb = await Promise.resolve(db);
       const meetingRecordingIds = resolvedDb
         .select({ id: schema.meetings.recordingId })
         .from(schema.meetings)
@@ -365,6 +367,9 @@ export default defineAction({
       .offset(args.offset);
 
     const ids = rows.map((r) => r.recording.id);
+    const ownerProfiles = await getUserProfiles(
+      rows.map((row) => row.recording.ownerEmail),
+    );
 
     // Gather tags for the result set in one query
     let tagsByRec: Record<string, string[]> = {};
@@ -450,6 +455,7 @@ export default defineAction({
         failureReason: r.failureReason,
         visibility: r.visibility,
         ownerEmail: r.ownerEmail,
+        ownerName: profileNameFor(r.ownerEmail, null, ownerProfiles),
         folderId: r.folderId,
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],

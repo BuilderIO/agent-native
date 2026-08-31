@@ -35,6 +35,47 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mentionner des fichiers, des agents ou des ressources",
   "commands.new": "Identique à /clear",
   "commands.plan": "Passer à la planification en lecture seule",
+  "onboarding.back": "Retour",
+  "onboarding.chooseRole": "Choisissez votre rôle",
+  "onboarding.customizeRole": "Personnalisons cette expérience pour vous.",
+  "onboarding.roleQuestion": "Quel choix décrit le mieux votre rôle ?",
+  "onboarding.roleProduct": "Produit",
+  "onboarding.roleDesign": "Design",
+  "onboarding.roleDeveloper": "Développement",
+  "onboarding.roleMarketing": "Marketing",
+  "onboarding.roleSales": "Ventes",
+  "onboarding.roleOps": "Opérations",
+  "onboarding.roleIndividual": "Individuel",
+  "onboarding.roleOther": "Autre",
+  "onboarding.skipForNow": "Ignorer pour l’instant",
+  "onboarding.saveRoleError": "Impossible d’enregistrer votre rôle.",
+  "onboarding.builderActivateCredits":
+    "Activer les crédits gratuits Builder.io",
+  "onboarding.builderConnectCredits":
+    "Connecter les crédits gratuits Builder.io",
+  "onboarding.builderActivateDescription":
+    "Créez ou réutilisez votre compte Builder.io et activez ses crédits gratuits en un clic.",
+  "onboarding.builderActiveCredits":
+    "Inclus avec les crédits gratuits Builder.io actifs",
+  "onboarding.builderCredits": "Inclus avec les crédits gratuits Builder.io",
+  "onboarding.builderActivateTitle": "Activer les crédits gratuits",
+  "onboarding.builderAccountExistsTitle": "Vous avez déjà un compte Builder.io",
+  "onboarding.builderAccountExistsDescription":
+    "Connectez-vous pour l’associer.",
+  "onboarding.builderActivationDescription":
+    "Nous créerons automatiquement votre compte Builder.io en un clic.",
+  "onboarding.builderCreateAndActivate": "Créer et activer",
+  "onboarding.builderConsentPrefix": "En continuant, vous acceptez les",
+  "onboarding.builderTerms": "Conditions",
+  "onboarding.builderPrivacy": "Règles de confidentialité",
+  "onboarding.builderConsentAnd": "et",
+  "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
+  "onboarding.builderActivating": "Activation des crédits gratuits Builder.io",
+  "onboarding.builderConnecting": "Connexion aux crédits gratuits Builder.io",
+  "onboarding.builderProvisioningDescription":
+    "Création ou réutilisation de votre compte Builder.io. Cela prend généralement quelques secondes.",
+  "onboarding.builderConnectionDescription":
+    "Terminez la connexion en un clic dans la nouvelle fenêtre.",
   "aboutAgentNative.title": "À propos d’Agent-Native",
   "aboutAgentNative.version": "Version",
   "aboutAgentNative.environment": "Environnement",

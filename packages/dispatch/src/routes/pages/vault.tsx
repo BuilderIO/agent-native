@@ -7,8 +7,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconEdit,
-  IconEye,
-  IconEyeOff,
   IconKey,
   IconPlus,
   IconRefresh,
@@ -196,16 +194,14 @@ function EditSecretDialog({ secret }: { secret: any }) {
     secret.credentialKey || "",
   );
   const [name, setName] = useState(secret.name || "");
-  const [value, setValue] = useState(secret.value || "");
+  const [value, setValue] = useState("");
   const [provider, setProvider] = useState(secret.provider || "");
   const [description, setDescription] = useState(secret.description || "");
-  const [showValue, setShowValue] = useState(false);
 
   const update = useActionMutation("update-vault-secret", {
     onSuccess: () => {
       toast.success("Secret updated");
       setOpen(false);
-      setShowValue(false);
     },
     onError: (err) => toast.error(String(err)),
   });
@@ -213,10 +209,9 @@ function EditSecretDialog({ secret }: { secret: any }) {
   const resetDraft = () => {
     setCredentialKey(secret.credentialKey || "");
     setName(secret.name || "");
-    setValue(secret.value || "");
+    setValue("");
     setProvider(secret.provider || "");
     setDescription(secret.description || "");
-    setShowValue(false);
   };
 
   return (
@@ -238,7 +233,7 @@ function EditSecretDialog({ secret }: { secret: any }) {
           <DialogTitle>Edit vault secret</DialogTitle>
           <DialogDescription>
             Update the stored key and metadata. Changes sync to the shared
-            credential store.
+            credential store. Leave the value blank to keep the existing secret.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -249,7 +244,7 @@ function EditSecretDialog({ secret }: { secret: any }) {
               id: secret.id,
               credentialKey,
               name,
-              value,
+              ...(value ? { value } : {}),
               provider: provider || null,
               description: description || null,
             });
@@ -275,27 +270,17 @@ function EditSecretDialog({ secret }: { secret: any }) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor={`vault-secret-value-${secret.id}`}>Value</Label>
-            <div className="flex gap-2">
-              <Input
-                id={`vault-secret-value-${secret.id}`}
-                type={showValue ? "text" : "password"}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                className="font-mono text-sm"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setShowValue((current) => !current)}
-                aria-label={
-                  showValue ? "Hide secret value" : "Show secret value"
-                }
-              >
-                {showValue ? <IconEyeOff size={15} /> : <IconEye size={15} />}
-              </Button>
-            </div>
+            <Label htmlFor={`vault-secret-value-${secret.id}`}>
+              New value (optional)
+            </Label>
+            <Input
+              id={`vault-secret-value-${secret.id}`}
+              type="password"
+              placeholder="Enter a new value to rotate it"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className="font-mono text-sm"
+            />
           </div>
           <div className="space-y-2">
             <Label>Provider</Label>
@@ -343,10 +328,7 @@ function EditSecretDialog({ secret }: { secret: any }) {
             <Button
               type="submit"
               disabled={
-                !credentialKey.trim() ||
-                !name.trim() ||
-                !value ||
-                update.isPending
+                !credentialKey.trim() || !name.trim() || update.isPending
               }
             >
               {update.isPending ? "Saving..." : "Save changes"}
@@ -473,7 +455,6 @@ function SecretRow({
   accessMode: VaultAccessMode;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [showValue, setShowValue] = useState(false);
 
   const deleteSecret = useActionMutation("delete-vault-secret", {
     onSuccess: () => toast.success("Secret deleted"),
@@ -539,15 +520,8 @@ function SecretRow({
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Value:</span>
             <code className="text-xs font-mono text-foreground">
-              {showValue ? secret.value : `••••${secret.value.slice(-4)}`}
+              {secret.last4}
             </code>
-            <button
-              type="button"
-              onClick={() => setShowValue(!showValue)}
-              className="text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              {showValue ? <IconEyeOff size={14} /> : <IconEye size={14} />}
-            </button>
           </div>
 
           <div className="space-y-2">

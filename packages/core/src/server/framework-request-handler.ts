@@ -12,7 +12,7 @@
  * first call to `getH3App()` per nitroApp instance.
  */
 import type { EventHandler, H3Event } from "h3";
-import { setResponseHeader, setResponseStatus } from "h3";
+import { getHeader, setResponseHeader, setResponseStatus } from "h3";
 
 import { AppConfigurationError } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
@@ -21,6 +21,10 @@ import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
+import {
+  SYNTHETIC_TRAFFIC_HEADER,
+  isSyntheticTrafficValue,
+} from "../shared/test-traffic.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
@@ -320,9 +324,16 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (!h3 || !Array.isArray(h3["~middleware"])) return;
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
-  const middleware = (_event: H3Event, next: () => unknown) => {
+  const middleware = (event: H3Event, next: () => unknown) => {
     if (hasRequestContext()) return next();
-    return runWithRequestContext({}, () => next());
+    return runWithRequestContext(
+      {
+        isSyntheticTraffic: isSyntheticTrafficValue(
+          getHeader(event, SYNTHETIC_TRAFFIC_HEADER),
+        ),
+      },
+      () => next(),
+    );
   };
 
   h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;

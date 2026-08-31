@@ -41,6 +41,28 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("[view, activeLabel, activeInboxTab]");
   });
 
+  it("keeps the first-use Important default on a plain inbox route", () => {
+    const source = inboxSource();
+
+    expect(source).toContain("settingsLoading");
+    expect(source).toContain("userPinnedLabels !== undefined");
+    expect(source).toContain(
+      'navigate("/inbox?label=important", { replace: true })',
+    );
+  });
+
+  it("loads legacy custom-label inbox links from the whole mailbox", () => {
+    const source = inboxSource();
+
+    expect(source).toContain("const mailboxWideLabelTab =");
+    expect(source).toContain(
+      'const emailView = mailboxWideLabelTab ? "all" : view;',
+    );
+    expect(source).toContain(
+      "useEmails(emailView, searchQuery, effectiveLabel)",
+    );
+  });
+
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
     expect(navigationHookSource()).toContain("activeAccounts?: string[];");

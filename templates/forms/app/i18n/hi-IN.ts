@@ -200,6 +200,12 @@ const messages = {
       successMessage: "सफलता संदेश",
       defaultSuccessMessage: "धन्यवाद! आपकी प्रतिक्रिया रिकॉर्ड हो गई है।",
       redirectUrl: "रीडायरेक्ट URL (वैकल्पिक)",
+      completionMode: "सबमिट करने के बाद",
+      completionMessage: "रिफ्रेश होने तक संदेश दिखाएँ",
+      completionRedirect: "URL पर रीडायरेक्ट करें",
+      completionMessageThenRefresh: "संदेश दिखाएँ, फिर रिफ्रेश करें",
+      completionRefresh: "नए फ़ॉर्म के साथ रिफ्रेश करें",
+      completionRefreshSeconds: "रिफ्रेश के बाद (सेकंड)",
       anonymousResponses: "गुमनाम प्रतिक्रियाएँ",
       anonymousResponsesDescription:
         "IP पते, प्रतिक्रिया देने वाले की पहचान या स्रोत मेटाडेटा सहेजें नहीं।",

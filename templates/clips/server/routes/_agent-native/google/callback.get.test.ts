@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const putSetting = vi.hoisted(() => vi.fn());
+const getQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   createOAuthSession: vi.fn(),
   decodeOAuthState: vi.fn(),
+  ensureGoogleAuthIdentity: vi.fn(),
   getAppUrl: vi.fn(),
   matchesDesktopOAuthBrowserBinding: vi.fn(),
   oauthCallbackResponse: vi.fn(),
@@ -18,7 +20,7 @@ vi.mock("@agent-native/core/settings", () => ({ putSetting }));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
-  getQuery: vi.fn(),
+  getQuery,
   setResponseStatus: vi.fn(),
 }));
 
@@ -32,7 +34,8 @@ vi.mock("../../../lib/google-calendar-oauth.js", () => ({
   isCalendarConnectState: vi.fn(() => false),
 }));
 
-import { persistGoogleProfileImage } from "./callback.get.js";
+const { default: callbackHandler, persistGoogleProfileImage } =
+  await import("./callback.get.js");
 
 describe("persistGoogleProfileImage", () => {
   beforeEach(() => {
@@ -78,6 +81,53 @@ describe("persistGoogleProfileImage", () => {
     expect(warning).toHaveBeenCalledWith(
       "[auth] failed to store Google profile image:",
       expect.any(Error),
+    );
+  });
+
+  it("passes the canonical new-user result into Google signup tracking", async () => {
+    const core = await import("@agent-native/core/server");
+    vi.mocked(core.decodeOAuthState).mockReturnValue({
+      redirectUri:
+        "https://clips.agent-native.com/_agent-native/google/callback",
+    } as never);
+    vi.mocked(core.resolveGoogleSignInCredentials).mockReturnValue({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+    vi.mocked(core.resolveOAuthOwner).mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    vi.mocked(core.ensureGoogleAuthIdentity).mockResolvedValue(true);
+    vi.mocked(core.createOAuthSession).mockResolvedValue({
+      sessionToken: "session-token",
+    } as never);
+    vi.mocked(core.oauthCallbackResponse).mockReturnValue("ok" as never);
+    getQuery.mockReturnValue({ code: "google-code", state: "encoded-state" });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ access_token: "token" }))
+        .mockResolvedValueOnce(
+          Response.json({
+            email: "new-user@example.com",
+            id: "google-user-1",
+            name: "New User",
+            picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
+            verified_email: true,
+          }),
+        ),
+    );
+
+    await expect(callbackHandler({} as never)).resolves.toBe("ok");
+
+    expect(core.createOAuthSession).toHaveBeenCalledWith(
+      {},
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
+      }),
     );
   });
 });

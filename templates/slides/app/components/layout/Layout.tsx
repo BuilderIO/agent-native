@@ -1,4 +1,9 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import {
+  AgentSidebar,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
@@ -8,7 +13,6 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router";
 
-import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   hasCurrentSlideSelection,
@@ -60,10 +64,6 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { decks, loading: decksLoading } = useDecks();
-  const isEmptyDecksState =
-    location.pathname === "/" && !decksLoading && decks.length === 0;
-
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -94,6 +94,34 @@ export function Layout({ children }: LayoutProps) {
       contextKey: "slides-current-context",
     };
   }, [location.pathname, slidesSelection, t]);
+  const deckChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!deckScope) return undefined;
+    const deckId = deckScope.id;
+    return {
+      list: {
+        action: "list-deck-versions",
+        args: { deckId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-deck-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          deckId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [deckScope]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -141,6 +169,7 @@ export function Layout({ children }: LayoutProps) {
           t("agent.suggestionHero"),
         ]}
         scope={deckScope}
+        chatHistory={deckChatHistory}
         browserTabId={TAB_ID}
         agentPageHref="/settings/agent"
         suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
@@ -155,7 +184,7 @@ export function Layout({ children }: LayoutProps) {
         }
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-          {!isEmptyDecksState && showAppSidebar && (
+          {showAppSidebar && (
             <>
               {sidebarOpen && (
                 <div
@@ -186,7 +215,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
-            {!isEmptyDecksState && !ownToolbar && (
+            {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
                 <button
                   onClick={() => setSidebarOpen(true)}
@@ -197,8 +226,8 @@ export function Layout({ children }: LayoutProps) {
                 </button>
               </div>
             )}
-            {!isEmptyDecksState && !ownToolbar && <Header />}
-            {!isEmptyDecksState && <InvitationBanner />}
+            {!ownToolbar && <Header />}
+            <InvitationBanner />
             <main
               className={cn(
                 "agent-native-app-main min-h-0 flex-1",

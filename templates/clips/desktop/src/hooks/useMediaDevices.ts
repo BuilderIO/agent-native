@@ -142,10 +142,10 @@ export function useMediaDevices({
   // focus or only its document visibility flips.
   useEffect(() => {
     const onFocus = (): void => {
-      loadDevices();
+      void loadDevices();
     };
     const onVisibility = (): void => {
-      if (document.visibilityState === "visible") loadDevices();
+      if (document.visibilityState === "visible") void loadDevices();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
@@ -229,10 +229,10 @@ export function useMediaDevices({
   // attached to visible UI instead of firing on hidden webview mount.
   const deviceLabelsUnlocked = useRef(false);
   useEffect(() => {
-    loadDevices();
+    void loadDevices();
     if (popoverVisible && !deviceLabelsUnlocked.current) {
       deviceLabelsUnlocked.current = true;
-      unlockDeviceLabels();
+      void unlockDeviceLabels();
     }
   }, [loadDevices, unlockDeviceLabels, popoverVisible]);
 

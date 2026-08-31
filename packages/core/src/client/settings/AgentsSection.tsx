@@ -380,7 +380,7 @@ function AgentAddPopover({
               setCheck({ status: "idle" });
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCheck();
+              if (e.key === "Enter") void handleCheck();
               if (e.key === "Escape") onClose();
             }}
             className="w-full flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -465,7 +465,7 @@ function AgentAddPopover({
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleAdd();
+            if (e.key === "Enter") void handleAdd();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -475,7 +475,7 @@ function AgentAddPopover({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleAdd();
+            if (e.key === "Enter") void handleAdd();
             if (e.key === "Escape") onClose();
           }}
           className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
@@ -726,7 +726,7 @@ export function AgentsSection() {
   }, []);
 
   useEffect(() => {
-    fetchAgents();
+    void fetchAgents();
   }, [fetchAgents]);
 
   const handleAdd = async (
@@ -773,7 +773,7 @@ export function AgentsSection() {
     // Deliberately don't close the popover here — a successful add shows a
     // follow-up state (registration is one-way; the peer doesn't know
     // about us yet) that the user dismisses explicitly.
-    fetchAgents();
+    void fetchAgents();
     return true;
   };
 
@@ -801,7 +801,7 @@ export function AgentsSection() {
       );
       if (res.ok) {
         setEditingAgent(null);
-        fetchAgents();
+        void fetchAgents();
       }
     } catch {}
   };
@@ -817,7 +817,7 @@ export function AgentsSection() {
       );
       if (res.ok) {
         setEditingAgent(null);
-        fetchAgents();
+        void fetchAgents();
       }
     } catch {}
   };

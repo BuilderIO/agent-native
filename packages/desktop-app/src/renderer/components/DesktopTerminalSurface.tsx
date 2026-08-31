@@ -1,3 +1,4 @@
+import type { ChatFirstAppItem } from "@agent-native/core/client/chat-first";
 import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import {
   DropdownMenu,
@@ -6,23 +7,32 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
-import type { AppConfig } from "@shared/app-registry";
 import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 import { useCallback, useRef, useState } from "react";
 
 import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
 import type { RendererTheme } from "../lib/theme.js";
+import {
+  DesktopChatFirstSurfaceMenuItems,
+  type DesktopChatFirstSurfaceMenuProps,
+} from "./DesktopChatFirstSurfaceMenu.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 
 export interface DesktopTerminalPromptRequest extends AgentTerminalSubmitRequest {}
 
 interface DesktopTerminalSurfaceProps {
-  apps: readonly AppConfig[];
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
+  onNewUiTab?: () => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
+  apps?: readonly ChatFirstAppItem[];
+  onOpenApp?: DesktopChatFirstSurfaceMenuProps["onOpenApp"];
+  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
 }
 
 interface DesktopTerminalTab {
@@ -38,12 +48,17 @@ function createTerminalTab(number: number): DesktopTerminalTab {
 }
 
 export default function DesktopTerminalSurface({
-  apps,
   agent,
   theme,
   className,
   submitRequest,
   onPromptSubmitted,
+  onNewUiTab,
+  sidebarOpen,
+  onToggleSidebar,
+  apps = [],
+  onOpenApp,
+  renderAppIcon,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
@@ -161,6 +176,21 @@ export default function DesktopTerminalSurface({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+              {onToggleSidebar ||
+              (apps.length > 0 && onOpenApp) ||
+              onNewUiTab ? (
+                <>
+                  <DesktopChatFirstSurfaceMenuItems
+                    sidebarOpen={sidebarOpen}
+                    apps={apps}
+                    onToggleSidebar={onToggleSidebar}
+                    onOpenApp={onOpenApp}
+                    renderAppIcon={renderAppIcon}
+                    onNewUiTab={onNewUiTab}
+                  />
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuItem onSelect={() => closeTab(activeTabId)}>
                 Close terminal
               </DropdownMenuItem>
@@ -187,7 +217,6 @@ export default function DesktopTerminalSurface({
             hidden={tab.id !== activeTabId}
           >
             <DesktopTerminalTabs
-              apps={apps}
               agent={agent}
               theme={theme}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}

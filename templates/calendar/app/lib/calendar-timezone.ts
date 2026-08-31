@@ -47,6 +47,15 @@ export function normalizeTimezone(timezone?: string): string {
   return isCalendarTimezone(timezone) ? timezone : getBrowserTimezone();
 }
 
+export function isAllDayCalendarEvent(
+  event: Pick<CalendarEvent, "allDay" | "start" | "end">,
+): boolean {
+  return (
+    event.allDay ||
+    (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
+  );
+}
+
 /** Date carriers are kept at local noon so browser DST never changes their date. */
 export function dateKeyToDate(date: string): Date {
   const [year, month, day] = date.split("-").map(Number);
@@ -205,7 +214,7 @@ function eventDateRange(
   event: Pick<CalendarEvent, "start" | "end" | "allDay">,
   timezone: string,
 ) {
-  if (event.allDay) {
+  if (isAllDayCalendarEvent(event)) {
     const startDate = dateOnlyPart(event.start);
     const endDate =
       dateOnlyPart(event.end) ??
@@ -234,7 +243,7 @@ export function moveEventToCalendarDate(
   const sourceStartDate = getEventDateKey(event, timezone);
   if (!sourceStartDate) return null;
 
-  if (event.allDay) {
+  if (isAllDayCalendarEvent(event)) {
     const sourceEndDate =
       dateOnlyPart(event.end) ?? addCalendarDays(sourceStartDate, 1);
     const spanDays = Math.max(
@@ -285,7 +294,7 @@ export function eventOverlapsCalendarDay(
 ): boolean {
   const normalizedTimezone = normalizeTimezone(timezone);
   const dayBounds = getCalendarDayBounds(day, normalizedTimezone);
-  if (event.allDay) {
+  if (isAllDayCalendarEvent(event)) {
     const range = eventDateRange(event, normalizedTimezone);
     const dayDate = dayBounds.date;
     return Boolean(
