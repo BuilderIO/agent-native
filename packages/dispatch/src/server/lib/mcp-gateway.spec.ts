@@ -415,14 +415,16 @@ describe("askGrantedDispatchMcpApp", () => {
           { type: "text", text: "Build a weekly active users dashboard." },
         ],
       },
-      {
+      expect.objectContaining({
         async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
         metadata: {
           userEmail: "owner@example.test",
           orgDomain: "builder.io",
           requestOrigin: "http://localhost:8092",
         },
-      },
+      }),
     );
     expect(result).toMatchObject({
       app: "analytics",
@@ -742,6 +744,14 @@ describe("askGrantedDispatchMcpApp", () => {
       message:
         'ask_app is still working. Call ask_app_status with taskId "task-working" to retrieve the final response.',
     });
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
+      }),
+    );
   });
 
   it("counts submission and every poll against one inline deadline", async () => {

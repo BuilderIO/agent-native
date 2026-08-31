@@ -53,7 +53,8 @@ const TARGET_EMBED_SESSION_RETRY_BASE_MS = 250;
 const TARGET_EMBED_SESSION_CONNECT_TIMEOUT_MS = 90_000;
 const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+// Leave response headroom for the hosted MCP transport after the inline wait.
+const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
 const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -801,20 +802,27 @@ export async function askGrantedDispatchMcpApp(
       ? 0
       : boundedDispatchAskAppWaitMs(options?.maxWaitMs);
   const deadline = inlineWaitMs > 0 ? Date.now() + inlineWaitMs : undefined;
+  const submissionDeadline =
+    deadline ?? Date.now() + DISPATCH_A2A_REQUEST_TIMEOUT_MS;
 
   const { client, metadata } = await createDispatchA2AClient({
     targetUrl: target.url,
     userEmail,
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
-    deadline,
+    deadline: submissionDeadline,
   });
   const task = await client.send(
     {
       role: "user",
       parts: [{ type: "text", text: trimmedMessage }],
     },
-    { async: true, metadata },
+    {
+      async: true,
+      metadata,
+      idempotencyKey: `ask-app:${globalThis.crypto.randomUUID()}`,
+      deadlineMs: submissionDeadline,
+    },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
   return dispatchAskAppTaskResult(target.id, finalOrRunning, {

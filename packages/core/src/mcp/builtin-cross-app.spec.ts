@@ -437,8 +437,10 @@ describe("ask_app — honest routing metadata", () => {
     expect(askAgent).not.toHaveBeenCalled();
     expect(sendSpy).toHaveBeenCalledWith(
       { role: "user", parts: [{ type: "text", text: "hello" }] },
-      {
+      expect.objectContaining({
         async: true,
+        deadlineMs: expect.any(Number),
+        idempotencyKey: expect.stringMatching(/^ask-app:/),
         metadata: {
           userEmail: "caller@acme.com",
           orgDomain: "acme.com",
@@ -447,7 +449,7 @@ describe("ask_app — honest routing metadata", () => {
         approvedActions: [
           { tool: "send-email", input: { to: "alice@example.test" } },
         ],
-      },
+      }),
     );
     expect(result).toMatchObject({
       app: "mail",
@@ -796,7 +798,7 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
     expect(result).toMatchObject({ taskId: "task-neg", status: "working" });
   });
 
-  it("clamps maxWaitMs above the 25s ceiling down to 25000", async () => {
+  it("clamps maxWaitMs above the 20s ceiling down to 20000", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     mockCallerAuth();
@@ -820,13 +822,13 @@ describe("ask_app — bounded deadline & retry behavior for the hosted A2A poll 
       maxWaitMs: 999_999,
     });
 
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(20_000);
 
     await expect(resultPromise).resolves.toMatchObject({
       taskId: "task-clamped-high",
       status: "working",
     });
-    expect(Date.now()).toBe(25_000);
+    expect(Date.now()).toBe(20_000);
     expect(getTaskSpy).toHaveBeenCalledTimes(1);
   });
 

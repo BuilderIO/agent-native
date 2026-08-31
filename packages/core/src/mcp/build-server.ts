@@ -333,7 +333,7 @@ export interface MCPRequestMeta {
 }
 
 const ASK_AGENT_DEFAULT_INLINE_WAIT_MS = 20_000;
-const ASK_AGENT_MAX_INLINE_WAIT_MS = 25_000;
+const ASK_AGENT_MAX_INLINE_WAIT_MS = 20_000;
 
 function boundedAskAgentWaitMs(raw: unknown): number {
   if (raw == null || raw === "") return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
@@ -2111,7 +2111,7 @@ export async function createMCPServerForRequest(
               maxWaitMs: {
                 type: "number",
                 description:
-                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 20000ms.",
               },
             },
             required: ["message"],

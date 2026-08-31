@@ -88,7 +88,8 @@ function currentAppId(config: MCPConfig): string {
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
-const ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
+// Leave response headroom for the hosted MCP transport after the inline wait.
+const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -461,10 +462,12 @@ async function submitAskAppA2ATask(
   approvedActions?: A2AApprovedAction[],
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
+  const submissionDeadline =
+    deadline ?? Date.now() + ASK_APP_A2A_REQUEST_TIMEOUT_MS;
   const { client, metadata } = await createA2AClientForAskApp(
     route.origin,
     route.requestOrigin,
-    deadline,
+    submissionDeadline,
   );
   const task = await client.send(
     {
@@ -474,6 +477,8 @@ async function submitAskAppA2ATask(
     {
       async: true,
       metadata,
+      idempotencyKey: `ask-app:${globalThis.crypto.randomUUID()}`,
+      deadlineMs: submissionDeadline,
       ...(approvedActions?.length ? { approvedActions } : {}),
     },
   );
@@ -1197,7 +1202,7 @@ function askAppTool(
         maxWaitMs: {
           type: "number",
           description:
-            "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 25000ms.",
+            "Maximum time to wait inline before returning a taskHandle. Hosted MCP clamps this to 20000ms.",
         },
         approvedActions: {
           type: "array",

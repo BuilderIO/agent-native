@@ -1974,7 +1974,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(askAgent.inputSchema.properties.maxWaitMs).toEqual({
       type: "number",
       description:
-        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 20000ms.",
     });
 
     const call = await callWeb(
