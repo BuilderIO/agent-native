@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": minor
+"@agent-native/core": patch
 ---
 
 Let apps outside the Builder hosting pipeline use the hosted Realtime Gateway.
