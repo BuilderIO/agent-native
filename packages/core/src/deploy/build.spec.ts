@@ -62,6 +62,7 @@ import {
   generateWorkerEntry,
   getNodeBuiltinNames,
   isAwsAmplifyPreset,
+  configureAwsLambdaRuntimeOutput,
   isCloudflareModulePreset,
   configureAwsAmplifyRuntimeOutput,
   isDurableBackgroundDeployEnabled,
@@ -138,6 +139,43 @@ describe("isAwsAmplifyPreset", () => {
     expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
     expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
     expect(isAwsAmplifyPreset("node")).toBe(false);
+  });
+});
+
+describe("AWS Lambda streaming runtime output", () => {
+  it("loads env before lazily importing Nitro's streaming handler", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-lambda-stream-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      "export const handler = () => {};\n",
+    );
+
+    configureAwsLambdaRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://calendar.example.test",
+      AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME: "1",
+      BETTER_AUTH_SECRET: "lambda-example-secret",
+      UNDECLARED_SECRET: "must-not-ship",
+    });
+
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).toContain(
+      'AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME="1"',
+    );
+    expect(fs.readFileSync(path.join(serverDir, ".env"), "utf8")).not.toContain(
+      "UNDECLARED_SECRET",
+    );
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// AWS Lambda loads env vars before evaluating Nitro's ESM handler.\n" +
+        'import { dirname, join } from "node:path";\n' +
+        'import { fileURLToPath } from "node:url";\n' +
+        'process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));\n' +
+        'const { handler } = await import("./index.mjs");\n' +
+        "export { handler };\n",
+    );
   });
 });
 

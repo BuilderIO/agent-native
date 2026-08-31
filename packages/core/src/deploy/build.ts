@@ -120,8 +120,28 @@ export const AWS_AMPLIFY_PRESETS = [
   "awsAmplify",
 ] as const;
 
+export const AWS_LAMBDA_PRESETS = [
+  "aws-lambda",
+  "aws_lambda",
+  "awsLambda",
+] as const;
+
 export function isAwsAmplifyPreset(targetPreset: string): boolean {
   return (AWS_AMPLIFY_PRESETS as readonly string[]).includes(targetPreset);
+}
+
+export function isAwsLambdaPreset(targetPreset: string): boolean {
+  return (AWS_LAMBDA_PRESETS as readonly string[]).includes(targetPreset);
+}
+
+export function isAwsLambdaStreamingBuild(
+  targetPreset: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return (
+    isAwsLambdaPreset(targetPreset) &&
+    isTruthyRuntimeValue(env.AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME)
+  );
 }
 
 export function isCloudflareModulePreset(targetPreset: string): boolean {
@@ -216,14 +236,10 @@ function readEnvExampleKeys(filePath: string): string[] {
   return [...keys];
 }
 
-/**
- * Amplify makes build variables available to the build container but does not
- * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
- * write only app-declared runtime keys beside it for Node's native env loader.
- */
-export function configureAwsAmplifyRuntimeOutput(
+function configureAwsRuntimeOutput(
   serverDir: string,
   appDir: string,
+  platform: "aws_amplify" | "aws_lambda",
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   const declaredKeys = new Set<string>([
@@ -242,7 +258,7 @@ export function configureAwsAmplifyRuntimeOutput(
   const serverEntryPath = path.join(serverDir, "server.js");
   if (!fs.existsSync(path.join(serverDir, "index.mjs"))) {
     throw new Error(
-      `[deploy] Nitro did not generate ${path.join(serverDir, "index.mjs")} for aws_amplify`,
+      `[deploy] Nitro did not generate ${path.join(serverDir, "index.mjs")} for ${platform}`,
     );
   }
   fs.writeFileSync(
@@ -253,13 +269,41 @@ export function configureAwsAmplifyRuntimeOutput(
   fs.chmodSync(envPath, 0o600);
   fs.writeFileSync(
     serverEntryPath,
-    "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
-      'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
-      'import("./index.mjs");\n',
+    platform === "aws_amplify"
+      ? "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+          'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+          'import("./index.mjs");\n'
+      : "// AWS Lambda loads env vars before evaluating Nitro's ESM handler.\n" +
+          'import { dirname, join } from "node:path";\n' +
+          'import { fileURLToPath } from "node:url";\n' +
+          'process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));\n' +
+          'const { handler } = await import("./index.mjs");\n' +
+          "export { handler };\n",
   );
   console.log(
-    `[deploy] Prepared Amplify runtime env with ${runtimeEnv.length} declared key(s).`,
+    `[deploy] Prepared ${platform} runtime env with ${runtimeEnv.length} declared key(s).`,
   );
+}
+
+/**
+ * Amplify makes build variables available to the build container but does not
+ * forward them to SSR compute. Keep Nitro's self-contained entrypoint and
+ * write only app-declared runtime keys beside it for Node's native env loader.
+ */
+export function configureAwsAmplifyRuntimeOutput(
+  serverDir: string,
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  configureAwsRuntimeOutput(serverDir, appDir, "aws_amplify", env);
+}
+
+export function configureAwsLambdaRuntimeOutput(
+  serverDir: string,
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  configureAwsRuntimeOutput(serverDir, appDir, "aws_lambda", env);
 }
 
 export function generateCloudflareModuleWorkerEntry(): string {
@@ -5440,7 +5484,7 @@ export function nitroNoExternalsForPreset(
     ? true
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
-        targetPreset === "aws-lambda" ||
+        isAwsLambdaPreset(targetPreset) ||
         targetPreset === "node" ||
         targetPreset === "node-server"
       ? []
@@ -5660,6 +5704,13 @@ export default bundle;
     ...(isAwsAmplifyPreset(preset)
       ? { awsAmplify: { runtime: "nodejs24.x" } }
       : {}),
+    ...(isAwsLambdaPreset(preset)
+      ? {
+          awsLambda: {
+            streaming: isAwsLambdaStreamingBuild(preset, nitroEnvironment),
+          },
+        }
+      : {}),
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
@@ -5750,7 +5801,7 @@ export default bundle;
   if (
     preset === "netlify" ||
     preset === "vercel" ||
-    preset === "aws-lambda" ||
+    isAwsLambdaPreset(preset) ||
     isAwsAmplifyPreset(preset)
   ) {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
@@ -5818,7 +5869,19 @@ export default bundle;
   }
 
   if (isAwsAmplifyPreset(preset)) {
-    configureAwsAmplifyRuntimeOutput(nitro.options.output.serverDir, cwd);
+    configureAwsAmplifyRuntimeOutput(
+      nitro.options.output.serverDir,
+      cwd,
+      nitroEnvironment,
+    );
+  }
+
+  if (isAwsLambdaPreset(preset)) {
+    configureAwsLambdaRuntimeOutput(
+      nitro.options.output.serverDir,
+      cwd,
+      nitroEnvironment,
+    );
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.

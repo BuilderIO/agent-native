@@ -26,7 +26,7 @@ import {
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
+import { agentChatStreamingUrl, agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   createRunStreamToken,
@@ -1959,6 +1959,7 @@ function missingCredentialFailure(message: string): {
  */
 export interface CreateAgentChatAdapterOptions {
   apiUrl?: string;
+  streamingUrl?: string;
   tabId?: string;
   threadId?: string;
   modelRef?: { current: string | undefined };
@@ -2048,6 +2049,55 @@ export function createAgentChatAdapter(
 ): ChatModelAdapter {
   const apiUrl =
     options?.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
+  const streamTargetUrl =
+    options?.streamingUrl?.trim() || agentChatStreamingUrl();
+  let streamTokenWarningShown = false;
+  const resolveChatRequestTarget = async (
+    headers: Record<string, string>,
+    abortSignal: AbortSignal,
+  ): Promise<{
+    url: string;
+    headers: Record<string, string>;
+    credentials: RequestCredentials;
+  }> => {
+    if (!streamTargetUrl) {
+      return { url: apiUrl, headers, credentials: "same-origin" };
+    }
+
+    const tokenUrl = `${apiUrl.replace(/\/+$/, "")}/stream-token`;
+    try {
+      const tokenResponse = await fetch(tokenUrl, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: abortSignal,
+      });
+      if (!tokenResponse.ok) throw new Error(`HTTP ${tokenResponse.status}`);
+      const payload: unknown = await tokenResponse.json();
+      const token =
+        payload && typeof payload === "object" && "token" in payload
+          ? (payload as { token?: unknown }).token
+          : undefined;
+      if (typeof token !== "string" || !token.trim()) {
+        throw new Error("missing token");
+      }
+      return {
+        url: streamTargetUrl,
+        headers: { ...headers, Authorization: `Bearer ${token}` },
+        credentials: "omit",
+      };
+    } catch (error) {
+      if (!streamTokenWarningShown && !abortSignal.aborted) {
+        streamTokenWarningShown = true;
+        console.warn(
+          "[agent-chat] streaming origin auth handoff unavailable; using the primary chat route",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      return { url: apiUrl, headers, credentials: "same-origin" };
+    }
+  };
   const tabId = options?.tabId;
   const threadId = options?.threadId;
   const modelRef = options?.modelRef;
@@ -4015,11 +4065,16 @@ export function createAgentChatAdapter(
           try {
             runId = null;
             lastSeq = -1;
+            const requestTarget = await resolveChatRequestTarget(
+              headers,
+              abortSignal,
+            );
             const res = await fetchWithStartupTimeout(
-              apiUrl,
+              requestTarget.url,
               {
                 method: "POST",
-                headers,
+                headers: requestTarget.headers,
+                credentials: requestTarget.credentials,
                 body: JSON.stringify({
                   message: currentMessageText,
                   displayMessage: userMessageText,
