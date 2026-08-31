@@ -109,13 +109,13 @@ export default function LocalizedDocPage() {
       toc={toc}
       markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
     >
+      {doc.draft && <DocDraftBanner />}
+      <DocContent markdown={doc.body} locale={locale} />
       {hasLocalizedDoc(locale, doc.slug) && (
         <DocTranslationBanner
           originalHref={docsPathForSlug(doc.slug, DEFAULT_DOCS_LOCALE)}
         />
       )}
-      {doc.draft && <DocDraftBanner />}
-      <DocContent markdown={doc.body} locale={locale} />
     </DocsLayout>
   );
 }

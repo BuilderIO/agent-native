@@ -92,12 +92,6 @@ export default function DocsIndex() {
       toc={toc}
       markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
-      {locale !== DEFAULT_DOCS_LOCALE &&
-        hasLocalizedDoc(locale, currentDoc.slug) && (
-          <DocTranslationBanner
-            originalHref={docsPathForSlug(currentDoc.slug, DEFAULT_DOCS_LOCALE)}
-          />
-        )}
       {currentDoc.draft && <DocDraftBanner />}
       {isCloud ? (
         <>
@@ -113,6 +107,12 @@ export default function DocsIndex() {
       ) : (
         <DocContent markdown={currentDoc.body} locale={locale} />
       )}
+      {locale !== DEFAULT_DOCS_LOCALE &&
+        hasLocalizedDoc(locale, currentDoc.slug) && (
+          <DocTranslationBanner
+            originalHref={docsPathForSlug(currentDoc.slug, DEFAULT_DOCS_LOCALE)}
+          />
+        )}
     </DocsLayout>
   );
 }
