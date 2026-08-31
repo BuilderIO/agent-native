@@ -31,6 +31,9 @@ const LIBRARY_RECORDINGS: Array<{
   duration: string;
   relative: string;
   visibility: "public" | "org" | "private";
+  ownerName: string;
+  ownerInitials: string;
+  viewCount: number;
 }> = [
   {
     title: "Introducing Agent-Native Clips",
@@ -38,6 +41,9 @@ const LIBRARY_RECORDINGS: Array<{
     duration: "1:58",
     relative: "2 days ago",
     visibility: "public",
+    ownerName: "Logan Affleck",
+    ownerInitials: "LA",
+    viewCount: 214,
   },
   {
     title: "Show Claude how to perform a task",
@@ -45,6 +51,9 @@ const LIBRARY_RECORDINGS: Array<{
     duration: "3:12",
     relative: "5 days ago",
     visibility: "org",
+    ownerName: "Logan Affleck",
+    ownerInitials: "LA",
+    viewCount: 58,
   },
   {
     title: "Record browser workflows with Clips",
@@ -52,6 +61,9 @@ const LIBRARY_RECORDINGS: Array<{
     duration: "2:41",
     relative: "1 week ago",
     visibility: "private",
+    ownerName: "Logan Affleck",
+    ownerInitials: "LA",
+    viewCount: 12,
   },
   {
     title: "Weekly sync walkthrough",
@@ -59,6 +71,9 @@ const LIBRARY_RECORDINGS: Array<{
     duration: "8:05",
     relative: "1 week ago",
     visibility: "org",
+    ownerName: "Priya Shah",
+    ownerInitials: "PS",
+    viewCount: 34,
   },
   {
     title: "Onboarding checklist review",
@@ -66,6 +81,9 @@ const LIBRARY_RECORDINGS: Array<{
     duration: "4:37",
     relative: "2 weeks ago",
     visibility: "private",
+    ownerName: "Logan Affleck",
+    ownerInitials: "LA",
+    viewCount: 4,
   },
   {
     title: "Demo for the design team",
@@ -73,6 +91,9 @@ const LIBRARY_RECORDINGS: Array<{
     duration: "6:20",
     relative: "3 weeks ago",
     visibility: "public",
+    ownerName: "Priya Shah",
+    ownerInitials: "PS",
+    viewCount: 91,
   },
 ];
 
@@ -88,7 +109,7 @@ function LibraryPrivacyIcon({
 
 function LibraryBackdrop() {
   return (
-    <div className="library-backdrop">
+    <div className="library-window">
       <div className="library-topbar">
         <div className="library-brand">
           <span className="library-brand-mark" aria-hidden />
@@ -113,9 +134,17 @@ function LibraryBackdrop() {
               </span>
             </div>
             <div className="library-card-title">{recording.title}</div>
+            <div className="library-card-owner-row">
+              <span className="library-card-avatar">{recording.ownerInitials}</span>
+              <span className="library-card-owner-name">{recording.ownerName}</span>
+              <span aria-hidden>•</span>
+              <span>{recording.relative}</span>
+            </div>
             <div className="library-card-meta">
               <LibraryPrivacyIcon visibility={recording.visibility} />
-              <span>{recording.relative}</span>
+              <span className="library-card-visibility">{recording.visibility}</span>
+              <span aria-hidden>•</span>
+              <span>{recording.viewCount} views</span>
             </div>
           </div>
         ))}
@@ -403,20 +432,25 @@ function SettingsIcon() {
 }
 
 const LIBRARY_BACKDROP_CSS = [
-  ".library-backdrop { position: fixed; inset: 0; background: #f7f7f8; color: #18181b; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
-  ".library-topbar { display: flex; align-items: center; gap: 24px; padding: 20px 40px; border-bottom: 1px solid #e4e4e7; background: #ffffff; }",
+  ".library-desktop { position: fixed; inset: 0; background: radial-gradient(circle at 30% 20%, #3f3f46, #18181b 70%); padding: 3.5vh 4vw; box-sizing: border-box; }",
+  ".library-window { height: 100%; width: 100%; border-radius: 14px; overflow: hidden; background: #f7f7f8; color: #18181b; box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.06) inset; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; flex-direction: column; }",
+  ".library-topbar { display: flex; align-items: center; gap: 24px; padding: 18px 32px; border-bottom: 1px solid #e4e4e7; background: #ffffff; flex-shrink: 0; }",
   ".library-brand { display: flex; align-items: center; gap: 8px; }",
   ".library-brand-mark { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, #6366f1, #a855f7); }",
   ".library-brand-name { font-weight: 600; font-size: 14px; color: #52525b; }",
   ".library-heading { margin: 0; font-size: 18px; font-weight: 600; color: #18181b; }",
   ".library-search { margin-left: auto; display: flex; align-items: center; gap: 8px; width: 260px; padding: 8px 12px; border-radius: 8px; border: 1px solid #e4e4e7; background: #f4f4f5; color: #a1a1aa; font-size: 13px; }",
-  ".library-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 32px 40px; max-width: 1120px; }",
+  ".library-grid { flex: 1; overflow: hidden; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 28px 32px; align-content: start; }",
   ".library-card-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; border: 1px solid #e4e4e7; background: #e4e4e7; }",
   ".library-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }",
   ".library-card-thumb-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.15); color: #ffffff; }",
   ".library-card-duration { position: absolute; bottom: 6px; right: 6px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.65); color: #ffffff; font-size: 11px; font-variant-numeric: tabular-nums; }",
-  ".library-card-title { margin-top: 8px; font-size: 13px; font-weight: 500; color: #18181b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
-  ".library-card-meta { margin-top: 2px; display: flex; align-items: center; gap: 6px; color: #a1a1aa; font-size: 12px; }",
+  ".library-card-title { margin-top: 10px; font-size: 13px; font-weight: 500; color: #18181b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+  ".library-card-owner-row { margin-top: 5px; display: flex; align-items: center; gap: 6px; color: #71717a; font-size: 11px; }",
+  ".library-card-avatar { display: flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; background: #eef2ff; color: #6366f1; font-size: 8px; font-weight: 700; flex-shrink: 0; }",
+  ".library-card-owner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+  ".library-card-meta { margin-top: 3px; display: flex; align-items: center; gap: 6px; color: #a1a1aa; font-size: 11px; }",
+  ".library-card-visibility { text-transform: capitalize; }",
 ].join("\n");
 
 export default function ClipsReadyToRecordPreview() {
@@ -429,14 +463,16 @@ export default function ClipsReadyToRecordPreview() {
       }}
     >
       <style>{LIBRARY_BACKDROP_CSS}</style>
-      <LibraryBackdrop />
+      <div className="library-desktop">
+        <LibraryBackdrop />
+      </div>
       <div
         className="app app-recorder"
         style={{
           width: 340,
           position: "fixed",
-          top: 36,
-          right: "13%",
+          top: "7vh",
+          right: "10%",
           boxShadow: "var(--shadow-md)",
         }}
       >
