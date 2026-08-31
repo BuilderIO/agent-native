@@ -578,7 +578,7 @@ describe("scopedAnalyticsSql", () => {
       "FROM (SELECT * FROM analytics_events WHERE org_id = ?",
     );
     expect(scoped.sql).toContain(
-      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = ?",
+      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND lower(owner_email) = lower(?)",
     );
     expect(
       scoped.sql.match(

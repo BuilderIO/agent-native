@@ -265,6 +265,7 @@ describe("analytics alert evaluation", () => {
             deployment_environment: "production",
           }),
           context: "{}",
+          __analytics_alert_total_rows: 1,
         },
       ],
       schema: [],
@@ -410,9 +411,8 @@ describe("analytics alert evaluation", () => {
   it("fails loudly when BigQuery returns truncated alert results", async () => {
     backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
     firstPartyMocks.query.mockResolvedValue({
-      rows: [],
+      rows: [{ __analytics_alert_total_rows: 5001 }],
       schema: [],
-      truncated: true,
     });
 
     await expect(

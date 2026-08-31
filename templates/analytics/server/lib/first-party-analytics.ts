@@ -1026,12 +1026,12 @@ function scopedTableSource(
       // Keep the org and personal fallback as separate branches so Postgres can
       // use each branch's composite tenant/date indexes instead of scanning one
       // broad org index for an OR predicate.
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = ? AND ${freshness} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = ? AND ${freshness} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND lower(owner_email) = lower(?) AND ${freshness})`,
       args: [scope.orgId, today, scope.userEmail, today],
     };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND lower(owner_email) = lower(?) AND ${freshness})`,
     args: [scope.userEmail, today],
   };
 }

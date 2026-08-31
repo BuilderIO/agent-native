@@ -991,7 +991,7 @@ export function buildBigQueryAlertQuery(
     ...rule.filters.map(bigQueryAlertFilterSql),
   ];
 
-  return `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
+  return `SELECT *, COUNT(*) OVER() AS __analytics_alert_total_rows FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
 }
 
 function bigQuerySqlLiteral(value: string): string {
@@ -1016,10 +1016,11 @@ function bigQueryAlertFieldExpression(field: string): string | null {
     userKey: "user_key",
     session_id: "session_id",
     sessionId: "session_id",
+    timestamp: "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', timestamp)",
     event_date: "CAST(event_date AS STRING)",
     eventDate: "CAST(event_date AS STRING)",
-    received_at: "CAST(received_at AS STRING)",
-    receivedAt: "CAST(received_at AS STRING)",
+    received_at: "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', received_at)",
+    receivedAt: "FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', received_at)",
     url: "url",
     path: "path",
     hostname: "hostname",
@@ -1132,7 +1133,12 @@ async function loadCandidateEvents(
           buildBigQueryAlertQuery(rule, windowStart, windowEnd),
           { userEmail: rule.ownerEmail, orgId: rule.orgId },
         );
-        if (result.truncated) {
+        const totalRows = result.rows[0]?.__analytics_alert_total_rows;
+        if (
+          result.truncated ||
+          (result.rows.length > 0 &&
+            (typeof totalRows !== "number" || totalRows > result.rows.length))
+        ) {
           throw new Error(
             `BigQuery alert evaluation for rule ${rule.id} returned truncated results; refusing to evaluate partial data`,
           );
@@ -1168,6 +1174,22 @@ function nullableBigQueryAlertString(
   return value;
 }
 
+function normalizeBigQueryAlertTimestamp(value: string, field: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error(`BigQuery alert event field ${field} is not a timestamp`);
+  }
+  return timestamp.toISOString();
+}
+
+function nullableBigQueryAlertTimestamp(
+  row: Record<string, unknown>,
+  field: string,
+): string | null {
+  const value = nullableBigQueryAlertString(row, field);
+  return value === null ? null : normalizeBigQueryAlertTimestamp(value, field);
+}
+
 function normalizeBigQueryAlertEventRow(
   row: Record<string, unknown>,
 ): AnalyticsAlertEventRow {
@@ -1178,9 +1200,12 @@ function normalizeBigQueryAlertEventRow(
     anonymousId: nullableBigQueryAlertString(row, "anonymous_id"),
     userKey: nullableBigQueryAlertString(row, "user_key"),
     sessionId: nullableBigQueryAlertString(row, "session_id"),
-    timestamp: requiredBigQueryAlertString(row, "timestamp"),
+    timestamp: normalizeBigQueryAlertTimestamp(
+      requiredBigQueryAlertString(row, "timestamp"),
+      "timestamp",
+    ),
     eventDate: nullableBigQueryAlertString(row, "event_date"),
-    receivedAt: nullableBigQueryAlertString(row, "received_at"),
+    receivedAt: nullableBigQueryAlertTimestamp(row, "received_at"),
     url: nullableBigQueryAlertString(row, "url"),
     path: nullableBigQueryAlertString(row, "path"),
     hostname: nullableBigQueryAlertString(row, "hostname"),
