@@ -20,13 +20,14 @@ import { Button } from "./ds/button";
 import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
-// Card is 320px wide, 260px below the 768px breakpoint (see CARD_CLASS).
-// Without this the browser assumes 100vw and pulls a source several times
-// larger than the slot.
-const CARD_IMAGE_SIZES = "(max-width: 768px) 260px, 320px";
+// Card is 433px wide (roughly a third of the 1300px site max width, so
+// three cards fill the rail), 320px below the 768px breakpoint (see
+// CARD_CLASS). Without this the browser assumes 100vw and pulls a source
+// several times larger than the slot.
+const CARD_IMAGE_SIZES = "(max-width: 768px) 320px, 433px";
 
 const CARD_CLASS = [
-  "app-carousel-card group flex w-[320px] shrink-0 snap-start flex-col gap-[var(--spacing-4)] overflow-hidden bg-[var(--b-bg-page)] no-underline mobile:w-[260px]",
+  "app-carousel-card group flex w-[433px] shrink-0 snap-start flex-col gap-[var(--spacing-4)] overflow-hidden bg-[var(--b-bg-page)] no-underline mobile:w-[320px]",
   "transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)]",
   "not-last:border-r not-last:border-solid not-last:border-[var(--b-border-subtle)]",
 ].join(" ");
@@ -307,7 +308,7 @@ export function TemplateShowcase() {
                 box. Horizontal padding matches the app cards' text block so
                 the left edge of the copy lines up across the rail, and it is
                 what buys the two buttons room to sit on one line. */}
-            <div className="app-carousel-cta-card flex w-[320px] shrink-0 snap-start flex-col items-start justify-center gap-[var(--spacing-4)] border-l border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-5)] py-[var(--spacing-8)] text-left transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[260px]">
+            <div className="app-carousel-cta-card flex w-[433px] shrink-0 snap-start flex-col items-start justify-center gap-[var(--spacing-4)] border-l border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] px-[var(--spacing-5)] py-[var(--spacing-8)] text-left transition-[background-color] duration-150 ease-[ease] hover:bg-[var(--b-bg-raised)] mobile:w-[320px]">
               <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-5)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
                 {t("buildFromScratch.title")}
               </h3>
