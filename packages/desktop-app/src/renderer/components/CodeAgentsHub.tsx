@@ -992,6 +992,7 @@ export default function CodeAgentsHub({
     },
     [
       chatFirstSurfaceTabsStore,
+      hasChatFirstActiveChat,
       setChatFirstSurfacePanelOpen,
       setScheduledTasksOpen,
       surfaceApps,
