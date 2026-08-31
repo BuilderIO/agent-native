@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
@@ -138,19 +139,28 @@ describe("isAwsAmplifyPreset", () => {
 
 describe("AWS Amplify runtime output", () => {
   it("loads declared env keys before Nitro's compute entry", () => {
-    const appDir = makeTempDir();
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-test-"),
+    );
+    tempDirs.push(appDir);
     const serverDir = path.join(appDir, "compute");
     fs.mkdirSync(serverDir, { recursive: true });
     fs.writeFileSync(
       path.join(appDir, ".env.example"),
       "# DECLARED_SECRET=\n# VITE_PUBLIC=value\n",
     );
-    fs.writeFileSync(path.join(serverDir, "index.mjs"), "export {}\n");
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'if (process.env.DECLARED_SECRET !== "line1\\nline2") process.exit(1);\n',
+    );
 
     configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
       APP_URL: "https://example.test",
       DECLARED_SECRET: "line1\nline2",
       VITE_PUBLIC: "public",
+      RESEND_API_KEY: "resend-example-key",
+      SENDGRID_API_KEY: "sendgrid-example-key",
+      EMAIL_FROM: "Calendar <calendar@example.test>",
       UNDECLARED_SECRET: "must-not-ship",
       AWS_SECRET_ACCESS_KEY: "must-not-ship",
     });
@@ -159,13 +169,22 @@ describe("AWS Amplify runtime output", () => {
     expect(runtimeEnv).toContain('APP_URL="https://example.test"');
     expect(runtimeEnv).toContain('DECLARED_SECRET="line1\\nline2"');
     expect(runtimeEnv).toContain('VITE_PUBLIC="public"');
+    expect(runtimeEnv).toContain('RESEND_API_KEY="resend-example-key"');
+    expect(runtimeEnv).toContain('SENDGRID_API_KEY="sendgrid-example-key"');
+    expect(runtimeEnv).toContain(
+      'EMAIL_FROM="Calendar <calendar@example.test>"',
+    );
     expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
     expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
     expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
       "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
-        'process.loadEnvFile(new URL("./.env", import.meta.url));\n' +
-        'await import("./index.mjs");\n',
+        'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+        'import("./index.mjs");\n',
     );
+    execFileSync(process.execPath, [path.join(serverDir, "server.js")], {
+      cwd: serverDir,
+      env: {},
+    });
   });
 });
 

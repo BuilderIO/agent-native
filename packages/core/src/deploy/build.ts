@@ -145,6 +145,7 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "DB_OP_TIMEOUT_MS",
+  "EMAIL_FROM",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_LEGACY_CLIENT_ID",
@@ -153,6 +154,8 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "GOOGLE_SIGN_IN_CLIENT_ID",
   "GOOGLE_SIGN_IN_CLIENT_SECRET",
   "OAUTH_STATE_SECRET",
+  "RESEND_API_KEY",
+  "SENDGRID_API_KEY",
 ] as const;
 
 function readEnvExampleKeys(filePath: string): string[] {
@@ -202,8 +205,8 @@ export function configureAwsAmplifyRuntimeOutput(
   fs.writeFileSync(
     serverEntryPath,
     "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
-      'process.loadEnvFile(new URL("./.env", import.meta.url));\n' +
-      'await import("./index.mjs");\n',
+      'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+      'import("./index.mjs");\n',
   );
   console.log(
     `[deploy] Prepared Amplify runtime env with ${runtimeEnv.length} declared key(s).`,
