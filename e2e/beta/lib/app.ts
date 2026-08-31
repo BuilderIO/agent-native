@@ -42,7 +42,12 @@ async function readBodyText(
   page: Page,
 ): Promise<{ text: string } | { unreadable: string }> {
   try {
-    return { text: await page.locator("body").innerText({ timeout: 500 }) };
+    return {
+      text: await page.evaluate(() => {
+        if (!document.body) throw new Error("document.body is not available");
+        return document.body.innerText;
+      }),
+    };
   } catch (error) {
     return {
       unreadable: error instanceof Error ? error.message : String(error),
