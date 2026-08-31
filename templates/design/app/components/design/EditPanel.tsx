@@ -6,6 +6,7 @@ import {
   readResolvedStateStyles,
   type InteractionState,
 } from "@shared/interaction-states";
+import type { LayoutGrid } from "@shared/layout-grid";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -108,6 +109,7 @@ import {
   elementWithInteractionStateStyles,
   resolveInteractionStateValue,
 } from "./edit-panel/interaction-state-helpers";
+import { LayoutGridProperties } from "./edit-panel/layout-grid-properties";
 import {
   LayoutContextProperties,
   LayoutGuideProperties,
@@ -241,6 +243,13 @@ interface EditPanelProps {
   selectedElement: ElementInfo | null;
   selectedElements?: ElementInfo[];
   selectedScreenGeometry?: ScreenGeometrySelection | null;
+  /** The selected frame's own layout grid, and the writer for it. Omitting the
+   *  writer hides the section — the board has no grid to edit. */
+  selectedScreenLayoutGrid?: LayoutGrid | null;
+  onLayoutGridChange?: (
+    frameId: string,
+    next: Partial<LayoutGrid> | null,
+  ) => void;
   /**
    * Resizes/moves the selected screen frame. When omitted the geometry fields
    * stay read-only, which is what read-only viewers and non-editable designs
@@ -1721,6 +1730,8 @@ export const EditPanel = memo(function EditPanel({
   selectedElement,
   selectedElements,
   selectedScreenGeometry,
+  selectedScreenLayoutGrid,
+  onLayoutGridChange,
   canvasBackground,
   onCanvasBackgroundChange,
   onScreenGeometryChange,
@@ -2244,12 +2255,23 @@ export const EditPanel = memo(function EditPanel({
               ) : null}
 
               {!inspectorElement && selectedScreenGeometry ? (
-                <ScreenGeometryProperties
-                  screen={selectedScreenGeometry}
-                  onGeometryChange={
-                    readOnly ? undefined : onScreenGeometryChange
-                  }
-                />
+                <>
+                  <ScreenGeometryProperties
+                    screen={selectedScreenGeometry}
+                    onGeometryChange={
+                      readOnly ? undefined : onScreenGeometryChange
+                    }
+                  />
+                  {onLayoutGridChange ? (
+                    <LayoutGridProperties
+                      grid={selectedScreenLayoutGrid ?? null}
+                      readOnly={readOnly}
+                      onChange={(next) =>
+                        onLayoutGridChange(selectedScreenGeometry.id, next)
+                      }
+                    />
+                  ) : null}
+                </>
               ) : null}
 
               {!inspectorElement && !selectedScreenGeometry && (
