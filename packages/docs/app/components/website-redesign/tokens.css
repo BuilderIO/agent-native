@@ -227,9 +227,8 @@
      site's normal desktop ceiling without ever hitting the shared tokens'
      hard mobile cliff at 768px, so each one interpolates continuously
      between a floor (today's mobile value) and a ceiling (today's desktop
-     value, or higher for the title) instead of switching between two fixed
-     sizes. */
-  --b-hero-title-size: clamp(32px, 8vw, 64px);
+     value) instead of switching between two fixed sizes. */
+  --b-hero-title-size: clamp(32px, 8vw, 56px);
   --b-hero-body-size: clamp(16px, calc(14px + 0.5vw), 18px);
   --b-hero-gap: clamp(24px, 6vw, 48px);
   --b-hero-inner-gap: clamp(20px, calc(16px + 1vw), 24px);
