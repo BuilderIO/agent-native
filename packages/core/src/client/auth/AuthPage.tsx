@@ -93,6 +93,8 @@ const ANALYTICS_ANONYMOUS_ID_KEY = "agent-native.anonymous_id";
 const ANALYTICS_SESSION_ID_KEY = "agent-native.session_id";
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
+const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
+const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -363,6 +365,17 @@ export function isElectron(
   return userAgent.includes("Electron");
 }
 
+/**
+ * Builder's desktop webview uses Electron without the Agent-Native marker.
+ * This only selects the local workspace return origin; native deep-link
+ * handling remains exclusive to Agent-Native Desktop.
+ */
+export function isBuilderDesktop(
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+): boolean {
+  return isElectron(userAgent) && !isAgentNativeDesktop(userAgent);
+}
+
 function isInFrame(): boolean {
   try {
     return window.self !== window.top;
@@ -372,11 +385,15 @@ function isInFrame(): boolean {
   }
 }
 
-function configuredOAuthOrigin(value: string): string {
+function configuredOAuthOrigin(
+  value: string,
+  currentOrigin =
+    typeof window === "undefined" ? "" : window.location.origin,
+): string {
   if (!value) return "";
   try {
     const origin = new URL(value).origin;
-    return origin !== window.location.origin ? origin : "";
+    return origin !== currentOrigin ? origin : "";
   } catch {
     // coercion-ok: malformed optional OAuth configuration uses same-origin behavior.
     return "";
@@ -456,16 +473,48 @@ export function normalizeOAuthReturnPath(
   }
 }
 
-function oauthReturnTarget(
+export function resolveOAuthReturnOrigin(input: {
+  previewOrigin: string;
+  workspaceGatewayReturnOrigin: string;
+  userAgent: string;
+}): string {
+  return (
+    input.previewOrigin ||
+    input.workspaceGatewayReturnOrigin ||
+    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
+      ? BUILDER_DESKTOP_RETURN_ORIGIN
+      : "")
+  );
+}
+
+export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
+  userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): string {
   const path = normalizeOAuthReturnPath(target);
-  const origin =
-    builderPreviewReturnOrigin() ||
-    workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop() ? "http://127.0.0.1:8080" : "");
+  const origin = resolveOAuthReturnOrigin({
+    previewOrigin: builderPreviewReturnOrigin(),
+    workspaceGatewayReturnOrigin,
+    userAgent,
+  });
   return origin ? origin + path : path;
+}
+
+export function resolveGoogleAuthUrlPath(input: {
+  builderPreview: boolean;
+  currentOrigin: string;
+  publicOAuthOrigin: string;
+  runtimeAppBasePath: string;
+}): string {
+  const previewOrigin = input.builderPreview
+    ? configuredOAuthOrigin(input.publicOAuthOrigin, input.currentOrigin)
+    : "";
+  // The public OAuth authority is rooted at the app origin even when the
+  // preview itself is mounted under a workspace prefix such as /dispatch.
+  return previewOrigin
+    ? `${previewOrigin}${GOOGLE_AUTH_URL_PATH}`
+    : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
 }
 
 function createFlowId(): string {
@@ -1238,12 +1287,16 @@ export function AuthPage(props: AuthPageProps) {
     return isAgentNativeDesktop() ? "redirect" : "popup";
   }, [googleAuthMode]);
 
-  const googleAuthUrlPath = React.useCallback(() => {
-    const previewOrigin = isBuilderPreview()
-      ? configuredOAuthOrigin(publicOAuthOrigin)
-      : "";
-    return `${previewOrigin}${apiPath("/_agent-native/google/auth-url")}`;
-  }, [apiPath, publicOAuthOrigin]);
+  const googleAuthUrlPath = React.useCallback(
+    () =>
+      resolveGoogleAuthUrlPath({
+        builderPreview: isBuilderPreview(),
+        currentOrigin: window.location.origin,
+        publicOAuthOrigin,
+        runtimeAppBasePath,
+      }),
+    [publicOAuthOrigin, runtimeAppBasePath],
+  );
 
   const startGoogle = React.useCallback(async () => {
     if (!showGoogle || googleBusy) return;
@@ -1264,7 +1317,10 @@ export function AuthPage(props: AuthPageProps) {
       },
     );
     const target = resumeHref();
-    const oauthTarget = oauthReturnTarget(target, workspaceGatewayReturnOrigin);
+    const oauthTarget = oauthReturnTarget(
+      target,
+      workspaceGatewayReturnOrigin,
+    );
     const flowId = createFlowId();
     oauthFlowId.current = flowId;
     const flow = resolveGoogleFlow();
