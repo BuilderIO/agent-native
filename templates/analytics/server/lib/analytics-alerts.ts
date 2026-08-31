@@ -988,7 +988,12 @@ export function buildBigQueryAlertQuery(
     ...(rule.eventName
       ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
       : []),
-    ...rule.filters.map(bigQueryAlertFilterSql),
+    // Ambiguous JSON filters stay in evaluateAnalyticsAlertRuleRows; the total
+    // row marker below prevents the shared query cap from evaluating a partial set.
+    ...rule.filters.flatMap((filter) => {
+      const predicate = bigQueryAlertFilterSql(filter);
+      return predicate ? [predicate] : [];
+    }),
   ];
 
   return `SELECT *, COUNT(*) OVER() AS __analytics_alert_total_rows FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
@@ -1057,6 +1062,10 @@ function bigQueryAlertValueLiteral(value: unknown): string | null {
   if (typeof value === "boolean") {
     return bigQuerySqlLiteral(value ? "true" : "false");
   }
+  if (value !== null && typeof value === "object") {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? null : bigQuerySqlLiteral(serialized);
+  }
   return null;
 }
 
@@ -1077,9 +1086,34 @@ function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
       ? `${existsExpression} IS NULL`
       : `${existsExpression} IS NOT NULL`;
   }
+  const jsonPath = bigQueryAlertJsonPath(filter.field.trim());
+  if (
+    jsonPath &&
+    filter.value !== null &&
+    typeof filter.value === "object" &&
+    op !== "exists" &&
+    op !== "contains"
+  ) {
+    return null;
+  }
+  if (op === "contains") {
+    if (jsonPath) return null;
+    const literal = bigQueryAlertValueLiteral(filter.value);
+    if (literal === null) return null;
+    return `STRPOS(COALESCE(${expression}, ''), ${literal}) > 0`;
+  }
   if (op === "in") {
     if (!Array.isArray(filter.value)) {
       throw new Error("BigQuery alert IN filters require an array value");
+    }
+    if (
+      jsonPath &&
+      filter.value.some(
+        (value) =>
+          value === null || (value !== null && typeof value === "object"),
+      )
+    ) {
+      return null;
     }
     const hasNull = filter.value.some((value) => value === null);
     const nonNullLiterals = filter.value
@@ -1096,6 +1130,9 @@ function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
   }
   const literal = bigQueryAlertValueLiteral(filter.value);
   if (literal === null) {
+    if (jsonPath && (filter.value === null || filter.value === undefined)) {
+      return null;
+    }
     if (filter.value === null || filter.value === undefined) {
       if (op === "equals") return `${expression} IS NULL`;
       if (op === "not_equals") return `${expression} IS NOT NULL`;

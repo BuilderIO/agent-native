@@ -375,25 +375,31 @@ describe("analytics alert evaluation", () => {
 
     expect(query).toContain("user_id IS NULL");
     expect(query).toContain("JSON_QUERY(properties, '$.tags')");
-    expect(query).toContain("JSON_VALUE(properties, '$.status') IS NULL");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.status')");
   });
 
-  it("fails closed for unsupported BigQuery alert filters", () => {
-    expect(() =>
-      buildBigQueryAlertQuery(
-        {
-          eventName: "agent_run_terminal",
-          filters: [
-            { field: "properties.message", op: "contains", value: "bug" },
-          ],
-          ownerEmail: "owner@example.test",
-          orgId: "org-1",
-        },
-        "2026-08-31T12:00:00.000Z",
-        "2026-08-31T12:10:00.000Z",
-      ),
-    ).toThrow("unsupported operator");
+  it("keeps JSON filters for the in-memory evaluator and pushes string contains", () => {
+    const query = buildBigQueryAlertQuery(
+      {
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "app", op: "contains", value: "chat" },
+          { field: "properties.message", op: "contains", value: "bug" },
+          { field: "properties.payload", value: { kind: "bug" } },
+        ],
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      "2026-08-31T12:00:00.000Z",
+      "2026-08-31T12:10:00.000Z",
+    );
 
+    expect(query).toContain("STRPOS(COALESCE(app, ''), 'chat') > 0");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.message')");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.payload')");
+  });
+
+  it("fails closed for unsupported BigQuery alert fields", () => {
     expect(() =>
       buildBigQueryAlertQuery(
         {
