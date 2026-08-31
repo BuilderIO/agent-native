@@ -199,15 +199,11 @@ function defaultResourceNames(projectCwd: string): {
   let packageName = path.basename(projectCwd);
   const packagePath = path.join(projectCwd, "package.json");
   if (fs.existsSync(packagePath)) {
-    try {
-      const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8")) as {
-        name?: unknown;
-      };
-      if (typeof manifest.name === "string" && manifest.name.trim()) {
-        packageName = manifest.name;
-      }
-    } catch {
-      // The build below will provide the actionable package.json error.
+    const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8")) as {
+      name?: unknown;
+    };
+    if (typeof manifest.name === "string" && manifest.name.trim()) {
+      packageName = manifest.name;
     }
   }
   const base = sanitizeResourceName(packageName.replace(/^@[^/]+\//, ""));

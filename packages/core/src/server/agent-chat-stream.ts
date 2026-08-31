@@ -106,6 +106,7 @@ export async function verifyAgentChatStreamToken(
       ownerEmail: validateOwnerEmail(payload.sub),
       orgId,
     };
+    // coercion-ok: signature, issuer, audience, and expiry failures mean invalid authorization.
   } catch {
     return null;
   }
