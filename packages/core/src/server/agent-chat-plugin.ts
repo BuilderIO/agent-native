@@ -7215,49 +7215,37 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       });
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
-      if (disableRecurringJobsRuntime) {
-        if (process.env.DEBUG) {
-          console.log(
-            "[triggers] Trigger dispatcher disabled for local development",
+      // Event and webhook automations remain live when the recurring scheduler
+      // is disabled; only the cron driver is gated above.
+      const { initTriggerDispatcher } =
+        await import("../triggers/dispatcher.js");
+      await initTriggerDispatcher({
+        getActions: getBackgroundActionEntries,
+        getSystemPrompt: async (owner: string) => {
+          const resources = await loadResourcesForPrompt(
+            owner,
+            lazyContext,
+            options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
-        }
-      } else {
-        try {
-          const { initTriggerDispatcher } =
-            await import("../triggers/dispatcher.js");
-          await initTriggerDispatcher({
-            getActions: getBackgroundActionEntries,
-            getSystemPrompt: async (owner: string) => {
-              const resources = await loadResourcesForPrompt(
-                owner,
-                lazyContext,
-                options?.appId,
-                undefined,
-                { disabledFrameworkGroups },
-              );
-              const schemaBlock = lazyContext
-                ? ""
-                : await buildSchemaBlock(owner, databaseToolsMode);
-              return basePrompt + resources + schemaBlock;
-            },
-            // See the matching comment on schedulerDeps.getInitialToolNames
-            // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: (automation?: RecurringJobContext) => [
-              ...effectiveInitialToolNames,
-              "manage-jobs",
-              "manage-progress",
-              ...(automation?.meta.mcpTools ?? []),
-            ],
-            apiKey: options?.apiKey,
-            model: resolveConfiguredAgentModel(options),
-            appId: options?.appId,
-          });
-          if (process.env.DEBUG)
-            console.log("[triggers] Trigger dispatcher initialized");
-        } catch {
-          // Triggers module not available — skip silently
-        }
-      }
+          const schemaBlock = lazyContext
+            ? ""
+            : await buildSchemaBlock(owner, databaseToolsMode);
+          return basePrompt + resources + schemaBlock;
+        },
+        // See the matching comment on schedulerDeps.getInitialToolNames
+        // above — same shared `basePrompt`, same reasoning.
+        getInitialToolNames: (automation?: RecurringJobContext) => [
+          ...effectiveInitialToolNames,
+          "manage-jobs",
+          "manage-progress",
+          ...(automation?.meta.mcpTools ?? []),
+        ],
+        apiKey: options?.apiKey,
+        model: resolveConfiguredAgentModel(options),
+        appId: options?.appId,
+      });
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests
       // to /_agent-native/agent-chat silently 404. Register a fallback

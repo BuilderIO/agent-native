@@ -69,6 +69,19 @@ describe("agent chat startup", () => {
     expect(triggerSetup).not.toContain("void (async () =>");
   });
 
+  it("keeps webhook and event dispatch independent from the cron scheduler gate", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const triggerSetup = source.slice(
+      source.indexOf("// ─── Trigger Dispatcher"),
+      source.indexOf("})().catch((err)"),
+    );
+
+    expect(triggerSetup).not.toContain("disableRecurringJobsRuntime");
+  });
+
   /**
    * The in-process fast sweep is gated on `shouldDisableInProcessSweeps()`,
    * which is ON for every production serverless function — so for 21 days
