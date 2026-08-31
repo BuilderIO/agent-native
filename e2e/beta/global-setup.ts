@@ -148,7 +148,7 @@ async function globalSetup(): Promise<void> {
             const install = await installOpenAiKey(context, origin, apiKey);
             if (!install.installed) {
               failures.push(
-                `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was rejected (HTTP ${install.status}). Turns here would bill an unintended credential.`,
+                `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was not confirmed at runtime (install HTTP ${install.status}; status HTTP ${install.runtimeStatus.status}: ${install.runtimeStatus.body}). Turns here would bill an unintended credential.`,
               );
               continue;
             }

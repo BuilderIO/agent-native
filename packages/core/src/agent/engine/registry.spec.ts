@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
@@ -1018,6 +1018,112 @@ describe("AgentEngine registry", () => {
     expect(detectEngineFromEnv()).toBeNull();
   });
 
+  it("accepts bundled optional packages on a Netlify function runtime", async () => {
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    expect(
+      isAgentEnginePackageInstalled({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        installPackage: "@agent-native/definitely-missing-ai-provider",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create: vi.fn() as any,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts bundled optional packages with Netlify's runtime site marker", async () => {
+    vi.stubEnv("SITE_ID", "site");
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    expect(
+      isAgentEnginePackageInstalled({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        installPackage: "@agent-native/definitely-missing-ai-provider",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: [],
+        create: vi.fn() as any,
+      }),
+    ).toBe(true);
+  });
+
+  it("uses the build package marker instead of blessing undeclared packages", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+      JSON.stringify(["ai", "@ai-sdk/openai"]),
+    );
+    for (const marker of [
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "SITE_ID",
+      "VERCEL",
+    ]) {
+      vi.stubEnv(marker, "");
+    }
+    const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+    const baseEntry = {
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.4",
+      supportedModels: [],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    };
+
+    expect(
+      isAgentEnginePackageInstalled({
+        ...baseEntry,
+        installPackage: "ai @ai-sdk/openai",
+      }),
+    ).toBe(true);
+    expect(
+      isAgentEnginePackageInstalled({
+        ...baseEntry,
+        installPackage: "ai @agent-native/definitely-missing-ai-provider",
+      }),
+    ).toBe(false);
+  });
+
+  it.each(["NETLIFY_LOCAL", "NETLIFY_DEV"])(
+    "does not treat %s as a bundled runtime",
+    async (localMarker) => {
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "server");
+      vi.stubEnv("SITE_ID", "site");
+      vi.stubEnv(
+        "AGENT_NATIVE_BUILD_ENGINE_PACKAGES",
+        JSON.stringify(["ai", "@agent-native/definitely-missing-ai-provider"]),
+      );
+      vi.stubEnv(localMarker, "true");
+      const { isAgentEnginePackageInstalled } = await import("./registry.js");
+
+      expect(
+        isAgentEnginePackageInstalled({
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          description: "",
+          installPackage: "@agent-native/definitely-missing-ai-provider",
+          capabilities: {} as any,
+          defaultModel: "gpt-5.4",
+          supportedModels: [],
+          requiredEnvVars: [],
+          create: vi.fn() as any,
+        }),
+      ).toBe(false);
+    },
+  );
+
   it("registers the builder engine with both credential shapes", async () => {
     const { registerBuiltinEngines } = await import("./builtin.js");
     const { getAgentEngineEntry } = await import("./registry.js");
@@ -1108,6 +1214,10 @@ describe("AgentEngine registry", () => {
       }));
     });
 
+    afterEach(() => {
+      vi.doUnmock("../../server/credential-provider.js");
+    });
+
     it("selects builder from the Builder-credits pair alone on a hosted app", async () => {
       vi.stubEnv("NODE_ENV", "production");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
@@ -1122,6 +1232,80 @@ describe("AgentEngine registry", () => {
 
       expect(detectEngineFromEnv()?.name).toBe("builder");
       expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("lets synthetic requests resolve a user engine when the env engine is unusable", async () => {
+      vi.stubEnv("AGENT_ENGINE", "builder");
+      vi.doUnmock("../../server/request-context.js");
+      vi.doMock(
+        "../../server/credential-provider.js",
+        async (importOriginal) => ({
+          ...(await importOriginal<
+            typeof import("../../server/credential-provider.js")
+          >()),
+          canUseDeployCredentialFallbackForRequest: () => false,
+          getProviderCredentialAuthFailure: vi.fn(async () => null),
+          resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+            privateKey: null,
+            publicKey: null,
+            lookupFailed: false,
+            lane: null,
+          })),
+          resolveBuilderGatewayCredentialsDetailed: vi.fn(async () => ({
+            privateKey: null,
+            publicKey: null,
+            lookupFailed: false,
+            lane: null,
+          })),
+          resolveSecret: vi.fn(async (key: string) =>
+            key === "OPENAI_API_KEY" ? "sk-openai-user" : null,
+          ),
+        }),
+      );
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { runWithRequestContext } =
+        await import("../../server/request-context.js");
+      const builderCreate = vi.fn().mockReturnValue({
+        name: "builder",
+        stream: vi.fn(),
+      } as any);
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "builder-model",
+        supportedModels: ["builder-model"],
+        requiredEnvVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.6-luna",
+        supportedModels: ["gpt-5.6-luna"],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await runWithRequestContext(
+        { userEmail: "visitor@example.com", isSyntheticTraffic: true },
+        () => resolveEngine({}),
+      );
+
+      expect(resolved).toBe(openAiEngine);
+      expect(builderCreate).not.toHaveBeenCalled();
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "sk-openai-user",
+        allowEnvFallback: false,
+      });
     });
 
     it("does not select builder from a gateway token without its space id", async () => {

@@ -174,6 +174,68 @@ describe("resolveNitroBuildReplacements", () => {
       replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
     ).toBe(JSON.stringify("beta"));
   });
+  it("embeds only the app's runtime package declarations for bundled engine checks", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-marker-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            ai: "^7",
+            "@ai-sdk/openai": "^4",
+          },
+          optionalDependencies: { "optional-provider": "^1" },
+          devDependencies: { "dev-only-provider": "^1" },
+        }),
+      );
+
+      const replacements = resolveNitroBuildReplacements(
+        {},
+        undefined,
+        projectCwd,
+      );
+
+      expect(
+        replacements["process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      ).toBe(
+        JSON.stringify(
+          JSON.stringify(["@ai-sdk/openai", "ai", "optional-provider"]),
+        ),
+      );
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not infer optional engine packages from a core-only app", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-core-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: { "@agent-native/core": "workspace:*" },
+        }),
+      );
+
+      const marker = JSON.parse(
+        JSON.parse(
+          resolveNitroBuildReplacements({}, undefined, projectCwd)[
+            "process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"
+          ],
+        ),
+      ) as string[];
+
+      expect(marker).toContain("@agent-native/core");
+      expect(marker).not.toContain("ai");
+      expect(marker).not.toContain("@ai-sdk/openai");
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("isCloudflareModulePreset", () => {

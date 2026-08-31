@@ -16,6 +16,7 @@ import type { BrowserContext } from "@playwright/test";
  */
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
+const ENGINE_STATUS_ROUTE = "/_agent-native/agent-engine/status";
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models";
 const OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses";
@@ -62,6 +63,10 @@ export interface KeyInstallResult {
   installed: boolean;
   status: number;
   body: string;
+  runtimeStatus: {
+    status: number;
+    body: string;
+  };
 }
 
 export function isConfirmedOpenAiKeyInstall(
@@ -81,6 +86,21 @@ export function isConfirmedOpenAiKeyInstall(
       body.baseUrlKey === "OPENAI_BASE_URL" &&
       body.scope === "user"
     );
+  } catch {
+    return false; // coercion-ok: malformed response is explicitly unconfirmed
+  }
+}
+
+export function isConfirmedOpenAiEngineStatus(
+  result: Pick<KeyInstallResult["runtimeStatus"], "status" | "body">,
+): boolean {
+  if (result.status < 200 || result.status >= 300) return false;
+  try {
+    const body = JSON.parse(result.body) as {
+      configured?: unknown;
+      engine?: unknown;
+    };
+    return body.configured === true && body.engine === "ai-sdk:openai";
   } catch {
     return false; // coercion-ok: malformed response is explicitly unconfirmed
   }
@@ -160,7 +180,7 @@ export async function installOpenAiKey(
       timeout: 45_000,
     });
     const result = await page.evaluate(
-      async ([route, key, baseUrl]) => {
+      async ([route, statusRoute, key, baseUrl]) => {
         const response = await fetch(route, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -171,17 +191,35 @@ export async function installOpenAiKey(
             scope: "user",
           }),
         });
-        return {
+        const install = {
           status: response.status,
           body: (await response.text()).slice(0, 400),
         };
+        const runtime = await fetch(statusRoute, {
+          cache: "no-store",
+        });
+        return {
+          ...install,
+          runtimeStatus: {
+            status: runtime.status,
+            body: (await runtime.text()).slice(0, 400),
+          },
+        };
       },
-      [KEY_ROUTE, apiKey, OPENAI_DEFAULT_BASE_URL] as const,
+      [
+        KEY_ROUTE,
+        ENGINE_STATUS_ROUTE,
+        apiKey,
+        OPENAI_DEFAULT_BASE_URL,
+      ] as const,
     );
     return {
-      installed: isConfirmedOpenAiKeyInstall(result),
+      installed:
+        isConfirmedOpenAiKeyInstall(result) &&
+        isConfirmedOpenAiEngineStatus(result.runtimeStatus),
       status: result.status,
       body: result.body,
+      runtimeStatus: result.runtimeStatus,
     };
   } finally {
     await page.close();
