@@ -144,6 +144,73 @@ export function isAwsLambdaStreamingBuild(
   );
 }
 
+const AWS_LAMBDA_STREAMING_ENTRY = "virtual:agent-native-aws-lambda-streaming";
+const AWS_LAMBDA_UTILS_ENTRY = "virtual:agent-native-aws-lambda-utils";
+const AWS_LAMBDA_APP_ENTRY = "virtual:agent-native-aws-lambda-app";
+
+function resolveNitroRuntimePath(relativePath: string): string {
+  const requireFromCore = createRequire(import.meta.url);
+  const nitroPackageJson = requireFromCore.resolve("nitro/package.json");
+  const runtimePath = path.join(path.dirname(nitroPackageJson), relativePath);
+  if (!fs.existsSync(runtimePath)) {
+    throw new Error(
+      `[deploy] Nitro runtime module is missing at ${runtimePath}`,
+    );
+  }
+  return runtimePath;
+}
+
+export function generateAwsLambdaStreamingRuntimeEntry(
+  utilsModule = AWS_LAMBDA_UTILS_ENTRY,
+  appModule = AWS_LAMBDA_APP_ENTRY,
+): string {
+  return `import "#nitro/virtual/polyfills";
+import { useNitroApp } from ${JSON.stringify(appModule)};
+import { awsRequest, awsResponseHeaders } from ${JSON.stringify(utilsModule)};
+
+const nitroApp = useNitroApp();
+
+export const handler = awslambda.streamifyResponse(
+  async (event, responseStream, context) => {
+    const request = awsRequest(event, context);
+    const response = await nitroApp.fetch(request);
+    const httpResponseMetadata = {
+      statusCode: response.status,
+      ...awsResponseHeaders(response),
+    };
+    if (!httpResponseMetadata.headers["transfer-encoding"]) {
+      httpResponseMetadata.headers["transfer-encoding"] = "chunked";
+    }
+    const body =
+      response.body ??
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue("");
+          controller.close();
+        },
+      });
+    const writer = awslambda.HttpResponseStream.from(
+      responseStream,
+      httpResponseMetadata,
+    );
+    try {
+      await streamToNodeStream(body.getReader(), writer);
+    } finally {
+      writer.end();
+    }
+  },
+);
+
+async function streamToNodeStream(reader, writer) {
+  let readResult = await reader.read();
+  while (!readResult.done) {
+    writer.write(readResult.value);
+    readResult = await reader.read();
+  }
+}
+`;
+}
+
 export function isCloudflareModulePreset(targetPreset: string): boolean {
   return (CLOUDFLARE_MODULE_PRESETS as readonly string[]).includes(
     targetPreset,
@@ -280,6 +347,26 @@ function configureAwsRuntimeOutput(
           'const { handler } = await import("./index.mjs");\n' +
           "export { handler };\n",
   );
+  if (platform === "aws_lambda") {
+    const packageJsonPath = path.join(serverDir, "package.json");
+    const packageJson = fs.existsSync(packageJsonPath)
+      ? JSON.parse(fs.readFileSync(packageJsonPath, "utf8"))
+      : {};
+    if (
+      !packageJson ||
+      typeof packageJson !== "object" ||
+      Array.isArray(packageJson)
+    ) {
+      throw new Error(
+        `[deploy] Invalid Lambda package manifest at ${packageJsonPath}`,
+      );
+    }
+    (packageJson as Record<string, unknown>).type = "module";
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+  }
   console.log(
     `[deploy] Prepared ${platform} runtime env with ${runtimeEnv.length} declared key(s).`,
   );
@@ -4227,7 +4314,7 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
     targetPreset === "vercel" ||
-    targetPreset === "aws-lambda" ||
+    isAwsLambdaPreset(targetPreset) ||
     targetPreset === "node" ||
     targetPreset === "node-server"
   );
@@ -5696,6 +5783,28 @@ export default bundle;
   if (fs.existsSync(sharedDir)) pathAliases["@shared"] = sharedDir;
 
   const providedPluginsNitroPlugin = await writeProvidedPluginsNitroPlugin();
+  const awsLambdaStreaming = isAwsLambdaStreamingBuild(
+    preset,
+    nitroEnvironment,
+  );
+  const nitroVirtual: Record<string, string | (() => string)> = {
+    "virtual:agents-bundle": agentsBundleModuleSource,
+  };
+  if (awsLambdaStreaming) {
+    const nitroAwsLambdaUtilsPath = resolveNitroRuntimePath(
+      "dist/presets/aws-lambda/runtime/_utils.mjs",
+    );
+    const nitroAppPath = resolveNitroRuntimePath("dist/runtime/app.mjs");
+    nitroVirtual[AWS_LAMBDA_UTILS_ENTRY] = () =>
+      `export { awsRequest, awsResponseHeaders } from ${JSON.stringify(nitroAwsLambdaUtilsPath)};`;
+    nitroVirtual[AWS_LAMBDA_APP_ENTRY] = () =>
+      `export { useNitroApp } from ${JSON.stringify(nitroAppPath)};`;
+    nitroVirtual[AWS_LAMBDA_STREAMING_ENTRY] = () =>
+      generateAwsLambdaStreamingRuntimeEntry(
+        AWS_LAMBDA_UTILS_ENTRY,
+        AWS_LAMBDA_APP_ENTRY,
+      );
+  }
 
   const nitro = await createNitro({
     rootDir: cwd,
@@ -5704,13 +5813,7 @@ export default bundle;
     ...(isAwsAmplifyPreset(preset)
       ? { awsAmplify: { runtime: "nodejs24.x" } }
       : {}),
-    ...(isAwsLambdaPreset(preset)
-      ? {
-          awsLambda: {
-            streaming: isAwsLambdaStreamingBuild(preset, nitroEnvironment),
-          },
-        }
-      : {}),
+    ...(isAwsLambdaPreset(preset) ? { awsLambda: { streaming: false } } : {}),
     baseURL: appBasePath || "/",
     minify: true,
     serverDir: "./server",
@@ -5721,9 +5824,7 @@ export default bundle;
         ? { "virtual:react-router/server-build": rrServerBuild }
         : {}),
     },
-    virtual: {
-      "virtual:agents-bundle": agentsBundleModuleSource,
-    },
+    virtual: nitroVirtual,
     replace: resolveNitroBuildReplacements(
       process.env,
       nitroAgentConfig.deployment?.environment,
@@ -5742,7 +5843,7 @@ export default bundle;
       // post-build pass below bundles and rewrites them to one module.
       ...(preset === "netlify" ||
       preset === "vercel" ||
-      preset === "aws-lambda" ||
+      isAwsLambdaPreset(preset) ||
       preset === "node" ||
       preset === "node-server"
         ? { external: ["yjs"] }
@@ -5774,6 +5875,10 @@ export default bundle;
     // presets externalize Yjs above, then emit one portable runtime module.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
+
+  if (awsLambdaStreaming) {
+    nitro.options.entry = AWS_LAMBDA_STREAMING_ENTRY;
+  }
 
   await runNitroBuildPipeline({
     nitro,

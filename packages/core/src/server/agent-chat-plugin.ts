@@ -216,6 +216,7 @@ import {
 } from "./agent-chat/shared-thread.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
+  resolveAgentRunOrgId,
   resolveAgentRunOwnerContext,
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
@@ -2806,11 +2807,11 @@ export function createAgentChatPlugin(
       const getOrgIdFromEvent = async (
         event: any,
       ): Promise<string | undefined> => {
-        if (options?.resolveOrgId) {
-          return (await options.resolveOrgId(event)) ?? undefined;
-        }
-        const session = await getSession(event).catch(() => null);
-        return session?.orgId ?? undefined;
+        return resolveAgentRunOrgId({
+          event,
+          ownerContext: await resolveOwnerContext(event),
+          resolveOrgId: options?.resolveOrgId,
+        });
       };
 
       registerChatThreadsShareable();

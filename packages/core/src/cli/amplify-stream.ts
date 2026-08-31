@@ -181,6 +181,51 @@ function isAwsConflict(error: unknown): boolean {
   );
 }
 
+export function isValidAwsRegion(region: string): boolean {
+  return /^[a-z]{2,}(?:-[a-z0-9]+)+-\d+$/.test(region);
+}
+
+type LambdaPolicyStatement = {
+  Sid?: unknown;
+  Effect?: unknown;
+  Principal?: unknown;
+  Action?: unknown;
+  Condition?: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasPolicyValue(value: unknown, expected: string): boolean {
+  return (
+    value === expected || (Array.isArray(value) && value.includes(expected))
+  );
+}
+
+export function isLambdaPermissionCompatible(
+  statement: unknown,
+  action: string,
+  conditionOperator: string,
+  conditionKey: string,
+  conditionValue: string,
+): statement is LambdaPolicyStatement {
+  if (!isRecord(statement)) return false;
+  const principal = statement.Principal;
+  const principalIsPublic =
+    principal === "*" || (isRecord(principal) && principal.AWS === "*");
+  const condition = isRecord(statement.Condition)
+    ? statement.Condition[conditionOperator]
+    : undefined;
+  return (
+    statement.Effect === "Allow" &&
+    principalIsPublic &&
+    hasPolicyValue(statement.Action, action) &&
+    isRecord(condition) &&
+    condition[conditionKey] === conditionValue
+  );
+}
+
 function sanitizeResourceName(value: string): string {
   const normalized = value
     .toLowerCase()
@@ -416,6 +461,9 @@ async function ensureLambdaFunction(
       ],
       region,
     );
+    // Lambda applies configuration asynchronously. Function URL mutations
+    // must wait for this update or AWS can return ResourceConflictException.
+    await waitForLambda(functionName, region);
   } else {
     for (let attempt = 0; attempt < 6; attempt++) {
       try {
@@ -456,8 +504,8 @@ async function ensureLambdaFunction(
         await sleep(5000);
       }
     }
+    await waitForLambda(functionName, region);
   }
-  await waitForLambda(functionName, region);
 }
 
 const FUNCTION_URL_CORS = JSON.stringify({
@@ -478,6 +526,135 @@ const FUNCTION_URL_CORS = JSON.stringify({
   ExposeHeaders: ["x-dispatch-mode", "x-run-id"],
   MaxAge: 600,
 });
+
+const FUNCTION_URL_PERMISSIONS = [
+  {
+    statementId: "FunctionURLAllowPublicAccess",
+    action: "lambda:InvokeFunctionUrl",
+    conditionOperator: "StringEquals",
+    conditionKey: "lambda:FunctionUrlAuthType",
+    conditionValue: "NONE",
+    cliCondition: ["--function-url-auth-type", "NONE"],
+  },
+  {
+    statementId: "FunctionURLInvokeFunction",
+    action: "lambda:InvokeFunction",
+    conditionOperator: "Bool",
+    conditionKey: "lambda:InvokedViaFunctionUrl",
+    conditionValue: "true",
+    cliCondition: ["--invoked-via-function-url"],
+  },
+] as const;
+
+async function getLambdaPolicyStatements(
+  functionName: string,
+  region: string,
+): Promise<LambdaPolicyStatement[]> {
+  let response: { Policy?: unknown };
+  try {
+    response = awsJson<{ Policy?: unknown }>(
+      ["lambda", "get-policy", "--function-name", functionName],
+      region,
+    );
+  } catch (error) {
+    if (isAwsNotFound(error)) return [];
+    throw error;
+  }
+  if (typeof response.Policy !== "string") {
+    throw new Error(
+      `Lambda policy for ${functionName} is missing its JSON policy`,
+    );
+  }
+  const policy = JSON.parse(response.Policy) as unknown;
+  if (!isRecord(policy)) {
+    throw new Error(`Lambda policy for ${functionName} is not an object`);
+  }
+  const rawStatements = Array.isArray(policy.Statement)
+    ? policy.Statement
+    : [policy.Statement];
+  if (!rawStatements.every(isRecord)) {
+    throw new Error(`Lambda policy for ${functionName} has invalid statements`);
+  }
+  return rawStatements;
+}
+
+async function ensureLambdaPermission(
+  functionName: string,
+  region: string,
+  permission: (typeof FUNCTION_URL_PERMISSIONS)[number],
+): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const statements = await getLambdaPolicyStatements(functionName, region);
+    const existing = statements.find(
+      (statement) => statement.Sid === permission.statementId,
+    );
+    if (
+      existing &&
+      isLambdaPermissionCompatible(
+        existing,
+        permission.action,
+        permission.conditionOperator,
+        permission.conditionKey,
+        permission.conditionValue,
+      )
+    ) {
+      return;
+    }
+
+    if (existing) {
+      awsOutput(
+        [
+          "lambda",
+          "remove-permission",
+          "--function-name",
+          functionName,
+          "--statement-id",
+          permission.statementId,
+        ],
+        region,
+      );
+    }
+
+    try {
+      awsOutput(
+        [
+          "lambda",
+          "add-permission",
+          "--function-name",
+          functionName,
+          "--statement-id",
+          permission.statementId,
+          "--action",
+          permission.action,
+          "--principal",
+          "*",
+          ...permission.cliCondition,
+        ],
+        region,
+      );
+    } catch (error) {
+      if (!isAwsConflict(error) || attempt === 1) throw error;
+    }
+  }
+
+  const statements = await getLambdaPolicyStatements(functionName, region);
+  const statement = statements.find(
+    (candidate) => candidate.Sid === permission.statementId,
+  );
+  if (
+    !isLambdaPermissionCompatible(
+      statement,
+      permission.action,
+      permission.conditionOperator,
+      permission.conditionKey,
+      permission.conditionValue,
+    )
+  ) {
+    throw new Error(
+      `Lambda permission ${permission.statementId} is not configured for a public Function URL`,
+    );
+  }
+}
 
 async function ensureFunctionUrl(
   functionName: string,
@@ -520,39 +697,8 @@ async function ensureFunctionUrl(
     region,
   );
 
-  for (const permission of [
-    [
-      "FunctionURLAllowPublicAccess",
-      "lambda:InvokeFunctionUrl",
-      "--function-url-auth-type",
-      "NONE",
-    ],
-    [
-      "FunctionURLInvokeFunction",
-      "lambda:InvokeFunction",
-      "--invoked-via-function-url",
-    ],
-  ] as const) {
-    try {
-      awsOutput(
-        [
-          "lambda",
-          "add-permission",
-          "--function-name",
-          functionName,
-          "--statement-id",
-          permission[0],
-          "--action",
-          permission[1],
-          "--principal",
-          "*",
-          ...permission.slice(2),
-        ],
-        region,
-      );
-    } catch (error) {
-      if (!isAwsConflict(error)) throw error;
-    }
+  for (const permission of FUNCTION_URL_PERMISSIONS) {
+    await ensureLambdaPermission(functionName, region, permission);
   }
 
   return awsText(
@@ -704,7 +850,7 @@ Options:
       "AWS region is required; pass --region or set AWS_REGION/AWS_DEFAULT_REGION",
     );
   }
-  if (!/^[a-z]{2}-[a-z]+-\d+$/.test(region)) {
+  if (!isValidAwsRegion(region)) {
     throw new Error(`Invalid AWS region: ${region}`);
   }
 

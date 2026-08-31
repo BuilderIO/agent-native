@@ -59,6 +59,7 @@ import {
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
+  generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
   getNodeBuiltinNames,
   isAwsAmplifyPreset,
@@ -125,6 +126,8 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
       "netlify",
       "vercel",
       "aws-lambda",
+      "aws_lambda",
+      "awsLambda",
     ]) {
       expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
     }
@@ -143,7 +146,7 @@ describe("isAwsAmplifyPreset", () => {
 });
 
 describe("AWS Lambda streaming runtime output", () => {
-  it("loads env before lazily importing Nitro's streaming handler", () => {
+  it("loads env before lazily importing Nitro's streaming handler", async () => {
     const appDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "agent-native-lambda-stream-test-"),
     );
@@ -176,6 +179,21 @@ describe("AWS Lambda streaming runtime output", () => {
         'const { handler } = await import("./index.mjs");\n' +
         "export { handler };\n",
     );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "package.json"), "utf8")),
+    ).toMatchObject({ type: "module" });
+    const archiveHandler = await import(
+      pathToFileURL(path.join(serverDir, "server.js")).href
+    );
+    expect(typeof archiveHandler.handler).toBe("function");
+  });
+
+  it("writes response metadata through Nitro's Lambda stream wrapper", () => {
+    const runtime = generateAwsLambdaStreamingRuntimeEntry();
+
+    expect(runtime).toContain("awslambda.HttpResponseStream.from");
+    expect(runtime).toContain("streamToNodeStream(body.getReader(), writer)");
+    expect(runtime).not.toContain("streamToNodeStream(reader, responseStream)");
   });
 });
 
