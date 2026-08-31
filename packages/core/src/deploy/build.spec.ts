@@ -162,6 +162,16 @@ describe("AWS Amplify runtime output", () => {
       SENDGRID_API_KEY: "sendgrid-example-key",
       EMAIL_FROM: "Calendar <calendar@example.test>",
       OPENAI_API_KEY: "openai-example-key",
+      APP_NAME: "my-calendar",
+      MY_CALENDAR_SECRETS_ENCRYPTION_KEY: "app-scoped-example-key",
+      SECRETS_ENCRYPTION_KEY: "generic-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY: "workspace-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS:
+        "previous-workspace-encryption-key",
+      AGENT_ENGINE: "ai-sdk:openai",
+      AGENT_NATIVE_WORKSPACE: "true",
+      WEBHOOK_BASE_URL: "https://example.test/webhooks",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
       UNDECLARED_SECRET: "must-not-ship",
       AWS_SECRET_ACCESS_KEY: "must-not-ship",
     });
@@ -176,6 +186,24 @@ describe("AWS Amplify runtime output", () => {
       'EMAIL_FROM="Calendar <calendar@example.test>"',
     );
     expect(runtimeEnv).toContain('OPENAI_API_KEY="openai-example-key"');
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_SECRETS_ENCRYPTION_KEY="app-scoped-example-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'SECRETS_ENCRYPTION_KEY="generic-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY="workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS="previous-workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain('AGENT_ENGINE="ai-sdk:openai"');
+    expect(runtimeEnv).toContain('AGENT_NATIVE_WORKSPACE="true"');
+    expect(runtimeEnv).toContain(
+      'WEBHOOK_BASE_URL="https://example.test/webhooks"',
+    );
+    expect(runtimeEnv).toContain('AUTH_REQUIRE_EMAIL_VERIFICATION="1"');
     expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
     expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
     expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(

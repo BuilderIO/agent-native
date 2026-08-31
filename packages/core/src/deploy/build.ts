@@ -35,6 +35,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { declaredEnvKeys } from "../app-config/describe.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -171,7 +172,21 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "OPENROUTER_API_KEY",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
+  "SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ] as const;
+
+function appScopedEncryptionKeyName(
+  appName: string | undefined,
+): string | undefined {
+  const normalized = appName
+    ?.trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized ? `${normalized}_SECRETS_ENCRYPTION_KEY` : undefined;
+}
 
 function readEnvExampleKeys(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return [];
@@ -198,8 +213,11 @@ export function configureAwsAmplifyRuntimeOutput(
 ): void {
   const declaredKeys = new Set<string>([
     ...AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS,
+    ...declaredEnvKeys(),
     ...readEnvExampleKeys(path.join(appDir, ".env.example")),
   ]);
+  const appScopedKey = appScopedEncryptionKeyName(env.APP_NAME);
+  if (appScopedKey) declaredKeys.add(appScopedKey);
   const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
     const value = env[key];
     return typeof value === "string" ? [`${key}=${JSON.stringify(value)}`] : [];
