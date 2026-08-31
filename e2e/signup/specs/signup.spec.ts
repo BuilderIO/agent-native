@@ -14,43 +14,22 @@ interface SessionResult {
   body: unknown;
 }
 
-/**
- * Read a session endpoint from inside the page.
- *
- * The verification link lands through redirects and some apps then navigate
- * again client-side - clips goes "/" to "/library". An evaluate that starts
- * before that settles dies with "Execution context was destroyed", which is
- * this harness losing its footing, not the app failing to sign the user in.
- * Retrying only that error keeps a real signed-out session a failure.
- */
+/** Read an authenticated session endpoint with the browser context's cookies. */
 async function readJson(page: Page, path: string): Promise<SessionResult> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.waitForLoadState("domcontentloaded");
-    try {
-      return await page.evaluate(async (target): Promise<SessionResult> => {
-        const response = await fetch(target, {
-          cache: "no-store",
-          headers: { Accept: "application/json" },
-        });
-        const raw = await response.text();
-        let body: unknown;
-        try {
-          body = JSON.parse(raw);
-        } catch {
-          body = raw;
-        }
-        return { status: response.status, body };
-      }, path);
-    } catch (error) {
-      if (!/Execution context was destroyed/i.test(String(error))) throw error;
-      lastError = error;
-      await page.waitForTimeout(1_000);
-    }
+  const response = await page
+    .context()
+    .request.get(new URL(path, page.url()).toString(), {
+      headers: { Accept: "application/json" },
+      timeout: 60_000,
+    });
+  const raw = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    body = raw;
   }
-  throw new Error(
-    `${path} could not be read: the page kept navigating across 3 attempts. Last error: ${String(lastError)}`,
-  );
+  return { status: response.status(), body };
 }
 
 async function readSession(page: Page) {
