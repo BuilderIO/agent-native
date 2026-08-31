@@ -95,7 +95,7 @@ export function VersionHistoryPanel({
       // Show the confirm dialog instead of restoring immediately.
       setPendingRestoreVersion(version);
     } else {
-      doRestore(version);
+      void doRestore(version);
     }
   };
 
@@ -234,7 +234,7 @@ export function VersionHistoryPanel({
                 if (pendingRestoreVersion) {
                   const v = pendingRestoreVersion;
                   setPendingRestoreVersion(null);
-                  doRestore(v);
+                  void doRestore(v);
                 }
               }}
             >

@@ -258,22 +258,22 @@ export default function AgentRoute() {
 
 공유 페이지는 현재 두 그룹에 걸쳐 열두 개의 탭을 제공합니다:
 
-| 그룹      | 탭                | 표시 내용                                                                                                                                                                                       |
-| --------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resources | **Files**         | 개인 또는 조직 파일을 위한 기존 `ResourcesPanel`                                                                                                                                                |
-| Resources | **Instructions**  | 항상 켜져 있는 AGENTS.md 스타일 규칙                                                                                                                                                            |
-| Resources | **Agents**        | 커스텀 서브 에이전트 프로필                                                                                                                                                                     |
-| Resources | **Memory**        | 장기 기억 메모                                                                                                                                                                                  |
-| Resources | **Skills**        | 재사용 가능한 워크플로우                                                                                                                                                                        |
-| Resources | **Learnings**     | 시간이 지남에 따라 캡처된 수정 사항 및 패턴                                                                                                                                                     |
-| Resources | **Remote agents** | 다른 agent-native 앱에 대한 A2A 연결 (이전에 Connections 탭에 표시되던 내용을 대체)                                                                                                             |
-| Agent     | **Snapshots**     | 범위 미리보기, 토큰 예산, 출처/거버넌스/소스별로 그룹화된 정렬된 시스템 섹션, 최신 라이브 스레드 스냅샷. "Context"에서 이름 변경됨; 이전 `#context` 링크는 여기로 리디렉션됩니다.               |
-| Agent     | **Connections**   | MCP 서버 관리만                                                                                                                                                                                 |
-| Agent     | **Automations**   | 일시 중지/재개, 세부 정보, 삭제 흐름이 있는 개인 및 조직 예약/이벤트 자동화. 안정적인 호환성 URL은 `/agent#jobs`로 유지됩니다.                                                                  |
-| Agent     | **Settings**      | 에이전트 모델, API 키, 제한, 음성, 자동화 설정                                                                                                                                                  |
-| Agent     | **Access**        | 앱 MCP URL, 사용 가능한 경우 A2A 에이전트 카드, Claude, ChatGPT, Cursor, Claude Code, Codex 및 기타 클라이언트를 위한 공유 설정 가이드. 전체 연결 흐름 및 토큰 대체를 위한 `/mcp/connect` 링크. |
+| 그룹      | 탭                | 표시 내용                                                                                                                                                                                                                             |
+| --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 개인 또는 조직 파일을 위한 기존 `ResourcesPanel`                                                                                                                                                                                      |
+| Resources | **Instructions**  | 항상 켜져 있는 AGENTS.md 스타일 규칙                                                                                                                                                                                                  |
+| Resources | **Agents**        | 커스텀 서브 에이전트 프로필                                                                                                                                                                                                           |
+| Resources | **Memory**        | 장기 기억 메모                                                                                                                                                                                                                        |
+| Resources | **Skills**        | 재사용 가능한 워크플로우                                                                                                                                                                                                              |
+| Resources | **Learnings**     | 시간이 지남에 따라 캡처된 수정 사항 및 패턴                                                                                                                                                                                           |
+| Resources | **Remote agents** | 다른 agent-native 앱에 대한 A2A 연결 (이전에 Connections 탭에 표시되던 내용을 대체)                                                                                                                                                   |
+| Agent     | **Snapshots**     | 범위 미리보기, 토큰 예산, 출처/거버넌스/소스별로 그룹화된 정렬된 시스템 섹션, 최신 라이브 스레드 스냅샷. "Context"에서 이름 변경됨; 이전 `#context` 링크는 여기로 리디렉션됩니다.                                                     |
+| Agent     | **Connections**   | MCP 서버 관리만                                                                                                                                                                                                                       |
+| Agent     | **Automations**   | 일시 중지/재개, 세부 정보, 삭제 흐름이 있는 개인 및 조직 예약/이벤트 자동화. 안정적인 호환성 URL은 `/agent#jobs`로 유지됩니다.                                                                                                        |
+| Agent     | **Settings**      | 에이전트 모델, API 키, 제한, 음성, 자동화 설정                                                                                                                                                                                        |
+| Agent     | **MCP**           | 앱 MCP URL, 사용 가능한 경우 A2A 에이전트 카드, Claude, ChatGPT, Cursor, Claude Code, Codex 및 기타 클라이언트를 위한 공유 설정 가이드. **Settings → MCP**에서 찾거나 전체 연결 흐름 및 토큰 대체를 위해 `/mcp/connect`를 사용하세요. |
 
-이 페이지는 개인(`user` 범위) 데이터만 표시합니다. 현재 조직 수준 토글은 없습니다. 이는 기존 컴포넌트 및 접근 확인 위에 있는 얇은 셸로, 새로운 관리 콘솔이 아닙니다: Connections는 앱이 호출할 수 있는 것을 설명하고; Access는 외부 클라이언트가 연결하는 방법을 설명합니다.
+이 페이지는 개인(`user` 범위) 데이터만 표시합니다. 현재 조직 수준 토글은 없습니다. 이는 기존 컴포넌트 및 접근 확인 위에 있는 얇은 셸로, 새로운 관리 콘솔이 아닙니다: Connections는 앱이 호출할 수 있는 것을 설명하고; MCP는 외부 클라이언트가 연결하는 방법을 설명합니다.
 
 아직 포함되지 않은 기능:
 

@@ -3,6 +3,10 @@ import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/store.js";
+import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
   resolveOgFontFiles,
@@ -16,6 +20,7 @@ import {
 
 describe("social OG image", () => {
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
   });
 
@@ -38,6 +43,7 @@ describe("social OG image", () => {
   it("renders the title with the bundled font and a Bold-resolving weight", () => {
     const svg = renderAgentNativeOgImageSvg({
       appName: "Agent-Native Analytics",
+      brand: "agent-native",
       title: "Agent-Native Analytics",
       accentText: "100% free and open source",
     });
@@ -96,18 +102,84 @@ describe("social OG image", () => {
 
   it("expands built-in app names before rendering the default title", () => {
     vi.stubEnv("APP_NAME", "Design");
+    vi.stubEnv("npm_package_name", "design");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
-    expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Design");
+    const designSvg = renderAgentNativeOgImageSvg();
+    expect(designSvg).toContain("Agent-Native Design");
+    expect(designSvg).toContain("100% free and open source");
+    expect(designSvg).toContain('<path d="M24.5537');
 
     vi.stubEnv("APP_NAME", "slides");
+    vi.stubEnv("npm_package_name", "slides");
+    resetAppConfigForTests();
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Slides");
     expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Slides");
   });
 
+  it("does not infer first-party branding from a custom display name", () => {
+    vi.stubEnv("APP_NAME", "Analytics");
+    vi.stubEnv("npm_package_name", "customer-analytics");
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain("Analytics");
+    expect(svg).not.toContain("Agent-Native");
+    expect(svg).not.toContain("100% free and open source");
+    expect(svg).not.toContain('<path d="M24.5537');
+    expect(renderAgentNativeOgImageSvg({ appName: "Analytics" })).not.toContain(
+      "100% free and open source",
+    );
+  });
+
   it("preserves explicit custom app names in the default title", () => {
     vi.stubEnv("APP_NAME", "Acme Workspace");
+    vi.stubEnv("APP_BASE_PATH", "/analytics");
     expect(resolveAgentNativeOgImageAppName()).toBe("Acme Workspace");
-    expect(renderAgentNativeOgImageSvg()).toContain("Acme Workspace");
+    const svg = renderAgentNativeOgImageSvg();
+    expect(svg).toContain("Acme Workspace");
+    expect(svg).not.toContain("Agent-Native");
+    expect(svg).not.toContain("100% free and open source");
+    expect(svg).not.toContain('<path d="M24.5537');
+  });
+
+  it("preserves a custom app-config name under a built-in path", () => {
+    vi.stubEnv("APP_BASE_PATH", "/analytics");
+    defineAppConfig({ app: { name: "Acme Configured" } });
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain("Acme Configured");
+    expect(svg).not.toContain("Agent-Native");
+  });
+
+  it("uses a custom package name without framework branding", () => {
+    vi.stubEnv("npm_package_name", "try-marisco");
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain("Try Marisco");
+    expect(svg).not.toContain("Agent-Native");
+    expect(svg).not.toContain("100% free and open source");
+  });
+
+  it("uses a custom logo instead of the framework mark", () => {
+    vi.stubEnv("APP_NAME", "Acme Workspace");
+    vi.stubEnv("APP_LOGO_URL", "https://cdn.example.com/acme.svg");
+
+    const svg = renderAgentNativeOgImageSvg();
+
+    expect(svg).toContain(
+      '<image x="0" y="0" width="114" height="66" href="https://cdn.example.com/acme.svg"',
+    );
+    expect(svg).not.toContain('<path d="M24.5537');
+    expect(svg).not.toContain("Agent-Native");
+
+    expect(renderAgentNativeOgImageSvg({ appName: "Acme Override" })).toContain(
+      '<image x="0" y="0" width="114" height="66" href="https://cdn.example.com/acme.svg"',
+    );
+    expect(
+      renderAgentNativeOgImageSvg({ appName: "Acme Override", logoUrl: null }),
+    ).not.toContain("https://cdn.example.com/acme.svg");
   });
 
   it("can return SVG fallback headers", () => {

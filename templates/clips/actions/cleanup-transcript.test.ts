@@ -138,7 +138,9 @@ describe("cleanup-transcript", () => {
       expect.objectContaining({ maxOutputTokens: 9_994 }),
     );
     const [, init] = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(init?.body)) as {
+    const body = JSON.parse(
+      typeof init?.body === "string" ? init.body : "",
+    ) as {
       generationConfig: { maxOutputTokens: number };
     };
     expect(body.generationConfig.maxOutputTokens).toBe(9_994);

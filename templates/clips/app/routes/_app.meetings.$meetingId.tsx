@@ -102,7 +102,12 @@ interface Meeting {
   joinUrl?: string | null;
   recordingId?: string | null;
   recordingDurationMs?: number | null;
-  transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  transcriptStatus?:
+    | "pending"
+    | "ready"
+    | "failed"
+    | "in_progress"
+    | (string & {});
   visibility?: "private" | "org" | "public" | null;
   shareTranscript?: boolean | null;
   summaryMd?: string | null;
@@ -934,8 +939,8 @@ export default function MeetingDetailRoute() {
       {
         onSuccess: () => {
           toast.success(t("meetingDetail.meetingRemoved"));
-          qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
-          navigate("/meetings", { replace: true });
+          void qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
+          void navigate("/meetings", { replace: true });
         },
         onError: (err: unknown) => {
           toast.error(

@@ -45,6 +45,22 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('params.set("tab", tab)');
   });
 
+  it("builds pin mutations from the resolved visible pins", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("const current = pinnedLabels;");
+    expect(source).toContain("[pinnedLabels, updateSettings],");
+  });
+
+  it("keeps pinned tab dragging aligned with the displayed pin order", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("const canDrag = !!tab.pinnedId;");
+    expect(source).toContain(
+      "const current = pinnedLabels;\n    if (!current.includes(dragPinnedId)) return;",
+    );
+  });
+
   it("keeps exclusive tab badges local and mirrors primary tabs on mobile", () => {
     const source = appLayoutSource();
 
@@ -58,12 +74,28 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
   });
 
+  it("uses mailbox-wide counts for regular label tabs", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "if (!isInboxScopedAppLabel(label?.id ?? pinnedId)) continue;",
+    );
+  });
+
   it("does not let loaded pages inflate server-backed label badges", () => {
     const source = appLayoutSource();
 
     expect(source).not.toContain("Math.max(serverCount, localCount)");
     expect(source).toContain(
-      'typeof serverCount === "number" && useServerLabelCounts',
+      'typeof serverCount === "number" ? serverCount : localCount',
+    );
+  });
+
+  it("scopes label counts to the selected accounts", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      "useLabels(activeAccounts.size > 0 ? [...activeAccounts] : undefined)",
     );
   });
 

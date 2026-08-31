@@ -313,6 +313,18 @@ describe("Analytics agent Plan mode policy", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
   });
 
+  it("keeps the chat file delivery path on the initial tool surface", async () => {
+    expect(INITIAL_TOOL_NAMES).toContain("show-workspace-file");
+
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string>)
+      | undefined;
+    const context = await extraContext?.();
+    expect(context).toContain("EXPORT DELIVERY");
+    expect(context).toContain("call `show-workspace-file`");
+    expect(context).toContain("Never save an error or failed response");
+  });
+
   it("keeps dashboard replication discovery bounded and reference-only", async () => {
     expect(INITIAL_TOOL_NAMES).toContain("search-dashboard-references");
     expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(

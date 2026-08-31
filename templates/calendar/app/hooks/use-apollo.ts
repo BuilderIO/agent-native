@@ -42,8 +42,8 @@ export function useApolloConnect() {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["apollo-status"] });
-      qc.invalidateQueries({ queryKey: ["apollo-person"] });
+      void qc.invalidateQueries({ queryKey: ["apollo-status"] });
+      void qc.invalidateQueries({ queryKey: ["apollo-person"] });
     },
   });
 }
@@ -58,8 +58,8 @@ export function useApolloDisconnect() {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["apollo-status"] });
-      qc.invalidateQueries({ queryKey: ["apollo-person"] });
+      void qc.invalidateQueries({ queryKey: ["apollo-status"] });
+      void qc.invalidateQueries({ queryKey: ["apollo-person"] });
     },
   });
 }

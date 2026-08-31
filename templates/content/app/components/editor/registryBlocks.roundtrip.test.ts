@@ -163,7 +163,8 @@ describe("registry blocks — readable Columns source", () => {
     expect(data.columns?.[0]?.blocks[0]?.id).toBe("before-text");
     expect(data.columns?.[0]?.blocks[0]?.type).toBe("rich-text");
     expect(
-      (data.columns?.[0]?.blocks[0]?.data as { markdown?: string }).markdown,
+      (data.columns?.[0]?.blocks[0]?.data as { markdown?: string } | undefined)
+        ?.markdown,
     ).toContain("Old behavior");
     expect(data.columns?.[1]?.blocks[0]?.type).toBe("data-model");
   });
@@ -456,9 +457,9 @@ describe("registry blocks — typed-field fidelity per block type", () => {
       data: { json: data.json, collapsedDepth: 3 },
     });
     const parsed = await parseRegistryBlockData(raw);
-    expect((parsed?.data as { collapsedDepth?: number }).collapsedDepth).toBe(
-      3,
-    );
+    expect(
+      (parsed?.data as { collapsedDepth?: number } | undefined)?.collapsedDepth,
+    ).toBe(3);
   });
 
   it("annotated-code preserves code + anchored annotations", async () => {

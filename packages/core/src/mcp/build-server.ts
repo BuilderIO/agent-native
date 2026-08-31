@@ -58,6 +58,15 @@ import {
 } from "../shared/agent-sidebar-url.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
+  type McpAnalyticsContext,
+  describeMcpError,
+  readClientInfoFromRequest,
+  trackMcpResourceRead,
+  trackMcpResourcesList,
+  trackMcpToolCall,
+  trackMcpToolsList,
+} from "./analytics.js";
+import {
   consumeMcpApprovalGrant,
   createMcpApprovalGrant,
 } from "./approval-store.js";
@@ -314,6 +323,13 @@ export interface MCPRequestMeta {
    * text. Defaults to disabled when unset.
    */
   inlineMcpApps?: boolean;
+  /**
+   * Which transport served this request, for `$mcp_source` in MCP analytics.
+   * Set explicitly by `mountMCP` (`http`) and the stdio standalone entry
+   * (`stdio`); an embedded/test caller that sets neither is reported as the
+   * HTTP mount it stands in for.
+   */
+  transport?: "http" | "stdio";
 }
 
 const ASK_AGENT_DEFAULT_INLINE_WAIT_MS = 20_000;
@@ -1658,6 +1674,35 @@ export async function createMCPServerForRequest(
       requestMeta?.inlineMcpApps ?? isMcpAppsInlineEnabled(effectiveIdentity),
   };
 
+  // The caller columns every `$mcp_*` event this request emits shares. A 2026
+  // client also carries its own name/version in per-request `_meta`, which is
+  // merged over this at each handler — the HTTP user agent is a fallback, not
+  // the client's own claim about itself.
+  const analyticsBase: McpAnalyticsContext = {
+    source: requestMeta.transport ?? "http",
+    serverName: config.name,
+    serverVersion: config.version ?? "1.0.0",
+    ...(config.appId ? { appId: config.appId } : {}),
+    ...(requestMeta.clientHint ? { clientName: requestMeta.clientHint } : {}),
+    ...(requestMeta.clientName
+      ? { clientUserAgent: requestMeta.clientName }
+      : {}),
+    ...(effectiveIdentity?.userEmail
+      ? { userId: effectiveIdentity.userEmail }
+      : {}),
+  };
+
+  function analyticsContext(
+    request?: unknown,
+    ctx?: { sessionId?: string },
+  ): McpAnalyticsContext {
+    return {
+      ...analyticsBase,
+      ...readClientInfoFromRequest(request as any),
+      ...(ctx?.sessionId ? { sessionId: ctx.sessionId } : {}),
+    };
+  }
+
   // The action set the request handlers operate on = base actions + generic
   // cross-app builtins (template wins on name collision). An authenticated
   // real caller (connect-minted token / `mcp install` owner / production —
@@ -1832,7 +1877,7 @@ export async function createMCPServerForRequest(
             maxRounds: 2,
             roundTimeoutMs: 10 * 60_000,
           },
-          requestState: { verify: approvalCodec.verify },
+          requestState: { verify: approvalCodec.verify.bind(approvalCodec) },
         }
       : {}),
   });
@@ -1974,8 +2019,9 @@ export async function createMCPServerForRequest(
   // tools/list — return all actions + ask-agent meta-tool. Wrapped in the
   // request context so per-user MCP visibility (mcp-client/visibility.ts)
   // applies to the listing too.
-  server.setRequestHandler("tools/list", async () => {
-    return withCallerContext(async () => {
+  server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
+    const startedAt = Date.now();
+    const result = await withCallerContext(async () => {
       const tools: Tool[] = await Promise.all(
         Object.entries(advertisedActions)
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
@@ -2081,6 +2127,11 @@ export async function createMCPServerForRequest(
       tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
       return { tools };
     });
+    trackMcpToolsList(analyticsContext(request, ctx), {
+      toolNames: result.tools.map((tool) => tool.name),
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
   });
 
   // tools/call — dispatch to action registry or ask-agent. Wrapped in the
@@ -2089,17 +2140,29 @@ export async function createMCPServerForRequest(
   server.setRequestHandler(
     "tools/call",
     async (request: any, ctx: ServerContext) => {
-      return withCallerContext(async () => {
+      const startedAt = Date.now();
+      // Set at each failure return below so the emitted event carries the
+      // reason, not just `isError: true` recovered from the rendered result.
+      let failure: { errorType: string; errorMessage: string } | undefined;
+      const result = await withCallerContext(async () => {
         const { name, arguments: args } = request.params;
 
         if (name === "ask-agent" && config.askAgent) {
           if (!fullCatalogRequested) {
+            failure = {
+              errorType: "unknown_tool",
+              errorMessage: `Unknown tool: ${name}`,
+            };
             return {
               content: [{ type: "text", text: `Unknown tool: ${name}` }],
               isError: true,
             };
           }
           if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")) {
+            failure = {
+              errorType: "forbidden_scope",
+              errorMessage: "OAuth scope does not allow ask-agent",
+            };
             return {
               content: [
                 {
@@ -2136,6 +2199,7 @@ export async function createMCPServerForRequest(
               content: [{ type: "text", text: formatAskAgentResult(result) }],
             };
           } catch (err: any) {
+            failure = describeMcpError(err);
             return {
               content: [{ type: "text", text: `Error: ${err.message}` }],
               isError: true,
@@ -2153,6 +2217,10 @@ export async function createMCPServerForRequest(
           : advertisedActions;
         const entry = callableActions[name];
         if (!entry) {
+          failure = {
+            errorType: "unknown_tool",
+            errorMessage: `Unknown tool: ${name}`,
+          };
           return {
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
@@ -2161,6 +2229,10 @@ export async function createMCPServerForRequest(
         if (
           !isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes)
         ) {
+          failure = {
+            errorType: "forbidden_scope",
+            errorMessage: `OAuth scope does not allow tool ${name}`,
+          };
           return {
             content: [
               {
@@ -2301,6 +2373,7 @@ export async function createMCPServerForRequest(
             isActionContractError(err) && err.errorCode !== "action_failed"
               ? ` (errorCode: ${err.errorCode})`
               : "";
+          failure = describeMcpError(err);
           return {
             content: [
               { type: "text", text: `Error: ${err.message}${errorCode}` },
@@ -2309,33 +2382,62 @@ export async function createMCPServerForRequest(
           };
         }
       });
+
+      const toolName = request.params?.name;
+      const calledEntry = actions[toolName];
+      trackMcpToolCall(analyticsContext(request, ctx), {
+        toolName,
+        ...(calledEntry?.tool.description
+          ? { toolDescription: calledEntry.tool.description }
+          : {}),
+        ...(calledEntry
+          ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
+          : {}),
+        parameters: (request.params?.arguments ?? {}) as Record<
+          string,
+          unknown
+        >,
+        durationMs: Date.now() - startedAt,
+        isError: (result as { isError?: boolean }).isError === true,
+        ...(failure ?? {}),
+      });
+      return result;
     },
   );
 
   if (supportsMcpApps) {
-    server.setRequestHandler("resources/list", async () => {
-      return withCallerContext(async () => {
-        const mcpAppResources = await getMcpAppResources(
-          config,
-          advertisedActions,
-          requestMeta,
-        );
-        return {
-          resources: mcpAppResources
-            .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
-            .map((resource) => ({
-              uri: resource.uri,
-              name: resource.name,
-              ...(resource.title ? { title: resource.title } : {}),
-              ...(resource.description
-                ? { description: resource.description }
-                : {}),
-              mimeType: resource.mimeType,
-              ...(resource._meta ? { _meta: resource._meta } : {}),
-            })),
-        };
-      });
-    });
+    server.setRequestHandler(
+      "resources/list",
+      async (request: any, ctx: any) => {
+        const startedAt = Date.now();
+        const result = await withCallerContext(async () => {
+          const mcpAppResources = await getMcpAppResources(
+            config,
+            advertisedActions,
+            requestMeta,
+          );
+          return {
+            resources: mcpAppResources
+              .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+              .map((resource) => ({
+                uri: resource.uri,
+                name: resource.name,
+                ...(resource.title ? { title: resource.title } : {}),
+                ...(resource.description
+                  ? { description: resource.description }
+                  : {}),
+                mimeType: resource.mimeType,
+                ...(resource._meta ? { _meta: resource._meta } : {}),
+              })),
+          };
+        });
+        trackMcpResourcesList(analyticsContext(request, ctx), {
+          resourceCount: result.resources.length,
+          durationMs: Date.now() - startedAt,
+        });
+        return result;
+      },
+    );
 
     server.setRequestHandler("resources/templates/list", async () => {
       return withCallerContext(async () => {
@@ -2361,55 +2463,82 @@ export async function createMCPServerForRequest(
       });
     });
 
-    server.setRequestHandler("resources/read", async (request: any) => {
-      return withCallerContext(async () => {
-        const uri = request.params?.uri;
-        let found: {
-          actionName: string;
-          resource: ResolvedMcpAppResource;
-        } | null = null;
-        for (const [name, entry] of Object.entries(advertisedActions)) {
-          const resourceUri = getMcpAppResourceUri(config, name, entry);
-          if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
-            continue;
-          }
-          const resource = await resolveMcpAppResourceSafely(
-            config,
-            name,
-            entry,
-            requestMeta,
-          );
-          if (resource) {
-            found = { actionName: name, resource };
-            break;
-          }
-          // resolveMcpAppResourceSafely returned null (e.g. an async resolver
-          // threw) — keep scanning the remaining candidates rather than
-          // aborting and reporting the resource as missing.
-        }
-        if (!found) {
-          throw new ResourceNotFoundError(
-            String(uri ?? ""),
-            `MCP App resource not found: ${uri}`,
-          );
-        }
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: found.resource.mimeType,
-              text: renderMcpAppHtml(
-                found.resource,
-                found.actionName,
-                config,
-                requestMeta,
-              ),
-              ...(found.resource._meta ? { _meta: found.resource._meta } : {}),
-            },
-          ],
+    server.setRequestHandler(
+      "resources/read",
+      async (request: any, ctx: any) => {
+        const startedAt = Date.now();
+        const emitRead = (
+          outcome: { resourceName?: string } | { error: unknown },
+        ): void => {
+          const failure =
+            "error" in outcome ? describeMcpError(outcome.error) : undefined;
+          trackMcpResourceRead(analyticsContext(request, ctx), {
+            ...("error" in outcome ? {} : outcome),
+            ...(typeof request.params?.uri === "string"
+              ? { resourceUri: request.params.uri }
+              : {}),
+            durationMs: Date.now() - startedAt,
+            isError: !!failure,
+            ...(failure ?? {}),
+          });
         };
-      });
-    });
+        try {
+          return await withCallerContext(async () => {
+            const uri = request.params?.uri;
+            let found: {
+              actionName: string;
+              resource: ResolvedMcpAppResource;
+            } | null = null;
+            for (const [name, entry] of Object.entries(advertisedActions)) {
+              const resourceUri = getMcpAppResourceUri(config, name, entry);
+              if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
+                continue;
+              }
+              const resource = await resolveMcpAppResourceSafely(
+                config,
+                name,
+                entry,
+                requestMeta,
+              );
+              if (resource) {
+                found = { actionName: name, resource };
+                break;
+              }
+              // resolveMcpAppResourceSafely returned null (e.g. an async resolver
+              // threw) — keep scanning the remaining candidates rather than
+              // aborting and reporting the resource as missing.
+            }
+            if (!found) {
+              throw new ResourceNotFoundError(
+                String(uri ?? ""),
+                `MCP App resource not found: ${uri}`,
+              );
+            }
+            emitRead({ resourceName: found.resource.name });
+            return {
+              contents: [
+                {
+                  uri,
+                  mimeType: found.resource.mimeType,
+                  text: renderMcpAppHtml(
+                    found.resource,
+                    found.actionName,
+                    config,
+                    requestMeta,
+                  ),
+                  ...(found.resource._meta
+                    ? { _meta: found.resource._meta }
+                    : {}),
+                },
+              ],
+            };
+          });
+        } catch (err) {
+          emitRead({ error: err });
+          throw err;
+        }
+      },
+    );
   }
 
   return server;

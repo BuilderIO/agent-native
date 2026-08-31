@@ -9,4 +9,6 @@ WebMCP es una API experimental del navegador que permite a las páginas
 registrar herramientas para que un agente autorizado las descubra y ejecute.
 Consulta la [guía de WebMCP en inglés](/docs/webmcp) para conocer el registro,
 el consumo, las sesiones del navegador y los límites de seguridad.
-Cada ejecución requiere aprobación humana y se valida la lista de herramientas activa antes de ejecutarla.
+Las páginas autenticadas registran automáticamente las acciones de backend aptas
+desde el registro de acciones existente. Se excluyen las acciones que requieren
+aprobación y se vuelve a validar la lista activa antes de ejecutarlas.

@@ -77,7 +77,9 @@ function conflictDelay(attempt: number): Promise<void> {
 function isRetryableTransactionConflict(error: unknown): boolean {
   const code =
     error && typeof error === "object" && "code" in error
-      ? String((error as { code?: unknown }).code ?? "")
+      ? typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : ""
       : "";
   return (
     code === "SQLITE_BUSY" ||

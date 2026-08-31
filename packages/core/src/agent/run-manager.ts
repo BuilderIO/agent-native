@@ -53,6 +53,8 @@ import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 export interface ActiveRun {
   runId: string;
   threadId: string;
+  /** Parent message for the assistant-ui branch this run is answering. */
+  parentId?: string | null;
   /** Logical-turn identity (see StartRunOptions.turnId). Defaults to runId. */
   turnId: string;
   events: RunEvent[];
@@ -504,6 +506,8 @@ export interface StartRunOptions {
    * share one `turnId` so the durable assistant message can be folded across
    * them instead of dropped per-run. Defaults to the runId (turn == run). */
   turnId?: string;
+  /** Parent message for the assistant-ui branch this run is answering. */
+  parentId?: string | null;
   /**
    * Opt into the durable-background-function soft-timeout regime for THIS run
    * only. When true, `resolveRunSoftTimeoutMs` lifts the hosted ceiling from
@@ -1090,6 +1094,7 @@ export function startRun(
   const run: StartedRun = {
     runId,
     threadId,
+    ...(options?.parentId !== undefined ? { parentId: options.parentId } : {}),
     turnId: options?.turnId ?? runId,
     events: [],
     status: "running",
@@ -1871,7 +1876,7 @@ export function startRun(
       return;
     }
 
-    emitRunEvent(runEvent);
+    void emitRunEvent(runEvent);
   };
 
   // Run in background — intentionally detached from any HTTP connection

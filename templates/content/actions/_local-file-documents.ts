@@ -444,7 +444,7 @@ function frontmatterLine(key: string, value: unknown) {
   if (typeof value === "boolean" || typeof value === "number") {
     return `${key}: ${String(value)}`;
   }
-  return `${key}: ${JSON.stringify(String(value))}`;
+  return `${key}: ${JSON.stringify(typeof value === "string" ? value : (JSON.stringify(value) ?? ""))}`;
 }
 
 function shouldAddMissingFrontmatterKey(

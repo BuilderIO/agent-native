@@ -7,6 +7,12 @@ import { z } from "zod";
 
 import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
+  buildGuardrailsText,
+  extractGuardrails,
+  readFactoryAutomationConfig,
+  stripInjectedAutomationBlocks,
+} from "../server/lib/factory-automation-config.js";
+import {
   DEFAULT_FACTORY_ID,
   factoryIdSchema,
   readAutomationFactoryId,
@@ -54,20 +60,47 @@ export default defineAction({
           appId: "factory",
           limit: 20,
         });
+        const config = readFactoryAutomationConfig(resource.content, name);
+        const prompt = stripInjectedAutomationBlocks(resource.content);
+        const factoryIdFromJob = readAutomationFactoryId(
+          meta,
+          resource.content,
+          resource.path,
+        );
         return {
           id: resource.id,
           name,
           displayName: resolveAutomationDisplayName(name, resource.content),
-          prompt: body,
-          body,
+          prompt,
+          body: prompt,
           model: meta.model ?? null,
           schedule: meta.schedule || null,
           enabled: meta.enabled,
           triggerType: meta.triggerType,
           event: meta.event ?? null,
-          timezone: meta.timezone ?? null,
+          timezone: config.timezone ?? meta.timezone ?? null,
           condition: meta.condition ?? null,
           createdBy: meta.createdBy ?? null,
+          source: config.source,
+          template: config.template,
+          slackWorkspace: config.slackWorkspace,
+          slackChannelId: config.slackChannelId,
+          slackChannelName: config.slackChannelName,
+          repository: config.repository,
+          sentryOrgSlug: config.sentryOrgSlug,
+          sentryProjectSlug: config.sentryProjectSlug,
+          sentryEnvironment: config.sentryEnvironment,
+          authorMode: config.authorMode,
+          authorIds: config.authorIds,
+          scheduleMode: config.scheduleMode,
+          intervalMinutes: config.intervalMinutes,
+          dailyHour: config.dailyHour,
+          dailyMinute: config.dailyMinute,
+          inboxLimit: config.inboxLimit,
+          workLimit: config.workLimit,
+          guardrails:
+            extractGuardrails(resource.content) ||
+            buildGuardrailsText(factoryIdFromJob, config),
           updatedAt:
             Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
               ? new Date(resource.updatedAt).toISOString()

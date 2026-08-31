@@ -38,7 +38,7 @@ export interface BuilderCmsReadProgress {
 
 export interface BuilderCmsEntryLiveState {
   exists: boolean;
-  published: "published" | "draft" | string | null;
+  published: "published" | "draft" | (string & {}) | null;
   lastUpdated: number | string | null;
   blocksHash: string | null;
   id: string | null;

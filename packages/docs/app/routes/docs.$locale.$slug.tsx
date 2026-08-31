@@ -3,6 +3,7 @@ import {
   redirect,
   useLoaderData,
   useParams,
+  type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
@@ -10,12 +11,13 @@ import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
   loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
   type DocEntry,
 } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
-  isDocsLocale,
+  docsLocaleFromSegment,
   type DocsLocale,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
@@ -24,7 +26,8 @@ import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 function requireLocale(value: unknown): DocsLocale {
-  if (isDocsLocale(value)) return value;
+  const locale = docsLocaleFromSegment(value);
+  if (locale) return locale;
   throw new Response("Not Found", { status: 404 });
 }
 
@@ -55,6 +58,11 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
     throw new Response("Not Found", { status: 404 });
   }
   return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
 }
 
 export const meta = ({

@@ -752,7 +752,7 @@ export function useChatThreads(
     if (fetchedRef.current) return;
     fetchedRef.current = true;
 
-    (async () => {
+    void (async () => {
       const loadedThreads = await fetchThreads();
       const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
@@ -1239,7 +1239,7 @@ export function useChatThreads(
         if (remaining.length > 0) {
           setActiveThreadId(remaining[0].id);
         } else {
-          createThread();
+          void createThread();
         }
       }
     },
@@ -1589,7 +1589,7 @@ export function useChatThreads(
   );
 
   const refreshThreads = useCallback(() => {
-    fetchThreads();
+    void fetchThreads();
   }, [fetchThreads]);
 
   return {

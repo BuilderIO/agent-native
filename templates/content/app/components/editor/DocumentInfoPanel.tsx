@@ -9,7 +9,7 @@ interface DocumentInfoPanelProps {
   databaseId?: string | null;
   databaseDocumentId?: string | null;
   canEdit: boolean;
-  onSaveDescription: (description: string) => Promise<unknown> | unknown;
+  onSaveDescription: (description: string) => Promise<unknown>;
 }
 
 export function DocumentInfoPanel({

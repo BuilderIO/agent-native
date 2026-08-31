@@ -454,9 +454,10 @@ export function mountMcpServersRoutes(
   mountedApps.add(nitroApp);
 
   mountMcpOAuthRoutes(nitroApp, {
-    reconfigure: async () => {
+    reconfigure: async ({ scope, scopeId, server }) => {
       await options.waitUntilReady?.();
       await reconfigureManager(manager);
+      return manager.hasServer(mergedConfigKey(scope, server, scopeId));
     },
   });
 

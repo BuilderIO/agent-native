@@ -970,7 +970,8 @@ function cardAttributeNode(
  */
 function SlaBadge({ sla }: { sla: ReturnType<typeof boardCardSla> }) {
   const t = useT();
-  const { formatNumber } = useFormatters();
+  const formatters = useFormatters();
+  const formatNumber = formatters.formatNumber.bind(formatters);
   if (sla.status === "not-tracked") return null;
   if (sla.status === "unknown") {
     return (

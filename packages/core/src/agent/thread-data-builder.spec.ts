@@ -37,6 +37,18 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("persists the resource scope used by the chat turn", () => {
+    const message = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Saved." } }],
+      "run-scoped",
+      { scope: { type: "deck", id: "deck-1" } },
+    );
+
+    expect(message?.metadata).toMatchObject({
+      custom: { chatScope: { type: "deck", id: "deck-1" } },
+    });
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
     // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
     // call that already ran in an interrupted chunk. The live client coalesces
@@ -986,6 +998,85 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("preserves an explicit root parent when appending an assistant message", () => {
+    const finalMessage = buildAssistantMessage(
+      [{ seq: 0, event: { type: "text", text: "Root answer." } }],
+      "run-root",
+    );
+    expect(finalMessage).not.toBeNull();
+
+    const updated = upsertAssistantMessage(
+      {
+        messages: [
+          {
+            id: "assistant-old",
+            role: "assistant",
+            content: [{ type: "text", text: "Old answer." }],
+            status: { type: "complete", reason: "stop" },
+          },
+        ],
+      },
+      finalMessage!,
+      null,
+    );
+
+    expect(updated.messages).toHaveLength(2);
+    expect(updated.messages[1].parentId).toBeNull();
+  });
+
+  it("keeps the prior answer when a regeneration targets the same user branch", () => {
+    const regenerated = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Regenerated answer." } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-regenerated",
+      { turnId: "turn-regenerated" },
+    );
+    expect(regenerated).not.toBeNull();
+
+    const updated = foldAssistantTurn(
+      {
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              content: [{ type: "text", text: "try again" }],
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "assistant-original",
+              role: "assistant",
+              content: [{ type: "text", text: "Original answer." }],
+              status: { type: "complete", reason: "stop" },
+            },
+            parentId: "user-1",
+          },
+        ],
+      },
+      regenerated!,
+      {
+        turnId: "turn-regenerated",
+        runId: "run-regenerated",
+        parentId: "user-1",
+      },
+    );
+
+    expect(updated.messages).toHaveLength(3);
+    expect(updated.messages[1].message.content).toEqual([
+      { type: "text", text: "Original answer." },
+    ]);
+    expect(updated.messages[2]).toMatchObject({
+      parentId: "user-1",
+      message: {
+        content: [{ type: "text", text: "Regenerated answer." }],
+      },
+    });
+  });
+
   it("does not replace a completed different-run answer with a prefix-matching recovery answer", () => {
     const finalMessage = buildAssistantMessage(
       [
@@ -1160,6 +1251,49 @@ describe("buildAssistantMessage", () => {
       "run-fold-tools-2:tc_1",
     ]);
     expect(new Set(toolCallIds).size).toBe(toolCallIds.length);
+  });
+});
+
+describe("buildUserMessage", () => {
+  it("persists display-only file and pasted-text chips without binary data", () => {
+    const message = buildUserMessage({
+      text: "make a deck from the reference",
+      runId: "run-attachments",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          displayOnly: true,
+        },
+        {
+          type: "file",
+          name: "pasted-text-1.txt",
+          contentType: "text/plain",
+          displayOnly: true,
+          text: "outline",
+        },
+      ],
+    });
+
+    expect(message.attachments).toEqual([
+      expect.objectContaining({
+        name: "reference.pdf",
+        content: [],
+        metadata: { displayOnly: true },
+      }),
+      expect.objectContaining({
+        name: "pasted-text-1.txt",
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("outline"),
+          },
+        ],
+        metadata: { displayOnly: true },
+      }),
+    ]);
+    expect(JSON.stringify(message.attachments)).not.toContain("data:");
   });
 });
 

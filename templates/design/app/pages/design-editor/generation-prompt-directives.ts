@@ -3,6 +3,9 @@ import type { TweakDefinition } from "@shared/api";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+const WEBSITE_STYLE_REFERENCE_DIRECTIVE =
+  "When the user asks to use or match a website's styling or branding and provides a URL, call `import-from-url` for each URL before generating or editing. Treat the returned design.md-style visual system as the source of truth for colors, typography, spacing, components, and imagery. If no URL is provided, ask for one instead of guessing the site's style from its name.";
+
 export function formatUploadedFileContext(files: UploadedFile[]): string {
   if (files.length === 0) return "";
 
@@ -125,6 +128,7 @@ export function designIntakeQuestionDirectives(
 ): string[] {
   return [
     `This is a new UI-started design for design id "${designId}". The design shell already exists - DO NOT call create-design.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
     "First, call `show-design-questions` with 4-6 tailored questions and then stop. Do NOT call generate-design or present-design-variants until the user submits or skips the questions.",
@@ -154,6 +158,7 @@ export function designVariantGenerationDirectives(
 ): string[] {
   return [
     `Use the \`present-design-variants --designId="${designId}"\` action first. The design already exists - DO NOT call create-design.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
     "Call `present-design-variants` with 2-5 concise directions (3 when unspecified). Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Every web design must be responsive; default each desktop direction to width 1440 and height 1024. Use mobile dimensions only when the user explicitly requested a mobile-first primary artboard.",
@@ -206,6 +211,7 @@ export function designGenerationDirectives(
 ): string[] {
   return [
     `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
     ...referenceImageDirectives(referenceImageCount),
     'If the user asked to explore variations, call `present-design-variants` with 2-5 concise directions. Prefer label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens. Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
@@ -222,6 +228,7 @@ export function designTemplateRefinementDirectives(
 ): string[] {
   return [
     `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
+    WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemTemplateEditDirectives(designSystemId),
     `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
     `The copied screens are edited in place, so they stop showing the template once this run saves. \`view-screen\` reports the template's authoritative dimensions and fonts as \`design.createdFromTemplate\` on every turn — keep them unchanged. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,

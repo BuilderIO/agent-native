@@ -163,7 +163,13 @@ function isColumnEditable<Row>(column: DataGridColumn<Row>, row: Row) {
 }
 
 function defaultCellText(value: unknown) {
-  return value == null ? "" : String(value);
+  return value == null
+    ? ""
+    : typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ? String(value)
+      : JSON.stringify(value);
 }
 
 function loadingRows<Row>({

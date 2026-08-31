@@ -1,6 +1,9 @@
 import {
   AgentSidebar,
+  isAssistantChatHistoryVersion,
   useGuidedQuestionFlow,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
@@ -108,6 +111,34 @@ export function Layout({ children }: LayoutProps) {
     if (!designId) return null;
     return { type: "design" as const, id: designId };
   }, [location.pathname]);
+  const designChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!designScope) return undefined;
+    const designId = designScope.id;
+    return {
+      list: {
+        action: "list-design-versions",
+        args: { designId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-design-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          designId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [designScope]);
   const designQuestionStateKey = designScope
     ? `show-questions:${designScope.id}`
     : "show-questions";
@@ -188,6 +219,7 @@ export function Layout({ children }: LayoutProps) {
             t("chat.suggestionMobile"),
           ]}
           scope={designScope}
+          chatHistory={designChatHistory}
           showScopeBadge={false}
           browserTabId={browserTabId}
           threadFooterSlot={designQuestionsWaitingSlot}

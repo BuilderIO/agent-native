@@ -81,7 +81,7 @@ export function useSlots(opts: UseSlotsOpts): UseSlotsResult {
   ]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const refetch = useCallback(() => setTick((t) => t + 1), []);

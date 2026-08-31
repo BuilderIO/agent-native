@@ -9,6 +9,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
+  resolveAccess: vi.fn(async () => ({ role: "owner" })),
 }));
 
 vi.mock("@agent-native/creative-context/server", () => ({
@@ -54,6 +55,12 @@ vi.mock("../server/db/index.js", () => ({
       id: "presets.id",
       libraryId: "presets.library_id",
     },
+    assetTemplates: {
+      id: "templates.id",
+      libraryId: "templates.library_id",
+    },
+    assetTemplateShares: {},
+    assetLibraryShares: {},
     assetGenerationSessions: {
       id: "sessions.id",
       presetId: "sessions.preset_id",
@@ -66,6 +73,7 @@ vi.mock("../server/db/index.js", () => ({
     assetGenerationRuns: {
       id: "runs.id",
       libraryId: "runs.library_id",
+      presetId: "runs.preset_id",
     },
   },
 }));
@@ -135,7 +143,22 @@ describe("generation preset/session constraints", () => {
     getDbMock.mockReturnValue(db);
 
     await expect(deletePresetAction.run({ id: "preset-1" })).rejects.toThrow(
-      /handoff session/,
+      /template-in-use/,
+    );
+
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
+  it("blocks deleting a template referenced by a generation run", async () => {
+    const db = createDb([
+      [{ id: "template-1", libraryId: "lib-1" }],
+      [],
+      [{ id: "run-1" }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(deletePresetAction.run({ id: "template-1" })).rejects.toThrow(
+      /template-in-use/,
     );
 
     expect(db.delete).not.toHaveBeenCalled();

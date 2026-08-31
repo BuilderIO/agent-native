@@ -163,6 +163,7 @@ describe("open-visual-edit", () => {
         designId: "design_1",
         connectionId: "localhost_canonical",
       }),
+      undefined,
     );
     expect(mocks.writeAppState).toHaveBeenCalledWith(
       "visual-edit",

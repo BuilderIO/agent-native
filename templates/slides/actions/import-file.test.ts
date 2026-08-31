@@ -195,6 +195,48 @@ beforeEach(() => {
 });
 
 describe("import-file PDF source extraction", () => {
+  it("reopens a private raster reference as a vision tool result", async () => {
+    const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: image,
+      filename: "reference.png",
+    });
+
+    const result = (await action.run({
+      filePath: "private-reference.png",
+      format: "image",
+    })) as any;
+
+    expect(result).toMatchObject({
+      format: "image",
+      filename: "reference.png",
+      contentType: "image/png",
+      byteLength: image.length,
+      deckId: undefined,
+      _agentImages: [
+        {
+          data: image.toString("base64"),
+          mediaType: "image/png",
+          label: "reference.png",
+        },
+      ],
+    });
+  });
+
+  it("fails clearly when a private raster exceeds the vision tool limit", async () => {
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.alloc(1_500_001),
+      filename: "large-reference.png",
+    });
+
+    await expect(
+      action.run({
+        filePath: "large-reference.png",
+        format: "image",
+      }),
+    ).rejects.toThrow("vision tool limit");
+  });
+
   it("returns full page text, not only previews", async () => {
     const fullText = "A".repeat(650);
     mockPdfText.mockResolvedValue({
@@ -299,7 +341,7 @@ describe("import-file PDF source extraction", () => {
         elements: [{ kind: "text", content: "Source title" }],
       },
     ]);
-    const updateWhere = vi.fn().mockResolvedValue([]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
     const db = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -308,6 +350,7 @@ describe("import-file PDF source extraction", () => {
               {
                 id: "deck-1",
                 title: "Imported deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
                 data: JSON.stringify({ slides: [] }),
               },
             ]),
@@ -384,7 +427,7 @@ describe("import-file PDF source extraction", () => {
         elements: [{ kind: "image" }],
       },
     ]);
-    const updateWhere = vi.fn().mockResolvedValue([]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
     const db = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -393,6 +436,7 @@ describe("import-file PDF source extraction", () => {
               {
                 id: "deck-1",
                 title: "Scanned deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
                 data: JSON.stringify({ slides: [] }),
               },
             ]),
@@ -436,7 +480,7 @@ describe("import-file PDF source extraction", () => {
         elements: [{ kind: "image" }],
       },
     ]);
-    const updateWhere = vi.fn().mockResolvedValue([]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
     const db = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -445,6 +489,7 @@ describe("import-file PDF source extraction", () => {
               {
                 id: "deck-1",
                 title: "4:3 deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
                 data: JSON.stringify({ slides: [] }),
               },
             ]),
@@ -484,7 +529,7 @@ describe("import-file PDF source extraction", () => {
         elements: [{ kind: "text", content: "Appended source page" }],
       },
     ]);
-    const updateWhere = vi.fn().mockResolvedValue([]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
     const db = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -493,6 +538,7 @@ describe("import-file PDF source extraction", () => {
               {
                 id: "deck-1",
                 title: "Existing deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
                 data: JSON.stringify({
                   slides: [{ id: "existing", content: "Existing" }],
                 }),
@@ -553,7 +599,7 @@ describe("import-file PDF source extraction", () => {
       imageSkippedCount: 0,
     });
     mockConvertToSlideHtml.mockReturnValue("<div>Slide one</div>");
-    const updateWhere = vi.fn().mockResolvedValue([]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
     const db = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
@@ -562,6 +608,7 @@ describe("import-file PDF source extraction", () => {
               {
                 id: "deck-1",
                 title: "Themed deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
                 data: JSON.stringify({
                   slides: existingSlides,
                   ...existingData,

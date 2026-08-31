@@ -62,6 +62,7 @@ import type {
   ReactionHandlerResult,
   ReactionSummary,
 } from "./reactions-tray";
+import { timelineMarkerMs } from "./scrubber-position";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -396,6 +397,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [showControls, setShowControls] = useState(true);
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
+    const [markerLanes, setMarkerLanes] = useState<Map<number, number>>(
+      new Map(),
+    );
     const [isFullscreen, setIsFullscreen] = useState(false);
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
@@ -492,6 +496,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   id: comment.id,
                   content: comment.content,
+                  authorEmail: comment.authorEmail,
+                  authorName: comment.authorName,
                   videoTimestampMs: editedMs,
                 },
               ];
@@ -1121,6 +1127,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
         onSeek?.(visibleMs);
       },
       [
@@ -1208,6 +1215,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         );
         v.currentTime = visibleMs / 1000;
         setCurrentMs(visibleMs);
+        if (visibleMs > 0) setHasPlaybackStarted(true);
       }
     }, [
       activeVideoSrc,
@@ -1969,7 +1977,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             aria-hidden="true"
             onError={() => setThumbnailLoadFailed(true)}
             className={cn(
-              "pointer-events-none absolute inset-0 z-[1] h-full w-full",
+              "pointer-events-none absolute inset-0 h-full w-full",
               cover ? "object-cover" : "object-contain",
             )}
           />
@@ -2008,18 +2016,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : null}
 
         {/* Timestamped comments */}
-        {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
+        {!hideChrome && !isLoomEmbed && hasPlaybackStarted && !showEndCta ? (
           <PlaybackCommentOverlay
             comments={comments}
             currentMs={currentMs}
             playbackRate={speed}
+            durationMs={scrubberTimeline.durationMs}
+            getTimelinePositionMs={(comment) =>
+              isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits)
+            }
+            getTimelineLane={(comment) => {
+              const editedMs = isExcluded(comment.videoTimestampMs, edits)
+                ? null
+                : originalToEdited(comment.videoTimestampMs, edits);
+              if (editedMs === null) return null;
+              return markerLanes.get(timelineMarkerMs(editedMs)) ?? 0;
+            }}
             onClick={onCommentClick}
           />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}
         {showThroughoutCta ? (
-          <div data-player-ui className="absolute bottom-16 right-4 z-30">
+          <div data-player-ui className="absolute bottom-16 right-4 z-50">
             <CtaButton
               cta={cta!}
               onClick={() => onCtaClick?.(cta!.id)}
@@ -2032,7 +2053,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {showEndCta ? (
           <div
             data-player-ui
+            data-player-end-cta
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            style={{ zIndex: 60 }}
           >
             <div className="flex flex-col items-center gap-4 text-white">
               <p className="text-lg font-medium">{t("videoPlayer.thanks")}</p>
@@ -2070,7 +2093,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {!hideChrome && !isLoomEmbed ? (
           <div
             className={cn(
-              "absolute inset-x-0 bottom-0 z-20 opacity-100 transition-opacity duration-200",
+              "absolute inset-x-0 bottom-0 opacity-100 transition-opacity duration-200",
               controlsVisible ? "" : "sm:opacity-0 sm:pointer-events-none",
             )}
           >
@@ -2088,6 +2111,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               comments={scrubberTimeline.comments}
               chapters={scrubberTimeline.chapters}
               reactions={scrubberTimeline.reactions}
+              onMarkerLanesChange={setMarkerLanes}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 togglePlayback();
