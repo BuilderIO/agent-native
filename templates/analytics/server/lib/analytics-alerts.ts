@@ -143,6 +143,7 @@ const DEFAULT_AGENT_CHAT_STUCK_ALERT_THRESHOLD = 3;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_WINDOW_MINUTES = 10;
 const DEFAULT_AGENT_CHAT_STUCK_ALERT_COOLDOWN_MINUTES = 60;
 const DEFAULT_ALERT_SCOPE_PAGE_SIZE = 500;
+const BIGQUERY_ALERT_PAGE_SIZE = 5_000;
 const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -976,27 +977,33 @@ export function buildBigQueryAlertQuery(
   >,
   windowStart: string,
   windowEnd: string,
+  cursor?: { timestamp: string; id: string },
 ): string {
   const predicates = [
     `event_date >= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowStart)}))`,
     `event_date <= DATE(TIMESTAMP(${bigQuerySqlLiteral(windowEnd)}))`,
     `timestamp >= TIMESTAMP(${bigQuerySqlLiteral(windowStart)})`,
     `timestamp <= TIMESTAMP(${bigQuerySqlLiteral(windowEnd)})`,
+    ...(cursor
+      ? [
+          `(timestamp < TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) OR (timestamp = TIMESTAMP(${bigQuerySqlLiteral(cursor.timestamp)}) AND id < ${bigQuerySqlLiteral(cursor.id)}))`,
+        ]
+      : []),
     rule.orgId
       ? `org_id = ${bigQuerySqlLiteral(rule.orgId)}`
       : `(org_id IS NULL AND LOWER(owner_email) = LOWER(${bigQuerySqlLiteral(rule.ownerEmail)}))`,
     ...(rule.eventName
       ? [`event_name = ${bigQuerySqlLiteral(rule.eventName)}`]
       : []),
-    // Ambiguous JSON filters stay in evaluateAnalyticsAlertRuleRows; the total
-    // row marker below prevents the shared query cap from evaluating a partial set.
+    // Ambiguous JSON filters stay in evaluateAnalyticsAlertRuleRows. The caller
+    // paginates this ordered candidate query before evaluating those filters.
     ...rule.filters.flatMap((filter) => {
       const predicate = bigQueryAlertFilterSql(filter);
       return predicate ? [predicate] : [];
     }),
   ];
 
-  return `SELECT *, COUNT(*) OVER() AS __analytics_alert_total_rows FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
+  return `SELECT * FROM analytics_events WHERE ${predicates.join(" AND ")} ORDER BY timestamp DESC, id DESC`;
 }
 
 function bigQuerySqlLiteral(value: string): string {
@@ -1078,10 +1085,8 @@ function bigQueryAlertFilterSql(filter: AnalyticsAlertFilter): string | null {
   }
   const op = filter.op ?? "equals";
   if (op === "exists") {
-    const jsonPath = bigQueryAlertJsonPath(filter.field.trim());
-    const existsExpression = jsonPath
-      ? `COALESCE(NULLIF(JSON_VALUE(${jsonPath.column}, ${bigQuerySqlLiteral(jsonPath.path)}), ''), NULLIF(JSON_QUERY(${jsonPath.column}, ${bigQuerySqlLiteral(jsonPath.path)}), '""'))`
-      : `NULLIF(${expression}, '')`;
+    if (bigQueryAlertJsonPath(filter.field.trim())) return null;
+    const existsExpression = `NULLIF(${expression}, '')`;
     return filter.value === false
       ? `${existsExpression} IS NULL`
       : `${existsExpression} IS NOT NULL`;
@@ -1165,21 +1170,23 @@ async function loadCandidateEvents(
         ...(rule.orgId ? { orgId: rule.orgId } : {}),
       },
       async () => {
-        const result = await queryFirstPartyAnalytics(
-          buildBigQueryAlertQuery(rule, windowStart, windowEnd),
-          { userEmail: rule.ownerEmail, orgId: rule.orgId },
-        );
-        const totalRows = result.rows[0]?.__analytics_alert_total_rows;
-        if (
-          result.truncated ||
-          (result.rows.length > 0 &&
-            (typeof totalRows !== "number" || totalRows !== result.rows.length))
-        ) {
-          throw new Error(
-            `BigQuery alert evaluation for rule ${rule.id} returned truncated results; refusing to evaluate partial data`,
+        const rows: AnalyticsAlertEventRow[] = [];
+        let cursor: { timestamp: string; id: string } | undefined;
+        while (true) {
+          const result = await queryFirstPartyAnalytics(
+            buildBigQueryAlertQuery(rule, windowStart, windowEnd, cursor),
+            { userEmail: rule.ownerEmail, orgId: rule.orgId },
           );
+          const page = result.rows.map(normalizeBigQueryAlertEventRow);
+          rows.push(...page);
+          if (!page.length) break;
+          if (!result.truncated && page.length < BIGQUERY_ALERT_PAGE_SIZE) {
+            break;
+          }
+          const last = page[page.length - 1]!;
+          cursor = { timestamp: last.timestamp, id: last.id };
         }
-        return result.rows.map(normalizeBigQueryAlertEventRow);
+        return rows;
       },
     );
   }

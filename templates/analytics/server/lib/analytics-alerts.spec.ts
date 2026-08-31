@@ -265,7 +265,6 @@ describe("analytics alert evaluation", () => {
             deployment_environment: "production",
           }),
           context: "{}",
-          __analytics_alert_total_rows: 1,
         },
       ],
       schema: [],
@@ -374,7 +373,7 @@ describe("analytics alert evaluation", () => {
     );
 
     expect(query).toContain("user_id IS NULL");
-    expect(query).toContain("JSON_QUERY(properties, '$.tags')");
+    expect(query).not.toContain("JSON_VALUE(properties, '$.tags')");
     expect(query).not.toContain("JSON_VALUE(properties, '$.status')");
   });
 
@@ -414,44 +413,73 @@ describe("analytics alert evaluation", () => {
     ).toThrow("unsupported field");
   });
 
-  it("fails loudly when BigQuery returns truncated alert results", async () => {
+  it("paginates BigQuery alert candidates before evaluating deferred filters", async () => {
     backendMocks.get.mockResolvedValue({ sink: "bigquery", table: null });
-    firstPartyMocks.query.mockResolvedValue({
-      rows: [{ __analytics_alert_total_rows: 5001 }],
-      schema: [],
+    const page = Array.from({ length: 5_000 }, (_, index) => ({
+      id: `evt-${index}`,
+      event_name: "agent_run_terminal",
+      timestamp: "2026-08-31T12:00:00.000Z",
+      properties: "{}",
+      context: "{}",
+    }));
+    firstPartyMocks.query
+      .mockResolvedValueOnce({ rows: page, schema: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "evt-final",
+            event_name: "agent_run_terminal",
+            timestamp: "2026-08-31T11:59:59.000Z",
+            properties: JSON.stringify({ status: "errored" }),
+            context: "{}",
+          },
+        ],
+        schema: [],
+      });
+    dbMocks.getDb.mockReturnValue({
+      update: () => ({
+        set: () => ({ where: async () => undefined }),
+      }),
     });
 
-    await expect(
-      evaluateAndNotifyAnalyticsAlertRule(
-        {
-          id: "rule-1",
-          name: "Production chat errors",
-          description: "",
-          eventName: "agent_run_terminal",
-          filters: [],
-          thresholdMode: "event_count",
-          distinctBy: null,
-          threshold: 1,
-          windowMinutes: 10,
-          cooldownMinutes: 60,
-          severity: "critical",
-          channels: ["inbox"],
-          emailRecipients: [],
-          slackWebhookUrl: null,
-          webhookUrl: null,
-          enabled: true,
-          lastEvaluatedAt: null,
-          lastTriggeredAt: null,
-          lastStatus: null,
-          lastError: null,
-          createdAt: "2026-08-31T12:00:00.000Z",
-          updatedAt: "2026-08-31T12:00:00.000Z",
-          ownerEmail: "owner@example.test",
-          orgId: "org-1",
-        },
-        new Date("2026-08-31T12:05:00.000Z"),
-      ),
-    ).rejects.toThrow("refusing to evaluate partial data");
+    const result = await evaluateAndNotifyAnalyticsAlertRule(
+      {
+        id: "rule-1",
+        name: "Production chat errors",
+        description: "",
+        eventName: "agent_run_terminal",
+        filters: [
+          { field: "properties.status", op: "contains", value: "errored" },
+        ],
+        thresholdMode: "event_count",
+        distinctBy: null,
+        threshold: 2,
+        windowMinutes: 10,
+        cooldownMinutes: 60,
+        severity: "critical",
+        channels: ["inbox"],
+        emailRecipients: [],
+        slackWebhookUrl: null,
+        webhookUrl: null,
+        enabled: true,
+        lastEvaluatedAt: null,
+        lastTriggeredAt: null,
+        lastStatus: null,
+        lastError: null,
+        createdAt: "2026-08-31T12:00:00.000Z",
+        updatedAt: "2026-08-31T12:00:00.000Z",
+        ownerEmail: "owner@example.test",
+        orgId: "org-1",
+      },
+      new Date("2026-08-31T12:05:00.000Z"),
+    );
+
+    expect(result.status).toBe("ok");
+    expect(result.observedValue).toBe(1);
+    expect(firstPartyMocks.query).toHaveBeenCalledTimes(2);
+    expect(firstPartyMocks.query.mock.calls[1]?.[0]).toContain(
+      "id < 'evt-4999'",
+    );
   });
 
   it("keeps sweep ordering fair instead of cycling only recently evaluated rules", () => {
