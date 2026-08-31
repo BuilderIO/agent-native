@@ -49,13 +49,10 @@ export function runMirrorSelectionToAgentChat({
   }
 
   const selectionId = `${activeFile?.id ?? ""}::${selectedElement.sourceId ?? selectedElement.selector}`;
-  // Computed up front (it only reads selectedCodeLayerNode/activeProjectionContent,
-  // both already available) so the "same selection" branch below can compare
-  // it against what was last mirrored, instead of only comparing identity.
-  // Excerpt the outerHTML out of the SOURCE projection rather than the
-  // rendered DOM: this is the exact text edit-design's search/replace has
-  // to match, so an edit anchored to it cannot drift onto a child or
-  // sibling that merely measures the same on canvas.
+  // Excerpted from the SOURCE projection, not the rendered DOM: this is the
+  // exact text edit-design's search/replace has to match, and it lets us
+  // detect when a still-selected node's own markup has changed (e.g. via a
+  // live inspector edit) so stale reference context doesn't linger unsent.
   const selectedNodeSpan = selectedCodeLayerNode?.source;
   const outerHtmlExcerpt = selectedNodeSpan
     ? nodeRepromptSubtreeExcerpt(
@@ -67,33 +64,22 @@ export function runMirrorSelectionToAgentChat({
     : "";
 
   if (selectionId !== mirroredSelectionIdRef.current) {
-    // A genuinely new/changed selection always (re)attaches, regardless of
-    // whether the previous one was marked sent.
     sentSelectionIdRef.current = null;
   } else if (
     sentSelectionIdRef.current === selectionId ||
     !composerContextHasOurKeyRef.current
   ) {
-    // Same selection as before, and either it was already marked sent, or
-    // the shared store no longer carries our key (a send just cleared it,
-    // observed by the bookkeeping effect below) — stay cleared. Critically:
-    // do nothing else here, so this branch never calls
-    // setAgentChatContextItem for a selection that hasn't changed.
+    // A selection that's already been sent must not be resurrected once the
+    // composer clears it, or every re-render would re-attach the same chip.
     if (!composerContextHasOurKeyRef.current) {
       sentSelectionIdRef.current = selectionId;
     }
     return;
   } else if (outerHtmlExcerpt === mirroredExcerptRef.current) {
-    // Same selection, still unsent and present in the shared store, AND the
-    // markup we'd mirror hasn't changed since last time — avoid republishing
-    // (and thus avoid the feedback loop above) when nothing actually changed.
+    // Nothing changed since the last mirror — avoid republishing (and the
+    // feedback loop that would cause) for no reason.
     return;
   }
-  // Falls through here either for a new selection, or for the SAME
-  // unsent selection whose underlying markup changed (e.g. a live inspector
-  // edit to the still-selected node) — the structural-reference directive
-  // promises the agent literal values read from this markup, so stale markup
-  // sitting unsent in the composer must be refreshed before it can be sent.
   mirroredSelectionIdRef.current = selectionId;
   mirroredExcerptRef.current = outerHtmlExcerpt;
 
@@ -128,11 +114,9 @@ export function runMirrorSelectionToAgentChat({
     selectedElement.textContent?.trim()
       ? `Text: ${selectedElement.textContent.trim()}`
       : "",
-    // Whether this selection is a "reference" is a call the agent makes from
-    // the user's next message, not something the client pre-decides — a
-    // client-side keyword guess would both miss real phrasings ("build off
-    // this", "keep the same vibe") and misfire on ordinary edits that happen
-    // to say "this".
+    // Whether this selection is a "reference" is left to the agent to infer
+    // from the user's message — a client-side keyword guess would miss real
+    // phrasings and misfire on ordinary edits.
     ...structuralReferenceDirectives(shortLabel),
     outerHtmlExcerpt
       ? `--- selected element (outerHTML excerpt, truncated) ---\n${outerHtmlExcerpt}`
@@ -144,10 +128,8 @@ export function runMirrorSelectionToAgentChat({
     title: shortLabel,
     context: contextLines.join("\n"),
     openSidebar: false,
-    // Mirror the selection into chat context without stealing focus: this
-    // effect re-fires on every selection change and on each get-design poll
-    // during an agent run, and focusing the composer here would blur (and
-    // tear down) an in-progress inline text edit on the canvas.
+    // Focusing here would blur (and tear down) an in-progress inline text
+    // edit on the canvas.
     focus: false,
   });
   composerContextHasOurKeyRef.current = true;

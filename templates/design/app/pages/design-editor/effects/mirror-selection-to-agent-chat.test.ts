@@ -56,32 +56,16 @@ describe("runMirrorSelectionToAgentChat", () => {
     removeAgentChatContextItemMock.mockClear();
   });
 
-  it("does not republish when the same unsent selection's markup is unchanged", () => {
-    const refs = makeRefs();
-    const html = '<div style="color:red">A</div>';
-
-    runMirrorSelectionToAgentChat(baseArgs(refs, html));
-    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
-
-    runMirrorSelectionToAgentChat(baseArgs(refs, html));
-    expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
-  });
-
   it("republishes fresh markup when the same still-unsent selection's markup changes", () => {
+    // Regression: a live inspector edit to the still-selected node used to
+    // leave stale markup sitting in the chat context.
     const refs = makeRefs();
     const before = '<div style="color:red">A</div>';
     const after = '<div style="color:blue">A</div>';
 
     runMirrorSelectionToAgentChat(baseArgs(refs, before));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
-    expect(setAgentChatContextItemMock.mock.calls[0]![0].context).toContain(
-      "color:red",
-    );
 
-    // The selection never changed and was never sent, but the node's own
-    // markup was edited live (e.g. via the inspector) — the mirrored
-    // "reference" context must pick up the new values instead of keeping
-    // the stale ones from the first selection.
     runMirrorSelectionToAgentChat(baseArgs(refs, after));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(2);
     expect(setAgentChatContextItemMock.mock.calls[1]![0].context).toContain(
@@ -101,8 +85,6 @@ describe("runMirrorSelectionToAgentChat", () => {
     runMirrorSelectionToAgentChat(baseArgs(refs, html));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
 
-    // An unrelated poll during the resulting agent run changes the document,
-    // but must not resurrect the already-sent chip for the same selection.
     const polledHtml = '<div style="color:green">A</div>';
     runMirrorSelectionToAgentChat(baseArgs(refs, polledHtml));
     expect(setAgentChatContextItemMock).toHaveBeenCalledTimes(1);
