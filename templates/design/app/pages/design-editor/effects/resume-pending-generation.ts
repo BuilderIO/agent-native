@@ -22,7 +22,7 @@ import {
 } from "@/pages/design-editor/generation-prompt-directives";
 import {
   allIntakeTopicsCovered,
-  loadIntakeContext,
+  loadIntakeContextFromAppState,
 } from "@/pages/design-editor/intake-question-topics";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
@@ -120,7 +120,7 @@ export function runResumePendingGeneration({
       loadDesignSystemGenerationContext(pendingDesignSystemId),
       usesTemplate || shouldExploreVariants
         ? Promise.resolve(null)
-        : loadIntakeContext(await readCreativeContextState()),
+        : loadIntakeContextFromAppState(readCreativeContextState),
     ]);
     if (cancelled) return;
     const shouldSkipQuestions =
@@ -152,7 +152,8 @@ export function runResumePendingGeneration({
                   pendingDesignSystemId,
                   images.length,
                 ),
-                ...(intake?.precedent.status === "strong"
+                ...(intake?.explicitContext &&
+                intake.precedent.status === "strong"
                   ? designPrecedentDirectives(
                       intake.precedent.contextId,
                       intake.precedent.matches,

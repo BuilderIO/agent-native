@@ -707,7 +707,7 @@ import {
 } from "./design-editor/html-layer-positioning";
 import {
   allIntakeTopicsCovered,
-  loadIntakeContext,
+  loadIntakeContextFromAppState,
 } from "./design-editor/intake-question-topics";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
@@ -20933,7 +20933,7 @@ function DesignEditor() {
             ? null
             : await (async () => {
                 await creativeContextPersistRef.current?.catch(() => {});
-                return loadIntakeContext(await readCreativeContextState());
+                return loadIntakeContextFromAppState(readCreativeContextState);
               })();
           const shouldSkipQuestions =
             shouldExploreVariants ||
@@ -20950,7 +20950,8 @@ function DesignEditor() {
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(id, designSystemId),
-                    ...(intake?.precedent.status === "strong"
+                    ...(intake?.explicitContext &&
+                    intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
                           intake.precedent.contextId,
                           intake.precedent.matches,
