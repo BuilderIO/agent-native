@@ -3378,6 +3378,15 @@ export function App({
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    if (recordingStopFinalizingRef.current) {
+      console.warn(
+        "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
+      );
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      return null;
+    }
     if (
       (recorder || recordingFlowGateRef.current) &&
       !options?.ignoreActiveRecorder
@@ -3743,6 +3752,17 @@ export function App({
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
       emit("clips:countdown-cancel").catch(() => {});
+      return;
+    }
+    if (recordingStopFinalizingRef.current) {
+      // The shortcut's start call below passes `ignoreActiveRecorder: true`
+      // (it intentionally bypasses the recorder/gate check so a restart can
+      // reuse it), which would otherwise let it start a new native capture
+      // while the previous one is still finalizing.
+      setRecError(
+        "Still finishing the last recording. Wait a moment, then try again.",
+      );
+      invoke("show_popover").catch(() => {});
       return;
     }
 
@@ -4555,14 +4575,20 @@ export function App({
         {!isRecording ? (
           <button
             className="primary start"
-            disabled={recordingReadinessPending}
-            aria-busy={recordingReadinessPending}
+            disabled={recordingReadinessPending || recordingStopFinalizing}
+            aria-busy={recordingReadinessPending || recordingStopFinalizing}
             aria-label={
-              recordingReadinessPending ? "Start recording" : undefined
+              recordingStopFinalizing
+                ? "Finishing last recording..."
+                : recordingReadinessPending
+                  ? "Start recording"
+                  : undefined
             }
             onClick={() => beginRecording()}
           >
-            {recordingReadinessPending ? (
+            {recordingStopFinalizing ? (
+              "Finishing last recording..."
+            ) : recordingReadinessPending ? (
               <span
                 aria-hidden="true"
                 className="skeleton-shimmer inline-block h-4 w-32 rounded bg-muted"

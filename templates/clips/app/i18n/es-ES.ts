@@ -1567,6 +1567,15 @@ const messages = {
       "Abre Clips desde la barra de menús para reintentar esta carga guardada; no hace falta grabar de nuevo.",
     removeFailedClip: "Eliminar este clip fallido.",
     remove: "Eliminar",
+    statusStalled: "estancado",
+    uploadAtRisk: "Está tardando más de lo habitual",
+    uploadAtRiskDetail:
+      "Seguimos intentando guardar este clip. Esto puede tardar unos minutos.",
+    retry: "Reintentar",
+    retrying: "Reintentando…",
+    retryFailed: "No se pudo reintentar esta subida.",
+    retryUnavailableHere:
+      "Reintentar solo está disponible en el dispositivo o navegador donde se grabó esto.",
     viewsCount: "{{count}} visualizaciones",
     recordingMenu: "Menú de grabación",
     moveToFolder: "Mover a carpeta",

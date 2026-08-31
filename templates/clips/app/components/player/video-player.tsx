@@ -1977,7 +1977,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             aria-hidden="true"
             onError={() => setThumbnailLoadFailed(true)}
             className={cn(
-              "pointer-events-none absolute inset-0 z-[1] h-full w-full",
+              "pointer-events-none absolute inset-0 h-full w-full",
               cover ? "object-cover" : "object-contain",
             )}
           />

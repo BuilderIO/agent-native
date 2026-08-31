@@ -105,6 +105,7 @@ import {
 } from "./google-oauth-credentials.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import { getConfiguredOriginAllowlist } from "./origin-allowlist.js";
 import {
   getRequestContext,
   hasContinuationLocalRequestContext,
@@ -1762,6 +1763,7 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
+    trustedOrigins: [...getConfiguredOriginAllowlist()],
     // Auth schema relations are intentionally not registered here. Keep the
     // experimental relational-query path off so a bundled Drizzle adapter
     // cannot recurse while resolving a session or account join.
@@ -1831,6 +1833,17 @@ async function createBetterAuthInstance(
           disableClickTracking: true,
           templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
         });
+      },
+    },
+    user: {
+      additionalFields: {
+        // Keep this internal profile field in Better Auth's adapter reads and
+        // writes without exposing it as a client-controlled auth field.
+        onboardingRole: {
+          type: "string",
+          required: false,
+          input: false,
+        },
       },
     },
     socialProviders,

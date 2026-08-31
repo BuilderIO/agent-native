@@ -2,6 +2,46 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RecorderEngine } from "./recorder-engine";
 
+describe("RecorderEngine recovery backup cleanup", () => {
+  it("retains local recovery data until the server confirms ready", () => {
+    const engine = new RecorderEngine({
+      recordingId: "rec-1",
+      mode: "screen",
+    });
+    const localChunk = new Blob(["recording"]);
+    const finalizeMeta = {
+      durationMs: 1_000,
+      dimensions: { width: 1280, height: 720 },
+      hasAudio: true,
+      hasCamera: false,
+    };
+    const clearRecordingBackup = vi.fn();
+    const internals = engine as unknown as {
+      localChunks: Blob[];
+      lastFinalizeMeta: typeof finalizeMeta | null;
+      clearRecordingBackup: () => void;
+      clearRecordingDataIfReady: (
+        result: Record<string, unknown> | undefined,
+      ) => void;
+    };
+    internals.localChunks = [localChunk];
+    internals.lastFinalizeMeta = finalizeMeta;
+    internals.clearRecordingBackup = clearRecordingBackup;
+
+    internals.clearRecordingDataIfReady({ status: "processing" });
+
+    expect(internals.localChunks).toEqual([localChunk]);
+    expect(internals.lastFinalizeMeta).toBe(finalizeMeta);
+    expect(clearRecordingBackup).not.toHaveBeenCalled();
+
+    internals.clearRecordingDataIfReady({ status: "ready" });
+
+    expect(internals.localChunks).toEqual([]);
+    expect(internals.lastFinalizeMeta).toBeNull();
+    expect(clearRecordingBackup).toHaveBeenCalledOnce();
+  });
+});
+
 describe("RecorderEngine upload generation fencing", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

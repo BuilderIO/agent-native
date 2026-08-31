@@ -311,9 +311,134 @@ describe("buildChatModelGroups", () => {
     expect(groups).toEqual([
       {
         engine: "builder",
-        label: "Builder.io Gateway",
+        label: "Claude",
         models: ["claude-sonnet-5"],
         configured: true,
+      },
+    ]);
+  });
+
+  it("offers the Builder models on the gateway lane, with no connect step", () => {
+    const groups = buildChatModelGroups({
+      // A Fusion preview / Builder-credits deploy: `/builder/status` answers for
+      // the identity lane only, so `builderConnected` is false here.
+      builderConnected: false,
+      currentEngineName: "anthropic",
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: [
+            "auto",
+            "gpt-5-6-luna",
+            "claude-opus-4-8",
+            "gemini-3-1-pro",
+          ],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configured: true,
+        },
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          configured: false,
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "builder",
+        label: "OpenAI",
+        models: ["gpt-5-6-luna"],
+        configured: true,
+      },
+      {
+        engine: "builder",
+        label: "Claude",
+        models: ["claude-opus-4-8"],
+        configured: true,
+      },
+      {
+        engine: "builder",
+        label: "Gemini",
+        models: ["gemini-3-1-pro"],
+        configured: true,
+      },
+      { engine: "builder", label: "More", models: ["auto"], configured: true },
+    ]);
+  });
+
+  it("keeps a provider key the customer pasted selectable next to the gateway", () => {
+    const groups = buildChatModelGroups({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configured: true,
+        },
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+          configured: true,
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-5.6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+          configured: false,
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "builder",
+        label: "OpenAI",
+        models: ["gpt-5-6-luna"],
+        configured: true,
+      },
+      {
+        engine: "anthropic",
+        label: "Claude",
+        models: ["claude-sonnet-5"],
+        configured: true,
+      },
+    ]);
+  });
+
+  it("leaves the picker untouched when the server could not resolve readiness", () => {
+    const groups = buildChatModelGroups({
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-5-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configuredError: "settings store unavailable",
+        },
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "anthropic",
+        label: "Claude",
+        models: ["claude-sonnet-5"],
+        configured: false,
       },
     ]);
   });

@@ -57,6 +57,7 @@ import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
+  CreativeContextShareSheet,
   CreativeContextShareTab,
   parseCreativeContexts,
   useCreativeContexts,
@@ -105,6 +106,7 @@ import {
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import type { LayoutGrid } from "@shared/layout-grid";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
@@ -159,6 +161,7 @@ import {
   IconTemplate,
   IconAdjustmentsHorizontal,
   IconMessageCircle,
+  IconLibraryPlus,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -565,6 +568,7 @@ import { runSendOverviewAnnotations } from "./design-editor/commands/send-overvi
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
 import { runSendRuntimeLayerSemanticHandoff } from "./design-editor/commands/send-runtime-layer-semantic-handoff";
 import { runSendRuntimeLayerStateSemanticHandoff } from "./design-editor/commands/send-runtime-layer-state-semantic-handoff";
+import { runSetLayoutGrid } from "./design-editor/commands/set-layout-grid";
 import { runStartRetryGeneration } from "./design-editor/commands/start-retry-generation";
 import { runStartSidebarResize } from "./design-editor/commands/start-sidebar-resize";
 import { runStyleChange } from "./design-editor/commands/style-change";
@@ -582,10 +586,7 @@ import { runVisualDuplicateChange } from "./design-editor/commands/visual-duplic
 import { runVisualStructureChange } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
-import {
-  designPrecedentDirectives,
-  loadCreativeContextPrecedent,
-} from "./design-editor/creative-context-precedent";
+import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
@@ -605,6 +606,7 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
   getDesignDataRecord,
+  getLayoutGrids,
   isDesignData,
   nextLocalhostScreenPosition,
   parseDesignDataJson,
@@ -680,7 +682,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "./design-editor/generation-prompt-directives";
-import { sanitizeCanvasFrameGeometryForPersist } from "./design-editor/geometry-persistence";
+import {
+  quantizeCanvasFrameGeometryForPersist,
+  sanitizeCanvasFrameGeometryForPersist,
+} from "./design-editor/geometry-persistence";
 import {
   type ContentHistoryChange,
   type ContentHistoryEntry,
@@ -702,6 +707,10 @@ import {
   isAbsoluteCodeLayerNode,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
+import {
+  allIntakeTopicsCovered,
+  loadIntakeContextFromAppState,
+} from "./design-editor/intake-question-topics";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
@@ -3510,6 +3519,11 @@ function DesignEditor() {
   });
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
+  // Standalone entry point into the same Creative Context submission flow
+  // the Share popover's "Context" tab already offers — kept as its own
+  // always-visible button because the Share popover buries it behind two
+  // other tabs, which is the opposite of "clearly visible."
+  const [addToContextOpen, setAddToContextOpen] = useState(false);
   // ── Share URL, prompt popovers, title editing ──────────────────────────────
   const editorShareUrl = useMemo(() => {
     if (!id || typeof window === "undefined") return undefined;
@@ -3889,6 +3903,52 @@ function DesignEditor() {
     () => parseDesignDataJson(design?.data),
     [design?.data],
   );
+
+  // ── Layout grids ──────────────────────────────────────────────────────────
+  const layoutGrids = useMemo(
+    () => getLayoutGrids(designDataJson),
+    [designDataJson],
+  );
+  /** The grid step the ACTIVE screen's bridge quantizes in-iframe gestures to.
+   *  Content px, not board px: the bridge writes `style.left` directly. */
+  const activeScreenLayoutGridStep =
+    activeFileId && layoutGrids[activeFileId]
+      ? layoutGrids[activeFileId].size
+      : 1;
+  /** Flips visibility for every grid that exists; snapping is unaffected. */
+  const handleToggleLayoutGrids = useCallback(() => {
+    const frameIds = Object.keys(layoutGrids);
+    if (frameIds.length === 0) return;
+    const anyVisible = frameIds.some(
+      (frameId) => layoutGrids[frameId]!.visible,
+    );
+    for (const frameId of frameIds) {
+      handleLayoutGridChangeRef.current?.(frameId, {
+        ...layoutGrids[frameId]!,
+        visible: !anyVisible,
+      });
+    }
+  }, [layoutGrids]);
+  const handleLayoutGridChange = useCallback(
+    (frameId: string, next: Partial<LayoutGrid> | null) =>
+      runSetLayoutGrid(
+        {
+          id,
+          canEditDesign: canEditDesignRef.current,
+          designDataJsonRef,
+          queryClient,
+          updateDesignMutation,
+        },
+        frameId,
+        next,
+      ),
+    [id, queryClient, updateDesignMutation],
+  );
+  // The toggle above calls this from a callback, not during render, so a ref
+  // breaks the declaration-order cycle between them.
+  const handleLayoutGridChangeRef = useRef(handleLayoutGridChange);
+  handleLayoutGridChangeRef.current = handleLayoutGridChange;
+
   // Keep a ref in sync so debounced timer callbacks can read the freshest
   // designDataJson without closing over a stale snapshot from render time.
   const designDataJsonRef = useRef(designDataJson);
@@ -4145,7 +4205,9 @@ function DesignEditor() {
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
       pendingFrameGeometrySaveRef.current = {
-        geometryById: cloneCanvasFrameGeometry(geometryById),
+        geometryById: quantizeCanvasFrameGeometryForPersist(
+          cloneCanvasFrameGeometry(geometryById),
+        ),
         previousGeometry: cloneCanvasFrameGeometry(
           getCanvasFrameGeometry(designDataJsonRef.current),
         ),
@@ -8762,6 +8824,7 @@ function DesignEditor() {
         activeTool,
         design,
         designDataJson,
+        layoutGrids,
         designSelectionOwnerIdRef,
         files,
         hoveredElement,
@@ -8800,6 +8863,7 @@ function DesignEditor() {
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
+      layoutGrids,
       selectedStateId,
       isSignedIn,
     ],
@@ -8826,12 +8890,30 @@ function DesignEditor() {
   // setAgentChatContextItem would re-fire itself every commit — an infinite
   // render loop (caught live: "Maximum update depth exceeded" in overview
   // mode). Instead, only the narrow "was our key removed" check reads the
-  // store, via a ref updated by a SEPARATE effect below whose only job is
+  // store, via a ref updated by a SEPARATE effect above whose only job is
   // bookkeeping (it never calls setAgentChatContextItem itself, so it cannot
   // feed back into this one).
   const mirroredSelectionIdRef = useRef<string | null>(null);
+  const mirroredExcerptRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+
+  // Bookkeeping only — mirrors "does the shared composer context still carry
+  // our key" into a ref for the effect below to read. This is intentionally
+  // NOT a dependency of that effect (see its comment): this effect only ever
+  // writes a ref, never calls setAgentChatContextItem or any other state
+  // setter, so it can run on every store change without feeding back into a
+  // re-render loop. Declared (and thus run) before the mirror effect so a
+  // send that lands in the same commit as an unrelated content change is
+  // already reflected in the ref by the time the mirror effect reads it.
+  const composerContextItemsForBookkeeping =
+    useAgentChatContext(isSignedIn).items;
+  useEffect(() => {
+    const key = "design:selected-element";
+    composerContextHasOurKeyRef.current =
+      composerContextItemsForBookkeeping.some((item) => item.key === key);
+  }, [composerContextItemsForBookkeeping]);
+
   useEffect(
     () =>
       runMirrorSelectionToAgentChat({
@@ -8841,6 +8923,7 @@ function DesignEditor() {
         design,
         id,
         isSignedIn,
+        mirroredExcerptRef,
         mirroredSelectionIdRef,
         selectedCodeLayerNode,
         selectedElement,
@@ -8856,20 +8939,6 @@ function DesignEditor() {
       selectedElement,
     ],
   );
-
-  // Bookkeeping only — mirrors "does the shared composer context still carry
-  // our key" into a ref for the effect above to read. This is intentionally
-  // NOT a dependency of that effect (see its comment): this effect only ever
-  // writes a ref, never calls setAgentChatContextItem or any other state
-  // setter, so it can run on every store change without feeding back into a
-  // re-render loop.
-  const composerContextItemsForBookkeeping =
-    useAgentChatContext(isSignedIn).items;
-  useEffect(() => {
-    const key = "design:selected-element";
-    composerContextHasOurKeyRef.current =
-      composerContextItemsForBookkeeping.some((item) => item.key === key);
-  }, [composerContextItemsForBookkeeping]);
 
   useEffect(() => {
     const key = "design:design-system";
@@ -14020,6 +14089,7 @@ function DesignEditor() {
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleComments: handleToggleComments,
+    onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
@@ -15961,6 +16031,9 @@ function DesignEditor() {
   /** Applies a typed or preset frame size/position from the inspector. Routed
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
+  const selectedScreenLayoutGrid = selectedScreenGeometry
+    ? (layoutGrids[selectedScreenGeometry.id] ?? null)
+    : null;
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
@@ -17642,6 +17715,7 @@ function DesignEditor() {
 
       return (
         <DesignCanvas
+          layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}
           runtimeReplacementContent={
@@ -17949,6 +18023,7 @@ function DesignEditor() {
       design?.title,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
+      layoutGrids,
       t,
     ],
   );
@@ -19024,6 +19099,17 @@ function DesignEditor() {
                 : t("review.applyFeedback", { count: reviewAgentQueueCount })}
             </Button>
           ) : null}
+          {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAddToContextOpen(true)}
+              className="h-8 gap-1.5 rounded-md px-3 text-sm"
+            >
+              <IconLibraryPlus className="size-4" />
+              {"Add to Context" /* i18n-ignore prominent context entry point */}
+            </Button>
+          ) : null}
           <Popover
             open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
@@ -19171,6 +19257,20 @@ function DesignEditor() {
           ) : null}
         </div>
       </div>
+      {!hostEmbeddedEditor && canRenderAuthenticatedShare ? (
+        <CreativeContextShareSheet
+          resource={{
+            appId: "design",
+            resourceType: "design",
+            resourceId: id ?? "",
+            title: design.title ?? "Untitled design",
+            updatedAt: design?.updatedAt ?? undefined,
+            preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+          }}
+          open={addToContextOpen}
+          onOpenChange={setAddToContextOpen}
+        />
+      ) : null}
       {activeScreenIsLocalSource &&
       viewMode === "single" &&
       activeScreenPreviewUrl ? (
@@ -19284,6 +19384,8 @@ function DesignEditor() {
     readOnly: !canEditDesign,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
+    selectedScreenLayoutGrid,
+    onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
@@ -20284,6 +20386,8 @@ function DesignEditor() {
                         frameToolDraws={frameToolDraws}
                         onDeleteSelection={handleDeleteOverviewSelection}
                         onNudgeSelection={handleOverviewNudgeSelection}
+                        nudgeAmounts={editorPreferences.nudge}
+                        layoutGrids={layoutGrids}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
@@ -20340,6 +20444,7 @@ function DesignEditor() {
                       {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
                         screenId={activeFile.id}
+                        layoutGridStep={activeScreenLayoutGridStep}
                         content={activeContent}
                         contentKey={`${activeFile.id}:${contentRenderRevision}`}
                         styleRevertRequest={
@@ -20861,16 +20966,15 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const precedent = shouldExploreVariants
+          const intake = shouldExploreVariants
             ? null
             : await (async () => {
                 await creativeContextPersistRef.current?.catch(() => {});
-                return loadCreativeContextPrecedent(
-                  (await readCreativeContextState()).selectedContextId,
-                );
+                return loadIntakeContextFromAppState(readCreativeContextState);
               })();
           const shouldSkipQuestions =
-            shouldExploreVariants || precedent?.status === "strong";
+            shouldExploreVariants ||
+            (intake ? allIntakeTopicsCovered(intake.coverage) : false);
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -20883,15 +20987,27 @@ function DesignEditor() {
               : shouldSkipQuestions
                 ? [
                     ...designGenerationDirectives(id, designSystemId),
-                    ...(precedent?.status === "strong"
+                    ...(intake?.explicitContext &&
+                    intake.precedent.status === "strong"
                       ? designPrecedentDirectives(
-                          precedent.contextId,
-                          precedent.matches,
+                          intake.precedent.contextId,
+                          intake.precedent.matches,
                           id,
                         )
                       : []),
                   ]
-                : designIntakeQuestionDirectives(id, designSystemId)),
+                : designIntakeQuestionDirectives(
+                    id,
+                    designSystemId,
+                    0,
+                    intake
+                      ? {
+                          coverage: intake.coverage,
+                          contextUnavailable: intake.unavailable,
+                          unavailableReason: intake.unavailableReason,
+                        }
+                      : undefined,
+                  )),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);

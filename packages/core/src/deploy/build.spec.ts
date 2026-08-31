@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
@@ -12,6 +13,10 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
@@ -56,7 +61,9 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isAwsAmplifyPreset,
   isCloudflareModulePreset,
+  configureAwsAmplifyRuntimeOutput,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
   isKeepWarmBackgroundDeployEnabled,
@@ -72,6 +79,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  stubBundledLocalOnlySqliteDriverForServerless,
   stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
@@ -90,10 +98,13 @@ import {
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+  it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws_amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("aws-amplify")).toBe(true);
+    expect(nitroNoExternalsForPreset("awsAmplify")).toBe(true);
     expect(nitroNoExternalsForPreset("node")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
@@ -106,7 +117,7 @@ describe("nitroNoExternalsForPreset", () => {
 });
 
 describe("shouldBundleYjsRuntimeForPreset", () => {
-  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+  it("covers Node and serverless output but leaves self-contained edge presets to Nitro", () => {
     for (const preset of [
       "node",
       "node-server",
@@ -118,6 +129,122 @@ describe("shouldBundleYjsRuntimeForPreset", () => {
     }
     expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
     expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
+  });
+});
+
+describe("isAwsAmplifyPreset", () => {
+  it("accepts Nitro's standard name and alias", () => {
+    expect(isAwsAmplifyPreset("aws_amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
+    expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
+    expect(isAwsAmplifyPreset("node")).toBe(false);
+  });
+});
+
+describe("AWS Amplify runtime output", () => {
+  it("loads declared env keys before Nitro's compute entry", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, ".env.example"),
+      "# DECLARED_SECRET=\n# VITE_PUBLIC=value\n",
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'if (process.env.DECLARED_SECRET !== "line1\\nline2") process.exit(1);\n',
+    );
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://example.test",
+      DECLARED_SECRET: "line1\nline2",
+      VITE_PUBLIC: "public",
+      RESEND_API_KEY: "resend-example-key",
+      SENDGRID_API_KEY: "sendgrid-example-key",
+      EMAIL_FROM: "Calendar <calendar@example.test>",
+      OPENAI_API_KEY: "openai-example-key",
+      APP_NAME: "my-calendar",
+      MY_CALENDAR_SECRETS_ENCRYPTION_KEY: "app-scoped-example-key",
+      MY_CALENDAR_DATABASE_URL: "postgres://calendar.example/db",
+      MY_CALENDAR_DATABASE_AUTH_TOKEN: "calendar-database-token",
+      MY_CALENDAR_DATABASE_URL_UNPOOLED:
+        "postgres://calendar.example/direct-db",
+      SECRETS_ENCRYPTION_KEY: "generic-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY: "workspace-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS:
+        "previous-workspace-encryption-key",
+      AGENT_ENGINE: "ai-sdk:openai",
+      AGENT_NATIVE_WORKSPACE: "true",
+      WEBHOOK_BASE_URL: "https://example.test/webhooks",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      AGENT_NATIVE_BUILDER_RELAY_SECRET: "relay-example-secret",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS: "https://preview.example.test",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES:
+        ".builder-preview.example",
+      UNDECLARED_SECRET: "must-not-ship",
+      AWS_SECRET_ACCESS_KEY: "must-not-ship",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain('APP_URL="https://example.test"');
+    expect(runtimeEnv).toContain('DECLARED_SECRET="line1\\nline2"');
+    expect(runtimeEnv).toContain('VITE_PUBLIC="public"');
+    expect(runtimeEnv).toContain('RESEND_API_KEY="resend-example-key"');
+    expect(runtimeEnv).toContain('SENDGRID_API_KEY="sendgrid-example-key"');
+    expect(runtimeEnv).toContain(
+      'EMAIL_FROM="Calendar <calendar@example.test>"',
+    );
+    expect(runtimeEnv).toContain('OPENAI_API_KEY="openai-example-key"');
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_SECRETS_ENCRYPTION_KEY="app-scoped-example-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL="postgres://calendar.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_AUTH_TOKEN="calendar-database-token"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL_UNPOOLED="postgres://calendar.example/direct-db"',
+    );
+    expect(runtimeEnv).toContain(
+      'SECRETS_ENCRYPTION_KEY="generic-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY="workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS="previous-workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain('AGENT_ENGINE="ai-sdk:openai"');
+    expect(runtimeEnv).toContain('AGENT_NATIVE_WORKSPACE="true"');
+    expect(runtimeEnv).toContain(
+      'WEBHOOK_BASE_URL="https://example.test/webhooks"',
+    );
+    expect(runtimeEnv).toContain('AUTH_REQUIRE_EMAIL_VERIFICATION="1"');
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_SECRET="relay-example-secret"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS="https://preview.example.test"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES=".builder-preview.example"',
+    );
+    expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
+    expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+        'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+        'import("./index.mjs");\n',
+    );
+    execFileSync(process.execPath, [path.join(serverDir, "server.js")], {
+      cwd: serverDir,
+      env: {},
+    });
   });
 });
 
@@ -159,6 +286,68 @@ describe("resolveNitroBuildReplacements", () => {
     expect(
       replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
     ).toBe(JSON.stringify("beta"));
+  });
+  it("embeds only the app's runtime package declarations for bundled engine checks", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-marker-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: {
+            ai: "^7",
+            "@ai-sdk/openai": "^4",
+          },
+          optionalDependencies: { "optional-provider": "^1" },
+          devDependencies: { "dev-only-provider": "^1" },
+        }),
+      );
+
+      const replacements = resolveNitroBuildReplacements(
+        {},
+        undefined,
+        projectCwd,
+      );
+
+      expect(
+        replacements["process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"],
+      ).toBe(
+        JSON.stringify(
+          JSON.stringify(["@ai-sdk/openai", "ai", "optional-provider"]),
+        ),
+      );
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not infer optional engine packages from a core-only app", () => {
+    const projectCwd = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-engine-package-core-"),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(projectCwd, "package.json"),
+        JSON.stringify({
+          dependencies: { "@agent-native/core": "workspace:*" },
+        }),
+      );
+
+      const marker = JSON.parse(
+        JSON.parse(
+          resolveNitroBuildReplacements({}, undefined, projectCwd)[
+            "process.env.AGENT_NATIVE_BUILD_ENGINE_PACKAGES"
+          ],
+        ),
+      ) as string[];
+
+      expect(marker).toContain("@agent-native/core");
+      expect(marker).not.toContain("ai");
+      expect(marker).not.toContain("@ai-sdk/openai");
+    } finally {
+      fs.rmSync(projectCwd, { recursive: true, force: true });
+    }
   });
 });
 
@@ -460,7 +649,13 @@ export function createRequestHandler() {
 // a bounded suite-local allowance so local prep tests behavior, not scheduler
 // contention; focused runs normally complete well below this limit.
 describe("generateWorkerEntry", { timeout: 15_000 }, () => {
+  beforeEach(() => {
+    resetAppConfigForTests();
+    defineAppConfig({ app: { homePath: "/home" } });
+  });
+
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -650,9 +845,11 @@ export default (event) =>
       {},
       {},
     );
-    expect(await rootResponse.text()).toContain(
-      "data-agent-native-auth-redirect",
-    );
+    const rootHtml = await rootResponse.text();
+    const handoff = rootHtml.indexOf("data-agent-native-auth-redirect");
+    expect(handoff).toBeGreaterThan(rootHtml.indexOf("<head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("</head>"));
+    expect(handoff).toBeLessThan(rootHtml.indexOf("<body>"));
 
     const appResponse = await worker.fetch(
       new Request("https://app.test/home"),
@@ -662,6 +859,27 @@ export default (event) =>
     expect(await appResponse.text()).not.toContain(
       "data-agent-native-auth-redirect",
     );
+  });
+
+  it("resolves a custom app home from a generated config plugin", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "home-config.mjs");
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { homePath: "/inbox" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('var homePath = (root || "") + "/inbox"');
+    expect(html).toContain('"appHomePath":"/inbox"');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
@@ -3850,5 +4068,50 @@ describe("stubLocalOnlySqliteDriverForServerless", () => {
     expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
       /declares no version/,
     );
+  });
+});
+
+describe("stubBundledLocalOnlySqliteDriverForServerless", () => {
+  it("replaces Nitro's bundled SQLite chunk with a throwing stub", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const chunk = path.join(libsDir, "better-sqlite3+[...].mjs");
+      fs.writeFileSync(
+        chunk,
+        "const nativePath = __filename; export default class Real {};",
+      );
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(1);
+      const source = fs.readFileSync(chunk, "utf8");
+      expect(source).not.toContain("__filename");
+      expect(source).toContain("better-sqlite3 is not available");
+
+      const bundled = await import(
+        `${pathToFileURL(chunk).href}?t=${Date.now()}`
+      );
+      expect(bundled.t()).toBe(bundled.default);
+      expect(() => new (bundled.t())()).toThrow(
+        /not available in a serverless/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves unrelated Nitro library chunks alone", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-bundle-stub-"));
+    try {
+      const libsDir = path.join(root, "_libs");
+      fs.mkdirSync(libsDir, { recursive: true });
+      const unrelated = path.join(libsDir, "some-package.mjs");
+      fs.writeFileSync(unrelated, "export default 1;\n");
+
+      expect(stubBundledLocalOnlySqliteDriverForServerless(root)).toBe(0);
+      expect(fs.readFileSync(unrelated, "utf8")).toBe("export default 1;\n");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

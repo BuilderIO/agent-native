@@ -188,7 +188,9 @@ function DesignToaster() {
   return (
     <Toaster
       richColors
-      position={isBuilderHostEmbed() ? "bottom-right" : "bottom-left"}
+      position="bottom-right"
+      offset={{ bottom: 44, right: 32 }}
+      mobileOffset={{ bottom: 44, right: 16 }}
     />
   );
 }

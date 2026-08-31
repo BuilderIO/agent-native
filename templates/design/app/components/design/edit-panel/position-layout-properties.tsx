@@ -3,6 +3,7 @@ import {
   composeTransform3D,
   isTransform3DActive,
   parseTransform3DParts,
+  quantizeToStep,
   type Transform3DParts,
 } from "@shared/canvas-math";
 import {
@@ -65,7 +66,6 @@ import {
   PanelSection,
   SubsectionLabel,
 } from "./panel-primitives";
-import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
@@ -113,8 +113,10 @@ function geometryPercent(value: number, total: number): string {
   return `${Number(((value / total) * 100).toFixed(6))}%`;
 }
 
+/** Whole px: every value through here is a coordinate or box edge derived from
+ *  a bounding rect, and its subpixel is never something anyone chose. */
 function geometryPx(value: number): string {
-  return `${Number(value.toFixed(3))}px`;
+  return `${quantizeToStep(value)}px`;
 }
 
 /** Once the bridge supplies an inline-style snapshot, absence is meaningful:
@@ -500,6 +502,7 @@ export function PositionLayoutProperties({
               label="X"
               ariaLabel="X-position"
               tooltipLabel="X-position"
+              precision={0}
               value={
                 isMixedValue(authoredLeft)
                   ? MIXED_VALUE
@@ -518,7 +521,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left: `${roundToOneDecimal(v)}px`,
+                    left: geometryPx(v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -548,6 +551,7 @@ export function PositionLayoutProperties({
               label="Y"
               ariaLabel="Y-position"
               tooltipLabel="Y-position"
+              precision={0}
               value={
                 isMixedValue(authoredTop)
                   ? MIXED_VALUE
@@ -561,7 +565,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: `${roundToOneDecimal(v)}px`,
+                    top: geometryPx(v),
                   },
                   onStyleChange,
                   onStylesChange,

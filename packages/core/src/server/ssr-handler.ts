@@ -18,6 +18,7 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -40,6 +41,10 @@ import {
 } from "./app-base-path.js";
 import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
+import {
+  frameworkSessionHintCookieName,
+  resolveAuthCookieNamespace,
+} from "./cookie-namespace.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
@@ -427,7 +432,14 @@ async function rewriteMountedResponse(
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
-      pathname === "/" ? getSsrAuthRedirectScript() : null,
+      pathname === "/"
+        ? getSsrAuthRedirectScript(
+            frameworkSessionHintCookieName(
+              resolveAuthCookieNamespace().frameworkCookieName,
+            ),
+            resolveAppHomePath(getAppConfig().app),
+          )
+        : null,
     ]
       .filter(Boolean)
       .join("") || null;

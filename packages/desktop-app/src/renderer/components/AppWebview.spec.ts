@@ -1509,4 +1509,48 @@ describe("Recovering from a slow app load", () => {
     );
     expect(webview?.getAttribute("src")).not.toBe("about:blank");
   });
+
+  it("clears an unresponsive error when the guest becomes responsive", () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    act(() => {
+      webview?.dispatchEvent(new Event("unresponsive"));
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(container.textContent).toContain("Mail isn't loading");
+
+    act(() => {
+      webview?.dispatchEvent(new Event("responsive"));
+    });
+
+    expect(container.textContent).not.toContain("Mail isn't loading");
+    expect((webview!.parentElement as HTMLElement).style.display).toBe("flex");
+  });
 });

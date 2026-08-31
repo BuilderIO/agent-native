@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { Button } from "../ui/button.js";
 import { cn } from "../utils.js";
+import { Starfield } from "./Starfield.js";
 
 export interface MarketingValueProp {
   title: React.ReactNode;
@@ -11,6 +12,8 @@ export interface MarketingValueProp {
 export interface MarketingHomeProps {
   /** Product or app name shown in the public shell. */
   appName: React.ReactNode;
+  /** Choose the standard public shell or the split auth composition. */
+  variant?: "default" | "auth";
   /** Main value proposition. */
   tagline?: React.ReactNode;
   /** Supporting product description. */
@@ -36,10 +39,11 @@ export interface MarketingHomeProps {
 
 export function MarketingHome({
   appName,
+  variant = "default",
   tagline,
   description,
   valueProps = [],
-  background,
+  background = <Starfield />,
   primaryAction,
   secondaryAction,
   auth,
@@ -50,6 +54,7 @@ export function MarketingHome({
   primaryActionLabel,
   secondaryActionLabel,
 }: MarketingHomeProps) {
+  const isAuthVariant = variant === "auth";
   const resolvedPrimaryAction =
     primaryAction ??
     (primaryActionHref ? (
@@ -131,15 +136,36 @@ export function MarketingHome({
           {background}
         </div>
       ) : null}
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl items-center px-6 py-16 sm:px-10 lg:px-16">
+      <div
+        className={cn(
+          isAuthVariant
+            ? "auth-marketing-shell mx-auto flex min-h-screen w-full items-center px-6 py-10 sm:px-10 lg:px-16"
+            : "mx-auto flex min-h-screen w-full max-w-7xl items-center px-6 py-16 sm:px-10 lg:px-16",
+        )}
+      >
         <div
           className={cn(
-            "grid w-full items-center gap-12",
+            isAuthVariant && auth ? "split" : "grid w-full items-center gap-12",
             auth ? "lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]" : "",
+            isAuthVariant && auth ? "max-w-6xl" : "",
           )}
         >
-          <section>{content}</section>
-          {auth ? <aside>{auth}</aside> : null}
+          <section
+            className={isAuthVariant && auth ? "marketing-panel" : undefined}
+          >
+            {content}
+          </section>
+          {auth ? (
+            <aside
+              className={cn(
+                isAuthVariant
+                  ? "form-panel w-full max-w-md justify-self-end"
+                  : "",
+              )}
+            >
+              {auth}
+            </aside>
+          ) : null}
         </div>
       </div>
     </main>
