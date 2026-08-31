@@ -25,7 +25,7 @@ ownership and must be revisited; an eye, bot forward, or other person's reply
 alone is never enough.
 
 Every Slack reply from this workflow must clearly disclose that it is
-automated. Append `sent from ChatGPT - automated review.` to each reporter-facing
+automated. Append `this was sent from a bot.` to each reporter-facing
 reply, including clarification, in-progress, fixed, and post-ship follow-ups.
 Keep the required thank-you and plain-language status before the disclosure.
 
