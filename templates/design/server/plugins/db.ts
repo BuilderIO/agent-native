@@ -404,15 +404,28 @@ CREATE INDEX IF NOT EXISTS design_versions_design_created_idx ON design_versions
     {
       version: 26,
       name: "design-systems-one-default-per-scope-index",
-      // `run` executes before `sql`, on the same connection the migration
-      // runner picked for this entry (the direct endpoint on Postgres, since
-      // this entry carries real DDL). It heals every scope's stray duplicate
-      // defaults left by the create/proxy/set-default race this migration
-      // closes, so the CREATE UNIQUE INDEX below -- which fails outright
-      // against a database that still has duplicates -- actually succeeds.
-      // See server/lib/design-system-defaults.ts for the invariant this
-      // enforces and why request-time DDL alone cannot install it in a
-      // hosted production runtime.
+      // `run` executes before `sql`, but on a different connection: `run`
+      // callbacks always go through the ordinary pooled `getDbExec()` (see
+      // runMigrations in packages/core), while `sql` for an entry carrying
+      // real DDL runs on the migration runner's own direct, non-pooled
+      // endpoint. The two steps are therefore not atomic with each other --
+      // a create/proxy request from an old, still-running app instance could
+      // in principle insert a fresh duplicate in the gap between them. That
+      // window is self-bounding, not silent: it would make the CREATE UNIQUE
+      // INDEX below fail outright (Postgres refuses to build a unique index
+      // over existing duplicates), which leaves this migration unrecorded
+      // and retried on the next boot -- healing again before retrying the
+      // index. Closing the gap for good would mean threading the migration's
+      // own exec into `run()`, a `MigrationEntry` signature change shared by
+      // every template's release migrations, which is out of scope here.
+      //
+      // Heals every scope's stray duplicate defaults left by the
+      // create/proxy/set-default race this migration closes, so the CREATE
+      // UNIQUE INDEX below -- which fails outright against a database that
+      // still has duplicates -- actually succeeds on the common path. See
+      // server/lib/design-system-defaults.ts for the invariant this enforces
+      // and why request-time DDL alone cannot install it in a hosted
+      // production runtime.
       run: async () => {
         const healed = await healDuplicateDesignSystemDefaults();
         if (healed > 0) {
