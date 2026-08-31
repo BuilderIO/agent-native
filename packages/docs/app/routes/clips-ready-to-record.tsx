@@ -548,7 +548,7 @@ function SettingsIcon() {
 }
 
 const LIBRARY_BACKDROP_CSS = [
-  ".library-window { position: fixed; inset: 0; display: flex; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }",
+  ".library-window { position: fixed; inset: 0; margin: 0 auto; max-width: 1300px; display: flex; background: #212121; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 0 0 1px #2c2c2c; }",
 
   ".library-sidebar { width: 216px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: #181818; border-right: 1px solid #2c2c2c; box-sizing: border-box; }",
   ".library-brand { display: flex; align-items: center; gap: 8px; padding: 4px 4px 12px; }",
@@ -596,6 +596,7 @@ export default function ClipsReadyToRecordPreview() {
         position: "fixed",
         inset: 0,
         zIndex: 2147483647,
+        background: "#0c0c0c",
       }}
     >
       <style>{LIBRARY_BACKDROP_CSS}</style>
