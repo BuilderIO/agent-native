@@ -1,12 +1,24 @@
+import { randomUUID } from "node:crypto";
+
 import {
   defineEventHandler,
+  getRequestHeader,
   getMethod,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import {
+  AutomationConnectorError,
+  readBoundedRequestBody,
+} from "../automation/index.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
+import { dispatchPendingIntegrationTask } from "../integrations/integration-durable-dispatch.js";
+import {
+  insertPendingTask,
+  isDuplicateEventError,
+} from "../integrations/pending-tasks-store.js";
 import {
   nextOccurrence,
   describeCron,
@@ -32,6 +44,14 @@ import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { refreshEventSubscriptions } from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
+import {
+  AUTOMATION_WEBHOOK_MAX_BODY_BYTES,
+  AUTOMATION_WEBHOOK_PLATFORM,
+  automationWebhookPath,
+  isAutomationWebhookToken,
+  webhookTokensMatch,
+  type AutomationWebhookTaskPayload,
+} from "./webhook.js";
 
 export interface AutomationRouteItem {
   id: string;
@@ -44,6 +64,7 @@ export interface AutomationRouteItem {
   canUpdate: boolean;
   triggerType: TriggerFrontmatter["triggerType"];
   event?: string;
+  webhookPath?: string;
   schedule?: string;
   scheduleDescription?: string;
   condition?: string;
@@ -119,7 +140,7 @@ function scheduleDescription(schedule?: string, timezone?: string) {
 function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
   const scheduled = Boolean(
     meta.enabled &&
-    meta.triggerType !== "event" &&
+    meta.triggerType === "schedule" &&
     meta.schedule &&
     isValidCron(meta.schedule),
   );
@@ -209,6 +230,12 @@ async function resourceToAutomationItem(
 ): Promise<AutomationRouteItem> {
   const parsed = parseJobResource(resource.content);
   const meta = asTriggerFrontmatter(parsed.meta);
+  const canUpdate = await currentUserCanUpdateAutomation(
+    event,
+    userEmail,
+    resource,
+    meta,
+  );
   return {
     id: resource.id,
     name: automationName(resource.path),
@@ -218,14 +245,15 @@ async function resourceToAutomationItem(
     orgId: meta.orgId,
     scope:
       resource.owner === userEmail && !meta.orgId ? "personal" : "organization",
-    canUpdate: await currentUserCanUpdateAutomation(
-      event,
-      userEmail,
-      resource,
-      meta,
-    ),
+    canUpdate,
     triggerType: meta.triggerType,
     event: meta.event,
+    // The path is a bearer credential; read-only organization members can see
+    // the trigger without receiving permission to invoke it.
+    webhookPath:
+      canUpdate && meta.webhookToken
+        ? automationWebhookPath(meta.webhookToken)
+        : undefined,
     schedule: meta.schedule || undefined,
     scheduleDescription: scheduleDescription(meta.schedule, meta.timezone),
     condition: meta.condition,
@@ -332,7 +360,7 @@ export async function setAutomationEnabledForOwner(
   parsed.meta.enabled = input.enabled;
   if (
     parsed.meta.enabled &&
-    meta.triggerType !== "event" &&
+    meta.triggerType === "schedule" &&
     meta.schedule &&
     isValidCron(meta.schedule)
   ) {
@@ -354,12 +382,129 @@ export async function setAutomationEnabledForOwner(
 }
 
 function routeError(event: H3Event, err: unknown, fallback: string) {
+  const connectorCode = (err as { code?: string } | null)?.code;
+  const connectorStatus =
+    connectorCode === "payload_too_large"
+      ? 413
+      : connectorCode === "invalid_configuration"
+        ? 400
+        : undefined;
   const statusCode =
-    typeof (err as any)?.statusCode === "number"
+    connectorStatus ??
+    (typeof (err as any)?.statusCode === "number"
       ? (err as any).statusCode
-      : 500;
+      : 500);
   setResponseStatus(event, statusCode);
   return { error: (err as any)?.message ?? fallback };
+}
+
+async function findWebhookAutomation(token: string): Promise<{
+  resource: Resource;
+  meta: TriggerFrontmatter;
+  body: string;
+} | null> {
+  if (!isAutomationWebhookToken(token)) return null;
+  // ponytail: token lookup scans job resources; add an indexed token table if webhook volume warrants it.
+  const resources = await resourceListAllOwners("jobs/");
+  for (const resource of resources) {
+    if (!resource.path.endsWith(".md")) continue;
+    const parsed = parseJobResource(resource.content);
+    const meta = asTriggerFrontmatter(parsed.meta);
+    if (
+      meta.triggerType === "webhook" &&
+      meta.enabled &&
+      webhookTokensMatch(meta.webhookToken, token)
+    ) {
+      return { resource, meta, body: parsed.body };
+    }
+  }
+  return null;
+}
+
+function webhookEventId(event: H3Event): string {
+  const supplied =
+    getRequestHeader(event, "x-webhook-event-id") ??
+    getRequestHeader(event, "x-event-id");
+  const value = supplied?.trim() || randomUUID();
+  if (value.length > 256 || /[\r\n]/.test(value)) {
+    throw Object.assign(new Error("Webhook event id is too long."), {
+      statusCode: 400,
+    });
+  }
+  return value;
+}
+
+async function enqueueAutomationWebhook(
+  event: H3Event,
+  token: string,
+): Promise<Record<string, unknown>> {
+  const match = await findWebhookAutomation(token);
+  if (!match) {
+    setResponseStatus(event, 404);
+    return { error: "Webhook not found" };
+  }
+
+  const rawBody = await readBoundedRequestBody(
+    event,
+    AUTOMATION_WEBHOOK_MAX_BODY_BYTES,
+  );
+  let payload: unknown = rawBody;
+  const contentType = getRequestHeader(event, "content-type")?.toLowerCase();
+  if (contentType?.includes("json")) {
+    try {
+      payload = rawBody.trim() ? JSON.parse(rawBody) : {};
+    } catch {
+      throw new AutomationConnectorError(
+        "invalid_configuration",
+        "Webhook JSON body is invalid.",
+      );
+    }
+  }
+
+  const eventId = webhookEventId(event);
+  const ownerEmail =
+    match.meta.createdBy?.trim().toLowerCase() || match.resource.owner;
+  const externalThreadId = `${match.resource.owner}:${match.resource.path}`;
+  const taskId = randomUUID();
+  const taskPayload: AutomationWebhookTaskPayload = {
+    kind: "automation-webhook",
+    automationId: match.resource.id,
+    owner: match.resource.owner,
+    path: match.resource.path,
+    eventId,
+    payload,
+  };
+
+  try {
+    await insertPendingTask({
+      id: taskId,
+      platform: AUTOMATION_WEBHOOK_PLATFORM,
+      externalThreadId,
+      payload: JSON.stringify(taskPayload),
+      ownerEmail,
+      orgId: match.meta.orgId ?? null,
+      externalEventKey: `${match.resource.id}:${eventId}`,
+    });
+  } catch (error) {
+    if (isDuplicateEventError(error)) {
+      setResponseStatus(event, 200);
+      return { accepted: true, duplicate: true, eventId };
+    }
+    throw error;
+  }
+
+  await dispatchPendingIntegrationTask({
+    taskId,
+    task: { platform: AUTOMATION_WEBHOOK_PLATFORM, externalThreadId },
+    event,
+  }).catch((error) => {
+    console.error(
+      `[automations] Webhook task ${taskId} was queued but could not be dispatched:`,
+      error,
+    );
+  });
+  setResponseStatus(event, 202);
+  return { accepted: true, eventId };
 }
 
 export function createAutomationsHandler() {
@@ -369,6 +514,15 @@ export function createAutomationsHandler() {
       .split("?")[0]
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");
+
+    const webhookToken = pathname.match(/(?:^|\/)webhook\/([^/]+)$/)?.[1];
+    if (webhookToken && method === "POST") {
+      try {
+        return await enqueueAutomationWebhook(event, webhookToken);
+      } catch (err) {
+        return routeError(event, err, "Failed to enqueue automation webhook");
+      }
+    }
 
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {

@@ -84,6 +84,8 @@ const CSRF_PROTECTED_PREFIXES = [
 const CSRF_ALLOWLIST_PREFIXES = [
   // Integration webhooks — verified by HMAC against a per-integration secret.
   "/integrations/",
+  // Automation webhooks — authenticated by an opaque per-automation token.
+  "/automations/webhook/",
   // Agent Teams durable sub-agent processor self-fire — verified by the same
   // HMAC internal-token scheme as the integration/A2A processors.
   "/agent-teams/",

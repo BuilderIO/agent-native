@@ -1,11 +1,16 @@
+import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import {
   IconAlertTriangle,
+  IconCheck,
+  IconCopy,
   IconClock,
   IconExternalLink,
   IconPlayerPause,
   IconPlayerPlay,
 } from "@tabler/icons-react";
+import { useState } from "react";
 import { Link } from "react-router";
 
 import {
@@ -118,7 +123,18 @@ export function AutomationDetailsPanel({
   );
   const runs = runsQuery.data ?? [];
   const status = automationStatus(automation);
-  const isScheduled = automation.triggerType !== "event";
+  const isScheduled = automation.triggerType === "schedule";
+  const [copied, setCopied] = useState(false);
+  const webhookUrl =
+    automation.webhookPath && typeof window !== "undefined"
+      ? window.location.origin + appPath(automation.webhookPath)
+      : null;
+  const triggerLabel =
+    automation.triggerType === "webhook"
+      ? "Webhook"
+      : isScheduled
+        ? "Schedule"
+        : "Event";
   const prompt = automation.body?.trim();
   const hasExecutionTarget = Boolean(
     automation.executionHostId ||
@@ -156,8 +172,7 @@ export function AutomationDetailsPanel({
             {automation.name}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {isScheduled ? "Schedule" : "Event"} ·{" "}
-            {automationScopeLabel(automation)}
+            {triggerLabel} · {automationScopeLabel(automation)}
           </p>
         </div>
       </header>
@@ -183,7 +198,13 @@ export function AutomationDetailsPanel({
           <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-4">
             <DetailField
               label="Trigger"
-              value={isScheduled ? "Scheduled" : "Event-triggered"}
+              value={
+                automation.triggerType === "webhook"
+                  ? "Webhook-triggered"
+                  : isScheduled
+                    ? "Scheduled"
+                    : "Event-triggered"
+              }
             />
             <DetailField
               label={isScheduled ? "Schedule" : "Event"}
@@ -204,6 +225,43 @@ export function AutomationDetailsPanel({
                 />
               </>
             ) : null}
+            {webhookUrl ? (
+              <div className="col-span-2 rounded-md border border-primary/20 bg-primary/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-foreground">
+                    Webhook URL
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 gap-1.5 text-xs"
+                    onClick={() => {
+                      void writeClipboardText(webhookUrl).then((didCopy) => {
+                        setCopied(didCopy);
+                        if (didCopy) {
+                          window.setTimeout(() => setCopied(false), 1800);
+                        }
+                      });
+                    }}
+                  >
+                    {copied ? (
+                      <IconCheck className="size-3.5" />
+                    ) : (
+                      <IconCopy className="size-3.5" />
+                    )}
+                    {copied ? "Copied" : "Copy URL"}
+                  </Button>
+                </div>
+                <code className="mt-2 block break-all text-[11px] leading-5 text-muted-foreground">
+                  {webhookUrl}
+                </code>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Paste this URL into a service that can send HTTP POST
+                  webhooks.
+                </p>
+              </div>
+            ) : null}
             <DetailField
               label="Condition"
               value={automation.condition || "Always"}
@@ -218,14 +276,16 @@ export function AutomationDetailsPanel({
             />
             <DetailField label="Mode" value={automation.mode || "Agentic"} />
             <DetailField label="Runs as" value={runAsLabel(automation.runAs)} />
-            <DetailField
-              label="Next run"
-              value={
-                automation.enabled
-                  ? formatTimestamp(automation.nextRun)
-                  : "Paused"
-              }
-            />
+            {isScheduled ? (
+              <DetailField
+                label="Next run"
+                value={
+                  automation.enabled
+                    ? formatTimestamp(automation.nextRun)
+                    : "Paused"
+                }
+              />
+            ) : null}
             <DetailField
               label="Last run"
               value={formatTimestamp(automation.lastRun)}

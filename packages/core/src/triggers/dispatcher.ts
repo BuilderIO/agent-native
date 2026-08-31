@@ -33,6 +33,7 @@ import {
 } from "../resources/store.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
+import type { AutomationWebhookTaskPayload } from "./webhook.js";
 
 export function parseTriggerFrontmatter(content: string): {
   meta: TriggerFrontmatter;
@@ -382,6 +383,81 @@ async function handleEvent(
     }
   } catch (err) {
     console.error(`[triggers] Error handling event "${eventName}":`, err);
+  }
+}
+
+/**
+ * Process a webhook task after the public route has persisted it. The queue
+ * worker supplies the target resource identity; the request body never gets
+ * to choose which automation runs.
+ */
+export async function dispatchAutomationWebhookTask(
+  task: AutomationWebhookTaskPayload,
+): Promise<void> {
+  const deps = _deps;
+  if (!deps)
+    throw new Error("Automation trigger dispatcher is not initialized.");
+
+  const resource = await resourceGetByPath(task.owner, task.path);
+  if (!resource || resource.id !== task.automationId) {
+    throw new Error("Webhook automation no longer exists.");
+  }
+  const { meta, body } = parseTriggerFrontmatter(resource.content);
+  if (meta.triggerType !== "webhook") {
+    throw new Error("Webhook target is no longer a webhook automation.");
+  }
+  if (!meta.enabled) return;
+  if (!jobBelongsToApp(meta, deps.appId)) {
+    throw new Error("Webhook automation belongs to a different app.");
+  }
+  if (!body.trim()) return;
+
+  const resolved = await resolveAutomationExecutionIdentity(
+    resource.owner,
+    meta,
+  );
+  if (!resolved.ok) throw new Error(resolved.reason);
+  const identity = resolved.identity;
+  const apiKey =
+    (await getOwnerActiveApiKey(identity.userEmail)) || deps.apiKey;
+  if (!apiKey) throw new Error("No API key is available for this automation.");
+
+  if (isBackgroundAutomationRunActive(meta)) {
+    await recordTriggerSkip(
+      resource,
+      "skipped",
+      "Automation is already running.",
+    );
+    return;
+  }
+  const matches = await evaluateCondition(meta.condition, task.payload, apiKey);
+  if (!matches) {
+    await recordTriggerSkip(resource, "skipped", undefined);
+    return;
+  }
+  if (meta.mode !== "agentic") {
+    console.warn(
+      `[triggers] Deterministic mode not yet implemented for "${task.path}" — skipping`,
+    );
+    return;
+  }
+
+  const dispatchKey = `${resource.owner}:${resource.path}`;
+  if (_dispatchingTriggers.has(dispatchKey)) return;
+  _dispatchingTriggers.add(dispatchKey);
+  try {
+    await dispatchAgentic(
+      resource,
+      task.payload,
+      {
+        eventId: task.eventId,
+        emittedAt: new Date().toISOString(),
+        owner: identity.eventOwner,
+      },
+      identity,
+    );
+  } finally {
+    _dispatchingTriggers.delete(dispatchKey);
   }
 }
 

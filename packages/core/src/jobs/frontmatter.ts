@@ -1,5 +1,5 @@
 export type JobLastStatus = "success" | "error" | "running" | "skipped";
-export type JobTriggerType = "schedule" | "event";
+export type JobTriggerType = "schedule" | "event" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
 /**
@@ -46,6 +46,8 @@ export interface JobFrontmatter {
   triggerType?: JobTriggerType;
   /** For event automations: the event name to subscribe to. */
   event?: string;
+  /** Opaque bearer token used by webhook automations. Never log this value. */
+  webhookToken?: string;
   /** Natural-language condition evaluated before dispatch. */
   condition?: string;
   mode?: JobExecutionMode;
@@ -114,6 +116,7 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/;
 const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
+const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 const EXTRA_FRONTMATTER_LINES = Symbol("extraFrontmatterLines");
 const KNOWN_FRONTMATTER_FIELDS = new Set([
   "schedule",
@@ -138,6 +141,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "mcpTools",
   "triggerType",
   "event",
+  "webhookToken",
   "condition",
   "mode",
   "domain",
@@ -304,10 +308,14 @@ function parseKnownField(
     case "triggerType":
       // The field's presence is the durable legacy-job/automation boundary.
       // Preserve that marker even if an old writer stored an invalid value.
-      meta.triggerType = value === "event" ? "event" : "schedule";
+      meta.triggerType =
+        value === "event" || value === "webhook" ? value : "schedule";
       break;
     case "event":
       meta.event = value;
+      break;
+    case "webhookToken":
+      meta.webhookToken = value || undefined;
       break;
     case "condition":
       meta.condition = value;
@@ -463,6 +471,11 @@ export function buildJobResourceContent(
     "Remote automation run IDs",
     REMOTE_ID_RE,
   );
+  assertBoundedFrontmatterValue(
+    meta.webhookToken,
+    "Webhook tokens",
+    WEBHOOK_TOKEN_RE,
+  );
   if (
     meta.executionCwd !== undefined &&
     (meta.executionCwd.length > 1024 || /[\r\n]/.test(meta.executionCwd))
@@ -479,6 +492,7 @@ export function buildJobResourceContent(
   ];
   if (meta.triggerType) lines.push(`triggerType: ${meta.triggerType}`);
   pushString(lines, "event", meta.event);
+  pushString(lines, "webhookToken", meta.webhookToken);
   pushString(lines, "condition", meta.condition);
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);

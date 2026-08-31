@@ -11,6 +11,7 @@ import {
   isValidCron,
   nextOccurrence,
 } from "../../jobs/cron.js";
+import { automationWebhookPath } from "../webhook.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -42,8 +43,9 @@ export interface AutomationActionItem {
   name: string;
   path: string;
   scope: "personal" | "organization";
-  triggerType: "event" | "schedule";
+  triggerType: "event" | "schedule" | "webhook";
   event: string | null;
+  webhookPath: string | null;
   schedule: string | null;
   timezone: string | null;
   scheduleDescription: string | null;
@@ -71,7 +73,7 @@ export interface AutomationActionItem {
 
 export default defineAction({
   description:
-    "List event-triggered and schedule-triggered automations in the selected personal or organization scope.",
+    "List scheduled, event-triggered, and webhook-triggered automations in the selected personal or organization scope.",
   agentTool: false,
   schema: z.object({
     scope: scopeSchema.default("personal"),
@@ -93,6 +95,12 @@ export default defineAction({
       scope: scope as AutomationScope,
       triggerType: meta.triggerType,
       event: meta.event ?? null,
+      // The path is a bearer credential, so only people who can update the
+      // automation can retrieve it from the action surface.
+      webhookPath:
+        canUpdate && meta.webhookToken
+          ? automationWebhookPath(meta.webhookToken)
+          : null,
       schedule: meta.schedule || null,
       timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
       scheduleDescription: meta.schedule

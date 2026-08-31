@@ -18,6 +18,7 @@ import {
   resourcePut,
   type Resource,
 } from "../resources/store.js";
+import { createAutomationWebhookToken } from "../triggers/webhook.js";
 
 export type AutomationScope = "personal" | "organization";
 
@@ -35,7 +36,7 @@ export interface AutomationDefinition {
   name: string;
   scope: AutomationScope;
   meta: JobFrontmatter & {
-    triggerType: "schedule" | "event";
+    triggerType: "schedule" | "event" | "webhook";
     mode: "agentic" | "deterministic";
   };
   body: string;
@@ -53,7 +54,7 @@ export interface AutomationDelivery {
 export interface DefineAutomationInput {
   name: string;
   scope: AutomationScope;
-  triggerType: "schedule" | "event";
+  triggerType: "schedule" | "event" | "webhook";
   body: string;
   schedule?: string;
   timezone?: string;
@@ -421,6 +422,10 @@ export async function defineAutomation(
     enabled: true,
     triggerType: input.triggerType,
     event: input.triggerType === "event" ? event : undefined,
+    webhookToken:
+      input.triggerType === "webhook"
+        ? createAutomationWebhookToken()
+        : undefined,
     condition: input.condition?.trim() || undefined,
     mode: "agentic",
     domain: input.domain?.trim() || undefined,
@@ -469,7 +474,7 @@ export async function updateAutomation(
   const { meta } = definition;
   if (input.schedule !== undefined) {
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a cron schedule.", 400);
+      throw httpError("Only scheduled automations have a cron schedule.", 400);
     }
     if (!isValidCron(input.schedule)) {
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
@@ -481,7 +486,7 @@ export async function updateAutomation(
       throw httpError(`Unknown timezone "${input.timezone}".`, 400);
     }
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a timezone.", 400);
+      throw httpError("Only scheduled automations have a timezone.", 400);
     }
     meta.timezone = input.timezone;
   }

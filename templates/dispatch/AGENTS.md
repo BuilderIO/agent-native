@@ -7,7 +7,7 @@ vault secrets, messaging routes, MCP/app setup, and agent operations.
 
 Read the relevant skill before deeper work:
 
-- `automations` for event- and schedule-triggered automation rules on
+- `automations` for schedule, webhook, and event-triggered automation rules on
   `/admin/automations`.
 - `recurring-jobs` for scheduled/background job behavior and the scheduler.
 
@@ -80,7 +80,7 @@ Read the relevant skill before deeper work:
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
-  approval, route, or settings panel.
+  approval, route, settings panel, or automation selection.
 - On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
   `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
   and `threadId` expose the visible failure or thread filters and selection.
