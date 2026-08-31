@@ -620,24 +620,59 @@ export async function getClient(
   return { accessToken };
 }
 
+const accountTimezoneCache = new Map<
+  string,
+  { value: string | null; expiresAt: number }
+>();
+const ACCOUNT_TIMEZONE_CACHE_TTL_MS = 60 * 60 * 1000;
+
 /**
  * Resolve a connected Google account's own reported primary-calendar time
  * zone. Used as a fallback when a peer has never saved an app-level time
  * zone — this reads real provider data rather than guessing, so it is safe
  * to use anywhere a peer's app-level zone would otherwise be treated as
  * "unknown".
+ *
+ * Looks up the peer's own OAuth account directly rather than through
+ * `getClient` — that helper falls back to the shared workspace connection
+ * when the peer has no personal one, which would misattribute the
+ * workspace account's time zone to this peer. Cached in-process (this is a
+ * stable profile value) since it's reachable from unauthenticated public
+ * booking routes and would otherwise hit Google's API on every request.
  */
 export async function getGoogleAccountTimezone(
   email: string | undefined,
 ): Promise<string | null> {
-  const client = await getClient(email);
-  if (!client) return null;
+  if (!email) return null;
+  const key = email.trim().toLowerCase();
+  const cached = accountTimezoneCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  let value: string | null = null;
   try {
-    const calendar = await calendarGetCalendar(client.accessToken, "primary");
-    return isCalendarTimezone(calendar?.timeZone) ? calendar.timeZone : null;
+    const accounts = (await listOAuthAccountsByOwner("google", email)).filter(
+      (account) => hasCalendarScope(account.tokens),
+    );
+    const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
+    if (account) {
+      const tokens = account.tokens as unknown as GoogleTokens;
+      const accessToken = await getValidAccessToken(
+        account.accountId,
+        tokens,
+        email,
+      );
+      const calendar = await calendarGetCalendar(accessToken, "primary");
+      value = isCalendarTimezone(calendar?.timeZone) ? calendar.timeZone : null;
+    }
   } catch {
-    return null;
+    value = null;
   }
+
+  accountTimezoneCache.set(key, {
+    value,
+    expiresAt: Date.now() + ACCOUNT_TIMEZONE_CACHE_TTL_MS,
+  });
+  return value;
 }
 
 export interface GoogleAccountSelection {

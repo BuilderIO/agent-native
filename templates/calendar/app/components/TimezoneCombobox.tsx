@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconChevronDown } from "@tabler/icons-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -122,8 +122,7 @@ function buildTimezoneOptions(currentTimezone: string) {
       displayName,
       offsetMinutes,
       offsetLabel,
-      searchValue:
-        `${displayName} ${offsetLabel} ${timezone}`.trim(),
+      searchValue: `${displayName} ${offsetLabel} ${timezone}`.trim(),
     };
   });
 
@@ -165,7 +164,10 @@ export function TimezoneCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const t = useT();
-  const groups = buildTimezoneOptions(value);
+  // Builds ~400 IANA zone entries with an Intl.DateTimeFormat offset lookup
+  // each — mounted once per attendee, so this must not run on unrelated
+  // keystrokes in a sibling field.
+  const groups = useMemo(() => buildTimezoneOptions(value), [value]);
   const selected = groups
     .flatMap((group) => group.options)
     .find((option) => option.timezone === value);
@@ -211,9 +213,7 @@ export function TimezoneCombobox({
                     <IconCheck
                       className={cn(
                         "mr-2 h-4 w-4 shrink-0",
-                        value === option.timezone
-                          ? "opacity-100"
-                          : "opacity-0",
+                        value === option.timezone ? "opacity-100" : "opacity-0",
                       )}
                     />
                     <span className="truncate">

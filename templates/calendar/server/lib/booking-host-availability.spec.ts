@@ -111,6 +111,27 @@ describe("getEligibleHostAvailability", () => {
     ).resolves.toEqual([{ email: "peer@example.com" }]);
   });
 
+  it("omits the schedule when a host has one but no time zone resolves from any source", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return { weeklySchedule: WEEKLY_SCHEDULE };
+        }
+        return null;
+      },
+    );
+
+    await expect(
+      getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([{ email: "peer@example.com" }]);
+  });
+
   it("falls back to calendar-settings.timezone when no schedule saved", async () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {

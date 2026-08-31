@@ -71,7 +71,11 @@ export async function getEligibleHostAvailability(
         (await getGoogleAccountTimezone(email)) ||
         undefined;
 
-      if (!config?.weeklySchedule) {
+      // Without a resolvable time zone there's no correct zone to interpret
+      // the schedule in — attaching it anyway would silently hard-filter
+      // using the owner's zone instead of the peer's. Fall back to
+      // free/busy-only for this host rather than guess.
+      if (!config?.weeklySchedule || !timezone) {
         return { email, timezone };
       }
       return {

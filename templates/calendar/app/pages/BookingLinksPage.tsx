@@ -2421,18 +2421,25 @@ function BookingPreview({
     showPreviewTimeZones ? bookingSourceSlug : undefined,
     bookingUsername,
   );
-  const previewTimeZoneHosts: TimeZoneGridHost[] = previewPublicLink
+  // A redirect-only response (unsynced/stale username) has no `id` or
+  // enrichment fields — fall through to the settings/hosts data below
+  // instead of rendering an empty preview.
+  const resolvedPreviewPublicLink =
+    previewPublicLink && !previewPublicLink.redirectPath
+      ? previewPublicLink
+      : undefined;
+  const previewTimeZoneHosts: TimeZoneGridHost[] = resolvedPreviewPublicLink
     ? [
-        ...(previewPublicLink.ownerTimezone
+        ...(resolvedPreviewPublicLink.ownerTimezone
           ? [
               {
                 id: "owner",
                 label: t("bookingLinks.hostLabel"),
-                timezone: previewPublicLink.ownerTimezone,
+                timezone: resolvedPreviewPublicLink.ownerTimezone,
               },
             ]
           : []),
-        ...(previewPublicLink.hosts ?? [])
+        ...(resolvedPreviewPublicLink.hosts ?? [])
           .filter((host) => host.timezone)
           .map((host) => ({
             id: host.email,
