@@ -109,10 +109,17 @@ function resolveMountMatch(
   if (!appBasePath || !supportsAppBasePathMount(path)) return null;
 
   const prefixedPath = `${appBasePath}${path}`;
-  if (!pathMatchesPrefix(reqPath, prefixedPath)) return null;
+  if (
+    path === "/"
+      ? reqPath !== appBasePath
+      : !pathMatchesPrefix(reqPath, prefixedPath)
+  ) {
+    return null;
+  }
   return {
     mountPath: prefixedPath,
-    strippedPath: reqPath.slice(prefixedPath.length) || "/",
+    strippedPath:
+      path === "/" ? "/" : reqPath.slice(prefixedPath.length) || "/",
   };
 }
 
