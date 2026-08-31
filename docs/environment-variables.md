@@ -79,9 +79,11 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `APP_BASE_PATH`                                                    | Server-side mount prefix for a workspace app such as `/mail`.                                                                                                               |
 | `PORT`                                                             | Local Node/Nitro server port.                                                                                                                                               |
 | `NITRO_PRESET`                                                     | Nitro build/deployment preset.                                                                                                                                              |
+| `AMPLIFY_MONOREPO_APP_ROOT`                                        | AWS Amplify monorepo app root used to select the application configured in `amplify.yml`.                                                                                   |
 | `IS_RR_BUILD_REQUEST`                                              | Internal React Router build-time preview marker used during prerendering; do not set manually.                                                                              |
 | `BETTER_AUTH_SECRET`                                               | Stable Better Auth session-signing secret for standalone production apps; workspace deployments can derive it from `A2A_SECRET`.                                            |
 | `BETTER_AUTH_URL`                                                  | Optional Better Auth public-origin override; known template/request context, `APP_URL`, and Netlify or Vercel metadata are inferred when unset.                             |
+| `BETTER_AUTH_TRUSTED_ORIGINS`                                      | Optional comma-separated exact origins trusted by Better Auth for browser auth requests, including configured host aliases.                                                 |
 | `OAUTH_STATE_SECRET`                                               | Dedicated OAuth state-signing secret; falls back to `BETTER_AUTH_SECRET`.                                                                                                   |
 | `A2A_SECRET`                                                       | Deploy-level HMAC for A2A and signed background handoffs.                                                                                                                   |
 | `SECRETS_ENCRYPTION_KEY`                                           | Legacy app-local/shared secret encryption key. Prefer the dedicated workspace key for shared vaults.                                                                        |
@@ -263,14 +265,14 @@ production deployment:
 
 ## CI-only variables
 
-| Variable                      | Purpose                                                                                                                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                            |
-| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                    |
-| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                               |
-| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                    |
-| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                           |
-| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when the keep-warm audit fails; GitHub issue reporting remains the fallback when it is unset. |
+| Variable                      | Purpose                                                                                                                                                                                 |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                                            |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                                    |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                                               |
+| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                    |
+| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                           |
+| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
 ### Beta E2E browser suite
 
@@ -283,6 +285,7 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETA_E2E_APPS`                  | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                              |
 | `BETA_E2E_AUTHED`                | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                         |
+| `BETA_E2E_CLUSTER`               | Authenticated cluster selected by the workflow (`registry`, `chat`, or `journeys`); internal CI wiring, not a user credential.                          |
 | `BETA_E2E_GREP`                  | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.         |
 | `BETA_E2E_REPORT_SLOT`           | Names this invocation's report directory. The workflow sets one per lane so three sequential runs do not overwrite each other's results.                |
 | `BETA_E2E_EMAIL`                 | The identity every authenticated spec asserts it is running as. Setup fails if the resolved session is anyone else.                                     |
@@ -295,6 +298,33 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_ALLOW_SHARED_KEY`      | Set by the workflow when the dispatch chooses `key_source=shared`. Opts a run into billing the shared key instead of the dedicated one.                 |
 | `BETA_E2E_MODEL`                 | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                       |
 | `BETA_E2E_ENGINE`                | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                         |
+
+### Scheduled signup E2E canary
+
+Read by `.github/workflows/signup-e2e-scheduled.yml` and `e2e/signup/`, never
+by application runtime code. Mailosaur credentials are live service secrets:
+store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
+
+| Variable                  | Purpose                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `MAILOSAUR_API_KEY`       | Mailosaur API key used to read the verification message delivered to the signup canary inbox. |
+| `MAILOSAUR_SERVER_ID`     | Mailosaur server whose generated domain receives the canary verification messages.            |
+| `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
+| `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
+
+### Signup agent review
+
+Read by the scheduled `Signup agent review` workflow and
+`e2e/signup/agent-specs/`. This lane walks the real signup flow and asks a model
+to judge the screenshots, so it spends tokens; it is advisory and never gates a
+merge or pages on-call. It reuses `MAILOSAUR_*` and `SIGNUP_E2E_*` from the
+deterministic signup canary.
+
+| Variable             | Purpose                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`  | Key used to judge the captured signup journey. Absent, the lane fails loudly rather than reporting a flow with no findings.                 |
+| `SIGNUP_AGENT_APPS`  | Comma-separated app ids, or `all`, to review. Unset reviews one app per UTC day so the fleet rotates instead of paying daily for every app. |
+| `SIGNUP_AGENT_MODEL` | Overrides the review model. Defaults to `claude-sonnet-5`.                                                                                  |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
@@ -362,6 +392,7 @@ only in code.
 | `agent.engine`                                | `AGENT_ENGINE`                                                                                                           | string  | —                                            | Name of the registered agent engine to use.                                                                                                                                                                                                               |
 | `agent.model`                                 | `AGENT_MODEL`                                                                                                            | string  | —                                            | Model the agent runs with, when the caller does not pass one.                                                                                                                                                                                             |
 | `agent.builtInEngines`                        | `AGENT_BUILT_IN_ENGINES`                                                                                                 | array   | —                                            | Built-in engines to register, e.g. ["ai-sdk:openai"]. Unset registers every built-in.                                                                                                                                                                     |
+| `agent.buildEnginePackages`                   | `AGENT_NATIVE_BUILD_ENGINE_PACKAGES`                                                                                     | string  | —                                            | Build-derived JSON list of runtime packages available to bundled agent engines.                                                                                                                                                                           |
 | `agent.mode`                                  | `AGENT_MODE`                                                                                                             | string  | —                                            | Runtime mode. "production" turns off development-only agent behavior.                                                                                                                                                                                     |
 | `agent.preferBringYourOwnKey`                 | `AGENT_ENGINE_PREFER_BYO_KEY`                                                                                            | boolean | `false`                                      | Skip the Builder-managed engine and select a directly configured provider key first.                                                                                                                                                                      |
 | `agent.maxOutputTokens`                       | `AGENT_MAX_OUTPUT_TOKENS`                                                                                                | number  | —                                            | Completion-token ceiling for engine calls that do not pass one explicitly. Unset uses the per-engine defaults.                                                                                                                                            |
@@ -390,8 +421,10 @@ only in code.
 | `auth.disableDesktopSsoFallbackInDevelopment` | `AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK`                                                                              | boolean | `false`                                      | Disable the loopback Desktop SSO fallback in development so isolated acceptance runs can use their configured local identity. Ignored in production.                                                                                                      |
 | `auth.requireEmailVerification`               | `AUTH_REQUIRE_EMAIL_VERIFICATION`                                                                                        | boolean | —                                            | Whether password signup must verify email before a session. Unset: hosted deployments verify with a provider and skip verification without one; local development skips it. Setting false accepts unverified email in production. Email remains optional. |
 | `integrations.allowUnverifiedWebhooks`        | `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`                                                                                 | boolean | `false`                                      | Skip inbound webhook signature verification. Development only — every adapter that reads this treats it as a bypass of sender authentication.                                                                                                             |
+| `integrations.webhookBaseUrl`                 | `WEBHOOK_BASE_URL`                                                                                                       | string  | —                                            | Optional public base URL for self-callback and webhook targets.                                                                                                                                                                                           |
 | `integrations.platforms`                      | `AGENT_NATIVE_INTEGRATION_PLATFORMS`                                                                                     | array   | —                                            | Integration platforms to mount, comma-separated, each matched against an adapter's `platform` id (slack, telegram, whatsapp, microsoft-teams, discord, google-docs, email). Unset mounts every adapter; a name no adapter provides throws at plugin init. |
 | `migration.releaseMigrations`                 | `AGENT_NATIVE_RELEASE_MIGRATIONS`                                                                                        | boolean | `false`                                      | Treat database migrations as release-owned so request runtimes only probe an already-prepared schema.                                                                                                                                                     |
+| `migration.deployContext`                     | `CONTEXT`                                                                                                                | string  | —                                            | Netlify deploy context for the build. Only 'production' owns production schema, so only that context refuses to migrate a local database.                                                                                                                 |
 | `migration.betaSchemaOwner`                   | `AGENT_NATIVE_BETA_SCHEMA_OWNER`                                                                                         | string  | —                                            | Schema owner marker embedded in a prebuilt beta server bundle.                                                                                                                                                                                            |
 | `observability.enabled`                       | `AGENT_NATIVE_OBSERVABILITY`                                                                                             | boolean | `true`                                       | Capture agent run, model call, and tool call traces.                                                                                                                                                                                                      |
 | `observability.capturePrompts`                | `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS`                                                                             | boolean | `false`                                      | Include prompt and completion content on exported spans.                                                                                                                                                                                                  |

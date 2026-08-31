@@ -56,6 +56,7 @@ export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,
+  BuilderConnectPopover,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
@@ -75,6 +76,7 @@ export {
   type SettingsSearchEntry,
   type SettingsTabItem,
   type SettingsTabsPageProps,
+  type BuilderConnectPopoverProps,
 } from "./settings/index.js";
 export {
   DevDatabaseLink,

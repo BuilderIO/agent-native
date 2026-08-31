@@ -35,7 +35,7 @@ function cookieStore(
       return cookies.filter((cookie) => matchesUrl(cookie, filter?.url));
     }),
     set: vi.fn(async (cookie: Electron.CookiesSetDetails) => {
-      cookies.push({
+      const nextCookie: Electron.Cookie = {
         name: cookie.name!,
         value: cookie.value!,
         domain: new URL(cookie.url).hostname,
@@ -48,7 +48,15 @@ function cookieStore(
         ...(cookie.expirationDate
           ? { expirationDate: cookie.expirationDate }
           : {}),
-      });
+      };
+      const existingIndex = cookies.findIndex(
+        (candidate) =>
+          candidate.name === nextCookie.name &&
+          candidate.domain === nextCookie.domain &&
+          candidate.path === nextCookie.path,
+      );
+      if (existingIndex >= 0) cookies[existingIndex] = nextCookie;
+      else cookies.push(nextCookie);
     }),
     remove: vi.fn(async (url: string, name: string) => {
       const index = cookies.findIndex(
@@ -2321,7 +2329,8 @@ describe("DesktopIdentityBroker", () => {
               url: mail.origin,
               name: "an_embed_session",
               value: "workspace-embed-session",
-            });
+              partitionKey: "https://dispatch.agent-native.com",
+            } as Electron.CookiesSetDetails & { partitionKey: string });
             return new Response("<html></html>", { status: 200 });
           }
           return new Response(null, { status: 404 });
@@ -2347,6 +2356,12 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
     await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+
+    const embedCookieWrites = mailCookies.set.mock.calls.filter(
+      ([cookie]) => cookie.name === "an_embed_session",
+    );
+    expect(embedCookieWrites).toHaveLength(2);
+    expect(embedCookieWrites.at(-1)?.[0]).not.toHaveProperty("partitionKey");
 
     expect(
       identityFetch.mock.calls.filter(

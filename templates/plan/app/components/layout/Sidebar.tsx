@@ -6,7 +6,6 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useSession } from "@agent-native/core/client/hooks";
@@ -14,6 +13,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  AgentNativeIcon,
   buildSignInReturnHref,
   FeedbackButton,
 } from "@agent-native/core/client/ui";
@@ -624,21 +624,9 @@ export function Sidebar({
           disabled={!collapsible || !onCollapsedChange}
           data-sidebar-brand-toggle
         >
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
+          <AgentNativeIcon
             aria-hidden="true"
-            width={28}
-            height={16}
-            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            width={28}
-            height={16}
-            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            className="h-3.5 w-6 shrink-0 text-sidebar-foreground"
           />
           {!collapsed && (
             <span className="truncate text-sm font-semibold tracking-tight">
@@ -729,7 +717,7 @@ export function Sidebar({
       </nav>
 
       {!collapsed && session ? (
-        <div className="space-y-2 px-3 py-2">
+        <div className="space-y-2 px-3 py-2 empty:hidden">
           <DevDatabaseLink />
           <OrgSwitcher />
         </div>

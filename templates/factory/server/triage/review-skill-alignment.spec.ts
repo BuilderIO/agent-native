@@ -16,9 +16,11 @@ describe("Factory review skill alignment", () => {
 
     expect(prompt).toContain("Custom operator instruction.");
     expect(prompt).toContain("answered clarifications");
-    expect(prompt).toContain(
-      "@agent-native Fixed, In progress, or Clarification needed",
-    );
+    expect(prompt).toContain("@agent-native Fixed, In progress, or");
+    expect(prompt).toContain("Clarification needed");
+    expect(prompt).toContain("reaction: robot_face");
+    expect(prompt).toContain("🤖");
+    expect(prompt).not.toContain("👀");
     expect(prompt.indexOf(markers.start)).toBeGreaterThan(-1);
     expect(prompt.indexOf(markers.end)).toBeGreaterThan(
       prompt.indexOf(markers.start),

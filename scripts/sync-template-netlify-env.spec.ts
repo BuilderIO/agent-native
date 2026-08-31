@@ -9,6 +9,15 @@ import {
 } from "./sync-template-netlify-env";
 
 describe("isAllowedHostedTemplateEnvKey", () => {
+  it("allows the exact Better Auth origin allowlist", () => {
+    expect(isAllowedHostedTemplateEnvKey("BETTER_AUTH_TRUSTED_ORIGINS")).toBe(
+      true,
+    );
+    expect(isForbiddenHostedTemplateEnvKey("BETTER_AUTH_TRUSTED_ORIGINS")).toBe(
+      false,
+    );
+  });
+
   it("allows the browser-restricted Google Picker configuration", () => {
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_API_KEY")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_APP_ID")).toBe(true);

@@ -3,12 +3,14 @@ import { execFileSync } from "node:child_process";
 
 const trackedFiles = execFileSync("git", ["ls-files"], {
   encoding: "utf8",
+  maxBuffer: 1 << 28,
 })
   .split("\n")
   .filter(Boolean);
 const deletedFiles = new Set(
   execFileSync("git", ["diff", "--name-only", "--diff-filter=D"], {
     encoding: "utf8",
+    maxBuffer: 1 << 28,
   })
     .split("\n")
     .filter(Boolean),

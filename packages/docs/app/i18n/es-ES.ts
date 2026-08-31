@@ -63,6 +63,7 @@ const esES = {
     dialogLabel: "Buscar documentación",
     placeholder: "Buscar documentación...",
     empty: "Escribe para buscar en toda la documentación",
+    toggleChatSidebar: "Alternar barra lateral del chat",
     loadError: "No se pudo cargar la búsqueda. Inténtalo de nuevo.",
     retry: "Intentar de nuevo",
     noResults: 'No se encontraron resultados para "{{query}}"',

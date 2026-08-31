@@ -1041,6 +1041,11 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_database_row_mutation_receipts_document_idx
         ON content_database_row_mutation_receipts (document_id)`,
     },
+    {
+      version: 85,
+      name: "content-document-version-chat-context",
+      sql: `ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

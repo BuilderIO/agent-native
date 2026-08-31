@@ -113,13 +113,11 @@ export async function saveIntegrationConfigIfUnchanged(
   await ensureTable();
   const client = getDbExec();
   const nextRaw = JSON.stringify(configData);
-  const timestamp = Date.now();
   const result = expected
     ? await client.execute({
-        sql: `UPDATE integration_configs SET config_data = ?, updated_at = ? WHERE platform = ? AND config_key = ? AND config_data = ? AND updated_at = ?`,
+        sql: `UPDATE integration_configs SET config_data = ?, updated_at = updated_at + 1 WHERE platform = ? AND config_key = ? AND config_data = ? AND updated_at = ?`,
         args: [
           nextRaw,
-          timestamp,
           platform,
           configKey,
           JSON.stringify(expected.configData),
@@ -130,7 +128,7 @@ export async function saveIntegrationConfigIfUnchanged(
         sql: isPostgres()
           ? `INSERT INTO integration_configs (platform, config_key, config_data, owner, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (platform, config_key) DO NOTHING`
           : `INSERT OR IGNORE INTO integration_configs (platform, config_key, config_data, owner, updated_at) VALUES (?, ?, ?, ?, ?)`,
-        args: [platform, configKey, nextRaw, owner ?? null, timestamp],
+        args: [platform, configKey, nextRaw, owner ?? null, Date.now()],
       });
 
   if (result.rowsAffected === 0) return false;

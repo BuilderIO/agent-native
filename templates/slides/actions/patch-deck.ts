@@ -27,6 +27,10 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import {
+  createDeckVersionSnapshot,
+  deckVersionChatContextFromAction,
+} from "../server/lib/deck-versions.js";
+import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
   type SourceImportMetadata,
@@ -910,6 +914,22 @@ export default defineAction({
       }
 
       await db.transaction(async (tx: any) => {
+        if (isAgentCaller && row.ownerEmail) {
+          await createDeckVersionSnapshot(
+            {
+              id: row.id,
+              title: row.title ?? "Untitled",
+              data: row.data ?? "",
+              ownerEmail: row.ownerEmail,
+            },
+            {
+              force: true,
+              chatContext: deckVersionChatContextFromAction(ctx),
+              label: "Before deck patch",
+              db: tx,
+            },
+          );
+        }
         const updateResult = await tx
           .update(schema.decks)
           .set({

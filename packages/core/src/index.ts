@@ -210,6 +210,7 @@ export {
 // Shared (isomorphic)
 export {
   agentChat,
+  isQaTestEmail,
   type AgentChatCallOptions,
   type AgentChatResponse,
 } from "./shared/index.js";

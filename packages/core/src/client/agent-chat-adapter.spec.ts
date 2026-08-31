@@ -770,6 +770,42 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("sends the assistant-ui parent when regenerating a message", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-regenerate",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "try again" }],
+          },
+          {
+            id: "assistant-original",
+            role: "assistant",
+            content: [{ type: "text", text: "Original answer." }],
+          },
+        ],
+        unstable_parentId: "user-1",
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body)).toMatchObject({
+      parentId: "user-1",
+      message: "try again",
+      threadId: "thread-regenerate",
+    });
+  });
+
   it("does not publish terminal cleanup after another run claims active state", async () => {
     vi.stubGlobal("sessionStorage", createMemoryStorage());
     const dispatchEvent = vi.fn();

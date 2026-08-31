@@ -103,6 +103,8 @@ export interface PtyServerOptions {
   port?: number;
   /** Auth check for WebSocket upgrade requests. Return false to reject. */
   authCheck?: (req: IncomingMessage) => boolean | Promise<boolean>;
+  /** Trusted host arguments appended to each validated CLI command. */
+  getCommandArgs?: (command: string) => string[] | Promise<string[]>;
   /** Log prefix for console output. Defaults to '[terminal]' */
   logPrefix?: string;
 }
@@ -124,6 +126,7 @@ export async function createPtyWebSocketServer(
     command: defaultCommand = "claude",
     port = 0,
     authCheck,
+    getCommandArgs,
     logPrefix = "[terminal]",
   } = options;
 
@@ -231,14 +234,29 @@ export async function createPtyWebSocketServer(
       }
     }
 
+    let commandArgs: string[] = [];
+    try {
+      if (getCommandArgs) commandArgs = await getCommandArgs(command);
+    } catch (error) {
+      sendStatus(
+        "failed",
+        error instanceof Error
+          ? error.message
+          : "The terminal command could not be configured.",
+      );
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+
     // Build the command — use npx if CLI not found locally
     const baseCommand = useNpx
       ? `npx --yes ${CLI_REGISTRY[command].installPackage}`
       : command;
-    const fullCommand = extraFlags
-      ? `${baseCommand} ${extraFlags}`
-      : baseCommand;
-    console.log(`${logPrefix} Spawning PTY: ${fullCommand}`);
+    const generatedFlags = commandArgs.map(shellQuote).join(" ");
+    const fullCommand = [baseCommand, generatedFlags, extraFlags]
+      .filter(Boolean)
+      .join(" ");
+    console.log(`${logPrefix} Spawning PTY for ${command}`);
 
     // Build env, stripping CLI-specific nesting vars
     const registry = CLI_REGISTRY[command];
@@ -386,4 +404,8 @@ export async function createPtyWebSocketServer(
       });
     });
   });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

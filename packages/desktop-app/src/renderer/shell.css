@@ -287,7 +287,6 @@ body {
 .desktop-chat-first-hub > .code-agents-surface {
   min-width: 0;
   min-height: 0;
-  transition: grid-template-columns 200ms var(--ease-collapse);
 }
 
 .desktop-chat-first-hub
@@ -405,21 +404,14 @@ body {
 
 .collapsed-mac-window-controls .win-btn--maximize {
   left: 50px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-7px) scale(0.86);
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
 }
 
 .collapsed-mac-window-controls:hover::before,
 .collapsed-mac-window-controls:focus-within::before {
   opacity: 1;
-}
-
-.collapsed-mac-window-controls:hover .win-btn--maximize,
-.collapsed-mac-window-controls:focus-within .win-btn--maximize {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
 }
 
 .platform-darwin
@@ -1070,10 +1062,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .desktop-chat-first-hub > .code-agents-surface {
-    transition: none;
-  }
-
   .desktop-chat-first-mac-window-controls,
   .collapsed-mac-window-controls,
   .collapsed-mac-window-controls::before,
@@ -1208,16 +1196,6 @@ body {
 
 .desktop-identity-gate__heading {
   margin-bottom: 24px;
-}
-
-.desktop-identity-gate__app-name {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--label-inactive);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .desktop-identity-gate__heading h1 {

@@ -118,7 +118,9 @@ jobs:
             async function waitForAutoPublishIdle(deadline) {
               while (Date.now() < deadline) {
                 const activeRuns = (await listAutoPublishRuns()).filter(
-                  (run) => run.status !== "completed",
+                  (run) =>
+                    run.status !== "completed" &&
+                    run.event === "workflow_dispatch",
                 );
                 if (activeRuns.length === 0) return true;
                 core.info(
@@ -155,7 +157,7 @@ jobs:
                   const candidateCreatedAt = Date.parse(candidate.created_at || "");
                   return (
                     candidate.id !== run.id &&
-                    candidate.event === "push" &&
+                    candidate.event === run.event &&
                     Number.isFinite(candidateCreatedAt) &&
                     candidateCreatedAt >= runCreatedAt &&
                     candidateCreatedAt <= runUpdatedAt

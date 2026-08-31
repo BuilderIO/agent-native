@@ -2,6 +2,9 @@
 import {
   generateTabId,
   AgentChatSurface,
+  isAssistantChatHistoryVersion,
+  type AssistantChatHistoryConfig,
+  type AssistantChatHistoryVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
@@ -102,6 +105,7 @@ import {
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import type { LayoutGrid } from "@shared/layout-grid";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
@@ -403,6 +407,7 @@ import {
   updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import {
@@ -561,6 +566,7 @@ import { runSendOverviewAnnotations } from "./design-editor/commands/send-overvi
 import { runSendRuntimeLayerMoveSemanticHandoff } from "./design-editor/commands/send-runtime-layer-move-semantic-handoff";
 import { runSendRuntimeLayerSemanticHandoff } from "./design-editor/commands/send-runtime-layer-semantic-handoff";
 import { runSendRuntimeLayerStateSemanticHandoff } from "./design-editor/commands/send-runtime-layer-state-semantic-handoff";
+import { runSetLayoutGrid } from "./design-editor/commands/set-layout-grid";
 import { runStartRetryGeneration } from "./design-editor/commands/start-retry-generation";
 import { runStartSidebarResize } from "./design-editor/commands/start-sidebar-resize";
 import { runStyleChange } from "./design-editor/commands/style-change";
@@ -601,6 +607,7 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
   getDesignDataRecord,
+  getLayoutGrids,
   isDesignData,
   nextLocalhostScreenPosition,
   parseDesignDataJson,
@@ -676,7 +683,10 @@ import {
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "./design-editor/generation-prompt-directives";
-import { sanitizeCanvasFrameGeometryForPersist } from "./design-editor/geometry-persistence";
+import {
+  quantizeCanvasFrameGeometryForPersist,
+  sanitizeCanvasFrameGeometryForPersist,
+} from "./design-editor/geometry-persistence";
 import {
   type ContentHistoryChange,
   type ContentHistoryEntry,
@@ -954,6 +964,34 @@ function DesignEditor() {
     () => (id ? ({ type: "design" as const, id } as const) : null),
     [id],
   );
+  const designChatHistory = useMemo<
+    AssistantChatHistoryConfig | undefined
+  >(() => {
+    if (!designChatScope) return undefined;
+    const designId = designChatScope.id;
+    return {
+      list: {
+        action: "list-design-versions",
+        args: { designId, limit: 100 },
+        getVersions: (result: unknown) => {
+          const versions =
+            result && typeof result === "object"
+              ? (result as { versions?: unknown }).versions
+              : undefined;
+          return Array.isArray(versions)
+            ? versions.filter(isAssistantChatHistoryVersion)
+            : [];
+        },
+      },
+      restore: {
+        action: "restore-design-version",
+        args: (version: AssistantChatHistoryVersion) => ({
+          designId,
+          versionId: version.id,
+        }),
+      },
+    };
+  }, [designChatScope]);
   const {
     link: detectedFigmaComposerLink,
     onComposerTextChange: handleComposerTextChange,
@@ -3553,14 +3591,20 @@ function DesignEditor() {
     },
     [creativeContextState, t],
   );
-  const resolvePromptDesignSystemId = useCallback(
-    () =>
-      design?.designSystemId ??
-      defaultSystem?.id ??
-      designSystems[0]?.id ??
-      null,
-    [defaultSystem?.id, design?.designSystemId, designSystems],
-  );
+  const resolvePromptDesignSystemId = useCallback(() => {
+    if (design?.designSystemId) return design.designSystemId;
+    if (
+      defaultSystem &&
+      isDesignSystemUsableForGeneration(defaultSystem.data)
+    ) {
+      return defaultSystem.id;
+    }
+    return (
+      designSystems.find((system) =>
+        isDesignSystemUsableForGeneration(system.data),
+      )?.id ?? null
+    );
+  }, [defaultSystem, design?.designSystemId, designSystems]);
 
   const selectedPromptDesignSystemId =
     promptDesignSystemId === undefined
@@ -3851,6 +3895,52 @@ function DesignEditor() {
     () => parseDesignDataJson(design?.data),
     [design?.data],
   );
+
+  // ── Layout grids ──────────────────────────────────────────────────────────
+  const layoutGrids = useMemo(
+    () => getLayoutGrids(designDataJson),
+    [designDataJson],
+  );
+  /** The grid step the ACTIVE screen's bridge quantizes in-iframe gestures to.
+   *  Content px, not board px: the bridge writes `style.left` directly. */
+  const activeScreenLayoutGridStep =
+    activeFileId && layoutGrids[activeFileId]
+      ? layoutGrids[activeFileId].size
+      : 1;
+  /** Flips visibility for every grid that exists; snapping is unaffected. */
+  const handleToggleLayoutGrids = useCallback(() => {
+    const frameIds = Object.keys(layoutGrids);
+    if (frameIds.length === 0) return;
+    const anyVisible = frameIds.some(
+      (frameId) => layoutGrids[frameId]!.visible,
+    );
+    for (const frameId of frameIds) {
+      handleLayoutGridChangeRef.current?.(frameId, {
+        ...layoutGrids[frameId]!,
+        visible: !anyVisible,
+      });
+    }
+  }, [layoutGrids]);
+  const handleLayoutGridChange = useCallback(
+    (frameId: string, next: Partial<LayoutGrid> | null) =>
+      runSetLayoutGrid(
+        {
+          id,
+          canEditDesign: canEditDesignRef.current,
+          designDataJsonRef,
+          queryClient,
+          updateDesignMutation,
+        },
+        frameId,
+        next,
+      ),
+    [id, queryClient, updateDesignMutation],
+  );
+  // The toggle above calls this from a callback, not during render, so a ref
+  // breaks the declaration-order cycle between them.
+  const handleLayoutGridChangeRef = useRef(handleLayoutGridChange);
+  handleLayoutGridChangeRef.current = handleLayoutGridChange;
+
   // Keep a ref in sync so debounced timer callbacks can read the freshest
   // designDataJson without closing over a stale snapshot from render time.
   const designDataJsonRef = useRef(designDataJson);
@@ -4107,7 +4197,9 @@ function DesignEditor() {
     (geometryById: CanvasFrameGeometryById) => {
       if (!id || !canEditDesignRef.current) return;
       pendingFrameGeometrySaveRef.current = {
-        geometryById: cloneCanvasFrameGeometry(geometryById),
+        geometryById: quantizeCanvasFrameGeometryForPersist(
+          cloneCanvasFrameGeometry(geometryById),
+        ),
         previousGeometry: cloneCanvasFrameGeometry(
           getCanvasFrameGeometry(designDataJsonRef.current),
         ),
@@ -7722,7 +7814,9 @@ function DesignEditor() {
   const resolvedReviewPanelProps = useMemo<
     Omit<ReviewPanelProps, "className"> | undefined
   >(() => {
-    if (!id || !activeFile) return undefined;
+    // The Builder shell has no persisted Design action surface, so exposing
+    // Run audit there only produces the shell's "API is disabled" error.
+    if (!id || !activeFile || shellMode) return undefined;
     const reviewMatchesActiveFile = reviewFileId === activeFile.id;
     return {
       findings: reviewMatchesActiveFile ? reviewFindings : [],
@@ -7749,6 +7843,7 @@ function DesignEditor() {
     reviewAuditedAt,
     reviewFileId,
     reviewFindings,
+    shellMode,
   ]);
 
   const dispatchReviewFeedbackToAgent = useCallback(
@@ -8721,6 +8816,7 @@ function DesignEditor() {
         activeTool,
         design,
         designDataJson,
+        layoutGrids,
         designSelectionOwnerIdRef,
         files,
         hoveredElement,
@@ -8759,6 +8855,7 @@ function DesignEditor() {
       activeBreakpointWidthState,
       responsiveEditScope,
       designDataJson,
+      layoutGrids,
       selectedStateId,
       isSignedIn,
     ],
@@ -13979,6 +14076,7 @@ function DesignEditor() {
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleComments: handleToggleComments,
+    onToggleLayoutGrids: canEditDesign ? handleToggleLayoutGrids : undefined,
     onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
@@ -15920,6 +16018,9 @@ function DesignEditor() {
   /** Applies a typed or preset frame size/position from the inspector. Routed
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
+  const selectedScreenLayoutGrid = selectedScreenGeometry
+    ? (layoutGrids[selectedScreenGeometry.id] ?? null)
+    : null;
   /** Design-level canvas background (the surround, not a screen's body). */
   // ── Canvas background, screen geometry, states panel ───────────────────────
   const persistedCanvasBackground = useMemo(
@@ -17601,6 +17702,7 @@ function DesignEditor() {
 
       return (
         <DesignCanvas
+          layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}
           runtimeReplacementContent={
@@ -17908,6 +18010,7 @@ function DesignEditor() {
       design?.title,
       repromptDraftRequest,
       handleRepromptDraftConsumed,
+      layoutGrids,
       t,
     ],
   );
@@ -18110,6 +18213,9 @@ function DesignEditor() {
       // multi-id array through the single-id onPick signature, so a
       // shift-held pick must leave the current selection alone rather than
       // clobber it to a wrong singleton.
+      if (!shiftKeyHeldRef.current) {
+        setOverviewSelectedScreenIds([pickedId]);
+      }
       setSelectedLayerIdsState((current) =>
         computeOverviewScreenPickSelectionIds({
           pickedId,
@@ -18144,9 +18250,17 @@ function DesignEditor() {
           reflowOverviewScreensForBreakpoints([
             ...new Set([...persisted, widthPx]),
           ]);
+        })
+        .catch((error) => {
+          toast.error(t("common.genericError"), {
+            description:
+              error instanceof Error
+                ? error.message
+                : t("designEditor.breakpointBar.addBreakpoint"),
+          });
         });
     },
-    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints],
+    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints, t],
   );
   const handleBreakpointBarAdd = useCallback(
     (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
@@ -18353,7 +18467,7 @@ function DesignEditor() {
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
   useEffect(() => {
-    if (!id) void navigate("/");
+    if (!id) void navigate("/home");
   }, [id, navigate]);
 
   // ── Early returns and derived render values ────────────────────────────────
@@ -18393,7 +18507,7 @@ function DesignEditor() {
             variant="default"
             className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
           >
-            <Link to="/">
+            <Link to="/home">
               <IconArrowLeft className="size-4 rtl:-scale-x-100" />
               {t("designEditor.backToDesigns")}
             </Link>
@@ -18490,7 +18604,7 @@ function DesignEditor() {
         }}
       >
         <DropdownMenuItem asChild>
-          <Link to="/">
+          <Link to="/home">
             <IconArrowLeft className="mr-2 h-4 w-4" />
             {t("designEditor.backToDesigns")}
           </Link>
@@ -19232,6 +19346,8 @@ function DesignEditor() {
     readOnly: !canEditDesign,
     selectedElements: selectedInspectorElements,
     selectedScreenGeometry,
+    selectedScreenLayoutGrid,
+    onLayoutGridChange: canEditDesign ? handleLayoutGridChange : undefined,
     canvasBackground,
     onCanvasBackgroundChange: canEditDesign
       ? handleCanvasBackgroundChange
@@ -19454,6 +19570,7 @@ function DesignEditor() {
                       t("chat.suggestionMobile"),
                     ]}
                     scope={designChatScope}
+                    chatHistory={designChatHistory}
                     showScopeBadge={false}
                     showHeader={false}
                     showTabBar={false}
@@ -20231,6 +20348,8 @@ function DesignEditor() {
                         frameToolDraws={frameToolDraws}
                         onDeleteSelection={handleDeleteOverviewSelection}
                         onNudgeSelection={handleOverviewNudgeSelection}
+                        nudgeAmounts={editorPreferences.nudge}
+                        layoutGrids={layoutGrids}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
@@ -20287,6 +20406,7 @@ function DesignEditor() {
                       {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
                         screenId={activeFile.id}
+                        layoutGridStep={activeScreenLayoutGridStep}
                         content={activeContent}
                         contentKey={`${activeFile.id}:${contentRenderRevision}`}
                         styleRevertRequest={

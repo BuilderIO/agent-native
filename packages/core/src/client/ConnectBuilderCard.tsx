@@ -13,6 +13,7 @@ import { BuilderBMark } from "./builder-mark.js";
 import { writeClipboardText } from "./clipboard.js";
 import { requestDesktopLocalCodeChange } from "./desktop-local-code-change.js";
 import { getCallbackOrigin } from "./frame.js";
+import { BuilderConnectPopover } from "./settings/BuilderConnectPopover.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { cn } from "./utils.js";
 
@@ -83,6 +84,7 @@ export function ConnectBuilderCard({
   // is what catches a flow the user completed in another tab.
   const flow = useBuilderConnectFlow({
     popupUrl: initialConnectUrl,
+    provisionAccount: true,
     trackingSource: "connect_builder_card",
   });
   // Keep the server-rendered handoff state until a successful status response
@@ -539,24 +541,25 @@ export function ConnectBuilderCard({
                       : "Do locally"}
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => flow.start()}
-                  disabled={connecting}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
-                    connecting && "opacity-70 cursor-wait",
-                  )}
-                >
-                  {connecting ? (
-                    <>
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                      Waiting for Builder…
-                    </>
-                  ) : (
-                    "Connect Builder"
-                  )}
-                </button>
+                <BuilderConnectPopover flow={flow}>
+                  <button
+                    type="button"
+                    disabled={connecting}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                      connecting && "opacity-70 cursor-wait",
+                    )}
+                  >
+                    {connecting ? (
+                      <>
+                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                        Waiting for Builder…
+                      </>
+                    ) : (
+                      "Connect Builder"
+                    )}
+                  </button>
+                </BuilderConnectPopover>
               </div>
             ) : showDesktopLocalHandoff ? (
               <button

@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
@@ -65,8 +66,9 @@ export default defineAction({
           "when omitted.",
       ),
   }),
-  run: async ({ designId, timelineId, fileId: fileIdInput }) => {
+  run: async ({ designId, timelineId, fileId: fileIdInput }, context) => {
     await assertAccess("design", designId, "editor");
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
 

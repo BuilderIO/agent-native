@@ -45,6 +45,30 @@ const messages: AgentChatTranslation = {
   "onboarding.roleOther": "أخرى",
   "onboarding.skipForNow": "تخطي الآن",
   "onboarding.saveRoleError": "تعذر حفظ دورك.",
+  "onboarding.builderActivateCredits": "تفعيل أرصدة Builder.io المجانية",
+  "onboarding.builderConnectCredits": "الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderActivateDescription":
+    "أنشئ حساب Builder.io الخاص بك أو أعد استخدامه وفعّل أرصدته المجانية بنقرة واحدة.",
+  "onboarding.builderActiveCredits":
+    "مضمّنة مع أرصدة Builder.io المجانية النشطة",
+  "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
+  "onboarding.builderActivateTitle": "تفعيل الأرصدة المجانية",
+  "onboarding.builderAccountExistsTitle": "لديك حساب Builder.io بالفعل",
+  "onboarding.builderAccountExistsDescription": "سجّل الدخول لربطه.",
+  "onboarding.builderActivationDescription":
+    "سننشئ حساب Builder.io الخاص بك تلقائيًا بنقرة واحدة.",
+  "onboarding.builderCreateAndActivate": "إنشاء وتفعيل",
+  "onboarding.builderConsentPrefix": "بمتابعة العملية، فإنك توافق على",
+  "onboarding.builderTerms": "الشروط",
+  "onboarding.builderPrivacy": "الخصوصية",
+  "onboarding.builderConsentAnd": "و",
+  "onboarding.builderExistingAccount": "لدي حساب Builder.io",
+  "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
+  "onboarding.builderConnecting": "جارٍ الاتصال بأرصدة Builder.io المجانية",
+  "onboarding.builderProvisioningDescription":
+    "جارٍ إنشاء حساب Builder.io الخاص بك أو إعادة استخدامه. يستغرق ذلك عادةً بضع ثوانٍ.",
+  "onboarding.builderConnectionDescription":
+    "أكمل الاتصال بنقرة واحدة في النافذة الجديدة.",
   "aboutAgentNative.title": "حول Agent-Native",
   "aboutAgentNative.version": "الإصدار",
   "aboutAgentNative.environment": "البيئة",

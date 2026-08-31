@@ -2918,6 +2918,76 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("uses the canonical URL when APP_URL is absent for Slack thread links", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    vi.stubEnv("APP_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("URL", "https://builder-agent-native-workspace.netlify.app");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const formatAgentResponse = vi.fn(
+      (text: string, opts?: { threadDeepLinkUrl?: string }) => ({
+        text,
+        platformContext: opts ?? {},
+      }),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "I found the issue." });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-canonical-thread" }), {
+      adapter: createAdapter(sendResponse, formatAgentResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(formatAgentResponse).toHaveBeenCalledWith("I found the issue.", {
+      threadDeepLinkUrl:
+        "https://agent-workspace.builder.io/dispatch/chat/thread-qa",
+    });
+  });
+
+  it("omits Slack thread links when only the local URL fallback is available", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    for (const key of [
+      "APP_URL",
+      "WORKSPACE_OAUTH_ORIGIN",
+      "VITE_WORKSPACE_OAUTH_ORIGIN",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+      "WORKSPACE_GATEWAY_URL",
+      "VITE_WORKSPACE_GATEWAY_URL",
+    ]) {
+      vi.stubEnv(key, "");
+    }
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const formatAgentResponse = vi.fn(
+      (text: string, opts?: { threadDeepLinkUrl?: string }) => ({
+        text,
+        platformContext: opts ?? {},
+      }),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "I found the issue." });
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-local-thread" }), {
+      adapter: createAdapter(sendResponse, formatAgentResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    expect(formatAgentResponse).toHaveBeenCalledWith("I found the issue.", {
+      threadDeepLinkUrl: undefined,
+    });
+  });
+
   it("does not send hallucinated local design URLs to Slack-style integrations", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;

@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  BuilderConnectPopover,
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
@@ -8366,6 +8367,7 @@ function DatabaseSettingsSourcePanel({
         : [{ id: "builder-space", name: dbText("builderSpace") }];
   const builderSpaceLabel = builderSpaces[0]?.name ?? builderOrgName;
   const connect = useBuilderConnectFlow({
+    provisionAccount: true,
     trackingSource: "database_source_panel",
     onConnected: () => {
       void builderStatus.refetch();
@@ -8571,19 +8573,20 @@ function DatabaseSettingsSourcePanel({
             {dbText("connectYourBuilderAccountToBrowseItsSpaces")}
           </div>
           <div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!canEdit || connect.connecting}
-              onClick={() => connect.start()}
-            >
-              {connect.connecting ? (
-                <Spinner className="mr-1.5 size-3.5" />
-              ) : (
-                <IconExternalLink className="mr-1.5 size-3.5" />
-              )}
-              Connect Builder
-            </Button>
+            <BuilderConnectPopover flow={connect}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canEdit || connect.connecting}
+              >
+                {connect.connecting ? (
+                  <Spinner className="mr-1.5 size-3.5" />
+                ) : (
+                  <IconExternalLink className="mr-1.5 size-3.5" />
+                )}
+                Connect Builder
+              </Button>
+            </BuilderConnectPopover>
           </div>
         </div>
       );

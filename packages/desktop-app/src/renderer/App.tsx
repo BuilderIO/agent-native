@@ -74,6 +74,7 @@ export default function App() {
     appId: string;
     path?: string;
     nonce: number;
+    focusNonce?: number;
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
@@ -91,9 +92,15 @@ export default function App() {
       return;
     }
     try {
-      setWorkspaceAppList(await loader());
-    } catch {
-      setWorkspaceAppList({ enabled: false, apps: [] });
+      const result = await loader();
+      if (!result.unavailable) setWorkspaceAppList(result);
+    } catch (error) {
+      // Keep the last usable inventory visible when a refresh is transiently
+      // unavailable. The main process applies the same rule to deep-link
+      // resolution.
+      console.debug("[desktop] workspace app inventory refresh unavailable", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
     }
   }, []);
 
@@ -323,14 +330,16 @@ export default function App() {
       if (!targetApp) {
         const configuredApp = apps.find((app) => app.id === appId);
         if (configuredApp && !isDesktopAppVisible(configuredApp)) return false;
-        return !loading;
+        return false;
       }
 
       const path = safeDesktopOpenPath(request.path);
+      const nonce = Date.now();
       setChatFirstAppOpenRequest({
         appId,
-        nonce: Date.now(),
+        nonce,
         ...(path ? { path } : {}),
+        ...("requestId" in request ? { focusNonce: nonce } : {}),
       });
       setShowSettings(false);
       setShowAddApp(false);
@@ -483,9 +492,6 @@ export default function App() {
                 void handleAppRemoval(app.id);
               }}
               onChatFirstAppSelectionChange={handleChatFirstAppSelectionChange}
-              onDesktopIdentitySyncFailure={() =>
-                setDesktopIdentityStatus("failed")
-              }
             />
           </div>
         </div>
