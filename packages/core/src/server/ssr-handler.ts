@@ -18,6 +18,7 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -436,6 +437,7 @@ async function rewriteMountedResponse(
             frameworkSessionHintCookieName(
               resolveAuthCookieNamespace().frameworkCookieName,
             ),
+            resolveAppHomePath(getAppConfig().app),
           )
         : null,
     ]

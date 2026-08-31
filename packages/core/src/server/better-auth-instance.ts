@@ -1835,6 +1835,17 @@ async function createBetterAuthInstance(
         });
       },
     },
+    user: {
+      additionalFields: {
+        // Keep this internal profile field in Better Auth's adapter reads and
+        // writes without exposing it as a client-controlled auth field.
+        onboardingRole: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+      },
+    },
     socialProviders,
     account: {
       // Merge accounts when a user signs in with a social provider using an

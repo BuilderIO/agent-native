@@ -1105,7 +1105,7 @@ async function callTargetCreateEmbedSession(input: {
         servers: {
           [serverId]: {
             type: "http",
-            url: `${appBaseUrl(input.app)}/mcp`,
+            url: `${appHomeBaseUrl(input.app)}/mcp`,
             headers: {
               Authorization: `Bearer ${input.token}`,
             },
@@ -1158,7 +1158,7 @@ async function createTargetMcpTokenAttempts(input: {
       tokenInput.secret,
       {
         expiresIn: "5m",
-        audience: canonicalA2AAudience(appBaseUrl(input.target)),
+        audience: canonicalA2AAudience(appHomeBaseUrl(input.target)),
         preferGlobalSecret: tokenInput.preferGlobalSecret,
       },
     );

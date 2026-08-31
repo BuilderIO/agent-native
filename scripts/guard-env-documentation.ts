@@ -1,8 +1,9 @@
 #!/usr/bin/env tsx
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const INVENTORY_DOCUMENTATION_PATH = path.join(
@@ -228,7 +229,7 @@ console.log(
 );
 
 function repositoryFiles(): string[] {
-  return execFileSync(
+  return execGuardCommand(
     "git",
     ["ls-files", "--cached", "--others", "--exclude-standard"],
     {
@@ -237,6 +238,7 @@ function repositoryFiles(): string[] {
       maxBuffer: 1 << 28,
     },
   )
+    .toString()
     .split("\n")
     .filter(Boolean);
 }
