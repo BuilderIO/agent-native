@@ -20,6 +20,16 @@ const FINDINGS_PATH = join(
   process.cwd(),
   "e2e/signup/test-results/signup-agent/findings.md",
 );
+const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
+
+async function waitForReviewSurface(page: Page): Promise<void> {
+  const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const text = await page.locator("body").innerText();
+    if (text.trim().length >= 40) return;
+    await page.waitForTimeout(500);
+  }
+}
 
 /**
  * One app per run by default. The deterministic canary already covers every
@@ -121,7 +131,7 @@ for (const target of targets) {
       const message = await emailPromise;
       const link = verificationLinkFor(message, target.origin);
       await page.goto(link, { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(4_000);
+      await waitForReviewSurface(page);
       steps.push(
         await capture(page, "after following the emailed link", errors),
       );
@@ -129,7 +139,7 @@ for (const target of targets) {
 
     await test.step("reload the way a stuck user would", async () => {
       await page.reload({ waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(4_000);
+      await waitForReviewSurface(page);
       steps.push(await capture(page, "after a browser reload", errors));
     });
 

@@ -40,6 +40,10 @@ The first-run onboarding welcome screen is expected for a brand-new account. Do 
 just because it has no app shell, account control, or navigation yet; only report onboarding
 when a visible action was attempted and the screen demonstrably fails to advance.
 
+The post-link and post-reload captures wait up to 15 seconds for readable content. Treat a
+loader that is still present in both captures as a real stall; do not call a single brief
+bootstrap loader indefinite when the later capture shows the app or onboarding.
+
 Do NOT report: aesthetic preferences, minor copy wording, anything you cannot see evidence
 for in the screenshot or text, or the presence of the test email address itself.
 
