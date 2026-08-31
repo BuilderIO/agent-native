@@ -47,6 +47,8 @@ interface ShowcaseApp {
   // reads worse than no screenshot at all.
   imageDark?: string;
   imageLight?: string;
+  // Shown in place of the image above on hover, fading in over it.
+  hoverImage?: string;
   href: string;
 }
 
@@ -58,6 +60,8 @@ const APPS: ShowcaseApp[] = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F469bb8923c3a4fe8aeeb76524757ebc0",
     imageLight:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb06a2d6d71404a42874e09b4c2493f2f",
+    hoverImage:
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd1c82abc0f3c488a9ef751c23f77d6f7",
     href: "/apps/clips",
   },
   {
@@ -259,6 +263,17 @@ export function TemplateShowcase() {
                         loading="lazy"
                         decoding="async"
                       />
+                      {app.hoverImage && (
+                        <BuilderImage
+                          className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                          src={app.hoverImage}
+                          alt=""
+                          sizes={CARD_IMAGE_SIZES}
+                          crossOrigin="anonymous"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      )}
                     </>
                   ) : (
                     <ImgPlaceholder
