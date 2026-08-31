@@ -153,6 +153,7 @@ function withClipsResponseHeaders(
   event: H3Event,
   response: Response,
 ): Response {
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
   setResponseHeader(
     event,
     "Permissions-Policy",

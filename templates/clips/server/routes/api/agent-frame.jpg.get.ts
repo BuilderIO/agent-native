@@ -99,8 +99,12 @@ function redirectToResolvedFrame(
   atMs: number,
 ): Response {
   const location = getRequestURL(event);
-  location.searchParams.delete("tSeconds");
+  location.search = "";
+  location.searchParams.set("id", access.recording.id);
   location.searchParams.set("atMs", String(atMs));
+  if (access.apiToken) {
+    location.searchParams.set(CLIPS_AGENT_ACCESS_PARAM, access.apiToken);
+  }
   return new Response(null, {
     status: 302,
     headers: {

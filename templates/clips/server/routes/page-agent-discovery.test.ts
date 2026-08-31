@@ -19,7 +19,14 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (event: { query?: Record<string, unknown> }) => event.query ?? {},
   getRequestURL: (event: { url: string }) => new URL(event.url),
-  setResponseHeader: vi.fn(),
+  setResponseHeader: (
+    event: { responseHeaders?: Map<string, string> },
+    name: string,
+    value: string,
+  ) => {
+    event.responseHeaders ??= new Map();
+    event.responseHeaders.set(name.toLowerCase(), value);
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -158,16 +165,21 @@ describe("Clips page agent discovery", () => {
     expect(await publicResponse.text()).not.toContain("agent-context.json");
 
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
-    const tokenResponse = (await (handler as any)({
+    const tokenEvent = {
       url: "https://clips.example.com/r/rec-1?agent_access=tok%2B1",
       query: { agent_access: "tok+1" },
-    })) as Response;
+      responseHeaders: new Map<string, string>(),
+    };
+    const tokenResponse = (await (handler as any)(tokenEvent)) as Response;
     const html = await tokenResponse.text();
 
     expect(html).not.toContain("clips-agent-context");
     expect(html).not.toContain("agent_access=tok%2B1");
     expect(tokenResponse.headers.get("cache-control")).toBe(
       "public, max-age=60",
+    );
+    expect(tokenEvent.responseHeaders.get("referrer-policy")).toBe(
+      "no-referrer",
     );
   });
 });

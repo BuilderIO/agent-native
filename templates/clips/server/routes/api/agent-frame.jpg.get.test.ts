@@ -21,8 +21,7 @@ const MockVideoFrameExtractionError = vi.hoisted(
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
-  getRequestURL: () =>
-    new URL("https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=9999"),
+  getRequestURL: (event: { url: string }) => new URL(event.url),
   setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
@@ -75,8 +74,13 @@ function makeAccess(overrides: Record<string, unknown> = {}) {
 }
 
 function makeEvent(query: Record<string, string>) {
+  const url = new URL("https://clips.example.com/api/agent-frame.jpg");
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, value);
+  }
   return {
     query,
+    url: url.href,
     headers: new Map<string, string>(),
     status: 200,
   };
@@ -202,6 +206,35 @@ describe("agent-frame.jpg route", () => {
     );
     expect(mockExtractJpegFrame).toHaveBeenLastCalledWith(
       expect.objectContaining({ atMs: 3999 }),
+    );
+  });
+
+  it("replaces password and legacy token query params with the scoped token", async () => {
+    mockProbeMediaDurationMs.mockResolvedValue(4000);
+    mockLoadPublicAgentAccess.mockResolvedValue({
+      ok: true,
+      access: makeAccess({ apiToken: "scoped-token" }),
+    });
+    mockExtractJpegFrame
+      .mockRejectedValueOnce(
+        new MockVideoFrameExtractionError(
+          "No frame was available at that timestamp.",
+          "NO_VIDEO",
+        ),
+      )
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+
+    const result = await handler(
+      makeEvent({
+        id: "rec-1",
+        password: "plain-text-password",
+        t: "legacy-token",
+        tSeconds: "9.999",
+      }) as any,
+    );
+
+    expect((result as Response).headers.get("location")).toBe(
+      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=3999&agent_access=scoped-token",
     );
   });
 
