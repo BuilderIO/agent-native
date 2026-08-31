@@ -104,8 +104,8 @@ function mapFfmpegError(err: unknown): VideoFrameExtractionError {
   );
 }
 
-async function runFfmpeg(args: string[]): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+async function runFfmpeg(args: string[]): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
     const child = spawn(ffmpegCommand(), args, {
       stdio: ["ignore", "ignore", "pipe"],
     });
@@ -125,12 +125,66 @@ async function runFfmpeg(args: string[]): Promise<void> {
     child.on("close", (code) => {
       clearTimeout(timeout);
       if (code === 0) {
-        resolve();
+        resolve(stderr);
         return;
       }
       reject(new FfmpegRunError(`ffmpeg exited with code ${code}`, stderr));
     });
   });
+}
+
+function parseDurationMs(stderr: string): number | null {
+  const match = stderr.match(/Duration:\s*(\d+):(\d{2}):(\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (![hours, minutes, seconds].every(Number.isFinite)) return null;
+  return Math.max(
+    0,
+    Math.round((hours * 3600 + minutes * 60 + seconds) * 1000),
+  );
+}
+
+/**
+ * Best-effort duration probe used when stored recording metadata is stale.
+ * Returns null when the container cannot be inspected, so callers can keep
+ * the original frame-extraction error instead of inventing a duration.
+ */
+export async function probeMediaDurationMs(
+  mediaBytes: Uint8Array,
+  mimeType: string,
+): Promise<number | null> {
+  if (mediaBytes.byteLength === 0) return null;
+
+  const dir = await mkdtemp(join(tmpdir(), "clips-duration-probe-"));
+  const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
+
+  try {
+    await writeFile(inputPath, mediaBytes);
+    let stderr: string;
+    try {
+      stderr = await runFfmpeg([
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        inputPath,
+        "-map",
+        "0:v:0?",
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+      ]);
+    } catch (error) {
+      if (error instanceof FfmpegRunError) return null;
+      throw error;
+    }
+    return parseDurationMs(stderr);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {

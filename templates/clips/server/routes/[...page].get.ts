@@ -76,7 +76,6 @@ function escapeHtmlAttribute(value: string): string {
 
 async function buildClipAgentDiscovery(event: H3Event): Promise<{
   markup: string;
-  noReferrer: boolean;
 } | null> {
   const requestUrl = getRequestURL(event);
   const recordingId = clipIdFromPath(requestUrl.pathname);
@@ -119,11 +118,13 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
     recording.visibility === "public" && !recording.password;
   if (!anonymousAccess && !tokenGrantsAgentAccess) return null;
 
-  const token = tokenGrantsAgentAccess ? suppliedToken : undefined;
+  // Tokenized URLs must never put the access token in a publicly cached SSR
+  // shell. The client registers tools after it has verified access instead.
+  if (tokenGrantsAgentAccess) return null;
+
   const agentContextUrl = buildAgentApiUrls(recording.id, {
     origin: requestUrl.origin,
     basePath: getServerAppBasePath(),
-    token,
   }).contextUrl;
   const discovery = buildAgentDiscoveryPayload({
     recordingId: recording.id,
@@ -135,7 +136,6 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
 
   return {
     markup: `<link rel="alternate" type="application/json" href="${contextHref}" title="Agent-readable clip context"><script type="application/agent-native+json" id="clips-agent-context">${safeJsonForHtml(discovery)}</script>`,
-    noReferrer: tokenGrantsAgentAccess,
   };
 }
 
@@ -174,10 +174,6 @@ export default defineEventHandler(async (event) => {
 
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  if (discovery.noReferrer) {
-    headers.set("Referrer-Policy", "no-referrer");
-    setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  }
 
   const html = await response.text();
   const discoveredResponse = new Response(

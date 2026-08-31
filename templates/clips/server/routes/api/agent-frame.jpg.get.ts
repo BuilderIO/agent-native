@@ -7,6 +7,7 @@
 import {
   defineEventHandler,
   getQuery,
+  getRequestURL,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
@@ -22,6 +23,7 @@ import {
 } from "../../lib/public-agent-context.js";
 import {
   extractJpegFrame,
+  probeMediaDurationMs,
   VideoFrameExtractionError,
 } from "../../lib/video-frame.js";
 
@@ -91,6 +93,82 @@ function applyFrameHeaders(event: H3Event, access: PublicAgentAccess) {
   setResponseHeader(event, "Cache-Control", cacheControlForAccess(access));
 }
 
+function redirectToResolvedFrame(
+  event: H3Event,
+  access: PublicAgentAccess,
+  atMs: number,
+): Response {
+  const location = getRequestURL(event);
+  location.searchParams.delete("tSeconds");
+  location.searchParams.set("atMs", String(atMs));
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Cache-Control": cacheControlForAccess(access),
+      Location: location.href,
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+async function extractFrameWithStaleDurationRecovery({
+  media,
+  mimeType,
+  atMs,
+}: {
+  media: Uint8Array;
+  mimeType: string;
+  atMs: number;
+}): Promise<{ frame: Uint8Array; atMs: number }> {
+  try {
+    return {
+      frame: await extractJpegFrame({ mediaBytes: media, mimeType, atMs }),
+      atMs,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof VideoFrameExtractionError) ||
+      error.code !== "NO_VIDEO" ||
+      atMs <= 0
+    ) {
+      throw error;
+    }
+
+    const actualDurationMs = await probeMediaDurationMs(media, mimeType);
+    if (actualDurationMs === null || actualDurationMs > atMs + 1) {
+      throw error;
+    }
+
+    const candidates = [
+      Math.max(0, actualDurationMs - 1),
+      Math.max(0, actualDurationMs - 1000),
+      0,
+    ].filter((candidate, index, values) => values.indexOf(candidate) === index);
+    for (const candidate of candidates) {
+      if (candidate === atMs) continue;
+      try {
+        return {
+          frame: await extractJpegFrame({
+            mediaBytes: media,
+            mimeType,
+            atMs: candidate,
+          }),
+          atMs: candidate,
+        };
+      } catch (candidateError) {
+        if (
+          !(candidateError instanceof VideoFrameExtractionError) ||
+          candidateError.code !== "NO_VIDEO"
+        ) {
+          throw candidateError;
+        }
+      }
+    }
+    throw error;
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const id = queryString(query.id);
@@ -133,14 +211,18 @@ export default defineEventHandler(async (event: H3Event) => {
 
   try {
     const media = await loadRecordingMediaBytes(recording);
-    const frame = await extractJpegFrame({
-      mediaBytes: media.bytes,
+    const resolved = await extractFrameWithStaleDurationRecovery({
+      media: media.bytes,
       mimeType: media.mimeType,
       atMs,
     });
 
+    if (resolved.atMs !== atMs) {
+      return redirectToResolvedFrame(event, access, resolved.atMs);
+    }
+
     applyFrameHeaders(event, access);
-    const buffer = Buffer.from(frame);
+    const buffer = Buffer.from(resolved.frame);
     if (cacheable) setCachedFrame(key, buffer);
     return buffer;
   } catch (err) {

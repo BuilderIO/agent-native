@@ -351,9 +351,11 @@ function detectViewerPlatform(): ViewerPlatform | null {
 function AgentDiscovery({
   recording,
   agentContextUrl,
+  frameAvailable,
 }: {
   recording: Pick<SharePageMetaRecording, "id" | "title" | "status"> | null;
   agentContextUrl: string | null;
+  frameAvailable: boolean;
 }) {
   const t = useT();
   if (!recording || !agentContextUrl) return null;
@@ -385,6 +387,7 @@ function AgentDiscovery({
         recordingId={recording.id}
         agentContextUrl={agentContextUrl}
         recordingStatus={recording.status}
+        frameAvailable={frameAvailable}
       />
     </>
   );
@@ -739,6 +742,7 @@ export default function ShareRoute() {
     <AgentDiscovery
       recording={recording ?? loaderData.recording}
       agentContextUrl={unlockedAgentContextUrl ?? loaderData.agentContextUrl}
+      frameAvailable={Boolean(recording) && !isLoomEmbedBacked}
     />
   );
 

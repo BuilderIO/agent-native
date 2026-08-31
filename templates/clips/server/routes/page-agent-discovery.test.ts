@@ -149,7 +149,7 @@ describe("Clips page agent discovery", () => {
     expect(html.match(/rel="alternate"/g)).toHaveLength(1);
   });
 
-  it("only exposes private clips through a valid scoped agent token", async () => {
+  it("does not inject tokenized discovery into the public SSR shell", async () => {
     mockRecording.value = recording({ visibility: "private" });
     const publicResponse = (await (handler as any)({
       url: "https://clips.example.com/r/rec-1",
@@ -164,10 +164,10 @@ describe("Clips page agent discovery", () => {
     })) as Response;
     const html = await tokenResponse.text();
 
-    expect(html).toContain("agent_access=tok%2B1");
+    expect(html).not.toContain("clips-agent-context");
+    expect(html).not.toContain("agent_access=tok%2B1");
     expect(tokenResponse.headers.get("cache-control")).toBe(
       "public, max-age=60",
     );
-    expect(tokenResponse.headers.get("referrer-policy")).toBe("no-referrer");
   });
 });

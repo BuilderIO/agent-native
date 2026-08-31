@@ -6,10 +6,23 @@ const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaBytes = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrame = vi.hoisted(() => vi.fn());
+const mockProbeMediaDurationMs = vi.hoisted(() => vi.fn());
+const MockVideoFrameExtractionError = vi.hoisted(
+  () =>
+    class VideoFrameExtractionError extends Error {
+      code?: string;
+      constructor(message: string, code?: string) {
+        super(message);
+        this.code = code;
+      }
+    },
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
+  getRequestURL: () =>
+    new URL("https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=9999"),
   setResponseHeader: (...args: unknown[]) => mockSetResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
@@ -36,13 +49,9 @@ vi.mock("../../lib/public-agent-context.js", () => ({
 
 vi.mock("../../lib/video-frame.js", () => ({
   extractJpegFrame: (...args: unknown[]) => mockExtractJpegFrame(...args),
-  VideoFrameExtractionError: class VideoFrameExtractionError extends Error {
-    code?: string;
-    constructor(message: string, code?: string) {
-      super(message);
-      this.code = code;
-    }
-  },
+  probeMediaDurationMs: (...args: unknown[]) =>
+    mockProbeMediaDurationMs(...args),
+  VideoFrameExtractionError: MockVideoFrameExtractionError,
 }));
 
 import { RecordingMediaFetchError } from "../../lib/public-agent-context.js";
@@ -96,6 +105,7 @@ describe("agent-frame.jpg route", () => {
       mimeType: "video/webm",
     });
     mockExtractJpegFrame.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockProbeMediaDurationMs.mockResolvedValue(null);
   });
 
   it("caches anonymous public frames and marks them publicly cacheable", async () => {
@@ -164,6 +174,35 @@ describe("agent-frame.jpg route", () => {
 
     expect(mockLoadRecordingMediaBytes).toHaveBeenCalledTimes(2);
     expect(mockExtractJpegFrame).toHaveBeenCalledTimes(2);
+  });
+
+  it("redirects to the actual media range when stored duration is stale", async () => {
+    mockProbeMediaDurationMs.mockResolvedValue(4000);
+    mockExtractJpegFrame
+      .mockRejectedValueOnce(
+        new MockVideoFrameExtractionError(
+          "No frame was available at that timestamp.",
+          "NO_VIDEO",
+        ),
+      )
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+
+    const result = await handler(
+      makeEvent({ id: "rec-1", atMs: "9999" }) as any,
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(302);
+    expect((result as Response).headers.get("location")).toBe(
+      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=3999",
+    );
+    expect(mockProbeMediaDurationMs).toHaveBeenCalledWith(
+      new Uint8Array([9, 9, 9]),
+      "video/webm",
+    );
+    expect(mockExtractJpegFrame).toHaveBeenLastCalledWith(
+      expect.objectContaining({ atMs: 3999 }),
+    );
   });
 
   it("returns media fetch status when recording bytes cannot be loaded", async () => {

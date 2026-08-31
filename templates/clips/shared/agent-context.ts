@@ -12,6 +12,7 @@ export const AGENT_TRANSCRIPT_ENDPOINT = "/api/agent-transcript.json";
 export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
 export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
+export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
 
 export const CLIPS_WEBMCP_TOOL_NAMES = {
   context: "clips-get-context",
@@ -41,7 +42,7 @@ export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
       maxSegments: {
         type: "integer",
         minimum: 1,
-        maximum: 50,
+        maximum: CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
         description: "Maximum number of transcript segments to return.",
       },
     },
@@ -253,6 +254,10 @@ export function buildAgentApiUrls(
 export function safeMs(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.round(value));
+}
+
+export function nextAgentTranscriptStartMs(endMs: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, safeMs(endMs) + 1);
 }
 
 export function formatAgentTimestamp(ms: number): string {

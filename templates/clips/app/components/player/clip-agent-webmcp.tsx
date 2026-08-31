@@ -7,14 +7,15 @@ import {
   AGENT_FRAME_ENDPOINT,
   AGENT_TRANSCRIPT_ENDPOINT,
   CLIPS_WEBMCP_TOOL_DEFINITIONS,
+  CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
   CLIPS_WEBMCP_TOOL_NAMES,
   formatAgentTimestamp,
+  nextAgentTranscriptStartMs,
   safeMs,
 } from "../../../shared/agent-context";
 
-const MAX_TRANSCRIPT_SEGMENTS = 50;
 const MAX_SEGMENT_TEXT_CHARS = 4000;
-const MAX_FULL_TEXT_CHARS = 20_000;
+const MAX_WEBMCP_TRANSCRIPT_RESULT_CHARS = 48_000;
 
 type ClipAgentWebMcpOptions = {
   recordingId: string;
@@ -160,17 +161,17 @@ function parseTranscriptInput(input: unknown): {
     (typeof rawMaxSegments !== "number" ||
       !Number.isInteger(rawMaxSegments) ||
       rawMaxSegments < 1 ||
-      rawMaxSegments > MAX_TRANSCRIPT_SEGMENTS)
+      rawMaxSegments > CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS)
   ) {
     throw new Error(
-      `Transcript input maxSegments must be an integer from 1 to ${MAX_TRANSCRIPT_SEGMENTS}`,
+      `Transcript input maxSegments must be an integer from 1 to ${CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS}`,
     );
   }
 
   return {
     ...(startMs !== undefined ? { startMs } : {}),
     ...(endMs !== undefined ? { endMs } : {}),
-    maxSegments: rawMaxSegments ?? MAX_TRANSCRIPT_SEGMENTS,
+    maxSegments: rawMaxSegments ?? CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS,
   };
 }
 
@@ -283,6 +284,11 @@ export function createClipAgentWebMcpActions({
       const transcriptUrl = buildRelatedAgentUrl(
         agentContextUrl,
         AGENT_TRANSCRIPT_ENDPOINT,
+        {
+          maxSegments: String(maxSegments),
+          ...(startMs !== undefined ? { startMs: String(startMs) } : {}),
+          ...(endMs !== undefined ? { endMs: String(endMs) } : {}),
+        },
       );
       const payload = await fetchAgentJson(transcriptUrl, runtime.signal);
       const transcript = requiredRecord(
@@ -298,15 +304,10 @@ export function createClipAgentWebMcpActions({
           (startMs === undefined || segment.endMs >= startMs) &&
           (endMs === undefined || segment.startMs <= endMs),
       );
-      const returnedSegments = matchingSegments.slice(0, maxSegments);
-      const truncated = matchingSegments.length > returnedSegments.length;
-      const fullText = stringValue(transcript.fullText) ?? "";
-      const fullTextIncluded =
-        !truncated &&
-        startMs === undefined &&
-        endMs === undefined &&
-        fullText.length <= MAX_FULL_TEXT_CHARS;
-      return {
+      const serverTruncated = transcript.truncated === true;
+      const serverNextStartMs = numberValue(transcript.nextStartMs);
+      const candidates = matchingSegments.slice(0, maxSegments);
+      const baseResult = {
         type: stringValue(payload.type) ?? "agent-native.clip.transcript",
         recording: compactClip(payload.recording),
         sourceUrl: transcriptUrl,
@@ -316,28 +317,71 @@ export function createClipAgentWebMcpActions({
           language: stringValue(transcript.language),
           failureReason: stringValue(transcript.failureReason),
           segmentCount: numberValue(transcript.segmentCount) ?? segments.length,
-          returnedSegmentCount: returnedSegments.length,
-          truncated,
-          fullTextIncluded,
-          ...(fullTextIncluded ? { fullText } : {}),
-          ...(fullText.length > MAX_FULL_TEXT_CHARS
-            ? {
-                fullTextOmittedReason:
-                  "fullText exceeds the WebMCP output limit",
-              }
-            : {}),
+          returnedSegmentCount: 0,
+          truncated:
+            serverTruncated || candidates.length < matchingSegments.length,
+          fullTextIncluded: false,
+          fullTextOmittedReason:
+            "WebMCP returns bounded timestamped segments; use the fallback transcript URL for fullText.",
         },
-        segments: returnedSegments,
-        ...(truncated
-          ? {
-              nextStartMs:
-                returnedSegments[returnedSegments.length - 1]?.endMs ?? null,
-            }
-          : {}),
+        segments: [] as typeof candidates,
         instructions: Array.isArray(payload.instructions)
           ? payload.instructions.slice(0, 10)
           : [],
         recordingId,
+      };
+
+      let returnedSegments: typeof candidates = [];
+      for (const segment of candidates) {
+        const nextSegments = [...returnedSegments, segment];
+        const truncated =
+          serverTruncated || nextSegments.length < matchingSegments.length;
+        const candidateResult = {
+          ...baseResult,
+          transcript: {
+            ...baseResult.transcript,
+            returnedSegmentCount: nextSegments.length,
+            truncated,
+          },
+          segments: nextSegments,
+          ...(truncated
+            ? {
+                nextStartMs: nextAgentTranscriptStartMs(
+                  nextSegments[nextSegments.length - 1]?.endMs ?? 0,
+                ),
+              }
+            : {}),
+        };
+        if (
+          JSON.stringify(candidateResult).length >
+          MAX_WEBMCP_TRANSCRIPT_RESULT_CHARS
+        ) {
+          break;
+        }
+        returnedSegments = nextSegments;
+      }
+
+      const truncated =
+        serverTruncated || returnedSegments.length < matchingSegments.length;
+      return {
+        ...baseResult,
+        transcript: {
+          ...baseResult.transcript,
+          returnedSegmentCount: returnedSegments.length,
+          truncated,
+        },
+        segments: returnedSegments,
+        ...(truncated && returnedSegments.length > 0
+          ? {
+              nextStartMs:
+                returnedSegments.length === candidates.length &&
+                serverNextStartMs !== null
+                  ? serverNextStartMs
+                  : nextAgentTranscriptStartMs(
+                      returnedSegments[returnedSegments.length - 1]?.endMs ?? 0,
+                    ),
+            }
+          : {}),
       };
     },
   });
@@ -366,12 +410,7 @@ export function createClipAgentWebMcpActions({
         );
       }
 
-      const clip = optionalRecord(payload.clip);
-      const durationMs = numberValue(clip?.durationMs) ?? 0;
-      const atMs =
-        durationMs > 0
-          ? Math.min(requestedMs, Math.max(0, safeMs(durationMs) - 1))
-          : requestedMs;
+      const atMs = requestedMs;
       const imageUrl = buildRelatedAgentUrl(
         agentContextUrl,
         AGENT_FRAME_ENDPOINT,
