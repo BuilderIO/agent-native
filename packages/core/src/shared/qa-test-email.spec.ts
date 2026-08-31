@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { isQaTestEmail } from "./qa-test-email.js";
 
 describe("isQaTestEmail", () => {
