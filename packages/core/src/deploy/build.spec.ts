@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
@@ -58,6 +59,7 @@ import {
   getNodeBuiltinNames,
   isAwsAmplifyPreset,
   isCloudflareModulePreset,
+  configureAwsAmplifyRuntimeOutput,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
   isKeepWarmBackgroundDeployEnabled,
@@ -132,6 +134,113 @@ describe("isAwsAmplifyPreset", () => {
     expect(isAwsAmplifyPreset("aws-amplify")).toBe(true);
     expect(isAwsAmplifyPreset("awsAmplify")).toBe(true);
     expect(isAwsAmplifyPreset("node")).toBe(false);
+  });
+});
+
+describe("AWS Amplify runtime output", () => {
+  it("loads declared env keys before Nitro's compute entry", () => {
+    const appDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-amplify-test-"),
+    );
+    tempDirs.push(appDir);
+    const serverDir = path.join(appDir, "compute");
+    fs.mkdirSync(serverDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, ".env.example"),
+      "# DECLARED_SECRET=\n# VITE_PUBLIC=value\n",
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'if (process.env.DECLARED_SECRET !== "line1\\nline2") process.exit(1);\n',
+    );
+
+    configureAwsAmplifyRuntimeOutput(serverDir, appDir, {
+      APP_URL: "https://example.test",
+      DECLARED_SECRET: "line1\nline2",
+      VITE_PUBLIC: "public",
+      RESEND_API_KEY: "resend-example-key",
+      SENDGRID_API_KEY: "sendgrid-example-key",
+      EMAIL_FROM: "Calendar <calendar@example.test>",
+      OPENAI_API_KEY: "openai-example-key",
+      APP_NAME: "my-calendar",
+      MY_CALENDAR_SECRETS_ENCRYPTION_KEY: "app-scoped-example-key",
+      MY_CALENDAR_DATABASE_URL: "postgres://calendar.example/db",
+      MY_CALENDAR_DATABASE_AUTH_TOKEN: "calendar-database-token",
+      MY_CALENDAR_DATABASE_URL_UNPOOLED:
+        "postgres://calendar.example/direct-db",
+      SECRETS_ENCRYPTION_KEY: "generic-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY: "workspace-encryption-key",
+      WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS:
+        "previous-workspace-encryption-key",
+      AGENT_ENGINE: "ai-sdk:openai",
+      AGENT_NATIVE_WORKSPACE: "true",
+      WEBHOOK_BASE_URL: "https://example.test/webhooks",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      AGENT_NATIVE_BUILDER_RELAY_SECRET: "relay-example-secret",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS: "https://preview.example.test",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES:
+        ".builder-preview.example",
+      UNDECLARED_SECRET: "must-not-ship",
+      AWS_SECRET_ACCESS_KEY: "must-not-ship",
+    });
+
+    const runtimeEnv = fs.readFileSync(path.join(serverDir, ".env"), "utf8");
+    expect(runtimeEnv).toContain('APP_URL="https://example.test"');
+    expect(runtimeEnv).toContain('DECLARED_SECRET="line1\\nline2"');
+    expect(runtimeEnv).toContain('VITE_PUBLIC="public"');
+    expect(runtimeEnv).toContain('RESEND_API_KEY="resend-example-key"');
+    expect(runtimeEnv).toContain('SENDGRID_API_KEY="sendgrid-example-key"');
+    expect(runtimeEnv).toContain(
+      'EMAIL_FROM="Calendar <calendar@example.test>"',
+    );
+    expect(runtimeEnv).toContain('OPENAI_API_KEY="openai-example-key"');
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_SECRETS_ENCRYPTION_KEY="app-scoped-example-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL="postgres://calendar.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_AUTH_TOKEN="calendar-database-token"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL_UNPOOLED="postgres://calendar.example/direct-db"',
+    );
+    expect(runtimeEnv).toContain(
+      'SECRETS_ENCRYPTION_KEY="generic-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY="workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain(
+      'WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS="previous-workspace-encryption-key"',
+    );
+    expect(runtimeEnv).toContain('AGENT_ENGINE="ai-sdk:openai"');
+    expect(runtimeEnv).toContain('AGENT_NATIVE_WORKSPACE="true"');
+    expect(runtimeEnv).toContain(
+      'WEBHOOK_BASE_URL="https://example.test/webhooks"',
+    );
+    expect(runtimeEnv).toContain('AUTH_REQUIRE_EMAIL_VERIFICATION="1"');
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_SECRET="relay-example-secret"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS="https://preview.example.test"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES=".builder-preview.example"',
+    );
+    expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
+    expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
+    expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
+      "// Amplify Hosting exposes env vars during build, not to SSR compute.\n" +
+        'process.loadEnvFile(require("node:path").join(__dirname, ".env"));\n' +
+        'import("./index.mjs");\n',
+    );
+    execFileSync(process.execPath, [path.join(serverDir, "server.js")], {
+      cwd: serverDir,
+      env: {},
+    });
   });
 });
 
