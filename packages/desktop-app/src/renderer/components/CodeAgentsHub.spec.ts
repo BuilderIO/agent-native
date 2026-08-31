@@ -548,7 +548,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "{chatFirstSurfacePanel.open &&\n        (hasChatFirstActiveChat ||",
     );
     expect(hubSource).toContain(
-      "if (!hasChatFirstActiveChat) setChatFirstSurfacePanelOpen(false);",
+      '!hasChatFirstActiveChat &&\n      !(\n        activeChatFirstSurfaceTab?.kind === "app" &&\n        activeChatFirstSurfaceTab.placement === "side"',
     );
     expect(hubSource).not.toContain(
       "if (tabCount > 0 && (previousTabCount === null || previousTabCount === 0))",

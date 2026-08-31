@@ -1491,8 +1491,20 @@ export default function CodeAgentsHub({
   }, [setChatFirstSurfacePanelOpen, visibleChatFirstSurfaceTabs.length]);
 
   useEffect(() => {
-    if (!hasChatFirstActiveChat) setChatFirstSurfacePanelOpen(false);
-  }, [hasChatFirstActiveChat, setChatFirstSurfacePanelOpen]);
+    if (
+      !hasChatFirstActiveChat &&
+      !(
+        activeChatFirstSurfaceTab?.kind === "app" &&
+        activeChatFirstSurfaceTab.placement === "side"
+      )
+    ) {
+      setChatFirstSurfacePanelOpen(false);
+    }
+  }, [
+    activeChatFirstSurfaceTab,
+    hasChatFirstActiveChat,
+    setChatFirstSurfacePanelOpen,
+  ]);
 
   useEffect(() => {
     if (!terminalPreferences.enabled) return;
