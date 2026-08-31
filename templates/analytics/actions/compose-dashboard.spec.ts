@@ -93,7 +93,7 @@ vi.mock("../server/lib/dashboards-store", () => ({
 }));
 
 const { default: composeDashboard } = await import("./compose-dashboard");
-const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES } =
+const { buildPanel, FIRST_PARTY_TEMPLATE_NAMES, listMetricKeys } =
   await import("../server/lib/first-party-metric-catalog");
 
 const LARGE_METRICS = [
@@ -184,6 +184,7 @@ describe("compose-dashboard", () => {
         id: "emailFilter",
         default: "exclude_builder",
       }),
+      expect.objectContaining({ id: "appFilter", default: "all" }),
     ]);
 
     // Each panel has the canonical first-party shape.
@@ -281,6 +282,42 @@ describe("compose-dashboard", () => {
       expect(panel.sql).toContain("<= to_char(CURRENT_DATE, 'YYYY-MM-DD')");
       expect(panel.sql).not.toContain("AT TIME ZONE");
       expect(panel.sql).not.toContain("now() AT TIME ZONE");
+    }
+  });
+
+  it("builds the Agent-Native funnel panels with shared filters", () => {
+    for (const metric of [
+      "activation-funnel",
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("analytics_events");
+      expect(panel.sql).toContain("{{timeRange}}");
+      expect(panel.sql).toContain("{{emailFilter}}");
+      expect(panel.sql).toContain("{{appFilter}}");
+    }
+  });
+
+  it("applies the shared App filter to every catalog panel", () => {
+    for (const metric of listMetricKeys()) {
+      expect(buildPanel(metric)?.sql).toContain("{{appFilter}}");
+    }
+  });
+
+  it("keeps pre-signup and standalone panels outside the signup cohort", () => {
+    const activationSql = buildPanel("activation-funnel")!.sql;
+    expect(activationSql).toContain("FROM funnel_users");
+    expect(activationSql).toContain("FROM funnel_events e");
+    expect(activationSql).toContain("FROM cohort_events e");
+
+    for (const metric of [
+      "signup-method-conversion",
+      "onboarding-step-dropoff",
+      "sharing-actions-by-app",
+    ]) {
+      expect(buildPanel(metric)!.sql).toContain("FROM funnel_events");
     }
   });
 
@@ -420,6 +457,7 @@ describe("compose-dashboard", () => {
       { id: "region", label: "Region", type: "text" },
       expect.objectContaining({ id: "timeRange" }),
       expect.objectContaining({ id: "emailFilter" }),
+      expect.objectContaining({ id: "appFilter" }),
     ]);
   });
 

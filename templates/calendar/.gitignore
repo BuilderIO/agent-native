@@ -29,6 +29,7 @@ dist-ssr
 .config/
 .env
 .output/
+.amplify-hosting/
 
 # Auth sessions (sensitive, never commit)
 data/.sessions.json

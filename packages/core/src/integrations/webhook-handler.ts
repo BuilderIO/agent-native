@@ -58,6 +58,7 @@ import {
 import { updateThreadData } from "../chat-threads/store.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getAppProductionUrl } from "../server/app-url.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
@@ -117,6 +118,12 @@ const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
 const INTEGRATION_CAMPAIGN_LEASE_MS = 16 * 60_000;
 const INTEGRATION_CAMPAIGN_MAX_CHUNKS = 4;
 const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
+
+function stringifyInboundValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value) ?? "";
+}
+
 // Keep a lost handoff plus the one-minute sweep inside the two-minute messaging
 // target without shortening general background-run budgets.
 const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
@@ -681,7 +688,9 @@ async function recordInboundIntegrationAudit(
       sourcePlatform: incoming.platform,
       sourceId:
         incoming.replyRef ??
-        String(incoming.platformContext.messageTs ?? incoming.timestamp),
+        stringifyInboundValue(
+          incoming.platformContext.messageTs ?? incoming.timestamp,
+        ),
       sourceUrl: incoming.sourceUrl ?? null,
     });
   } catch {
@@ -1250,7 +1259,7 @@ async function processIncomingMessage(
                       platform: incoming.platform,
                       id:
                         incoming.replyRef ||
-                        String(
+                        stringifyInboundValue(
                           incoming.platformContext.messageTs ??
                             incoming.timestamp,
                         ),
@@ -1315,7 +1324,7 @@ async function processIncomingMessage(
                       () => {},
                     );
                   }
-                  await send(event);
+                  send(event);
                 },
                 signal,
                 threadId,
@@ -1408,7 +1417,7 @@ async function processIncomingMessage(
           // fallback. A completed write must not be reported as though nothing
           // happened merely because the model ran out of time before its prose
           // summary. Read-only and unverified tool results do not qualify.
-          const baseUrl = process.env.APP_URL || process.env.URL || "";
+          const baseUrl = getAppProductionUrl(undefined, { fallback: "" });
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
           const toolResults = collectToolResultSummaries(completedRun);
           const verifiedMutationReceipt = buildA2AVerifiedMutationReceipt(
@@ -1933,7 +1942,7 @@ async function recordIntegrationUsage(options: {
       sourcePlatform: options.incoming.platform,
       sourceId:
         options.incoming.replyRef ??
-        String(
+        stringifyInboundValue(
           options.incoming.platformContext.messageTs ??
             options.incoming.timestamp,
         ),
@@ -2157,7 +2166,7 @@ function extractSlackInputRequest(
 
     let rawOptions: unknown;
     try {
-      rawOptions = JSON.parse(String(input?.options ?? "[]"));
+      rawOptions = JSON.parse(stringifyInboundValue(input?.options ?? "[]"));
     } catch {
       return null;
     }
@@ -2190,7 +2199,8 @@ function extractSlackInputRequest(
 
     const header =
       typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
-    const allowFreeText = String(input?.allowFreeText ?? "true") !== "false";
+    const allowFreeText =
+      stringifyInboundValue(input?.allowFreeText ?? "true") !== "false";
     return {
       text: [
         header ? `*${header}*` : null,

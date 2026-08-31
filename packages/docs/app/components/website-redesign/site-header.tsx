@@ -223,6 +223,7 @@ export function SiteHeader({ starCount }: SiteHeaderProps) {
               href={link.href}
               external={link.external}
               showArrow={link.showArrow}
+              onClick={() => setMobileOpen(false)}
             >
               {link.label}
             </NavLink>

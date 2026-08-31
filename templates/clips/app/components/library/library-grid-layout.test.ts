@@ -27,12 +27,12 @@ describe("selected library actions layout", () => {
 
     expect(gridSource).toContain("CreateFolderDialog");
     expect(gridSource).toContain("createFolderTarget");
-    expect(gridSource).toContain('kind: \"single\"');
-    expect(gridSource).toContain('kind: \"bulk\"');
+    expect(gridSource).toContain('kind: "single"');
+    expect(gridSource).toContain('kind: "bulk"');
     expect(gridSource).toContain(
       "moveRecordings(createFolderTarget.recordingIds",
     );
     expect(toolbarSource).toContain("onCreateFolder");
-    expect(toolbarSource).toContain('t(\"navigation.newFolder\")');
+    expect(toolbarSource).toContain('t("navigation.newFolder")');
   });
 });

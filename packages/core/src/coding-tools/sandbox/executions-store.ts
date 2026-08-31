@@ -1,3 +1,13 @@
+function stringifyValue(value: unknown): string {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  )
+    return String(value);
+  return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
 /**
  * Durable storage for queued `run-code` sandbox executions.
  *
@@ -267,19 +277,19 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
     }
   }
   return {
-    id: String(raw.id),
-    owner: String(raw.owner),
+    id: stringifyValue(raw.id),
+    owner: stringifyValue(raw.owner),
     orgId:
       raw.org_id === null || raw.org_id === undefined
         ? null
-        : String(raw.org_id),
+        : stringifyValue(raw.org_id),
     threadId:
       raw.thread_id === null || raw.thread_id === undefined
         ? null
-        : String(raw.thread_id),
-    runtime: String(raw.runtime ?? "node"),
-    code: String(raw.code ?? ""),
-    status: String(raw.status ?? "queued") as SandboxExecutionStatus,
+        : stringifyValue(raw.thread_id),
+    runtime: stringifyValue(raw.runtime ?? "node"),
+    code: stringifyValue(raw.code ?? ""),
+    status: stringifyValue(raw.status ?? "queued") as SandboxExecutionStatus,
     timeoutMs: toNumberOrNull(raw.timeout_ms) ?? 0,
     maxOutputChars: toNumberOrNull(raw.max_output_chars) ?? 0,
     attemptCount: toNumberOrNull(raw.attempt_count) ?? 0,
@@ -289,16 +299,18 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
     claimToken:
       raw.claim_token === null || raw.claim_token === undefined
         ? null
-        : String(raw.claim_token),
+        : stringifyValue(raw.claim_token),
     leaseExpiresAt: toNumberOrNull(raw.lease_expires_at),
-    stdout: String(raw.stdout ?? ""),
-    stderr: String(raw.stderr ?? ""),
+    stdout: stringifyValue(raw.stdout ?? ""),
+    stderr: stringifyValue(raw.stderr ?? ""),
     stdoutTruncated: toBool(raw.stdout_truncated),
     stderrTruncated: toBool(raw.stderr_truncated),
     exitCode: toNumberOrNull(raw.exit_code),
     timedOut: toBool(raw.timed_out),
     error:
-      raw.error === null || raw.error === undefined ? null : String(raw.error),
+      raw.error === null || raw.error === undefined
+        ? null
+        : stringifyValue(raw.error),
     bridgeToolsUsed,
     allowedActionNames,
     createdAt: toNumberOrNull(raw.created_at) ?? 0,
@@ -551,8 +563,8 @@ export async function listDueSandboxExecutions(options: {
     args: [queuedCutoff, now, limit],
   });
   return (result.rows ?? []).map((raw: Record<string, unknown>) => ({
-    id: String(raw.id),
-    status: String(raw.status) as SandboxExecutionStatus,
+    id: stringifyValue(raw.id),
+    status: stringifyValue(raw.status) as SandboxExecutionStatus,
     attemptCount: toNumberOrNull(raw.attempt_count) ?? 0,
     maxAttempts:
       toNumberOrNull(raw.max_attempts) ??

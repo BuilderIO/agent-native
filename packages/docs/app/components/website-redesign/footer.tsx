@@ -35,11 +35,11 @@ function footerColumns(
     {
       title: t("homepage.footer.framework"),
       links: [
-        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
         {
-          label: t("homepage.footer.actions"),
-          href: localizedPath("/docs/actions-overview"),
+          label: t("homepage.footer.download"),
+          href: localizedPath("/download"),
         },
+        { label: t("homepage.footer.docs"), href: localizedPath("/docs") },
       ],
     },
     {

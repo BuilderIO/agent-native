@@ -2,7 +2,6 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
-import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -12,7 +11,7 @@ import {
   OrgSwitcher,
   useOrgRole,
 } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconInbox,
@@ -24,7 +23,6 @@ import {
   IconFolderPlus,
   IconPlayerRecord,
   IconAppWindow,
-  IconX,
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -39,10 +37,7 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  CaptureInstallButton,
-  CaptureInstallInlineLink,
-} from "@/components/capture-install-options";
+import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import { ImportMenu } from "@/components/import-menu";
 import {
   AlertDialog,
@@ -124,7 +119,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     spaceId?: string;
   }>();
 
-  const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
+  const { shouldShowSidebarLink } = useDesktopPromo();
   usePrefetchVideoStorageStatus();
 
   const { org, canManageOrg } = useOrgRole();
@@ -372,21 +367,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             )}
             data-sidebar-brand-toggle
           >
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
+            <AgentNativeIcon
               aria-hidden="true"
-              width={28}
-              height={16}
-              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={16}
-              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              className="h-3.5 w-6 shrink-0 text-foreground"
             />
             {!showCollapsedSidebar && (
               <span className="truncate text-sm font-semibold text-foreground">
@@ -699,7 +682,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               {(isMobile || !pageHasHeaderSearch) && <SearchBar />}
             </div>
 
-            <div className="shrink-0 space-y-2 px-3 py-2">
+            <div className="shrink-0 space-y-2 px-3 py-2 empty:hidden">
               <OrgSwitcher settingsPath="/settings/organization" />
               <DevDatabaseLink />
             </div>
@@ -746,41 +729,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </header>
           )}
           <InvitationBanner />
-          {shouldShowPromo && (
-            <div className="flex items-center gap-3 border-b border-border bg-primary/5 px-5 py-2.5 text-sm">
-              <IconAppWindow className="h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <span className="font-medium">
-                  {t("navigation.desktopTitle")}
-                </span>{" "}
-                <span className="text-muted-foreground">
-                  {t("navigation.desktopBody")}
-                </span>
-              </div>
-              <CaptureInstallButton
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-              >
-                Download
-              </CaptureInstallButton>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                    onClick={dismiss}
-                  >
-                    <IconX className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("clipsFinalRaw.alreadyHaveIt")}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          )}
           <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
             <PageHeaderSlotProvider
               slot={headerSlot}
@@ -854,9 +802,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         setDeleteSpaceId={setDeleteSpaceId}
         onMutationSuccess={(deletedSpaceId) => {
           if (deletedSpaceId && spaceId === deletedSpaceId) {
-            navigate("/spaces");
+            void navigate("/spaces");
           }
-          refetchSpaces?.();
+          void refetchSpaces?.();
         }}
       />
     </div>

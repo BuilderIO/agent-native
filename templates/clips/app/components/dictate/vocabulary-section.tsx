@@ -56,7 +56,7 @@ export function VocabularySection() {
     onSuccess: () => {
       setTerm("");
       setReplacement("");
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
     onError: () => {
       toast.error(t("dictateRoute.vocabularyAddFailed"));

@@ -1,7 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { PoweredByBadge } from "@agent-native/core/client/ui";
+import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
 import {
   AGENT_ACCESS_PARAM,
   normalizeDocumentTitle,
@@ -33,7 +33,6 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { TranscriptBubbles } from "@/components/meetings/transcript-bubbles";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import enMessages from "@/i18n/en-US";
 import {
   fetchPublicMeeting,
@@ -227,11 +226,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
 };
 
 export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <Spinner className="size-8 text-muted-foreground" />
-    </div>
-  );
+  return <DefaultSpinner />;
 }
 
 function formatDateTime(iso?: string | null): string {

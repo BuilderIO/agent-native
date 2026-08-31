@@ -35,7 +35,7 @@ export function DescriptionField({
   label?: string;
   placeholder?: string;
   className?: string;
-  onSave: (description: string) => Promise<unknown> | unknown;
+  onSave: (description: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState(description ?? "");
   const [editing, setEditing] = useState(false);

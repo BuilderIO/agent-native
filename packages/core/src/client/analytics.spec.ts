@@ -228,6 +228,30 @@ describe("browser analytics pageviews", () => {
     expect(getCookie()).toContain(`an_aid=${body.anonymousId}`);
   });
 
+  it("suppresses browser analytics for synthetic E2E traffic", async () => {
+    const { gtag } = installBrowser();
+    (
+      window as Window & {
+        __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: string;
+      }
+    ).__AGENT_NATIVE_SYNTHETIC_TRAFFIC__ = "beta-e2e";
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amp_test");
+
+    const { captureClientException, configureTracking, trackEvent } =
+      await freshAnalytics();
+    configureTracking({ errorCapture: true, sessionReplay: true });
+    trackEvent("synthetic_event", { value: "must-not-send" });
+    captureClientException(new Error("synthetic failure"));
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalled();
+    expect(amplitudeMock.init).not.toHaveBeenCalled();
+    expect(sentryMock.init).not.toHaveBeenCalled();
+  });
+
   it("uses the configured native client platform for every pageview", async () => {
     installBrowser("https://mail.agent-native.com/inbox");
     const { analyticsCalls } = installFetch();
@@ -385,6 +409,26 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("uses the first-party public key and endpoint from SSR runtime config", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_ssr_config",
+      agentNativeAnalyticsEndpoint: "https://analytics.example.test/ssr-track",
+    };
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("ssr config event");
+
+    const [url, init] = analyticsCalls[0];
+    expect(url).toBe("https://analytics.example.test/ssr-track");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      publicKey: "anpk_ssr_config",
+      event: "ssr config event",
+    });
+  });
+
   it("attaches the signed-in session identity to first-party analytics", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch({
@@ -418,6 +462,58 @@ describe("browser analytics pageviews", () => {
       app: "agent-native-clips",
       template: "clips",
     });
+  });
+
+  it("suppresses browser telemetry for QA signup identities", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+    };
+    const {
+      captureClientException,
+      configureTracking,
+      setTrackingIdentity,
+      trackAgentChatLifecycle,
+      trackEvent,
+    } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      sessionReplay: true,
+      errorCapture: false,
+    });
+    await tick();
+    analyticsCalls.length = 0;
+    gtag.mockClear();
+    amplitudeMock.track.mockClear();
+    sentryMock.setUser.mockClear();
+    sentryMock.captureException.mockClear();
+
+    setTrackingIdentity(
+      {
+        id: "auth-user-qa",
+        email: "signup+qa-test-bot-run-1@example.com",
+      },
+      "org_qa",
+    );
+    trackEvent("signup completed");
+    trackAgentChatLifecycle({ phase: "surface-mounted", surface: "signup" });
+    expect(
+      captureClientException(new Error("QA canary failure")),
+    ).toBeUndefined();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalled();
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+    expect(sentryMock.setUser).toHaveBeenLastCalledWith(null);
+    expect(sentryMock.captureException).not.toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+    expect(replayMock.emitSessionReplayAgentChatEvent).not.toHaveBeenCalled();
   });
 
   it("tracks client-side URL changes once per URL", async () => {

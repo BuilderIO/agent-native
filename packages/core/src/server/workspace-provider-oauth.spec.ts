@@ -16,10 +16,13 @@ import {
   isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
+  workspaceProviderOAuthFlowInvalidReason,
   mergeWorkspaceOAuthValues,
+  oauthFlowFailure,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
   resolveSalesforceOAuthLoginUrl,
+  shouldUseRootGoogleOAuthCallback,
   salesforceOAuthEndpoint,
   scopedOAuthAccountId,
   type WorkspaceProviderOAuthFlow,
@@ -27,6 +30,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   resolveSecretMock.mockReset();
 });
 
@@ -47,6 +51,27 @@ describe("workspace provider OAuth", () => {
     expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
+  });
+
+  it("uses the root Google callback for every managed provider", () => {
+    vi.stubEnv("APP_BASE_PATH", "/calendar");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/calendar");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+
+    for (const provider of [
+      "gmail",
+      "google_calendar",
+      "google_docs",
+      "google_drive",
+      "google_sheets",
+      "google_slides",
+    ] as const) {
+      expect(shouldUseRootGoogleOAuthCallback(provider)).toBe(true);
+    }
+    expect(shouldUseRootGoogleOAuthCallback("figma")).toBe(false);
   });
 
   it("requires both managed OAuth client credentials", async () => {
@@ -157,6 +182,33 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthFlowValid({ ...valid, now: 2_001 })).toBe(
       false,
     );
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({ ...valid, now: 2_001 }),
+    ).toBe("flow expired");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        state: { ...state, flowId: undefined },
+      }),
+    ).toBe("state is missing, malformed, or has an invalid signature");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        state: { ...state, flowId: "another-flow" },
+      }),
+    ).toBe("state does not match the OAuth flow");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        flow: { ...flow, expiresAt: Number.NaN },
+      }),
+    ).toBe("flow expiry is invalid");
+    expect(
+      workspaceProviderOAuthFlowInvalidReason({
+        ...valid,
+        flow: { ...flow, expiresAt: Number.POSITIVE_INFINITY },
+      }),
+    ).toBe("flow expiry is invalid");
   });
 
   it("preserves the provider in signed callback state", () => {
@@ -921,4 +973,57 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
       },
     }),
   );
+});
+
+/**
+ * `startWorkspaceProviderOAuth` navigates the top window to this endpoint, and
+ * onboarding cards link straight to it, so a JSON body on failure replaces the
+ * page the user was on — a deck, a settings screen — with raw JSON and no way
+ * back.
+ */
+describe("oauthFlowFailure", () => {
+  // Minimal h3-v2 shape: a real Request so `getRequestHeader` reads a real
+  // header bag, and a `res` so `setResponseStatus` has somewhere to write.
+  const event = (accept?: string) =>
+    ({
+      req: new Request("https://example.test/start", {
+        headers: accept ? { accept } : {},
+      }),
+      res: { status: 200, headers: new Headers() },
+    }) as never;
+
+  it("renders an error page for a browser navigation", async () => {
+    const result = oauthFlowFailure(
+      event("text/html,application/xhtml+xml"),
+      503,
+      "Google Drive OAuth client credentials are not configured.",
+    );
+    expect(result).toBeInstanceOf(Response);
+    // The page carries the caller's status, not the renderer's default 400 —
+    // a missing credential is a 503 whether the caller reads HTML or JSON.
+    expect((result as Response).status).toBe(503);
+    const body = await (result as Response).text();
+    expect(body).toContain("Google Drive OAuth client credentials");
+    expect(body).toContain("<!DOCTYPE html>");
+  });
+
+  it("keeps returning JSON to a programmatic caller", () => {
+    const result = oauthFlowFailure(event("application/json"), 400, "nope");
+    expect(result).toEqual({ error: "nope" });
+  });
+
+  it("treats a request with no Accept header as programmatic", () => {
+    expect(oauthFlowFailure(event(), 400, "nope")).toEqual({ error: "nope" });
+  });
+
+  it("escapes the message rather than trusting it as markup", async () => {
+    const result = oauthFlowFailure(
+      event("text/html"),
+      400,
+      "<img src=x onerror=alert(1)>",
+    );
+    const body = await (result as Response).text();
+    expect(body).not.toContain("<img src=x");
+    expect(body).toContain("&lt;img");
+  });
 });

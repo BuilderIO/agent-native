@@ -234,6 +234,7 @@ function repositoryFiles(): string[] {
     {
       cwd: REPO_ROOT,
       encoding: "utf8",
+      maxBuffer: 1 << 28,
     },
   )
     .split("\n")

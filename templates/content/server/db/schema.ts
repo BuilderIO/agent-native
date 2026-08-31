@@ -92,6 +92,7 @@ export const documentVersions = table("document_versions", {
   documentId: text("document_id").notNull(),
   title: text("title").notNull(),
   content: text("content").notNull(),
+  chatContext: text("chat_context"),
   createdAt: text("created_at").notNull().default(now()),
 });
 

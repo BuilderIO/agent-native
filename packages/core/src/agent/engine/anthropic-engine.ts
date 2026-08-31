@@ -26,6 +26,7 @@ import {
 } from "./credential-errors.js";
 import { describeErrorWithCauses } from "./error-detail.js";
 import { createFirstEventAbortController } from "./first-event-timeout.js";
+import { limitProviderTools } from "./limit-provider-tools.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -85,7 +86,10 @@ class AnthropicEngine implements AgentEngine {
     const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
-    const tools = engineToolsToAnthropic(opts.tools, toolNameMap);
+    const tools = engineToolsToAnthropic(
+      limitProviderTools(opts.tools),
+      toolNameMap,
+    );
     const messages = engineMessagesToAnthropic(opts.messages, toolNameMap);
     const anthropicOpts = opts.providerOptions?.anthropic;
 

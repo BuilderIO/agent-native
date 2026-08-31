@@ -1,6 +1,7 @@
 import {
   useLoaderData,
   useParams,
+  type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
 
@@ -8,9 +9,13 @@ import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
   loadDocRespectingDraftVisibility,
+  preloadDocBlocksForDoc,
   type DocEntry,
 } from "../components/docs-content";
-import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsLocaleFromSegment,
+} from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
@@ -18,7 +23,7 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 const GETTING_STARTED_SLUG = "getting-started";
 
 function routeLocale(params: LoaderFunctionArgs["params"]) {
-  return isDocsLocale(params.locale) ? params.locale : DEFAULT_DOCS_LOCALE;
+  return docsLocaleFromSegment(params.locale) ?? DEFAULT_DOCS_LOCALE;
 }
 
 export async function loader({
@@ -30,6 +35,11 @@ export async function loader({
   );
   if (!doc) throw new Response("Not Found", { status: 404 });
   return doc;
+}
+
+export async function clientLoader({ serverLoader }: ClientLoaderFunctionArgs) {
+  const doc = (await serverLoader()) as DocEntry;
+  return preloadDocBlocksForDoc(doc);
 }
 
 export const meta = ({
@@ -69,7 +79,7 @@ export default function DocsIndex() {
       markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
       {currentDoc.draft && <DocDraftBanner />}
-      <DocContent markdown={currentDoc.body} />
+      <DocContent markdown={currentDoc.body} locale={locale} />
     </DocsLayout>
   );
 }

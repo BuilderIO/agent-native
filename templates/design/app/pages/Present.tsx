@@ -77,7 +77,7 @@ export default function Present() {
     return () => {
       if (document.title === nextTitle) document.title = previousTitle;
     };
-  }, [design?.title]);
+  }, [design]);
 
   const files: DesignFile[] = design?.files ?? [];
   const activeFile = files[currentPage] ?? files[0];
@@ -135,7 +135,7 @@ export default function Present() {
           commentMode,
         });
         if (action === "close-comments") setCommentsOpen(false);
-        if (action === "exit-presentation") navigate(`/design/${id}`);
+        if (action === "exit-presentation") void navigate(`/design/${id}`);
         // ReviewCanvasPins owns "defer-to-comment-mode" so it can dismiss an
         // active draft before it exits the tool.
         return;
@@ -163,7 +163,7 @@ export default function Present() {
   }, [handleKeyDown]);
 
   if (!id) {
-    navigate("/");
+    void navigate("/");
     return null;
   }
 

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -8,6 +8,7 @@ import {
 import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import { isCalendarEventOrganizer } from "../shared/event-permissions.js";
 import {
   availabilityInput,
   attachmentsInput,
@@ -311,6 +312,9 @@ export default defineAction({
       }
 
       const existingEvent = await loadExistingEvent();
+      if (!isCalendarEventOrganizer(existingEvent)) {
+        fail("Only the event organizer can move or reschedule this event.");
+      }
       const hasOtherEventPatch =
         args.title !== undefined ||
         args.description !== undefined ||
@@ -400,6 +404,9 @@ export default defineAction({
 
     if (hasTimePatch) {
       const existingEvent = await loadExistingEvent();
+      if (!isCalendarEventOrganizer(existingEvent)) {
+        fail("Only the event organizer can move or reschedule this event.");
+      }
       const existingStatusEventType =
         existingEvent.eventType === "outOfOffice" ||
         existingEvent.eventType === "focusTime" ||

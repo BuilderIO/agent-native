@@ -4,7 +4,13 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
+import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
 import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
+import {
+  readFactoryPollCursor,
+  writeFactoryPollCursor,
+} from "../server/lib/factory-poll-cursors.js";
 import {
   factoryIdSchema,
   factoryStillPresent,
@@ -18,6 +24,7 @@ import {
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
+import type { IngestionEnvelope } from "../server/triage/contracts.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
 import {
   hasTriageSourceChanged,
@@ -27,7 +34,7 @@ import { pollSlackChannel } from "../server/triage/slack-poller.js";
 
 export default defineAction({
   description:
-    "Poll the configured Slack channel and append new messages to the Factory queue. This action only observes and never posts, replies, starts work, or changes a provider.",
+    "Poll the Slack channel for this Factory job and append new messages to the Factory queue. This action only observes and never posts, replies, starts work, or changes a provider.",
   schema: z.object({
     factoryId: factoryIdSchema,
     channelId: z.string().trim().min(1).max(128).optional(),
@@ -46,34 +53,86 @@ export default defineAction({
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
     await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
-    if (config?.pollingEnabled !== 1) {
-      throw new Error("Enable Slack polling before polling Slack.");
-    }
-    const configuredChannelId = config?.slackChannelId;
-    if (!configuredChannelId) {
+    const job = await readCallingFactoryAutomation(context, {
+      userEmail,
+      orgId,
+    });
+    const jobConfig = job?.config;
+    const channelId =
+      jobConfig?.slackChannelId?.trim() || config?.slackChannelId || "";
+    if (!channelId) {
       throw new Error("Configure a Slack channel before polling.");
     }
-    if (requestedChannelId && requestedChannelId !== configuredChannelId) {
-      throw new Error(
-        "Poll only the Slack channel configured for this factory.",
-      );
+    if (requestedChannelId && requestedChannelId !== channelId) {
+      throw new Error("Poll only the Slack channel configured for this job.");
     }
-    const channelId = configuredChannelId;
+    const workspace =
+      jobConfig?.slackWorkspace === "secondary" ||
+      config?.slackWorkspace === "secondary"
+        ? "secondary"
+        : "primary";
+    const destinationKey = channelId;
+    const storedCursor = await readFactoryPollCursor(
+      db,
+      orgId,
+      factoryId,
+      "slack",
+      destinationKey,
+    );
+    const priorLastSlackTs =
+      storedCursor?.lastSlackTs ?? config?.lastSlackTs ?? "0";
+    const historyCursor =
+      storedCursor?.slackHistoryCursor ?? config?.slackHistoryCursor;
+    const inboxLimit = jobConfig?.inboxLimit ?? 25;
 
     const result = await pollSlackChannel({
-      workspace:
-        config?.slackWorkspace === "secondary" ? "secondary" : "primary",
+      workspace,
       channelId,
-      priorLastSlackTs: config?.lastSlackTs ?? "0",
-      historyCursor: config?.slackHistoryCursor,
+      priorLastSlackTs,
+      historyCursor,
       ownerEmail: userEmail,
       orgId,
     });
     const now = new Date().toISOString();
-    const configRowId = triageConfigUpdateRowId(config, orgId, factoryId);
+    const configRowId = config
+      ? triageConfigUpdateRowId(config, orgId, factoryId)
+      : null;
+    const accepted: IngestionEnvelope[] = [];
+    let nextLastSlackTs =
+      result.envelopes.length === 0
+        ? (result.nextLastSlackTs ?? priorLastSlackTs)
+        : priorLastSlackTs;
+    for (const envelope of result.envelopes) {
+      const authorId =
+        typeof envelope.metadata?.authorId === "string"
+          ? envelope.metadata.authorId
+          : typeof envelope.metadata?.author === "string"
+            ? envelope.metadata.author
+            : null;
+      if (
+        jobConfig &&
+        !authorMatchesFilter(
+          authorId,
+          jobConfig.authorMode,
+          jobConfig.authorIds,
+        )
+      ) {
+        if (typeof envelope.metadata?.messageTs === "string") {
+          nextLastSlackTs = envelope.metadata.messageTs;
+        }
+        continue;
+      }
+      accepted.push(envelope);
+    }
+    const truncated = accepted.length < result.envelopes.length;
+    let nextHistoryCursor = truncated
+      ? (historyCursor ?? null)
+      : result.nextHistoryCursor;
 
+    const ingested: IngestionEnvelope[] = [];
+    let added = 0;
     await db.transaction(async (tx) => {
-      for (const envelope of result.envelopes) {
+      for (const envelope of accepted) {
         const id = itemDedupeKey(envelope, orgId, factoryId);
         const existing = (
           await tx
@@ -82,6 +141,15 @@ export default defineAction({
             .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
             .limit(1)
         )[0];
+        if (!existing && added >= inboxLimit) {
+          nextHistoryCursor = historyCursor ?? null;
+          break;
+        }
+        if (!existing) added += 1;
+        ingested.push(envelope);
+        if (typeof envelope.metadata?.messageTs === "string") {
+          nextLastSlackTs = envelope.metadata.messageTs;
+        }
         const sourceChanged = hasTriageSourceChanged(existing, {
           title: envelope.title,
           summary: envelope.summary ?? null,
@@ -149,12 +217,21 @@ export default defineAction({
           });
       }
 
-      if (config) {
+      await writeFactoryPollCursor(tx as unknown as ReturnType<typeof getDb>, {
+        orgId,
+        factoryId,
+        source: "slack",
+        destinationKey,
+        ownerEmail: userEmail,
+        lastSlackTs: nextLastSlackTs,
+        slackHistoryCursor: nextHistoryCursor,
+      });
+      if (config && configRowId) {
         await tx
           .update(triageConfig)
           .set({
-            lastSlackTs: result.nextLastSlackTs,
-            slackHistoryCursor: result.nextHistoryCursor,
+            lastSlackTs: nextLastSlackTs,
+            slackHistoryCursor: nextHistoryCursor,
             updatedAt: now,
           })
           .where(
@@ -176,7 +253,8 @@ export default defineAction({
       );
     });
 
-    if (result.envelopes.length === 0) {
+    const truncatedByLimit = ingested.length < accepted.length;
+    if (ingested.length === 0) {
       await recordFactoryAudit(
         context,
         { userEmail, orgId },
@@ -187,13 +265,16 @@ export default defineAction({
           summary: "No new Slack feedback was observed.",
           details: {
             channelId,
-            coverage: result.hasMore ? "partial" : "complete",
+            coverage:
+              result.hasMore || truncated || truncatedByLimit
+                ? "partial"
+                : "complete",
           },
         },
         factoryId,
       );
     } else {
-      for (const envelope of result.envelopes) {
+      for (const envelope of ingested) {
         await recordFactoryAudit(
           context,
           { userEmail, orgId },
@@ -220,11 +301,14 @@ export default defineAction({
       source: "slack",
       factoryId,
       channelId,
-      observed: result.envelopes.length,
-      hasMore: result.hasMore,
-      nextLastSlackTs: result.nextLastSlackTs,
-      nextHistoryCursor: result.nextHistoryCursor,
-      coverage: result.hasMore ? "partial" : "complete",
+      observed: ingested.length,
+      hasMore: result.hasMore || truncated || truncatedByLimit,
+      nextLastSlackTs,
+      nextHistoryCursor,
+      coverage:
+        result.hasMore || truncated || truncatedByLimit
+          ? "partial"
+          : "complete",
     };
   },
 });

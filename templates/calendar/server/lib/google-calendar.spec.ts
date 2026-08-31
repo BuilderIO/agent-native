@@ -1722,6 +1722,38 @@ describe("calendar free/busy", () => {
       }),
     );
   });
+
+  it("marks a calendar omitted by Google as unavailable", async () => {
+    calendarFreeBusyMock.mockResolvedValue({ calendars: {} });
+
+    await expect(
+      getFreeBusy(
+        "2026-05-28T16:00:00Z",
+        "2026-05-28T18:00:00Z",
+        ["secondary@example.com"],
+        "owner@example.com",
+        "America/Los_Angeles",
+        "secondary@example.com",
+      ),
+    ).resolves.toEqual({
+      calendars: {
+        "secondary@example.com": {
+          busy: [],
+          errors: [
+            {
+              reason: "Calendar was omitted from the Google free/busy response",
+            },
+          ],
+        },
+      },
+      errors: [
+        {
+          email: "secondary@example.com",
+          error: "Calendar was omitted from the Google free/busy response",
+        },
+      ],
+    });
+  });
 });
 
 describe("calendar Google OAuth exchange", () => {
@@ -1794,6 +1826,15 @@ describe("calendar Google OAuth exchange", () => {
       "client-id",
       "client-secret",
       "https://app.example.com/_agent-native/google/callback",
+    );
+  });
+
+  it("fails closed when no Google OAuth redirect URI is available", async () => {
+    await expect(getAuthUrl()).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
+    );
+    await expect(exchangeCode("oauth-code")).rejects.toThrow(
+      "Google OAuth redirect URI is required.",
     );
   });
 });

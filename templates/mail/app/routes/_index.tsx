@@ -1,7 +1,5 @@
-import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { redirect } from "react-router";
-
-import { Spinner } from "@/components/ui/spinner";
+import { appPath } from "@agent-native/core/client/api-path";
+import { MarketingHome } from "@agent-native/toolkit/marketing";
 
 const SEO_TITLE =
   "Mail - Open Source AI email client and Superhuman alternative";
@@ -11,10 +9,7 @@ const SEO_DESCRIPTION =
 export function meta() {
   return [
     { title: SEO_TITLE },
-    {
-      name: "description",
-      content: SEO_DESCRIPTION,
-    },
+    { name: "description", content: SEO_DESCRIPTION },
     { property: "og:title", content: SEO_TITLE },
     { property: "og:description", content: SEO_DESCRIPTION },
     { name: "twitter:card", content: "summary" },
@@ -23,31 +18,19 @@ export function meta() {
   ];
 }
 
-/**
- * Run the redirect on both the server and the client. Doing it client-only
- * via `clientLoader` previously caused React Router to occasionally log
- * `No routes matched location "/inbox"` because the navigation fired during
- * hydration, before the route tree was fully attached. A `loader` runs as
- * part of the server response and the navigation completes before the app
- * hydrates. The app opens to the Important triage tab by default.
- */
-export function loader() {
-  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
-}
-
-export function clientLoader() {
-  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
-}
-
-export function HydrateFallback() {
+export default function MarketingHomeRoute() {
   return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <Spinner className="size-8" />
-    </div>
+    <MarketingHome
+      appName="Mail"
+      tagline="Your AI agent reads, drafts, and organizes email alongside you."
+      description={SEO_DESCRIPTION}
+      valueProps={[
+        "Draft replies that match your tone and style",
+        "Manage multiple Gmail accounts in one unified inbox",
+        "Automate triage, archiving, and follow-ups",
+      ]}
+      primaryActionHref={appPath("/home")}
+      secondaryActionHref={appPath("/sign-in")}
+    />
   );
-}
-
-export default function IndexRoute() {
-  // Should never render — both loaders redirect to the default triage tab.
-  return null;
 }

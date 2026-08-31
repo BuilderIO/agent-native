@@ -1,10 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
 import type { EmailMessage } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
   IconDots,
+  IconFilter,
   IconFolder,
+  IconInbox,
   IconMail,
   IconMailOpened,
   IconTrash,
@@ -15,6 +18,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
+import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
 import {
@@ -394,6 +398,10 @@ export function EmailList({
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
+  const [aiFilterDialog, setAiFilterDialog] = useState<{
+    action: "filter" | "keep";
+    targets: AiFilterTarget[];
+  } | null>(null);
 
   const {
     data: fetchedEmails = [],
@@ -597,7 +605,7 @@ export function EmailList({
       () => {},
     );
     onNavigateThread?.(targetThreadId);
-    navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+    void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
     if (thread.hasUnread) {
       setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
     }
@@ -840,6 +848,33 @@ export function EmailList({
         )
         .filter((t): t is ThreadSummary => !!t),
     [threads],
+  );
+
+  const openAiFilterDialog = useCallback(
+    (action: "filter" | "keep") => {
+      const targets = resolveTargets(getActionThreadKeys()).map(
+        (thread): AiFilterTarget => {
+          const email = thread.latestMessage;
+          return {
+            id: email.id,
+            threadId: email.threadId || email.id,
+            ...(email.accountEmail && email.accountEmail !== "local"
+              ? { accountEmail: email.accountEmail }
+              : {}),
+            sender: email.from.name
+              ? `${email.from.name} <${email.from.email}>`
+              : email.from.email,
+            subject: email.subject,
+          };
+        },
+      );
+      if (targets.length === 0) {
+        toast.error(t("mail.toasts.noEmailSelected"));
+        return;
+      }
+      setAiFilterDialog({ action, targets });
+    },
+    [getActionThreadKeys, resolveTargets, t],
   );
 
   useEffect(() => {
@@ -1206,7 +1241,7 @@ export function EmailList({
       }
       void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
       onNavigateThread?.(targetThreadId);
-      navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
+      void navigate(`/${view}/${targetThreadId}${routeSearchSuffix}`);
       if (thread.hasUnread) {
         setTimeout(() => markThreadRead.mutate(targetThreadId), 0);
       }
@@ -1465,6 +1500,26 @@ export function EmailList({
             </Tooltip>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem
+                onClick={() =>
+                  openAiFilterDialog(
+                    labelParam?.toLowerCase() === AI_FILTER_LABEL
+                      ? "keep"
+                      : "filter",
+                  )
+                }
+                className="gap-2 text-xs"
+              >
+                {labelParam?.toLowerCase() === AI_FILTER_LABEL ? (
+                  <IconInbox className="h-3.5 w-3.5" />
+                ) : (
+                  <IconFilter className="h-3.5 w-3.5" />
+                )}
+                {labelParam?.toLowerCase() === AI_FILTER_LABEL
+                  ? t("mail.aiFilter.keepButton")
+                  : t("mail.aiFilter.filterButton")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
                 onClick={archiveFocused}
                 className="gap-2 text-xs"
               >
@@ -1552,6 +1607,7 @@ export function EmailList({
       selectedIds.size,
       t,
       clearSelection,
+      openAiFilterDialog,
       archiveFocused,
       markFocusedRead,
       markFocusedUnread,
@@ -1709,6 +1765,13 @@ export function EmailList({
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
+        <AiFilterDialog
+          open={!!aiFilterDialog}
+          onOpenChange={(open) => !open && setAiFilterDialog(null)}
+          action={aiFilterDialog?.action ?? "filter"}
+          targets={aiFilterDialog?.targets ?? []}
+          onComplete={() => setSelectedIds(new Set())}
+        />
         <div
           style={{
             height: rowVirtualizer.getTotalSize(),

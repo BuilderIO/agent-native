@@ -4,10 +4,6 @@ import {
   IconCopy,
   IconLink,
   IconLoader2,
-  IconPlayerPauseFilled,
-  IconPlayerPlayFilled,
-  IconRefresh,
-  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -17,9 +13,12 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
-import type { FocusEvent } from "react";
-import { flushSync } from "react-dom";
 
+import { RecordingPlayhead } from "../../../shared/recording-playhead";
+import type {
+  RecordingPlayheadConfirmChange,
+  RecordingPlayheadIntent,
+} from "../../../shared/recording-playhead";
 import { LiveWaveform } from "../components/live-waveform";
 import {
   completionCardState,
@@ -33,14 +32,12 @@ import type {
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
 
-const SEG_MS = 180;
-const HOVER_INTENT_MS = 150;
 // Within this distance of the right screen edge the pill anchors its RIGHT
 // edge and grows left instead, so growth never runs off-screen.
 const RIGHT_EDGE_ANCHOR_PX = 200;
+const NATIVE_LAYOUT_GUARD_MS = 1_500;
+const USER_DRAG_ARM_TIMEOUT_MS = 1_000;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
-
-type Seg = "mid" | "q" | "del" | "res" | "extras";
 
 type RecorderSession = {
   viewUrl?: string | null;
@@ -131,20 +128,10 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
   /** Demo harness only: the meter reads capture events in the real app. */
   const [demoLevel, setDemoLevel] = useState<number | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [confirmQuestion, setConfirmQuestion] = useState("");
-  // What the confirm's action button does. Both intents share the confirm
-  // strip, but only delete is destructive-red; restart is a start-fresh
-  // action and wears the pill's white affirmative treatment, same family
-  // as Stop.
-  const [confirmIntent, setConfirmIntent] = useState<"delete" | "restart">(
-    "delete",
-  );
-  // Whether the delete confirm was entered from an already-paused recording:
-  // Esc then backs out to that pause, while the Resume button always resumes.
-  const confirmFromPausedRef = useRef(false);
   const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
   const [doneDurationMs, setDoneDurationMs] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -161,29 +148,25 @@ export function RecordingPill() {
   const reducedRef = useRef(
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revealedRef = useRef(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shrinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animatingUntilRef = useRef(0);
+  const userDragActiveRef = useRef(false);
+  const userDragArmedRef = useRef(false);
+  const userDragGenerationRef = useRef(0);
+  const userDragChangeRef = useRef(0);
+  const userDragMarkerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const toolbarDismissedRef = useRef(false);
   const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
   const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const playheadConfirmOpenRef = useRef(false);
 
-  const settleBatchRef = useRef(0);
-  const pendingSegsRef = useRef<Set<Seg>>(new Set());
-  const finishSettleRef = useRef<(() => void) | null>(null);
-  const pillRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const segRefs = useRef<Record<Seg, HTMLSpanElement | null>>({
-    mid: null,
-    q: null,
-    del: null,
-    res: null,
-    extras: null,
-  });
 
   modeRef.current = mode;
   elapsedRef.current = elapsed;
@@ -195,41 +178,6 @@ export function RecordingPill() {
       clearTimeout(pauseTransitionTimerRef.current);
       pauseTransitionTimerRef.current = null;
     }
-  }
-
-  // ---- segment motion: measure natural width, animate exact pixels ----
-
-  function segInnerWidth(k: Seg): number {
-    const el = segRefs.current[k];
-    const inner = el?.firstElementChild as HTMLElement | null;
-    if (!inner) return 0;
-    return Math.ceil(inner.getBoundingClientRect().width);
-  }
-
-  function segCurrentWidth(k: Seg): number {
-    const el = segRefs.current[k];
-    if (!el) return 0;
-    return el.getBoundingClientRect().width;
-  }
-
-  function setSeg(k: Seg, open: boolean, delayMs = 0) {
-    const el = segRefs.current[k];
-    if (!el) return;
-    // A segment that still sits at `auto` (the Stop capsule before its first
-    // collapse) cannot animate FROM auto — snap it to its measured pixels
-    // and force a reflow so the width transition has a number to leave from.
-    if (!open && (!el.style.width || el.style.width === "auto")) {
-      el.style.transition = "none";
-      el.style.width = `${segCurrentWidth(k)}px`;
-      void el.offsetWidth;
-    }
-    const reduced = reducedRef.current;
-    el.style.transition = reduced
-      ? "none"
-      : `width ${SEG_MS}ms var(--pill-ease), opacity ${SEG_MS}ms ease`;
-    el.style.transitionDelay = reduced ? "0ms" : `${delayMs}ms`;
-    el.style.width = open ? `${segInnerWidth(k)}px` : "0px";
-    el.style.opacity = open ? "1" : "0";
   }
 
   // Native window ops run strictly one at a time. Concurrent
@@ -256,6 +204,9 @@ export function RecordingPill() {
   function resizeWindowTo(contentW: number, contentH: number) {
     if (!hasTauri) return;
     queueWindowOp(async () => {
+      // Tauri emits `moved` for these programmatic anchor corrections too;
+      // keep them out of the persisted user drag position.
+      animatingUntilRef.current = Date.now() + NATIVE_LAYOUT_GUARD_MS;
       const win = getCurrentWindow();
       const [pos, size, scale, monitor] = await Promise.all([
         win.outerPosition(),
@@ -292,134 +243,19 @@ export function RecordingPill() {
   }
 
   function syncWindowToContent() {
-    const el =
-      (mode === "done" ? cardRef.current : pillRef.current) ?? pillRef.current;
+    const el = cardRef.current;
     if (!el) return;
     // offsetWidth/Height are layout metrics, immune to the card's scale-in
     // entrance — a rect measured mid-animation locks the window too narrow.
     resizeWindowTo(el.offsetWidth, el.offsetHeight);
   }
 
-  // Which segments are (or are animating toward) open. Live rects mid-flight
-  // under-measure a transition target, so the window budget is computed from
-  // this intent instead of from the DOM.
-  const openSegsRef = useRef<Record<Seg, boolean>>({
-    mid: true,
-    q: false,
-    del: false,
-    res: false,
-    extras: false,
-  });
-
-  /**
-   * Run one choreographed set of segment transitions: pre-grow the window to
-   * the post-transition budget (plus slack) so nothing clips, start every
-   * segment's width+opacity bar, then shrink to the exact measured rect once
-   * the last bar lands.
-   */
-  function transitionSegs(changes: Array<[Seg, boolean, number]>) {
-    const pill = pillRef.current;
-    if (!pill) return;
-    for (const [k, open] of changes) openSegsRef.current[k] = open;
-    const pillW = pill.getBoundingClientRect().width;
-    const segsW = (Object.keys(openSegsRef.current) as Seg[]).reduce(
-      (sum, k) => sum + segCurrentWidth(k),
-      0,
-    );
-    const staticW = pillW - segsW;
-    const targetW = (Object.keys(openSegsRef.current) as Seg[]).reduce(
-      (sum, k) => sum + (openSegsRef.current[k] ? segInnerWidth(k) : 0),
-      staticW,
-    );
-    const maxDelay = changes.reduce((m, [, , d]) => Math.max(m, d), 0);
-    const settleMs = reducedRef.current ? 16 : SEG_MS + maxDelay + 40;
-    animatingUntilRef.current = Date.now() + settleMs;
-    if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-    // Budget the window for whichever is wider, plus slack for measurement
-    // rounding — the settle pass snaps to the exact rect.
-    resizeWindowTo(
-      Math.ceil(Math.max(pillW, targetW)) + 12,
-      Math.ceil(pill.getBoundingClientRect().height),
-    );
-    // The settle is driven by the transitions actually ending, not by a
-    // timer — a throttled clock runs them late, and snapping on a fixed
-    // schedule cuts the choreography off mid-motion.
-    const batch = ++settleBatchRef.current;
-    pendingSegsRef.current.clear();
-    for (const [k, open, delay] of changes) {
-      const before = segCurrentWidth(k);
-      setSeg(k, open, delay);
-      const el = segRefs.current[k];
-      const after = el ? Number.parseFloat(el.style.width) : before;
-      if (!reducedRef.current && Math.abs(after - before) > 0.5) {
-        pendingSegsRef.current.add(k);
-      }
-    }
-    const finishSettle = () => {
-      if (settleBatchRef.current !== batch) return;
-      if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-      pendingSegsRef.current.clear();
-      animatingUntilRef.current = Date.now();
-      syncWindowToContent();
-    };
-    finishSettleRef.current = finishSettle;
-    if (pendingSegsRef.current.size === 0) {
-      finishSettle();
-      return;
-    }
-    // Dead-clock fallback: if the ends never fire, force every segment to
-    // its intended state so the pill can never strand half-open. Sized well
-    // past any late-running transition so it never clips a live one.
-    shrinkTimerRef.current = setTimeout(
-      () => {
-        if (settleBatchRef.current !== batch) return;
-        for (const k of Object.keys(openSegsRef.current) as Seg[]) {
-          const el = segRefs.current[k];
-          if (!el) continue;
-          el.style.transition = "none";
-          el.style.width = openSegsRef.current[k]
-            ? `${segInnerWidth(k)}px`
-            : "0px";
-          el.style.opacity = openSegsRef.current[k] ? "1" : "0";
-        }
-        finishSettle();
-      },
-      Math.max(1_000, settleMs * 3),
-    );
-  }
-
-  /** Snap every segment to its resting state (Stop visible, all confirm and
-   * hover segments collapsed) with no animation — used when the recorder
-   * disables the pill (restart teardown, session reset). */
+  /** Return the outer overlay to its idle state when a session ends. */
   function resetToRest() {
     revealedRef.current = false;
-    for (const k of ["q", "del", "res", "extras"] as Seg[]) {
-      const el = segRefs.current[k];
-      if (!el) continue;
-      el.style.transition = "none";
-      el.style.width = "0px";
-      el.style.opacity = "0";
-      openSegsRef.current[k] = false;
-    }
-    const mid = segRefs.current.mid;
-    if (mid) {
-      mid.style.transition = "none";
-      mid.style.width = "auto";
-      mid.style.opacity = "1";
-      openSegsRef.current.mid = true;
-    }
     setMode("recording");
     clearPauseTransition();
     setPaused(false);
-  }
-
-  // ---- reveal / confirm / done choreography ----
-
-  function reveal(open: boolean) {
-    if (open === revealedRef.current) return;
-    if (open && modeRef.current !== "recording") return;
-    revealedRef.current = open;
-    transitionSegs([["extras", open, 0]]);
   }
 
   const pausedRef = useRef(false);
@@ -443,55 +279,6 @@ export function RecordingPill() {
     }, 250);
     return () => clearInterval(t);
   }, [enabled, paused, mode]);
-
-  function enterConfirm(intent: "delete" | "restart") {
-    if (modeRef.current !== "recording") return;
-    const wasPaused = pausedRef.current;
-    confirmFromPausedRef.current = wasPaused;
-    setMode("confirm");
-    // The question's segment width is measured synchronously below, so the
-    // new text (and the action button's label) must be committed to the DOM
-    // before transitionSegs runs — without flushSync it would measure the
-    // previous (empty) question.
-    flushSync(() => {
-      setConfirmIntent(intent);
-      setConfirmQuestion(
-        intent === "delete"
-          ? `Delete ${formatDurationCopy(elapsedRef.current)}?`
-          : "Start a new recording?",
-      );
-    });
-    // Pause at the instant of the click — the deliberation must not end up
-    // in the clip. A recording already paused by hand stays exactly as the
-    // user left it, and exiting the confirm restores that state instead of
-    // resuming behind their back.
-    if (!wasPaused) applyPauseIntent("pause");
-    revealedRef.current = false;
-    transitionSegs([
-      ["extras", false, 0],
-      ["mid", false, 0],
-      ["q", true, 0],
-      ["del", true, 20],
-      ["res", true, 40],
-    ]);
-    setAnnouncement("Paused");
-  }
-
-  function exitConfirm(resume: boolean) {
-    if (modeRef.current !== "confirm") return;
-    setMode("recording");
-    if (resume && pausedRef.current) applyPauseIntent("resume");
-    else if (!resume && !confirmFromPausedRef.current) {
-      applyPauseIntent("resume");
-    }
-    transitionSegs([
-      ["res", false, 0],
-      ["del", false, 20],
-      ["q", false, 40],
-      ["mid", true, 40],
-    ]);
-    setAnnouncement(pausedRef.current ? "Paused" : "Recording");
-  }
 
   function applyPauseIntent(transition: "pause" | "resume") {
     clearPauseTransition();
@@ -529,7 +316,12 @@ export function RecordingPill() {
   function stop() {
     // Guarded through the ref: the tray-stop listener holds a first-render
     // closure of this function, where the `enabled` state is still false.
-    if (!enabledRef.current || modeRef.current === "done") return;
+    if (
+      !enabledRef.current ||
+      modeRef.current === "done" ||
+      playheadConfirmOpenRef.current
+    )
+      return;
     setDoneDurationMs(elapsedRef.current);
     // Every stop — hosted or local-only — starts as "finishing" and is only
     // called done by the completion event the stop actually produces. A
@@ -571,22 +363,18 @@ export function RecordingPill() {
     }, 3_000);
   }
 
-  function confirmDestructive() {
+  function confirmDestructive(intent: RecordingPlayheadIntent) {
     if (pendingAction) return;
-    // The confirm strip is a question about the session that is ending here.
-    // Leave it now, before either answer is dispatched: the restart path
-    // reuses this same window for the replacement take, and a pill still in
-    // `confirm` would come back with the old question up and Stop/Pause
-    // disabled. `pendingAction` (cleared by the next `toolbar-enabled`) keeps
-    // the restart/delete glyphs disabled meanwhile.
+    playheadConfirmOpenRef.current = false;
     resetToRest();
-    if (confirmIntent === "restart") {
+    if (intent === "restart") {
       setPendingAction("restart");
       setElapsed(0);
-      // Hide immediately — the restart teardown and fresh countdown follow,
-      // and recording controls must not sit on screen while no capture is
-      // live. The replacement session's `clips:toolbar-enabled` re-shows the
-      // pill at 0:00, reusing this window thanks to the finishing hold.
+      // Hide immediately — the restart teardown follows. The replacement
+      // session's `clips:toolbar-preparing` re-shows the disabled pill for its
+      // countdown, reusing this window when the finishing hold keeps it alive.
+      toolbarDismissedRef.current = true;
+      setToolbarVisible(false);
       setEnabled(false);
       void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
         void safeEmit("clips:recorder-restart");
@@ -606,6 +394,8 @@ export function RecordingPill() {
     setPendingAction("cancel");
     // Vanish now — feedback must not wait on the recorder's teardown. The
     // window close (or its 3s fallback) follows behind.
+    toolbarDismissedRef.current = true;
+    setToolbarVisible(false);
     setEnabled(false);
     void safeEmit("clips:recorder-cancel").then(() =>
       scheduleCloseFallback("cancel"),
@@ -618,7 +408,21 @@ export function RecordingPill() {
         getCurrentWindow()
           .close()
           .catch(() => {});
+      else resetToRest();
     });
+  }
+
+  async function openRecording(url: string) {
+    try {
+      if (hasTauri) {
+        await openExternal(url);
+      } else if (!window.open(url, "_blank")) {
+        return;
+      }
+      dismissCard();
+    } catch (err) {
+      console.warn("[record-pill] opening recording failed:", err);
+    }
   }
 
   function handleUploadFinished(payload: NativeUploadFinished) {
@@ -677,9 +481,39 @@ export function RecordingPill() {
       ),
     );
     track(
+      safeListen("clips:toolbar-preparing", () => {
+        if (modeRef.current === "done") {
+          if (stallTimerRef.current) {
+            clearTimeout(stallTimerRef.current);
+            stallTimerRef.current = null;
+          }
+          setViewUrl(null);
+          setCopied(false);
+          setSavedLocally(false);
+          setDoneStage("finishing");
+          sessionRef.current = {};
+        }
+        setElapsed(0);
+        elapsedAnchorRef.current = null;
+        setPendingAction(null);
+        resetToRest();
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-hidden", () => {
+        toolbarDismissedRef.current = true;
+        setToolbarVisible(false);
+      }),
+    );
+    track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
         setEnabled(!!payload);
         setPendingAction(null);
+        if (payload && !toolbarDismissedRef.current) {
+          setToolbarVisible(true);
+        }
         if (fallbackTimerRef.current) {
           clearTimeout(fallbackTimerRef.current);
           fallbackTimerRef.current = null;
@@ -786,38 +620,13 @@ export function RecordingPill() {
         }
       });
       for (const t of [
-        hoverTimerRef,
         fallbackTimerRef,
-        shrinkTimerRef,
         stallTimerRef,
         pauseTransitionTimerRef,
       ]) {
         if (t.current) clearTimeout(t.current);
       }
     };
-  }, []);
-
-  function handleSegTransitionEnd(e: React.TransitionEvent) {
-    if (e.propertyName !== "width") return;
-    const el = e.target as HTMLElement;
-    const entry = (Object.keys(segRefs.current) as Seg[]).find(
-      (k) => segRefs.current[k] === el,
-    );
-    if (!entry) return;
-    pendingSegsRef.current.delete(entry);
-    if (pendingSegsRef.current.size === 0) finishSettleRef.current?.();
-  }
-
-  // Escape resumes during confirm — window-level, per the spec.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && modeRef.current === "confirm") {
-        e.preventDefault();
-        exitConfirm(false);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // Fit the native window to the measured pill once fonts have settled.
@@ -870,23 +679,60 @@ export function RecordingPill() {
     if (!hasTauri) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let unlisten: (() => void) | null = null;
+    let lastDraggedPosition: { x: number; y: number } | null = null;
+
+    function saveDraggedPosition() {
+      if (!userDragActiveRef.current) return;
+      if (revealedRef.current || playheadConfirmOpenRef.current) {
+        userDragActiveRef.current = false;
+        lastDraggedPosition = null;
+        return;
+      }
+      const saveGeneration = userDragGenerationRef.current;
+      const saveChange = userDragChangeRef.current;
+      const remainingGuardMs = animatingUntilRef.current - Date.now();
+      if (remainingGuardMs > 0) {
+        timer = setTimeout(saveDraggedPosition, remainingGuardMs + 1);
+        return;
+      }
+      const position = lastDraggedPosition;
+      if (!position) return;
+      void safeInvoke("toolbar_save_position", position).finally(() => {
+        if (
+          userDragGenerationRef.current === saveGeneration &&
+          userDragChangeRef.current === saveChange
+        ) {
+          userDragActiveRef.current = false;
+        }
+      });
+    }
+
     void getCurrentWindow()
-      .onMoved(() => {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          if (
-            modeRef.current !== "recording" ||
-            revealedRef.current ||
-            Date.now() < animatingUntilRef.current
-          ) {
-            return;
+      .onMoved(({ payload }) => {
+        if (revealedRef.current || playheadConfirmOpenRef.current) {
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = false;
+          lastDraggedPosition = null;
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
           }
-          void getCurrentWindow()
-            .outerPosition()
-            .then((pos) =>
-              safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
-            );
-        }, 600);
+          return;
+        }
+        if (!userDragArmedRef.current && !userDragActiveRef.current) return;
+        if (userDragArmedRef.current) {
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = true;
+          if (userDragMarkerTimerRef.current) {
+            clearTimeout(userDragMarkerTimerRef.current);
+            userDragMarkerTimerRef.current = null;
+          }
+        }
+        if (!userDragActiveRef.current) return;
+        lastDraggedPosition = payload;
+        userDragChangeRef.current += 1;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(saveDraggedPosition, 600);
       })
       .then((u) => {
         unlisten = u;
@@ -894,6 +740,10 @@ export function RecordingPill() {
       .catch(() => {});
     return () => {
       if (timer) clearTimeout(timer);
+      if (userDragMarkerTimerRef.current) {
+        clearTimeout(userDragMarkerTimerRef.current);
+        userDragMarkerTimerRef.current = null;
+      }
       unlisten?.();
     };
   }, []);
@@ -929,7 +779,7 @@ export function RecordingPill() {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => syncWindowToContent(), 120);
     });
-    const el = mode === "done" ? cardRef.current : pillRef.current;
+    const el = mode === "done" ? cardRef.current : null;
     if (el) observer.observe(el);
     return () => {
       if (timer) clearTimeout(timer);
@@ -937,20 +787,20 @@ export function RecordingPill() {
     };
   }, [mode]);
 
-  // The pill owns its window's visibility: hidden through pre-record and the
-  // countdown, shown the moment capture is live, and kept up while the
-  // completion card is open. Rust never shows this window itself.
+  // The pill owns its window's visibility: shown in its disabled state while
+  // preparing/counting down, enabled once capture is live, and kept up while
+  // the completion card is open. Rust never shows this window itself.
   const visibleRef = useRef(false);
   useEffect(() => {
     if (!hasTauri) return;
-    const visible = enabled || mode === "done";
+    const visible = toolbarVisible;
     if (visibleRef.current === visible) return;
     visibleRef.current = visible;
     if (visible) syncWindowToContent();
     queueWindowOp(async () => {
       await invoke("toolbar_set_visible", { visible });
     });
-  }, [enabled, mode]);
+  }, [toolbarVisible]);
 
   // The pill is also the single writer of the menu bar's recording mode:
   // stop square + ticking timer exactly while capture is live, the app logo
@@ -986,39 +836,37 @@ export function RecordingPill() {
 
   // ---- interactions ----
 
-  function handleMouseEnter() {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => reveal(true), HOVER_INTENT_MS);
-  }
-  function handleMouseLeave() {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    reveal(false);
-  }
-  function handleFocusCapture() {
-    reveal(true);
-  }
-  function handleBlurCapture(e: FocusEvent<HTMLDivElement>) {
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-    reveal(false);
-  }
-
   function handlePillMouseDown(e: React.MouseEvent) {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button")) return;
-    // During confirm only Delete, Resume, or Esc answer the question — a
-    // stray tap must never resume the recording.
     if (hasTauri) {
+      const generation = userDragGenerationRef.current + 1;
+      userDragGenerationRef.current = generation;
+      userDragArmedRef.current = true;
+      userDragActiveRef.current = false;
+      if (userDragMarkerTimerRef.current) {
+        clearTimeout(userDragMarkerTimerRef.current);
+      }
+      userDragMarkerTimerRef.current = setTimeout(() => {
+        if (userDragGenerationRef.current !== generation) return;
+        userDragArmedRef.current = false;
+        userDragActiveRef.current = false;
+        userDragMarkerTimerRef.current = null;
+      }, USER_DRAG_ARM_TIMEOUT_MS);
       getCurrentWindow()
         .startDragging()
-        .catch(() => {});
+        .catch(() => {
+          if (userDragGenerationRef.current !== generation) return;
+          userDragArmedRef.current = false;
+          userDragActiveRef.current = false;
+          if (userDragMarkerTimerRef.current) {
+            clearTimeout(userDragMarkerTimerRef.current);
+            userDragMarkerTimerRef.current = null;
+          }
+        });
     }
   }
-
-  const inConfirm = mode === "confirm";
-  const showPaused = paused;
-  const meterFlat = showPaused || !enabled;
-  const timerText = formatTimer(elapsed);
 
   const card = completionCardState(doneStage, {
     hasLink: Boolean(viewUrl),
@@ -1115,10 +963,7 @@ export function RecordingPill() {
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (hasTauri) void openExternal(viewUrl).catch(() => {});
-                    else window.open(viewUrl, "_blank");
-                  }}
+                  onClick={() => void openRecording(viewUrl)}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >
                   Open
@@ -1135,145 +980,61 @@ export function RecordingPill() {
           </div>
         </div>
       ) : (
-        <div
-          ref={pillRef}
-          onMouseDown={handlePillMouseDown}
-          onTransitionEnd={handleSegTransitionEnd}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          onFocusCapture={handleFocusCapture}
-          onBlurCapture={handleBlurCapture}
-          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] p-1.5 text-[var(--pill-on-chrome)] ${enabled ? "" : "opacity-80"}`}
-        >
-          <button
-            type="button"
-            onClick={stop}
-            disabled={!enabled || inConfirm}
-            aria-label="Stop and save"
-            className="flex size-[30px] flex-none items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-default"
-            style={{
-              color: showPaused ? "var(--pill-ghost-ink)" : "var(--pill-rec)",
-            }}
-          >
-            <span
-              aria-hidden
-              className="size-[13px] rounded-[3px] bg-current"
+        <RecordingPlayhead
+          elapsedMs={elapsed}
+          paused={paused}
+          enabled={enabled}
+          pendingAction={pendingAction}
+          meter={
+            <LiveWaveform
+              sources="mic"
+              dimmed={paused || !enabled}
+              level={demoMode ? demoLevel : null}
             />
-          </button>
-          <span
-            aria-live="off"
-            className="record-pill-mono ml-1.5 flex-none text-sm font-medium transition-colors duration-150"
-            style={{
-              color: showPaused ? "var(--pill-on-chrome)" : "var(--pill-rec)",
-            }}
-          >
-            {timerText}
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.mid = el;
-            }}
-            className="record-pill-seg"
-            style={{ width: "auto", opacity: 1 }}
-          >
-            <span className="inline-flex flex-none items-center">
-              <LiveWaveform
-                className="ml-3.5 h-3.5 w-[18px] flex-none"
-                sources="mic"
-                dimmed={meterFlat}
-                level={demoMode ? demoLevel : null}
-              />
-              <button
-                type="button"
-                onClick={togglePause}
-                disabled={!enabled || inConfirm}
-                aria-label={showPaused ? "Resume" : "Pause"}
-                className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
-              >
-                {showPaused ? (
-                  <IconPlayerPlayFilled size={14} aria-hidden />
-                ) : (
-                  <IconPlayerPauseFilled size={14} aria-hidden />
-                )}
-              </button>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.q = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <span className="pl-2.5 text-xs whitespace-nowrap text-[var(--pill-q-ink)]">
-                {confirmQuestion}
-              </span>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.del = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <button
-                type="button"
-                onClick={confirmDestructive}
-                className={`ml-2.5 flex h-7 flex-none items-center rounded-full px-3.5 text-xs font-semibold ${confirmIntent === "delete" ? "bg-[var(--pill-rec)] text-[var(--pill-on-chrome)]" : "bg-[var(--pill-on-chrome)] text-[var(--pill-chrome)]"}`}
-              >
-                {confirmIntent === "delete" ? "Delete" : "Restart"}
-              </button>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.res = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <button
-                type="button"
-                onClick={() => exitConfirm(true)}
-                className="ml-2 flex h-7 flex-none items-center rounded-full bg-[var(--pill-soft)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
-              >
-                Resume
-              </button>
-            </span>
-          </span>
-          <span
-            ref={(el) => {
-              segRefs.current.extras = el;
-            }}
-            className="record-pill-seg"
-          >
-            <span className="inline-flex flex-none items-center">
-              <span
-                aria-hidden
-                className="ml-1.5 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
-              />
-              <button
-                type="button"
-                onClick={() => enterConfirm("restart")}
-                disabled={!enabled || !!pendingAction}
-                aria-label="Restart recording"
-                className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
-              >
-                <IconRefresh size={14} stroke={2} aria-hidden />
-              </button>
-              <button
-                type="button"
-                onClick={() => enterConfirm("delete")}
-                disabled={!enabled || !!pendingAction}
-                aria-label="Delete recording"
-                className="ml-0 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
-              >
-                <IconTrash size={14} stroke={2} aria-hidden />
-              </button>
-            </span>
-          </span>
-        </div>
+          }
+          labels={{
+            controls: "Recording controls",
+            stop: "Stop and save",
+            pause: "Pause",
+            resume: "Resume",
+            pauseShortcut: "Pause (⌥⇧P)",
+            resumeShortcut: "Resume (⌥⇧P)",
+            restart: "Restart recording",
+            restartShortcut: "Restart (⌥⇧R)",
+            delete: "Delete recording",
+            deleteShortcut: "Delete (⌥⇧C)",
+            restartQuestion: "Start a new recording?",
+            deleteQuestion: (durationMs) =>
+              `Delete ${formatDurationCopy(durationMs)}?`,
+            restartConfirm: "Restart",
+            deleteConfirm: "Delete",
+            resumeConfirm: "Resume",
+          }}
+          onStop={stop}
+          onTogglePause={togglePause}
+          onConfirmAction={confirmDestructive}
+          onConfirmChange={(change: RecordingPlayheadConfirmChange) => {
+            if (change.type === "open") {
+              playheadConfirmOpenRef.current = true;
+              if (!change.enteredPaused) applyPauseIntent("pause");
+              setAnnouncement("Paused");
+              return;
+            }
+            playheadConfirmOpenRef.current = false;
+            if (change.resume || !change.enteredPaused) {
+              applyPauseIntent("resume");
+            }
+            setAnnouncement(change.resume ? "Recording" : "Paused");
+          }}
+          onExpandedChange={(expanded) => {
+            revealedRef.current = expanded;
+          }}
+          onLayoutChange={(layout) =>
+            resizeWindowTo(layout.width, layout.height)
+          }
+          onMouseDown={handlePillMouseDown}
+          className={enabled ? undefined : "opacity-80"}
+        />
       )}
     </div>
   );

@@ -120,6 +120,7 @@ export default function DesignSystems() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -162,18 +163,18 @@ export default function DesignSystems() {
 
   const openDesignSystemDetails = useCallback(
     (id: string) => {
-      navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems?designSystemId=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
 
   const closeDesignSystemDetails = useCallback(() => {
-    navigate("/design-systems", { replace: true });
+    void navigate("/design-systems", { replace: true });
   }, [navigate]);
 
   const openSetupFromDesignSystem = useCallback(
     (id: string) => {
-      navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
+      void navigate(`/design-systems/setup?source=${encodeURIComponent(id)}`);
     },
     [navigate],
   );
@@ -252,7 +253,7 @@ export default function DesignSystems() {
 
       setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
-          queryClient.invalidateQueries({
+          void queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
         },
@@ -280,7 +281,7 @@ export default function DesignSystems() {
 
     deleteMutation.mutate({ id } as any, {
       onError: (error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.deleteError"), {
@@ -364,7 +365,7 @@ export default function DesignSystems() {
     void Promise.all(ids.map((id) => deleteMutation.mutateAsync({ id } as any)))
       .then(() => undefined)
       .catch((error) => {
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: ["action", "list-design-systems"],
         });
         toast.error(t("designSystems.bulkDeleteError"), {
@@ -710,10 +711,18 @@ export default function DesignSystems() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() =>
-                                      handleSetDefault(ds.id, !ds.isDefault)
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleSetDefault(ds.id, !ds.isDefault);
+                                    }}
+                                    disabled={setDefaultMutation.isPending}
+                                    aria-label={
+                                      ds.isDefault
+                                        ? t("designSystems.currentlyDefault")
+                                        : t("designSystems.actions.setDefault")
                                     }
-                                    className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                                    className="absolute top-2 end-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md bg-foreground/60 text-background hover:bg-foreground/80 disabled:pointer-events-none disabled:opacity-50"
                                   >
                                     {ds.isDefault ? (
                                       <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
@@ -731,22 +740,31 @@ export default function DesignSystems() {
                             )}
                             {ds.canManage && (
                               <div
-                                className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
+                                className={`absolute top-2 z-10 ${
+                                  openMenuId === ds.id
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                                } ${
                                   ds.accessRole === "owner" ? "end-10" : "end-2"
                                 }`}
                               >
-                                <DropdownMenu>
+                                <DropdownMenu
+                                  open={openMenuId === ds.id}
+                                  onOpenChange={(open) =>
+                                    setOpenMenuId(open ? ds.id : null)
+                                  }
+                                >
                                   <DropdownMenuTrigger asChild>
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                                      className="h-7 w-7 bg-foreground/60 hover:bg-foreground/80 cursor-pointer"
                                       aria-label={t(
                                         "designSystems.moreActionsAria",
                                         { title: ds.title },
                                       )}
                                     >
-                                      <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                                      <IconDots className="w-3.5 h-3.5 text-background" />
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">

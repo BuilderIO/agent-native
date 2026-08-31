@@ -59,6 +59,10 @@ type WebviewLoadFailedEvent = Event & {
   errorDescription?: string;
   isMainFrame?: boolean;
 };
+type WebviewProcessGoneEvent = Event & {
+  reason?: string;
+  exitCode?: number;
+};
 type WebviewConsoleMessageEvent = Event & { message?: string };
 type WebviewIpcMessageEvent = Event & {
   channel?: string;
@@ -113,6 +117,14 @@ export function resolveAppWebviewAuthState(
 
 export function buildGuestAuthStateProbeScript(): string {
   return `(() => {
+    if (window.location.protocol !== "http:" && window.location.protocol !== "https:") {
+      return {
+        authenticated: null,
+        invalidJson: false,
+        status: 0,
+        url: window.location.href,
+      };
+    }
     const frameworkPath = "/_agent-native/auth/session";
     const config = window.__AGENT_NATIVE_CONFIG__;
     const normalizeBasePath = (value) => {
@@ -174,7 +186,15 @@ export function buildGuestAuthStateProbeScript(): string {
       const hasSession = Boolean(
         record &&
           !Object.prototype.hasOwnProperty.call(record, "error") &&
-          (record.email || record.user || record.session),
+          record.authenticated !== false &&
+          (record.authenticated === true ||
+            typeof record.email === "string" ||
+            (record.user &&
+              typeof record.user === "object" &&
+              Object.keys(record.user).length > 0) ||
+            (record.session &&
+              typeof record.session === "object" &&
+              Object.keys(record.session).length > 0)),
       );
       return {
         authenticated: hasSession,
@@ -194,9 +214,12 @@ export function resolveAppWebviewAuthStateFromProbe(
   if (!result || typeof result !== "object") return "unknown";
   const probe = result as {
     authenticated?: unknown;
+    email?: unknown;
     invalidJson?: unknown;
     status?: unknown;
+    user?: unknown;
     url?: unknown;
+    session?: unknown;
   };
   if (probe.status === 401 || probe.status === 403) {
     return "unauthenticated";
@@ -211,11 +234,15 @@ export function resolveAppWebviewAuthStateFromProbe(
   if (probe.invalidJson === true) return "unknown";
   if (probe.authenticated === true) return "authenticated";
   if (probe.authenticated === false) return "unauthenticated";
-  const responseUrl =
-    typeof probe.url === "string"
-      ? resolveAppWebviewAuthState(probe.url)
-      : "unknown";
-  return responseUrl === "unknown" ? "unknown" : responseUrl;
+  const hasSessionEvidence =
+    typeof probe.email === "string" ||
+    (probe.user !== null &&
+      typeof probe.user === "object" &&
+      Object.keys(probe.user).length > 0) ||
+    (probe.session !== null &&
+      typeof probe.session === "object" &&
+      Object.keys(probe.session).length > 0);
+  return hasSessionEvidence ? "authenticated" : "unknown";
 }
 
 async function readAppWebviewAuthState(
@@ -228,6 +255,7 @@ async function readAppWebviewAuthState(
     currentUrl = webview.src || "";
   }
   const fallbackState = resolveAppWebviewAuthState(currentUrl || undefined);
+  if (fallbackState === "unknown") return "unknown";
   try {
     const result = await webview.executeJavaScript(
       buildGuestAuthStateProbeScript(),
@@ -297,7 +325,7 @@ export function shouldSuppressDesktopSignInPrompt(
 export function isDesktopIdentityGateUnauthenticated(
   status: DesktopIdentityStatus | "checking" | undefined,
 ): boolean {
-  return status === "sign-in-required" || status === "failed";
+  return status === "sign-in-required";
 }
 
 export function isDesktopIdentityAuthenticated(
@@ -319,9 +347,6 @@ export function resolveDesktopIdentityLazySyncStatus(
   status: DesktopIdentityStatus,
   synchronized: boolean,
 ): DesktopIdentityStatus {
-  // Lazy child fan-out is best-effort. It must not demote a verified
-  // workspace session; the child app owns its fallback login surface.
-  if (status === "signed-in") return "signed-in";
   return synchronized ? status : "failed";
 }
 
@@ -334,6 +359,7 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   return (
     input.eligible &&
     input.enabled !== false &&
+    input.status !== "failed" &&
     (!input.sessionReady || input.status !== "signed-in")
   );
 }
@@ -412,12 +438,16 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Changes when a desktop shortcut explicitly opens this app. */
+  focusNonce?: number;
   /**
    * Set when the host hides this guest while it is still the active tab, e.g.
    * behind a full-surface overlay. An Electron guest never observes CSS
    * hiding, so the host has to say so or the page keeps polling underneath.
    */
   surfaceHidden?: boolean;
+  /** When false, the shell owns the single native identity sign-in surface. */
+  showDesktopIdentityGate?: boolean;
   /** Resolved shell theme to apply inside the guest document. */
   theme: RendererTheme;
   /** Only same-origin app surfaces should inherit the shell theme. */
@@ -697,7 +727,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app,
       appConfig,
       isActive,
+      focusNonce,
       surfaceHidden = false,
+      showDesktopIdentityGate = true,
       theme,
       syncTheme = true,
       sourceUrl,
@@ -723,6 +755,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const hasLoadedGuestPageRef = useRef(false);
     const loadFailureRef = useRef(false);
+    const unresponsiveFailureRef = useRef(false);
     const rawUrl = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
       : withUrlParams(
@@ -773,11 +806,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return false;
       }
     }, [app.id, updateDesktopIdentitySessionReady]);
-    const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
-      eligible: desktopIdentityGateEligible,
-      active: isActive,
-      enabled: desktopIdentityEnabled,
-    });
+    const desktopIdentityGateActive =
+      showDesktopIdentityGate &&
+      shouldUseDesktopIdentityGate({
+        eligible: desktopIdentityGateEligible,
+        active: isActive,
+        enabled: desktopIdentityEnabled,
+      });
+    const desktopIdentitySurfaceActive = desktopIdentityGateActive;
     const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
     const repairDesktopIdentitySession = useCallback(() => {
       if (
@@ -1042,7 +1078,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             // authoritative sign-out status or the next activation rechecks.
             invalidateRememberedDesktopIdentityStatus();
           }
-          updateDesktopIdentitySessionReady(true);
+          updateDesktopIdentitySessionReady(
+            preserveLoadedSession || synchronized === true,
+          );
           setDesktopIdentityStatus(
             resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
           );
@@ -1296,6 +1334,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (!IS_DEV || optimizeDepRecoveryRef.current) return;
         optimizeDepRecoveryRef.current = true;
         loadFailureRef.current = false;
+        unresponsiveFailureRef.current = false;
         setError(false);
         setTimeout(() => {
           try {
@@ -1306,9 +1345,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         }, 120);
       };
       const titleTimers = new Set<ReturnType<typeof setTimeout>>();
+      let unresponsiveTimer: ReturnType<typeof setTimeout> | undefined;
       let disposed = false;
       const emitTitle = (candidate?: unknown) => {
-        const title = String(candidate ?? "").trim();
+        const title = typeof candidate === "string" ? candidate.trim() : "";
         if (title) onTitleChangeRef.current?.(title);
       };
       const emitCurrentTitle = (candidate?: string) => {
@@ -1381,6 +1421,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         emitCurrentTitleSoon();
         emitAuthState();
       };
+      const reportGuestFailure = (details: {
+        errorCode?: number;
+        errorDescription: string;
+      }) => {
+        if (disposed || loadFailureRef.current) return;
+        loadFailureRef.current = true;
+        authProbeSequenceRef.current += 1;
+        setError(true);
+        setIsLoading(false);
+        onMainFrameLoadFailureRef.current?.(details);
+      };
       const onTitleUpdated = (e: Event) => {
         const title = String(
           (e as WebviewTitleUpdatedEvent).title ?? "",
@@ -1409,14 +1460,48 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           recoverOutdatedOptimizeDep();
           return;
         }
-        loadFailureRef.current = true;
-        authProbeSequenceRef.current += 1;
-        setError(true);
-        setIsLoading(false);
-        onMainFrameLoadFailureRef.current?.({
+        unresponsiveFailureRef.current = false;
+        reportGuestFailure({
           errorCode,
           errorDescription: description,
         });
+      };
+      const onCrashed = () => {
+        unresponsiveFailureRef.current = false;
+        reportGuestFailure({
+          errorDescription: "The app process ended unexpectedly.",
+        });
+      };
+      const onProcessGone = (e: Event) => {
+        const details = e as WebviewProcessGoneEvent;
+        if (details.reason === "clean-exit") return;
+        unresponsiveFailureRef.current = false;
+        reportGuestFailure({
+          errorDescription: `The app process ended (${details.reason || "unknown reason"}).`,
+        });
+      };
+      const onUnresponsive = () => {
+        setSlowLoad(true);
+        if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
+        unresponsiveTimer = setTimeout(() => {
+          unresponsiveTimer = undefined;
+          unresponsiveFailureRef.current = true;
+          reportGuestFailure({
+            errorDescription: "The app stopped responding.",
+          });
+        }, 5_000);
+      };
+      const onResponsive = () => {
+        if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
+        unresponsiveTimer = undefined;
+        if (unresponsiveFailureRef.current) {
+          unresponsiveFailureRef.current = false;
+          loadFailureRef.current = false;
+          setError(false);
+          setSlowLoad(false);
+          return;
+        }
+        if (!loadFailureRef.current) setSlowLoad(false);
       };
       const onConsoleMessage = (e: Event) => {
         const message = String((e as WebviewConsoleMessageEvent).message || "");
@@ -1439,6 +1524,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       wv.addEventListener("did-navigate", onNavigation);
       wv.addEventListener("did-navigate-in-page", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
+      wv.addEventListener("crashed", onCrashed);
+      wv.addEventListener("render-process-gone", onProcessGone);
+      wv.addEventListener("unresponsive", onUnresponsive);
+      wv.addEventListener("responsive", onResponsive);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("ipc-message", onIpcMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
@@ -1447,11 +1536,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       return () => {
         disposed = true;
         for (const timer of titleTimers) clearTimeout(timer);
+        if (unresponsiveTimer) clearTimeout(unresponsiveTimer);
         wv.removeEventListener("dom-ready", onReady);
         wv.removeEventListener("page-title-updated", onTitleUpdated);
         wv.removeEventListener("did-navigate", onNavigation);
         wv.removeEventListener("did-navigate-in-page", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
+        wv.removeEventListener("crashed", onCrashed);
+        wv.removeEventListener("render-process-gone", onProcessGone);
+        wv.removeEventListener("unresponsive", onUnresponsive);
+        wv.removeEventListener("responsive", onResponsive);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("ipc-message", onIpcMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
@@ -1509,14 +1603,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!wv) return;
       let currentUrl = "";
       try {
-        currentUrl = wv.getURL() || "";
+        currentUrl = wv.getURL() || wv.src || "";
       } catch {
         currentUrl = "";
       }
       onAuthStateChangeRef.current?.("unknown");
       const sequence = ++authProbeSequenceRef.current;
       let active = true;
-      if (!currentUrl) {
+      if (!currentUrl || resolveAppWebviewAuthState(currentUrl) === "unknown") {
         return () => {
           active = false;
         };
@@ -1600,6 +1694,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       prevUrlOpenNonceRef.current = urlOpenNonce;
       optimizeDepRecoveryRef.current = false;
       loadFailureRef.current = false;
+      unresponsiveFailureRef.current = false;
       setError(false);
 
       if (
@@ -1680,7 +1775,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     ]);
 
     // Auto-focus the webview when it becomes active so keyboard events
-    // (e.g. Tab to cycle mail filters) go to the app, not the shell.
+    // (e.g. Tab to cycle mail filters) go to the app, not the shell. The
+    // explicit nonce also handles shortcuts that reopen the active app.
     useEffect(() => {
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
@@ -1688,12 +1784,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // Focus once after the slot becomes visible. Repeated focus calls
           // trigger focus-aware data refreshes in embedded apps.
           const frame = requestAnimationFrame(() => {
-            if (document.activeElement !== wv) wv.focus();
+            if (focusNonce !== undefined || document.activeElement !== wv) {
+              wv.focus();
+            }
           });
           return () => cancelAnimationFrame(frame);
         }
       }
-    }, [isActive, app.placeholder, error]);
+    }, [isActive, app.placeholder, error, focusNonce]);
 
     useEffect(() => {
       reportActiveWebview();
@@ -1736,6 +1834,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     function handleRetry() {
       loadFailureRef.current = false;
+      unresponsiveFailureRef.current = false;
       setError(false);
       setIsLoading(true);
       setSlowLoad(false);
@@ -1825,7 +1924,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               flex: "1 1 auto",
               display:
                 error ||
-                (desktopIdentityGateActive && !desktopIdentitySessionReady)
+                (desktopIdentitySurfaceActive && !desktopIdentitySessionReady)
                   ? "none"
                   : "flex",
               flexDirection: "column",
@@ -1834,14 +1933,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         )}
 
         {isActive &&
-          desktopIdentityGateActive &&
+          desktopIdentitySurfaceActive &&
           !desktopIdentitySessionReady &&
           (desktopIdentityStatus === "idle" ||
             desktopIdentityStatus === "signed-in") && (
             <LoadingScreen app={app} slow={false} isDev={isDevMode} />
           )}
 
-        {desktopIdentityGateActive && (
+        {desktopIdentitySurfaceActive && (
           <DesktopIdentityGate
             appName={app.name}
             status={desktopIdentityStatus}
@@ -1914,7 +2013,7 @@ function useUrlCheck(url: string | undefined, enabled: boolean): PortStatus {
         if (!cancelled) setStatus("down");
       }
     }
-    check();
+    void check();
     return () => {
       cancelled = true;
     };

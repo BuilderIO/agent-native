@@ -1,5 +1,45 @@
 # @agent-native/dispatch
 
+## 0.31.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 5820376: Use a monochrome Agent-Native mark in app sidebars.
+- ea6123a: Remove the legacy settings view from agent chat surfaces.
+- 5b7a8ea: Replace flashing skeleton pulses with a smooth whole-surface loading shine.
+- Updated dependencies [844fa10]
+- Updated dependencies [4af2889]
+- Updated dependencies
+- Updated dependencies [dcc9f89]
+- Updated dependencies [163dd55]
+- Updated dependencies [5b7a8ea]
+  - @agent-native/toolkit@0.18.0
+
+## 0.31.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.17.6
+
+## 0.31.27
+
+### Patch Changes
+
+- 4ef1d8c: Route one-pager integration requests to Content or inline responses instead of Plan.
+- Release all public npm packages with a patch version bump.
+- 3e18636: Fix transactional email previews to render the canonical Agent-Native logo.
+- 4776e61: Reduce CI lint warnings with safer type narrowing, callback binding, and explicit async intent.
+- dd834e7: Prevent vault actions and the Dispatch UI from exposing stored secret values.
+- Updated dependencies [ac1ecfc]
+- Updated dependencies
+- Updated dependencies [5a12f71]
+- Updated dependencies [d2b314b]
+- Updated dependencies [5c96078]
+  - @agent-native/toolkit@0.17.5
+
 ## 0.31.26
 
 ### Patch Changes
@@ -804,29 +844,5 @@
 
 - Updated dependencies [106af0e]
   - @agent-native/toolkit@0.13.0
-
-## 0.17.0
-
-### Minor Changes
-
-- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
-
-## 0.16.7
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
-
-## 0.16.6
-
-### Patch Changes
-
-- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
-- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

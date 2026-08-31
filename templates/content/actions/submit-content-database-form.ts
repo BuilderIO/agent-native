@@ -90,7 +90,9 @@ function optionCandidates(value: unknown, multiple: boolean): string[] {
       .filter(Boolean);
   }
   if (value === null || value === undefined || value === "") return [];
-  const text = String(value).trim();
+  const text = (
+    typeof value === "string" ? value : (JSON.stringify(value) ?? "")
+  ).trim();
   if (!text) return [];
   return multiple
     ? text

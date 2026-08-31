@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { shouldActivateTextTool } from "./text-tool-shortcut";
+import {
+  shouldActivateRectangleTool,
+  shouldActivateTextTool,
+} from "./text-tool-shortcut";
 
 function keyboardEvent(
   overrides: Partial<KeyboardEventInit> & { target?: EventTarget | null } = {},
@@ -30,6 +33,21 @@ function shouldActivate(
   }> = {},
 ) {
   return shouldActivateTextTool(event, {
+    canEdit: overrides.canEdit ?? true,
+    activeElement: overrides.activeElement ?? document.body,
+    blockingSurfaceOpen: overrides.blockingSurfaceOpen ?? false,
+  });
+}
+
+function shouldActivateRectangle(
+  event = keyboardEvent({ key: "r" }),
+  overrides: Partial<{
+    canEdit: boolean;
+    activeElement: Element | null;
+    blockingSurfaceOpen: boolean;
+  }> = {},
+) {
+  return shouldActivateRectangleTool(event, {
     canEdit: overrides.canEdit ?? true,
     activeElement: overrides.activeElement ?? document.body,
     blockingSurfaceOpen: overrides.blockingSurfaceOpen ?? false,
@@ -73,5 +91,21 @@ describe("shouldActivateTextTool", () => {
     menu.setAttribute("role", "menu");
     menu.append(menuItem);
     expect(shouldActivate(keyboardEvent({ target: menuItem }))).toBe(false);
+  });
+});
+
+describe("shouldActivateRectangleTool", () => {
+  it("activates for an unmodified R on the editor canvas", () => {
+    expect(shouldActivateRectangle()).toBe(true);
+    expect(shouldActivateRectangle(keyboardEvent())).toBe(false);
+  });
+
+  it("uses the same editing and modifier guards as the text tool", () => {
+    expect(shouldActivateRectangle(keyboardEvent({ metaKey: true }))).toBe(
+      false,
+    );
+    expect(
+      shouldActivateRectangle(keyboardEvent(), { blockingSurfaceOpen: true }),
+    ).toBe(false);
   });
 });

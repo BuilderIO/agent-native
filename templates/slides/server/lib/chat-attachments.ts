@@ -1,15 +1,130 @@
 import path from "path";
 
-import type { AgentChatAttachment } from "@agent-native/core/server";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import { readBoundedResponseBytes } from "@agent-native/core/ingestion";
+import {
+  getRequestRunContext,
+  type AgentChatAttachment,
+} from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 
 import {
   isSlidesReferenceFileExtension,
+  MAX_INLINE_IMAGE_BYTES,
+  MAX_REFERENCE_FILES,
   MAX_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
-const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_CHAT_UPLOAD_TOTAL_BYTES = MAX_REFERENCE_FILE_BYTES;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedString(value: unknown, maxLength: number): string | null {
+  return typeof value === "string" && value.trim()
+    ? value.trim().slice(0, maxLength)
+    : null;
+}
+
+/** Keep the original deck brief and file handles in every scoped follow-up. */
+export function buildSlidesDeckGenerationContext(
+  value: unknown,
+): string | null {
+  if (!isRecord(value)) return null;
+  const originalPrompt = boundedString(value.originalPrompt, 12_000);
+  if (!originalPrompt) return null;
+
+  const files = Array.isArray(value.files)
+    ? value.files
+        .flatMap((file) => {
+          if (!isRecord(file)) return [];
+          const name = boundedString(file.originalName, 160) ?? "reference";
+          const path = boundedString(file.path, 2_000);
+          const url = boundedString(file.url, 2_000);
+          if (!path && !url) return [];
+          const locations = [
+            path ? `path: ${path}` : null,
+            url ? `URL: ${url}` : null,
+          ]
+            .filter((location): location is string => Boolean(location))
+            .join("; ");
+          return [`- ${name} (${locations})`];
+        })
+        .slice(0, 20)
+    : [];
+  const mode = boundedString(value.mode, 40);
+  const targetSlideCount =
+    typeof value.targetSlideCount === "number" &&
+    Number.isInteger(value.targetSlideCount) &&
+    value.targetSlideCount > 0
+      ? String(value.targetSlideCount)
+      : null;
+  const designSystemId = boundedString(value.designSystemId, 200);
+  const referenceDeckId = boundedString(value.referenceDeckId, 200);
+  const referenceSourceValue = isRecord(value.referenceSource)
+    ? boundedString(value.referenceSource.value, 2_000)
+    : null;
+  const referenceSourceKind = isRecord(value.referenceSource)
+    ? boundedString(value.referenceSource.kind, 40)
+    : null;
+
+  return [
+    "<slides-deck-generation-context>",
+    "This is the canonical context for the current deck's continuation. Treat the latest user message as a modifier to this original request unless it explicitly asks for a new story or deck.",
+    `Original brief: ${originalPrompt}`,
+    mode ? `Generation mode: ${mode}` : null,
+    targetSlideCount ? `Target slide count: ${targetSlideCount}` : null,
+    designSystemId ? `Design system id: ${designSystemId}` : null,
+    referenceDeckId ? `Reference deck id: ${referenceDeckId}` : null,
+    referenceSourceKind && referenceSourceValue
+      ? `Selected reference source: ${referenceSourceKind}: ${referenceSourceValue}`
+      : null,
+    "Reference files from the original request:",
+    ...(files.length > 0
+      ? files
+      : [
+          "- No file handle was persisted; use the current deck and thread evidence.",
+        ]),
+    "Re-open visual references before editing with a persisted URL when present. Private paths are available to Slides file actions for supported document/deck formats; for a private raster image without a URL, call import-file with format=image to attach it to vision before editing. If a visual source cannot be reopened, do not claim visual inspection you did not perform. Do not infer a new unrelated topic from the follow-up message or from placeholder/brand text in the reference.",
+    "For source-preserving generation, continue the original slide sequence and finish all original/source slides before adding unrelated content. Verify with get-deck compact=true and do not claim completion until sourceCoverage.complete is true for the ordered source manifest, or the target slide count is satisfied for a new deck.",
+    "</slides-deck-generation-context>",
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+export async function readSlidesDeckGenerationContext(): Promise<
+  string | null
+> {
+  const scope = getRequestRunContext()?.chatScope;
+  if (scope?.type !== "deck" || !scope.id) return null;
+
+  const access = await resolveAccess("deck", scope.id);
+  if (!access) return null;
+
+  try {
+    const data = JSON.parse(access.resource.data) as unknown;
+    return buildSlidesDeckGenerationContext(
+      isRecord(data) ? data.generationContext : null,
+    );
+  } catch (error) {
+    console.warn("[slides-agent-chat] Could not read persisted deck context", {
+      deckId: scope.id,
+      error,
+    });
+    return null;
+  }
+}
+
+export function appendSlidesDeckGenerationContext(
+  message: string,
+  context: string | null,
+): string {
+  return context ? [message, context].join("\n\n") : message;
+}
 
 function decodeDataUrl(data: string | undefined): {
   bytes: Buffer;
@@ -20,6 +135,39 @@ function decodeDataUrl(data: string | undefined): {
   return {
     contentType: match[1] || "application/octet-stream",
     bytes: Buffer.from(match[2], "base64"),
+  };
+}
+
+async function downloadHostedReferenceFile(
+  url: string,
+  maxBytes: number,
+): Promise<{
+  bytes: Buffer;
+  contentType?: string;
+}> {
+  const response = await ssrfSafeFetch(
+    url,
+    { signal: AbortSignal.timeout(30_000) },
+    { httpsOnly: true, maxRedirects: 3 },
+  );
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(
+      `Remote attachment download failed (HTTP ${response.status})`,
+    );
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await readBoundedResponseBytes(response, maxBytes);
+  } catch (error) {
+    await response.body?.cancel().catch(() => {});
+    throw error;
+  }
+  return {
+    bytes: Buffer.from(bytes),
+    contentType:
+      response.headers.get("content-type")?.split(";", 1)[0]?.trim() ||
+      undefined,
   };
 }
 
@@ -40,7 +188,14 @@ export async function prepareSlidesChatAttachments(args: {
   message: string;
   attachments: AgentChatAttachment[];
 }): Promise<{ message?: string; attachments?: AgentChatAttachment[] } | void> {
-  if (!args.ownerEmail || args.attachments.length === 0) return;
+  const generationContext = await readSlidesDeckGenerationContext();
+  if (!args.ownerEmail || args.attachments.length === 0) {
+    const message = appendSlidesDeckGenerationContext(
+      args.message,
+      generationContext,
+    );
+    return message === args.message ? undefined : { message };
+  }
 
   const uploaded: Array<{
     originalName: string;
@@ -54,6 +209,8 @@ export async function prepareSlidesChatAttachments(args: {
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
   const nextAttachments = [...args.attachments];
+  let urlOnlyReferenceCount = 0;
+  let urlOnlyReferenceBytes = 0;
 
   for (let index = 0; index < args.attachments.length; index++) {
     const attachment = args.attachments[index];
@@ -72,12 +229,64 @@ export async function prepareSlidesChatAttachments(args: {
       typeof attachment.url === "string"
     ) {
       if (isSlidesReferenceFileExtension(ext)) {
-        uploaded.push({
-          originalName: attachment.name,
-          path: attachment.url,
-          url: attachment.url,
-          type: attachment.contentType || "application/octet-stream",
-        });
+        urlOnlyReferenceCount++;
+        if (urlOnlyReferenceCount > MAX_REFERENCE_FILES) {
+          failed.push({
+            name: attachment.name,
+            reason: `too many URL-only reference attachments (max ${MAX_REFERENCE_FILES})`,
+          });
+          continue;
+        }
+        if (isVisualAttachment(attachment)) {
+          uploaded.push({
+            originalName: attachment.name,
+            path: attachment.url,
+            url: attachment.url,
+            type: attachment.contentType || "application/octet-stream",
+          });
+        } else {
+          try {
+            const remainingBytes =
+              MAX_CHAT_UPLOAD_TOTAL_BYTES - urlOnlyReferenceBytes;
+            if (remainingBytes <= 0) {
+              throw new Error(
+                `URL-only reference attachments exceed the ${MAX_CHAT_UPLOAD_TOTAL_BYTES} byte aggregate download limit`,
+              );
+            }
+            const downloaded = await downloadHostedReferenceFile(
+              attachment.url,
+              Math.min(MAX_CHAT_UPLOAD_BYTES, remainingBytes),
+            );
+            if (downloaded.bytes.length > remainingBytes) {
+              throw new Error(
+                `URL-only reference attachments exceed the ${MAX_CHAT_UPLOAD_TOTAL_BYTES} byte aggregate download limit`,
+              );
+            }
+            urlOnlyReferenceBytes += downloaded.bytes.length;
+            const saved = await saveUploadedReferenceFile({
+              email: args.ownerEmail,
+              originalName: attachment.name,
+              data: downloaded.bytes,
+              type:
+                attachment.contentType ||
+                downloaded.contentType ||
+                "application/octet-stream",
+            });
+            uploaded.push(saved);
+            nextAttachments[index] = stripForwardedAttachmentData(
+              attachment,
+              saved,
+            );
+          } catch (error) {
+            failed.push({
+              name: attachment.name,
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : "download or upload failed",
+            });
+          }
+        }
       }
       continue;
     }
@@ -114,7 +323,13 @@ export async function prepareSlidesChatAttachments(args: {
     }
   }
 
-  if (uploaded.length === 0 && failed.length === 0) return;
+  if (uploaded.length === 0 && failed.length === 0) {
+    const message = appendSlidesDeckGenerationContext(
+      args.message,
+      generationContext,
+    );
+    return message === args.message ? undefined : { message };
+  }
 
   const fileList = uploaded
     .map(
@@ -144,8 +359,10 @@ export async function prepareSlidesChatAttachments(args: {
           fileList,
           "",
           "File handling rules:",
+          '- Attachments are reference context by default. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call `view-screen` when the deckId is not already known, then call `import-file` with `{ filePath: "<path>", format: "pdf" or "pptx", deckId: "<deckId>", importIntoDeck: true }`. Verify the result reports `imported: true` and a positive `slideCount`; do not use extraction-only mode or recreate the imported pages with `add-slide`.',
+          "- An attachment alone never imports. Use `import-pptx` with `deckId` only for an explicit whole-deck replacement because it replaces all slides.",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
-          '- PPTX files: when the user wants the visible deck improved, call `import-pptx --filePath "<path>" --deckId <deckId>` first, then use one patch-deck call with requireAllSourceSlides=true and one content patch per imported slide for a deck-wide restyle. Use update-slide only for a targeted one-slide edit. Do not rebuild the source deck with add-slide.',
+          '- PPTX files: for an explicit whole-deck replacement, call `import-pptx --filePath "<path>" --deckId <deckId>` because it replaces all slides. For deck-wide improvement or append/import requests, use `import-file` with `format: "pptx"`, `deckId`, and `importIntoDeck: true`, then patch the imported slides. Use `update-slide` only for a targeted one-slide edit. Do not rebuild the source deck with add-slide.',
           '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating editable slides. For a visual PDF that the user wants preserved, beautified, or restyled from its original layout, pass `--importIntoDeck true` first: a PDF exported from this app restores its original editable slides, and any other PDF is rebuilt into positioned text boxes and images. Keep what the import produced and style around it rather than retyping it; source text is persisted in slide notes for inspection.',
           '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig` to start Builder design-system indexing. Do not create a local design system directly from the upload.',
           "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
@@ -173,7 +390,10 @@ export async function prepareSlidesChatAttachments(args: {
     .join("\n");
 
   return {
-    message: `${args.message}\n\n${attachmentContext}`,
+    message: appendSlidesDeckGenerationContext(
+      [args.message, attachmentContext].join("\n\n"),
+      generationContext,
+    ),
     attachments: nextAttachments,
   };
 }
@@ -198,6 +418,8 @@ function stripForwardedAttachmentData(
   (next as any).slidesUploadPath = saved.path;
   if (saved.url) {
     (next as any).url = saved.url;
+  } else if (attachment.url && !isVisualAttachment(attachment)) {
+    delete next.url;
   }
   return next;
 }

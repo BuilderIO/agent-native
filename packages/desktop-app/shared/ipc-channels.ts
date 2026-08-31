@@ -62,6 +62,8 @@ export const IPC = {
   DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
   /** Loopback relay for discovering a local app's PTY WebSocket */
   DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
+  /** Local CLI MCP tool → renderer app-sidebar request */
+  DESKTOP_CHAT_OPEN_APP: "desktop-chat:open-app",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -316,6 +318,7 @@ export interface DesktopIdentityMagicLinkResult {
 export interface DesktopWorkspaceAppListResult {
   enabled: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
+  unavailable?: boolean;
 }
 
 export interface DesktopPrepareLocalCodeChangeRequest {
@@ -544,7 +547,7 @@ export type CodeAgentReasoningEffort =
 export interface CodeAgentModelSelection {
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
 }
 
 export interface CodeAgentModelOption {
@@ -633,7 +636,7 @@ export interface CodeAgentProjectSelectResult {
 export interface CodeAgentQueueMetadata {
   queued: boolean;
   queuedAt?: string;
-  queuedBy?: "desktop" | "cli" | "host" | string;
+  queuedBy?: "desktop" | "cli" | "host" | (string & {});
   queueId?: string;
   queuePosition?: number;
   attempt?: number;
@@ -646,7 +649,7 @@ export interface CodeAgentSteeringMetadata {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 }
 
@@ -740,7 +743,7 @@ export interface CodeAgentCreateRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -823,7 +826,7 @@ export interface CodeAgentFollowUpRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -880,7 +883,7 @@ export interface CodeAgentUpdateRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 }
 
@@ -1021,7 +1024,7 @@ export interface CodeAgentRerunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
 }
@@ -1036,7 +1039,7 @@ export interface CodeAgentRetryRunRequest {
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   metadata?: Record<string, unknown>;
 }
 
@@ -1073,7 +1076,7 @@ export interface CodeAgentCodePackMetadata {
 
 export interface CodeAgentHostMetadata {
   status: "ok" | "unavailable";
-  platform: NodeJS.Platform | string;
+  platform: NodeJS.Platform | (string & {});
   desktopVersion?: string;
   storeRoot: string;
   runsDir: string;
@@ -1134,6 +1137,12 @@ export interface DesktopOpenRequest {
   runId?: string;
 }
 
+export interface DesktopChatOpenAppRequest {
+  app: string;
+  path?: string;
+  view?: string;
+}
+
 export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
   requestId: string;
 }
@@ -1143,7 +1152,7 @@ export interface QuickPromptSubmitRequest {
   cwd?: string;
   engine?: string;
   model?: string;
-  effort?: CodeAgentReasoningEffort | string;
+  effort?: CodeAgentReasoningEffort | (string & {});
   attachments?: CodeAgentPromptAttachment[];
 }
 

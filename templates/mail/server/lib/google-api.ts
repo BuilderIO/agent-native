@@ -654,7 +654,7 @@ async function gmailBatchGet(
   ids: string[],
   costPerItem: number,
   buildPath: (id: string) => string,
-): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+): Promise<Array<{ id: string; data: any; error?: string }>> {
   if (ids.length === 0) return [];
 
   // Gmail batch limit is 100, but quota is enforced per user in tight
@@ -669,7 +669,7 @@ async function gmailBatchGet(
     for (let i = 0; i < ids.length; i += maxIdsPerBatch) {
       chunks.push(ids.slice(i, i + maxIdsPerBatch));
     }
-    const results: Array<{ id: string; data: any | null; error?: string }> = [];
+    const results: Array<{ id: string; data: any; error?: string }> = [];
     for (const chunk of chunks) {
       const part = await gmailBatchGet(
         accessToken,
@@ -757,7 +757,7 @@ export async function gmailBatchGetMessages(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
-): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+): Promise<Array<{ id: string; data: any; error?: string }>> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
     accessToken,
@@ -771,7 +771,7 @@ export async function gmailBatchGetThreads(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
-): Promise<Array<{ id: string; data: any | null; error?: string }>> {
+): Promise<Array<{ id: string; data: any; error?: string }>> {
   const formatQs = format ? `?format=${format}` : "";
   return gmailBatchGet(
     accessToken,
@@ -785,9 +785,10 @@ function parseBatchResponse(
   text: string,
   boundary: string,
   ids: string[],
-): Array<{ id: string; data: any | null; error?: string }> {
-  const results: Array<{ id: string; data: any | null; error?: string }> =
-    ids.map((id) => ({ id, data: null, error: "No response part" }));
+): Array<{ id: string; data: any; error?: string }> {
+  const results: Array<{ id: string; data: any; error?: string }> = ids.map(
+    (id) => ({ id, data: null, error: "No response part" }),
+  );
 
   // Split on boundary. Parts can use --boundary with CRLF or LF endings;
   // we normalize by splitting on "--<boundary>" and trimming the trailing

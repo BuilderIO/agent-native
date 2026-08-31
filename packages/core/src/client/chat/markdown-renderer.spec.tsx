@@ -9,6 +9,7 @@ import {
   loadMarkdown,
   markdownComponents,
   onMarkdownReady,
+  shouldAnimateMarkdownText,
   SmoothMarkdownText,
   useSmoothStreamingText,
 } from "./markdown-renderer.js";
@@ -35,6 +36,39 @@ function MarkdownTableProbe() {
     </Table>
   );
 }
+
+describe("shouldAnimateMarkdownText", () => {
+  it("does not replay a completed last response when chat starts another run", () => {
+    expect(
+      shouldAnimateMarkdownText({
+        textStreaming: true,
+        isLastAssistantMessage: true,
+        statusType: "complete",
+      }),
+    ).toBe(false);
+  });
+
+  it("animates the last response while its text is running", () => {
+    expect(
+      shouldAnimateMarkdownText({
+        textStreaming: true,
+        isLastAssistantMessage: true,
+        statusType: "running",
+      }),
+    ).toBe(true);
+  });
+
+  it("animates complete messages from an active external transcript", () => {
+    expect(
+      shouldAnimateMarkdownText({
+        textStreaming: true,
+        isLastAssistantMessage: true,
+        statusType: "complete",
+        externalStreaming: true,
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("useSmoothStreamingText", () => {
   let container: HTMLDivElement;

@@ -9,19 +9,28 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
+import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
 import { isRecordingExpired } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
+const mentionSchema = z.object({
+  email: z.string().email(),
+  name: z.string().trim().min(1),
+});
+
 export default defineAction({
   description:
-    "Add a comment to a recording at a specific video timestamp. Comment text supports inline Markdown such as bold, italic, inline code, and links; headings are flattened in comment surfaces. For new threads, omit threadId/parentId. For replies, pass both.",
+    "Add a comment to a recording at a specific video timestamp. Comment text supports inline Markdown such as bold, italic, inline code, and links; headings are flattened in comment surfaces. Organization members can be mentioned with @. For new threads, omit threadId/parentId. For replies, pass both.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     content: z
@@ -46,6 +55,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Display name for the author (falls back to email local part)"),
+    mentions: z
+      .union([z.string(), z.array(mentionSchema).max(20)])
+      .optional()
+      .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
     // Commenting is open to any signed-in viewer with access to the
@@ -62,6 +75,8 @@ export default defineAction({
     if (!authorEmail) {
       throw new Error("Sign in required to comment on recordings.");
     }
+    const authorName =
+      getRequestUserName()?.trim() || args.authorName?.trim() || null;
 
     const db = getDb();
     const id = nanoid();
@@ -78,6 +93,11 @@ export default defineAction({
 
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
 
+    const mentions = await resolveCommentMentions(
+      args.mentions,
+      rec.organizationId,
+    );
+
     // Floor to the nearest second so nearby comments land on the same
     // timestamp bucket for scrubber grouping and the playback overlay.
     const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
@@ -89,8 +109,9 @@ export default defineAction({
       threadId,
       parentId,
       authorEmail,
-      authorName: args.authorName ?? null,
+      authorName,
       content: args.content,
+      mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
       videoTimestampMs,
       createdAt: now,
       updatedAt: now,
@@ -100,8 +121,9 @@ export default defineAction({
       recordingId: args.recordingId,
       threadId,
       authorEmail,
-      authorName: args.authorName,
+      authorName: authorName ?? undefined,
       content: args.content,
+      mentions,
       videoTimestampMs: args.videoTimestampMs,
       isReply: Boolean(parentId),
     });

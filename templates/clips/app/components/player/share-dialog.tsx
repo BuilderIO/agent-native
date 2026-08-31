@@ -589,6 +589,9 @@ function LinkTab({
         <CopyButton
           value={shareUrl}
           disabled={visibilityPending || !sharesLoaded}
+          resourceType="recording"
+          resourceId={recordingId}
+          linkType="share"
         >
           {t("shareUi.copyLink")}
         </CopyButton>
@@ -647,6 +650,9 @@ function LinkTab({
             value={agentCopyValue}
             disabled={agentShareDisabled}
             className="shrink-0"
+            resourceType="recording"
+            resourceId={recordingId}
+            linkType="agent_context"
           >
             {t("shareUi.copy")}
           </CopyButton>

@@ -9,7 +9,13 @@ const mockWriteAppState = vi.fn();
 const mockNotifyClients = vi.fn();
 
 let mockDeckRow:
-  | { id: string; title: string; data: string; ownerEmail: string }
+  | {
+      id: string;
+      title: string;
+      data: string;
+      ownerEmail: string;
+      updatedAt: string;
+    }
   | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
@@ -18,14 +24,18 @@ const whereSelectFn = vi.fn(() => ({ limit: limitFn }));
 const fromFn = vi.fn(() => ({ where: whereSelectFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-const whereUpdateFn = vi.fn(async () => undefined);
+const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
   return { where: whereUpdateFn };
 });
 const updateFn = vi.fn(() => ({ set: setFn }));
 
-const mockDb = { select: selectFn, update: updateFn };
+const mockDb = {
+  select: selectFn,
+  update: updateFn,
+  transaction: async (run: (tx: typeof mockDb) => Promise<void>) => run(mockDb),
+};
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -46,10 +56,13 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("../server/lib/deck-versions.js", () => ({
   createDeckVersionSnapshot: vi.fn(async () => ({ created: true })),
+  deckVersionChatContextFromAction: vi.fn(() => undefined),
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -62,6 +75,7 @@ beforeEach(() => {
     id: "deck-1",
     title: "T",
     ownerEmail: "owner@example.com",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     data: JSON.stringify({
       title: "T",
       slides: [{ id: "s1" }],

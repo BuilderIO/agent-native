@@ -18,6 +18,21 @@ export interface PastedImageFilesTarget {
   point: { x: number; y: number };
 }
 
+export function replacePastedImageSource(
+  content: string,
+  nodeId: string,
+  source: string | null,
+): string {
+  const document = new DOMParser().parseFromString(content, "text/html");
+  const image = Array.from(
+    document.querySelectorAll<HTMLImageElement>("img"),
+  ).find((candidate) => candidate.dataset.agentNativeNodeId === nodeId);
+  if (!image) return content;
+  if (source) image.setAttribute("src", source);
+  else image.remove();
+  return `<!DOCTYPE html>\n${document.documentElement.outerHTML}`;
+}
+
 export interface PastedImageFilesArgs {
   activeFile: DesignFile;
   applyFileContentUpdate: (
@@ -52,10 +67,16 @@ export interface PastedImageFilesArgs {
   canvasContainerRef: RefObject<HTMLDivElement | null>;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   getFreshActiveContent: () => string;
+  getFreshActivePreviewContent?: () => string | null;
   getScreenContent: (screenId: string) => string;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   pasteCascadeRef: RefObject<number>;
+  replacePreviewContent: (
+    nextContent: string,
+    selector?: string | null,
+    options?: { forceFullDocument?: boolean },
+  ) => unknown;
   selectInsertedLayers: (
     screenId: string,
     content: string,
@@ -77,10 +98,12 @@ export function runPastedImageFiles(
     canvasContainerRef,
     canvasFrameGeometryById,
     getFreshActiveContent,
+    getFreshActivePreviewContent,
     getScreenContent,
     overviewScreens,
     overviewSelectedScreenIds,
     pasteCascadeRef,
+    replacePreviewContent,
     selectInsertedLayers,
     t,
     uploadImageFileForHtml,
@@ -96,38 +119,111 @@ export function runPastedImageFiles(
     targetFileId: string,
     localPoint: { x: number; y: number } | (() => { x: number; y: number }),
   ) => {
+    const applyDurableContent = (nextContent: string) => {
+      if (targetFileId === activeFile?.id) {
+        applyLocalContentUpdate(nextContent, {
+          forcePreviewFullDocument: true,
+        });
+      } else {
+        applyFileContentUpdate(targetFileId, nextContent, {
+          forcePreviewFullDocument: true,
+        });
+      }
+    };
+
     void (async () => {
       for (const file of files) {
-        const imageUrl = await uploadImageFileForHtml(file);
-        if (!imageUrl) continue;
         const baseContent =
           targetFileId === activeFile?.id
-            ? getFreshActiveContent()
+            ? (getFreshActivePreviewContent?.() ?? getFreshActiveContent())
             : (getScreenContent(targetFileId) ?? "");
         const resolvedPoint =
           typeof localPoint === "function" ? localPoint() : localPoint;
         const cascadeOffset = pasteCascadeRef.current * 16;
         pasteCascadeRef.current += 1;
         const nodeId = uniqueLayerId("pasted-image");
-        const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
-        const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
+        const previewUrl =
+          typeof URL.createObjectURL === "function"
+            ? URL.createObjectURL(file)
+            : null;
+        const html = `<img src="${escapeHtmlAttributeValue(previewUrl ?? "")}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
+        const previewContent = cloneHtmlLayerAtPosition(baseContent, html, {
           x: resolvedPoint.x + cascadeOffset,
           y: resolvedPoint.y + cascadeOffset,
         });
-        if (!nextContent) {
+        if (!previewContent) {
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
           toast.error(t("designEditor.toasts.duplicateElementFailed"));
           continue;
         }
-        if (targetFileId === activeFile?.id) {
-          applyLocalContentUpdate(nextContent, {
-            forcePreviewFullDocument: true,
-          });
-        } else {
-          applyFileContentUpdate(targetFileId, nextContent, {
-            forcePreviewFullDocument: true,
+
+        const insertedNodeId =
+          previewUrl === null
+            ? nodeId
+            : (Array.from(
+                new DOMParser()
+                  .parseFromString(previewContent, "text/html")
+                  .querySelectorAll<HTMLImageElement>("img"),
+              ).find((image) => image.getAttribute("src") === previewUrl)
+                ?.dataset.agentNativeNodeId ?? nodeId);
+        if (previewUrl && targetFileId === activeFile?.id) {
+          replacePreviewContent(previewContent, null, {
+            forceFullDocument: true,
           });
         }
-        selectInsertedLayers(targetFileId, nextContent, [nodeId]);
+        selectInsertedLayers(targetFileId, previewContent, [insertedNodeId]);
+
+        try {
+          const imageUrl = await uploadImageFileForHtml(file);
+          const durableContent =
+            targetFileId === activeFile?.id
+              ? getFreshActiveContent()
+              : (getScreenContent(targetFileId) ?? "");
+          const activePreviewContent =
+            targetFileId === activeFile?.id
+              ? (getFreshActivePreviewContent?.() ?? null)
+              : null;
+          const currentContent = activePreviewContent ?? durableContent;
+          const durableImageUrl =
+            imageUrl && !/^(?:blob|data):/i.test(imageUrl) ? imageUrl : null;
+          const replacedContent = replacePastedImageSource(
+            currentContent,
+            insertedNodeId,
+            durableImageUrl,
+          );
+          const nextContent =
+            replacedContent !== currentContent ||
+            !durableImageUrl ||
+            activePreviewContent !== null
+              ? replacedContent
+              : (cloneHtmlLayerAtPosition(
+                  durableContent,
+                  `<img src="${escapeHtmlAttributeValue(durableImageUrl)}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`,
+                  {
+                    x: resolvedPoint.x + cascadeOffset,
+                    y: resolvedPoint.y + cascadeOffset,
+                  },
+                ) ?? currentContent);
+          if (nextContent !== currentContent) applyDurableContent(nextContent);
+          if (!durableImageUrl && targetFileId === activeFile?.id) {
+            replacePreviewContent(currentContent, null, {
+              forceFullDocument: true,
+            });
+          }
+        } catch {
+          const currentContent =
+            targetFileId === activeFile?.id
+              ? getFreshActiveContent()
+              : (getScreenContent(targetFileId) ?? "");
+          if (targetFileId === activeFile?.id) {
+            replacePreviewContent(currentContent, null, {
+              forceFullDocument: true,
+            });
+          }
+          toast.error(t("common.genericError"));
+        } finally {
+          if (previewUrl) URL.revokeObjectURL(previewUrl);
+        }
       }
     })();
   };

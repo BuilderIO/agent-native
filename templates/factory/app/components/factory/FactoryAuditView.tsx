@@ -6,13 +6,27 @@ import {
   IconBrandGithub,
   IconBrandSlack,
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
+import {
+  AUDIT_RANGES,
+  parseAuditRange,
+  startedAfterForAuditRange,
+  writeAuditFilterParam,
+} from "@/components/factory/audit-filters";
+import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { safeHttpUrl } from "@/lib/safe-http-url";
+
+const AUDIT_PAGE_SIZE = 20;
 
 type FactoryAuditCounts = {
   newlyObserved: number;
@@ -41,6 +55,7 @@ type FactoryAuditItem = {
   source: string | null;
   sourceUrl: string | null;
   title: string;
+  summary: string | null;
   outcome: "held" | "dispatched" | "failed" | "inspected";
   status: string;
   rationale: string | null;
@@ -50,6 +65,7 @@ type FactoryAuditItem = {
   ownerArea: string | null;
   guards: string | null;
   events: FactoryAuditEvent[];
+  userLabels?: Record<string, string>;
 };
 
 type FactoryAuditTraceStep = {
@@ -77,9 +93,17 @@ type FactoryAuditRun = {
   trace: FactoryAuditTraceStep[];
 };
 
+type FactoryAuditAutomationOption = {
+  name: string;
+  displayName: string;
+};
+
 type FactoryAuditResponse = {
   runs: FactoryAuditRun[];
+  automations: FactoryAuditAutomationOption[];
   count: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 };
 
 export function FactoryAuditView({
@@ -92,10 +116,22 @@ export function FactoryAuditView({
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const viewRef = useRef<HTMLDivElement>(null);
+  const shouldScrollOnSelectRef = useRef(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorStack, setCursorStack] = useState<string[]>([]);
   const selectedRunId = searchParams.get("auditRunId");
+  const automationFilter = searchParams.get("automation") ?? "";
+  const range = parseAuditRange(searchParams.get("range"));
+  const startedAfter = startedAfterForAuditRange(range);
   const auditQuery = useActionQuery<FactoryAuditResponse>(
     "list-factory-audit",
-    { factoryId, limit: 30 },
+    {
+      factoryId,
+      limit: AUDIT_PAGE_SIZE,
+      ...(automationFilter ? { automation: automationFilter } : {}),
+      ...(startedAfter ? { startedAfter } : {}),
+      ...(cursor ? { cursor } : {}),
+    },
     {
       staleTime: 5_000,
       refetchInterval: (query) =>
@@ -104,13 +140,25 @@ export function FactoryAuditView({
           : false,
     },
   );
+  const configQuery = useActionQuery<{ builderSlackUserId?: string | null }>(
+    "get-triage-config",
+    { factoryId },
+  );
+  const builderSlackUserId = configQuery.data?.builderSlackUserId ?? null;
   const refetchAudit = auditQuery.refetch;
   const runs = auditQuery.data?.runs ?? [];
-  const selectedRun =
-    runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+  const automations = auditQuery.data?.automations ?? [];
+  const selectedRun = selectedRunId
+    ? (runs.find((run) => run.id === selectedRunId) ?? null)
+    : (runs[0] ?? null);
 
   useEffect(() => {
-    if (!selectedRun || selectedRun.id === selectedRunId) return;
+    setCursor(null);
+    setCursorStack([]);
+  }, [automationFilter, range]);
+
+  useEffect(() => {
+    if (selectedRunId || !selectedRun) return;
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -126,7 +174,21 @@ export function FactoryAuditView({
     void refetchAudit();
   }, [refreshToken, refetchAudit]);
 
+  function setAuditFilter(key: "automation" | "range", value: string) {
+    setCursor(null);
+    setCursorStack([]);
+    setSearchParams(
+      (current) => {
+        const next = writeAuditFilterParam(current, key, value);
+        next.delete("auditRunId");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
   function selectRun(runId: string) {
+    shouldScrollOnSelectRef.current = true;
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -137,10 +199,72 @@ export function FactoryAuditView({
     );
   }
 
+  function goToNextPage() {
+    const nextCursor = auditQuery.data?.nextCursor;
+    if (!nextCursor) return;
+    setCursorStack((stack) => [...stack, cursor ?? ""]);
+    setCursor(nextCursor);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("auditRunId");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function goToPreviousPage() {
+    const stack = [...cursorStack];
+    const previous = stack.pop();
+    setCursorStack(stack);
+    setCursor(previous ? previous : null);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("auditRunId");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
   useEffect(() => {
-    if (!selectedRunId) return;
-    viewRef.current?.scrollIntoView({ block: "start" });
+    if (!shouldScrollOnSelectRef.current || !selectedRunId) return;
+    shouldScrollOnSelectRef.current = false;
+    viewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [selectedRunId]);
+
+  const showPagination =
+    cursorStack.length > 0 || Boolean(auditQuery.data?.hasMore);
+
+  const runListFilters = (
+    <div className="flex flex-wrap items-end gap-3">
+      <AuditFilterSelect
+        id="factory-audit-range-filter"
+        label={t("triage.rangeLabel")}
+        value={range}
+        placeholder={t("triage.rangeAll")}
+        options={AUDIT_RANGES.map((value) => ({
+          value,
+          label:
+            value === "today" ? t("triage.rangeToday") : t("triage.range7d"),
+        }))}
+        onChange={(value) => setAuditFilter("range", value)}
+      />
+      <AuditFilterSelect
+        id="factory-audit-automation-filter"
+        label={t("factoryRoute.auditAutomationLabel")}
+        value={automationFilter}
+        placeholder={t("factoryRoute.auditAutomationAll")}
+        options={automations.map((option) => ({
+          value: option.name,
+          label: option.displayName,
+        }))}
+        onChange={(value) => setAuditFilter("automation", value)}
+      />
+    </div>
+  );
 
   return (
     <div ref={viewRef} className="p-4 lg:p-6">
@@ -151,88 +275,133 @@ export function FactoryAuditView({
             <span>{t("factoryRoute.auditLoadError")}</span>
           </CardContent>
         </Card>
-      ) : auditQuery.isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(240px,.4fr)_minmax(0,1fr)]">
-          <AuditSkeleton rows={5} />
-          <AuditSkeleton rows={4} />
-        </div>
-      ) : runs.length === 0 ? (
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            {t("factoryRoute.auditEmpty")}
-          </CardContent>
-        </Card>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(240px,.4fr)_minmax(0,1fr)]">
-          <Card>
-            <CardHeader className="px-4 py-3">
+        <div className="factory-audit-split">
+          <Card className="factory-audit-run-list">
+            <CardHeader className="flex flex-col items-stretch gap-3 space-y-0 px-4 py-3">
               <CardTitle className="text-sm">
                 {t("factoryRoute.auditRuns")}
               </CardTitle>
+              {runListFilters}
             </CardHeader>
             <CardContent className="p-0">
-              <div className="grid gap-1.5 p-2">
-                {runs.map((run) => {
-                  const selected = selectedRun?.id === run.id;
-                  return (
-                    <button
-                      key={run.id}
-                      type="button"
-                      aria-current={selected ? "true" : undefined}
-                      className={`w-full cursor-pointer rounded-lg p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                        selected
-                          ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
-                          : "bg-muted/20 hover:bg-muted/50"
-                      }`}
-                      onClick={() => selectRun(run.id)}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="min-w-0 truncate text-sm font-medium">
-                          {automationLabel(run)}
-                        </span>
-                        <AuditStatus status={runHeadlineStatus(run)} />
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <span className="shrink-0">
-                          {formatAuditAge(run.startedAt)}
-                        </span>
-                        <span className="min-w-0 truncate">
-                          {formatRunHeadline(run.counts, t)}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="px-4 py-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <CardTitle className="truncate text-base">
-                    {selectedRun && automationLabel(selectedRun)}
-                  </CardTitle>
-                  {selectedRun && (
-                    <p className="mt-1 truncate text-xs text-muted-foreground">
-                      {formatAuditAge(selectedRun.startedAt)}
-                      <span aria-hidden="true"> · </span>
-                      {formatRunHeadline(selectedRun.counts, t)}
-                    </p>
-                  )}
+              {auditQuery.isLoading ? (
+                <div className="space-y-3 p-4">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div key={index} className="space-y-2">
+                      <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                      <div className="h-3 w-1/2 rounded bg-muted/70" />
+                    </div>
+                  ))}
                 </div>
-                {selectedRun && (
-                  <AuditStatus status={runHeadlineStatus(selectedRun)} />
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="pt-4">
-              {selectedRun && (
-                <AuditRunDetail run={selectedRun} factoryId={factoryId} />
+              ) : runs.length === 0 ? (
+                <p className="p-6 text-sm text-muted-foreground">
+                  {t("factoryRoute.auditEmpty")}
+                </p>
+              ) : (
+                <div className="grid gap-1.5 p-2">
+                  {runs.map((run) => {
+                    const selected = selectedRun?.id === run.id;
+                    return (
+                      <button
+                        key={run.id}
+                        type="button"
+                        aria-current={selected ? "true" : undefined}
+                        className={`w-full cursor-pointer rounded-lg p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                          selected
+                            ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
+                            : "bg-muted/20 hover:bg-muted/50"
+                        }`}
+                        onClick={() => selectRun(run.id)}
+                      >
+                        <div className="factory-audit-run-fields">
+                          <span className="min-w-0 break-words text-sm font-medium [overflow-wrap:anywhere]">
+                            {automationLabel(run)}
+                          </span>
+                          <AuditStatus status={runHeadlineStatus(run)} />
+                          <span className="text-xs text-muted-foreground">
+                            {formatAuditAge(
+                              run.startedAt,
+                              t("triage.relativeNow"),
+                            )}
+                          </span>
+                          <span className="min-w-0 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                            {formatRunHeadline(run.counts, t)}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {showPagination ? (
+                    <div className="flex items-center justify-between gap-2 px-1 py-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          cursorStack.length === 0 || auditQuery.isFetching
+                        }
+                        onClick={goToPreviousPage}
+                      >
+                        <IconChevronLeft className="size-4" />
+                        {t("triage.previousPage")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={
+                          !auditQuery.data?.hasMore || auditQuery.isFetching
+                        }
+                        onClick={goToNextPage}
+                      >
+                        {t("triage.nextPage")}
+                        <IconChevronRight className="size-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </CardContent>
           </Card>
+
+          {auditQuery.isLoading ? (
+            <AuditSkeleton rows={4} />
+          ) : runs.length === 0 ? null : (
+            <Card>
+              <CardHeader className="px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="break-words text-base [overflow-wrap:anywhere]">
+                      {selectedRun && automationLabel(selectedRun)}
+                    </CardTitle>
+                    {selectedRun && (
+                      <div className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                        {formatAuditAge(
+                          selectedRun.startedAt,
+                          t("triage.relativeNow"),
+                        )}
+                        <span aria-hidden="true"> · </span>
+                        {formatRunHeadline(selectedRun.counts, t)}
+                      </div>
+                    )}
+                  </div>
+                  {selectedRun && (
+                    <AuditStatus status={runHeadlineStatus(selectedRun)} />
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {selectedRun && (
+                  <AuditRunDetail
+                    run={selectedRun}
+                    factoryId={factoryId}
+                    builderSlackUserId={builderSlackUserId}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>
@@ -242,9 +411,11 @@ export function FactoryAuditView({
 function AuditRunDetail({
   run,
   factoryId,
+  builderSlackUserId,
 }: {
   run: FactoryAuditRun;
   factoryId: string;
+  builderSlackUserId: string | null;
 }) {
   const t = useT();
   const items = run.items ?? [];
@@ -290,9 +461,14 @@ function AuditRunDetail({
           {failedItems.map((item) => (
             <p
               key={item.itemId}
-              className="mt-1 break-words text-muted-foreground"
+              className="mt-1 truncate text-sm text-muted-foreground"
             >
-              {item.title}
+              <SlackMrkdwn
+                text={item.title}
+                inline
+                mentionLabels={item.userLabels}
+                builderSlackUserId={builderSlackUserId}
+              />
               {item.dispatchError ? ` — ${item.dispatchError}` : ""}
             </p>
           ))}
@@ -306,7 +482,12 @@ function AuditRunDetail({
           </p>
         ) : (
           items.map((item) => (
-            <AuditItemRow key={item.itemId} item={item} factoryId={factoryId} />
+            <AuditItemRow
+              key={item.itemId}
+              item={item}
+              factoryId={factoryId}
+              builderSlackUserId={builderSlackUserId}
+            />
           ))
         )}
       </div>
@@ -325,7 +506,7 @@ function AuditRunDetail({
               >
                 <span className="min-w-0 truncate">{step.summary}</span>
                 <time className="shrink-0">
-                  {formatAuditAge(step.createdAt)}
+                  {formatAuditAge(step.createdAt, t("triage.relativeNow"))}
                 </time>
               </div>
             ))}
@@ -339,9 +520,11 @@ function AuditRunDetail({
 function AuditItemRow({
   item,
   factoryId,
+  builderSlackUserId,
 }: {
   item: FactoryAuditItem;
   factoryId: string;
+  builderSlackUserId: string | null;
 }) {
   const t = useT();
   const sourceLink = resolveAuditSourceLink(item);
@@ -351,7 +534,14 @@ function AuditItemRow({
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <AuditSourceIcon source={item.source} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{item.title}</p>
+          <p className="truncate text-sm font-medium">
+            <SlackMrkdwn
+              text={item.title}
+              inline
+              mentionLabels={item.userLabels}
+              builderSlackUserId={builderSlackUserId}
+            />
+          </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {formatItemOutcome(item.outcome, t)}
           </p>
@@ -363,20 +553,31 @@ function AuditItemRow({
         <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="bg-muted/20 px-4 pb-4 pt-3">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {item.rationale || item.dispatchError
-                ? t("factoryRoute.auditWhy")
-                : t("factoryRoute.auditWhatHappened")}
-            </p>
-            <p className="mt-1 max-w-[72ch] text-sm leading-6">
-              {item.dispatchError ??
-                item.rationale ??
-                t("factoryRoute.auditInspectedOnly")}
-            </p>
+        <AuditDecisionFacts item={item} />
+        {item.summary ? (
+          <div
+            className={`rounded-md border border-border bg-background px-3 py-2 ${
+              hasAuditFacts(item) ? "mt-3" : ""
+            }`}
+          >
+            <SlackMrkdwn
+              text={item.summary}
+              mentionLabels={item.userLabels}
+              builderSlackUserId={builderSlackUserId}
+            />
           </div>
-          <AuditDecisionFacts item={item} />
+        ) : null}
+        <div className={item.summary || hasAuditFacts(item) ? "mt-3" : ""}>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {item.rationale || item.dispatchError
+              ? t("factoryRoute.auditWhy")
+              : t("factoryRoute.auditWhatHappened")}
+          </p>
+          <p className="mt-1 text-sm leading-6">
+            {item.dispatchError ??
+              item.rationale ??
+              t("factoryRoute.auditInspectedOnly")}
+          </p>
         </div>
 
         {item.events.length > 0 && (
@@ -397,7 +598,7 @@ function AuditItemRow({
                     </span>
                   </span>
                   <time className="shrink-0">
-                    {formatAuditAge(entry.createdAt)}
+                    {formatAuditAge(entry.createdAt, t("triage.relativeNow"))}
                   </time>
                 </div>
               ))}
@@ -407,7 +608,7 @@ function AuditItemRow({
 
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-background/40 px-3 py-3 text-xs">
           <a
-            href={`/factory?factoryId=${encodeURIComponent(factoryId)}&tab=inbox&itemId=${encodeURIComponent(item.itemId)}`}
+            href={`/factory?factoryId=${encodeURIComponent(factoryId)}&itemId=${encodeURIComponent(item.itemId)}`}
             className="text-primary hover:underline"
           >
             {t("factoryRoute.auditOpenItem")}
@@ -429,19 +630,23 @@ function AuditItemRow({
   );
 }
 
+function hasAuditFacts(item: FactoryAuditItem): boolean {
+  return (
+    item.clearBug !== null ||
+    item.productUx !== null ||
+    Boolean(item.ownerArea) ||
+    Boolean(item.guards)
+  );
+}
+
 function AuditDecisionFacts({ item }: { item: FactoryAuditItem }) {
   const t = useT();
-  if (
-    item.clearBug === null &&
-    item.productUx === null &&
-    !item.ownerArea &&
-    !item.guards
-  ) {
+  if (!hasAuditFacts(item)) {
     return null;
   }
 
   return (
-    <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground sm:max-w-[260px] sm:justify-end">
+    <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground">
       {item.clearBug !== null && (
         <AuditFact
           label={t("factoryRoute.auditClearBug")}
@@ -518,6 +723,41 @@ function AuditStatus({
   );
 }
 
+function AuditFilterSelect({
+  id,
+  label,
+  value,
+  placeholder,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <select
+        id={id}
+        className="h-8 w-44 rounded-md border border-input bg-card px-2 text-sm"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function AuditSkeleton({ rows }: { rows: number }) {
   return (
     <Card>
@@ -590,11 +830,14 @@ function formatAuditSource(source: string | null): string {
 }
 
 function resolveAuditSourceLink(item: FactoryAuditItem): string | null {
-  if (item.sourceUrl) return item.sourceUrl;
+  const stored = safeHttpUrl(item.sourceUrl);
+  if (stored) return stored;
   for (const event of item.events) {
     const channelId = readStringDetail(event.details, "channelId");
     const threadTs = readStringDetail(event.details, "threadTs");
-    if (channelId && threadTs) return slackThreadUrl(channelId, threadTs);
+    if (channelId && threadTs) {
+      return safeHttpUrl(slackThreadUrl(channelId, threadTs));
+    }
   }
   return null;
 }
@@ -632,7 +875,7 @@ function formatAuditAction(value: string): string {
   return formatAuditLabel(value).replace(/^Poll /, "Check ");
 }
 
-function formatAuditAge(value: string | number) {
+function formatAuditAge(value: string | number, nowLabel: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
 
@@ -640,7 +883,7 @@ function formatAuditAge(value: string | number) {
     0,
     Math.floor((Date.now() - date.getTime()) / 1_000),
   );
-  if (elapsedSeconds < 60) return "now";
+  if (elapsedSeconds < 60) return nowLabel;
   const elapsedMinutes = Math.floor(elapsedSeconds / 60);
   if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
   const elapsedHours = Math.floor(elapsedMinutes / 60);

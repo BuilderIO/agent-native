@@ -11,6 +11,8 @@ export interface SlideStyleSnapshot {
   textPreview: string;
   isText: boolean;
   isImage: boolean;
+  objectFit?: "cover" | "contain";
+  objectPosition?: string;
   isAbsolute: boolean;
   x: number;
   y: number;
@@ -20,6 +22,7 @@ export interface SlideStyleSnapshot {
   slideWidth: number;
   slideHeight: number;
   color: string;
+  fontFamily: string;
   backgroundColor: string;
   fontSize: number;
   fontWeight: string;
@@ -41,6 +44,7 @@ export interface SlideStyleSnapshot {
 
 export type SlideStylePatch = Partial<{
   color: string;
+  fontFamily: string;
   backgroundColor: string;
   fontSize: string;
   fontWeight: string;
@@ -63,6 +67,43 @@ export type SlideStylePatch = Partial<{
   transform: string;
   zIndex: string;
 }>;
+
+const MULTI_STYLE_KEYS = [
+  "color",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "fontStyle",
+  "textDecoration",
+] as const satisfies readonly InlineTextStyleKey[];
+
+/** Keep the first item's controls while marking values that disagree. */
+export function mergeSlideStyleSnapshots(
+  snapshots: readonly SlideStyleSnapshot[],
+): SlideStyleSnapshot | null {
+  const first = snapshots[0];
+  if (
+    !first ||
+    snapshots.some(
+      (snapshot) =>
+        snapshot.isText !== first.isText || snapshot.isImage !== first.isImage,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    ...first,
+    // Group position controls would write one object's coordinates to every
+    // member, so group snapshots expose appearance controls only.
+    isAbsolute: false,
+    mixedTextStyles: first.isText
+      ? MULTI_STYLE_KEYS.filter((key) =>
+          snapshots.some((snapshot) => snapshot[key] !== first[key]),
+        )
+      : [],
+  };
+}
 
 export function tokenPalette(
   designSystem: DesignSystemData | undefined,

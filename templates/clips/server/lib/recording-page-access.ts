@@ -38,3 +38,19 @@ export function canOpenDirectRecordingPage(input: {
   if (input.visibility === "public") return input.hasExplicitShare;
   return true;
 }
+
+/** Comment activity follows the same expiry and password boundary as the player. */
+export function canReceiveRecordingActivity(input: {
+  ownerEmail: string;
+  recipientEmail: string;
+  hasPassword: boolean;
+  expiresAt?: string | null;
+  now?: number;
+}): boolean {
+  if (isRecordingExpired(input.expiresAt, input.now)) return false;
+  if (!input.hasPassword) return true;
+  return (
+    input.ownerEmail.trim().toLowerCase() ===
+    input.recipientEmail.trim().toLowerCase()
+  );
+}
