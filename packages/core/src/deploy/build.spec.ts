@@ -161,6 +161,7 @@ describe("AWS Amplify runtime output", () => {
       RESEND_API_KEY: "resend-example-key",
       SENDGRID_API_KEY: "sendgrid-example-key",
       EMAIL_FROM: "Calendar <calendar@example.test>",
+      OPENAI_API_KEY: "openai-example-key",
       UNDECLARED_SECRET: "must-not-ship",
       AWS_SECRET_ACCESS_KEY: "must-not-ship",
     });
@@ -174,6 +175,7 @@ describe("AWS Amplify runtime output", () => {
     expect(runtimeEnv).toContain(
       'EMAIL_FROM="Calendar <calendar@example.test>"',
     );
+    expect(runtimeEnv).toContain('OPENAI_API_KEY="openai-example-key"');
     expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
     expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
     expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
