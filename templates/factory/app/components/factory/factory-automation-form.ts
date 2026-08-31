@@ -14,6 +14,7 @@ export const INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
 
 export type FactoryAutomationConnections = {
   slack: boolean;
+  slackSecondary?: boolean;
   github: boolean;
   sentry: boolean;
 };
@@ -117,9 +118,15 @@ export function formatDailyTime(hour: number, minute: number): string {
 export function isDestinationReady(
   source: AutomationSource | null,
   connections?: FactoryAutomationConnections,
+  slackWorkspace: "primary" | "secondary" = "primary",
 ): boolean {
-  if (!source) return false;
-  return connections?.[source] !== false;
+  if (!source || !connections) return false;
+  if (source === "slack") {
+    return slackWorkspace === "secondary"
+      ? connections.slackSecondary === true
+      : connections.slack === true;
+  }
+  return connections[source] === true;
 }
 
 export function isDestinationFilled(
@@ -152,7 +159,8 @@ export function canCreateFactoryAutomation(
     return false;
   }
   return (
-    isDestinationReady(form.source, connections) && isDestinationFilled(form)
+    isDestinationReady(form.source, connections, form.slackWorkspace) &&
+    isDestinationFilled(form)
   );
 }
 

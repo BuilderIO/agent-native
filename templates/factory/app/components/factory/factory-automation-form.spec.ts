@@ -49,11 +49,20 @@ describe("factory-automation-form destination gating", () => {
   const connected = { slack: true, github: true, sentry: true };
   const disconnected = { slack: false, github: false, sentry: false };
 
-  it("treats a missing connections payload as ready and explicit false as blocked", () => {
-    expect(isDestinationReady("slack")).toBe(true);
+  it("treats a missing connections payload as unknown, not ready", () => {
+    expect(isDestinationReady("slack")).toBe(false);
     expect(isDestinationReady("slack", connected)).toBe(true);
     expect(isDestinationReady("slack", disconnected)).toBe(false);
     expect(isDestinationReady(null, connected)).toBe(false);
+  });
+
+  it("scopes Slack readiness to the selected workspace", () => {
+    const primaryOnly = { ...connected, slack: true, slackSecondary: false };
+    const secondaryOnly = { ...connected, slack: false, slackSecondary: true };
+    expect(isDestinationReady("slack", primaryOnly, "primary")).toBe(true);
+    expect(isDestinationReady("slack", primaryOnly, "secondary")).toBe(false);
+    expect(isDestinationReady("slack", secondaryOnly, "primary")).toBe(false);
+    expect(isDestinationReady("slack", secondaryOnly, "secondary")).toBe(true);
   });
 
   it("requires the source destination before create", () => {
@@ -64,6 +73,7 @@ describe("factory-automation-form destination gating", () => {
     };
     expect(isDestinationFilled(slack)).toBe(true);
     expect(canCreateFactoryAutomation(slack, connected)).toBe(true);
+    expect(canCreateFactoryAutomation(slack)).toBe(false);
     expect(canCreateFactoryAutomation(slack, disconnected)).toBe(false);
     expect(
       canCreateFactoryAutomation({ ...slack, slackChannelId: "" }, connected),

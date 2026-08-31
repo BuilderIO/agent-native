@@ -24,10 +24,12 @@ import { toast } from "sonner";
 
 import { CreateFactoryAutomationView } from "@/components/factory/CreateFactoryAutomationView";
 import {
+  canCreateFactoryAutomation,
   dispatchIntegrationsHref,
   emptyAutomationForm,
   formAuthorFilter,
   formatDailyTime,
+  isDestinationReady,
   parseDailyTime,
   persistAuthorFilter,
   type AutomationAuthorMode,
@@ -1238,7 +1240,12 @@ function AutomationsView({
                   disabled={
                     runMutation.isPending ||
                     Boolean(queuedRuns[draft.id]) ||
-                    draft.canUpdate === false
+                    draft.canUpdate === false ||
+                    !isDestinationReady(
+                      draft.source ?? "slack",
+                      configQuery.data?.connections,
+                      draft.slackWorkspace ?? "primary",
+                    )
                   }
                 >
                   {runMutation.isPending && (
@@ -1251,7 +1258,14 @@ function AutomationsView({
                   type="button"
                   size="sm"
                   onClick={() => void saveAutomation()}
-                  disabled={saveMutation.isPending || draft.canUpdate === false}
+                  disabled={
+                    saveMutation.isPending ||
+                    draft.canUpdate === false ||
+                    !canCreateFactoryAutomation(
+                      automationToForm(draft),
+                      configQuery.data?.connections,
+                    )
+                  }
                 >
                   {saveMutation.isPending && (
                     <IconLoader2 className="animate-spin" />

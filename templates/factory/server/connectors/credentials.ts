@@ -225,11 +225,20 @@ export async function resolveConnectorSecret(
   return undefined;
 }
 
-const FACTORY_CONNECTOR_KEYS = {
-  slack: ["SLACK_BOT_TOKEN", "SLACK_BOT_TOKEN_2"],
-  github: ["GITHUB_TOKEN"],
-  sentry: ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
-} as const;
+export function slackConnectorKey(
+  workspace: "primary" | "secondary" = "primary",
+): "SLACK_BOT_TOKEN" | "SLACK_BOT_TOKEN_2" {
+  return workspace === "secondary" ? "SLACK_BOT_TOKEN_2" : "SLACK_BOT_TOKEN";
+}
+
+export function connectorKeysForSource(
+  source: "slack" | "github" | "sentry",
+  slackWorkspace: "primary" | "secondary" = "primary",
+): readonly string[] {
+  if (source === "slack") return [slackConnectorKey(slackWorkspace)];
+  if (source === "github") return ["GITHUB_TOKEN"];
+  return ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"];
+}
 
 /** Presence only — never return the secret value to callers. */
 export async function hasConnectorSecret(
@@ -248,11 +257,44 @@ export async function hasConnectorSecret(
 export async function resolveFactoryConnectorReadiness(
   ownerEmail: string,
   options: ResolveConnectorSecretOptions = {},
-): Promise<{ slack: boolean; github: boolean; sentry: boolean }> {
-  const [slack, github, sentry] = await Promise.all([
-    hasConnectorSecret(FACTORY_CONNECTOR_KEYS.slack, ownerEmail, options),
-    hasConnectorSecret(FACTORY_CONNECTOR_KEYS.github, ownerEmail, options),
-    hasConnectorSecret(FACTORY_CONNECTOR_KEYS.sentry, ownerEmail, options),
+): Promise<{
+  slack: boolean;
+  slackSecondary: boolean;
+  github: boolean;
+  sentry: boolean;
+}> {
+  const [slack, slackSecondary, github, sentry] = await Promise.all([
+    hasConnectorSecret("SLACK_BOT_TOKEN", ownerEmail, options),
+    hasConnectorSecret("SLACK_BOT_TOKEN_2", ownerEmail, options),
+    hasConnectorSecret("GITHUB_TOKEN", ownerEmail, options),
+    hasConnectorSecret(
+      ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],
+      ownerEmail,
+      options,
+    ),
   ]);
-  return { slack, github, sentry };
+  return { slack, slackSecondary, github, sentry };
+}
+
+export async function assertFactoryConnectorReady(
+  source: "slack" | "github" | "sentry",
+  ownerEmail: string,
+  options: ResolveConnectorSecretOptions & {
+    slackWorkspace?: "primary" | "secondary";
+    verb?: "creating" | "saving";
+  } = {},
+): Promise<void> {
+  const verb = options.verb ?? "creating";
+  const label =
+    source === "slack" ? "Slack" : source === "github" ? "GitHub" : "Sentry";
+  const ready = await hasConnectorSecret(
+    connectorKeysForSource(source, options.slackWorkspace),
+    ownerEmail,
+    options,
+  );
+  if (!ready) {
+    throw new Error(
+      `Connect ${label} in Dispatch or add a vault token before ${verb} this job.`,
+    );
+  }
 }

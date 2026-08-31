@@ -87,7 +87,11 @@ export function FactoryAutomationFields({
 }) {
   const t = useT();
   const [authorDraft, setAuthorDraft] = useState("");
-  const destinationReady = isDestinationReady(form.source, connections);
+  const destinationReady = isDestinationReady(
+    form.source,
+    connections,
+    form.slackWorkspace,
+  );
   const workspaceIntegrationsHref =
     workspaceIntegrationsHrefProp ?? "/dispatch/admin/integrations";
   const showIdentity =

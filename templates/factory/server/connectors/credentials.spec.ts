@@ -64,7 +64,17 @@ const HOSTED_RUNTIME_ENV_KEYS = [
 
 function stubCleanLocalRuntimeEnv() {
   for (const key of HOSTED_RUNTIME_ENV_KEYS) {
+    delete process.env[key];
     vi.stubEnv(key, "");
+  }
+  for (const key of [
+    "SLACK_BOT_TOKEN",
+    "SLACK_BOT_TOKEN_2",
+    "GITHUB_TOKEN",
+    "SENTRY_AUTH_TOKEN",
+    "SENTRY_SERVER_TOKEN",
+  ]) {
+    delete process.env[key];
   }
 }
 
@@ -321,15 +331,20 @@ describe("resolveFactoryConnectorReadiness", () => {
 
   it("treats a granted workspace connection as ready", async () => {
     mocks.resolveWorkspaceConnectionCredentialForApp.mockImplementation(
-      async ({ provider }) =>
-        provider === "slack"
+      async ({ provider, key }) =>
+        provider === "slack" && key === "SLACK_BOT_TOKEN"
           ? { available: true, value: "xoxb-connected" }
           : { available: false, value: undefined },
     );
 
     await expect(
       resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
-    ).resolves.toEqual({ slack: true, github: false, sentry: false });
+    ).resolves.toEqual({
+      slack: true,
+      slackSecondary: false,
+      github: false,
+      sentry: false,
+    });
   });
 
   it("falls back to the org vault when no workspace connection exists", async () => {
@@ -344,7 +359,29 @@ describe("resolveFactoryConnectorReadiness", () => {
     ).resolves.toBe(true);
     await expect(
       resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
-    ).resolves.toEqual({ slack: true, github: false, sentry: false });
+    ).resolves.toEqual({
+      slack: true,
+      slackSecondary: false,
+      github: false,
+      sentry: false,
+    });
+  });
+
+  it("does not treat a primary Slack token as secondary readiness", async () => {
+    mocks.readAppSecret.mockImplementation(async ({ key, scope, scopeId }) =>
+      key === "SLACK_BOT_TOKEN" && scope === "org" && scopeId === "active-org"
+        ? { value: "xoxb-vault" }
+        : null,
+    );
+
+    await expect(
+      resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
+    ).resolves.toEqual({
+      slack: true,
+      slackSecondary: false,
+      github: false,
+      sentry: false,
+    });
   });
 
   it("reads local sqlite .env only in pnpm dev", async () => {
@@ -354,15 +391,28 @@ describe("resolveFactoryConnectorReadiness", () => {
 
     await expect(
       resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
-    ).resolves.toEqual({ slack: true, github: false, sentry: false });
+    ).resolves.toEqual({
+      slack: true,
+      slackSecondary: false,
+      github: false,
+      sentry: false,
+    });
   });
 
   it("does not treat hosted deployment env as ready", async () => {
+    mocks.isLocalDatabase.mockReturnValue(false);
+    vi.stubEnv("SITE_ID", "netlify-site");
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-hosted-token");
+    vi.stubEnv("GITHUB_TOKEN", "ghp-hosted-token");
 
     await expect(
       resolveFactoryConnectorReadiness(userEmail, { orgId: "active-org" }),
-    ).resolves.toEqual({ slack: false, github: false, sentry: false });
+    ).resolves.toEqual({
+      slack: false,
+      slackSecondary: false,
+      github: false,
+      sentry: false,
+    });
   });
 
   it("does not coerce a vault outage into disconnected", async () => {

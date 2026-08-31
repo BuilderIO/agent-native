@@ -46,6 +46,8 @@ describe("Factory route factory switching", () => {
     expect(source).toContain("text-lg font-semibold");
     expect(source).toContain("showSource={false}");
     expect(source).toContain("connections={configQuery.data?.connections}");
+    expect(source).toContain("canCreateFactoryAutomation(");
+    expect(source).toContain("isDestinationReady(");
     expect(source).toContain(
       "workspaceIntegrationsHref={workspaceIntegrationsHref}",
     );

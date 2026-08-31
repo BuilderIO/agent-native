@@ -1,6 +1,10 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
+import {
+  VaultUnavailableError,
+  assertFactoryConnectorReady,
+} from "../server/connectors/credentials.js";
 import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
   FACTORY_INBOX_LIMIT_MAX,
@@ -104,6 +108,17 @@ export default defineAction({
     }
     if (input.scheduleMode === "daily" && !input.timezone?.trim()) {
       fail("Choose a timezone for a daily schedule.");
+    }
+    try {
+      await assertFactoryConnectorReady(input.source, userEmail, {
+        orgId,
+        slackWorkspace:
+          input.slackWorkspace === "secondary" ? "secondary" : "primary",
+        verb: "creating",
+      });
+    } catch (error) {
+      if (error instanceof VaultUnavailableError) fail(error.message);
+      fail(error instanceof Error ? error.message : "Connector is not ready.");
     }
     const defaults = defaultAutomationConfig(input.source, input.template);
     const config: FactoryAutomationConfig = {
