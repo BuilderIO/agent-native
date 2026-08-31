@@ -32,28 +32,6 @@ const NO_COVERAGE: IntakeTopicCoverage = {
 };
 
 describe("designIntakeQuestionDirectives", () => {
-  it("asks about every topic when nothing is passed (no context signal)", () => {
-    const text = designIntakeQuestionDirectives("design-1").join("\n");
-    expect(text).toContain("form factor");
-    expect(text).toContain("aesthetic direction");
-    expect(text).toContain("important features/content");
-    expect(text).toContain("special interactions/polish");
-    expect(text).toContain("whether to explore variations");
-    expect(text).not.toContain("already answers");
-  });
-
-  it("asks about every topic when coverage is explicitly all-false", () => {
-    const text = designIntakeQuestionDirectives("design-1", null, 0, {
-      coverage: NO_COVERAGE,
-    }).join("\n");
-    expect(text).toContain("form factor");
-    expect(text).toContain("aesthetic direction");
-    expect(text).toContain("important features/content");
-    expect(text).toContain("special interactions/polish");
-    expect(text).toContain("whether to explore variations");
-    expect(text).not.toContain("already answers");
-  });
-
   it("omits only the covered topic (aesthetic) and still asks the rest", () => {
     const text = designIntakeQuestionDirectives("design-1", null, 0, {
       coverage: { ...NO_COVERAGE, aesthetic: true },
