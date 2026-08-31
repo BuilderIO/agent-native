@@ -43,12 +43,17 @@ interface DesktopTerminalSurfaceProps {
 interface DesktopTerminalTab {
   id: string;
   label: string;
+  agent: DesktopTerminalAgentId;
 }
 
-function createTerminalTab(number: number): DesktopTerminalTab {
+function createTerminalTab(
+  number: number,
+  agent: DesktopTerminalAgentId,
+): DesktopTerminalTab {
   return {
     id: `desktop-terminal-${number}`,
     label: `Terminal ${number}`,
+    agent,
   };
 }
 
@@ -65,21 +70,21 @@ export default function DesktopTerminalSurface({
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
-    createTerminalTab(1),
+    createTerminalTab(1, agent),
   ]);
   const [activeTabId, setActiveTabId] = useState("desktop-terminal-1");
 
   const addTab = useCallback(() => {
-    const next = createTerminalTab(++tabCounter.current);
+    const next = createTerminalTab(++tabCounter.current, agent);
     setTabs((current) => [...current, next]);
     setActiveTabId(next.id);
-  }, []);
+  }, [agent]);
 
   const closeTab = useCallback(
     (tabId: string) => {
       setTabs((current) => {
         if (current.length === 1) {
-          const replacement = createTerminalTab(++tabCounter.current);
+          const replacement = createTerminalTab(++tabCounter.current, agent);
           setActiveTabId(replacement.id);
           return [replacement];
         }
@@ -92,7 +97,7 @@ export default function DesktopTerminalSurface({
         return next;
       });
     },
-    [activeTabId],
+    [activeTabId, agent],
   );
 
   const closeOtherTabs = useCallback((tabId: string) => {
@@ -105,10 +110,23 @@ export default function DesktopTerminalSurface({
   }, []);
 
   const closeAllTabs = useCallback(() => {
-    const replacement = createTerminalTab(++tabCounter.current);
+    const replacement = createTerminalTab(++tabCounter.current, agent);
     setTabs([replacement]);
     setActiveTabId(replacement.id);
-  }, []);
+  }, [agent]);
+
+  const handleAgentChange = useCallback(
+    (nextAgent: DesktopTerminalAgentId) => {
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === activeTabId ? { ...tab, agent: nextAgent } : tab,
+        ),
+      );
+      onAgentChange?.(nextAgent);
+    },
+    [activeTabId, onAgentChange],
+  );
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
 
   return (
     <section
@@ -192,12 +210,14 @@ export default function DesktopTerminalSurface({
                       {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
                         <DropdownMenuItem
                           key={option.id}
-                          onSelect={() => onAgentChange(option.id)}
+                          onSelect={() => handleAgentChange(option.id)}
                         >
                           <IconCheck
                             size={14}
                             className={
-                              option.id === agent ? "shrink-0" : "invisible"
+                              option.id === (activeTab?.agent ?? agent)
+                                ? "shrink-0"
+                                : "invisible"
                             }
                             aria-hidden="true"
                           />
@@ -245,8 +265,7 @@ export default function DesktopTerminalSurface({
             hidden={tab.id !== activeTabId}
           >
             <DesktopTerminalTabs
-              key={`${tab.id}:${agent}`}
-              agent={agent}
+              agent={tab.agent}
               theme={theme}
               submitRequest={tab.id === activeTabId ? submitRequest : undefined}
               onPromptSubmitted={onPromptSubmitted}

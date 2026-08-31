@@ -550,6 +550,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       '!hasChatFirstActiveChat &&\n      !(\n        activeChatFirstSurfaceTab?.kind === "app" &&\n        activeChatFirstSurfaceTab.placement === "side"',
     );
+    expect(hubSource).toContain(
+      "const canToggleChatFirstSurfacePanel =\n    hasChatFirstActiveChat && !chatFirstAppSelected;",
+    );
+    expect(hubSource).toContain(
+      'if (!hasChatFirstActiveChat) {\n        setChatFirstNotice("Open a chat to view browser surfaces.");',
+    );
     expect(hubSource).not.toContain(
       "if (tabCount > 0 && (previousTabCount === null || previousTabCount === 0))",
     );
