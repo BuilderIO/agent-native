@@ -13,6 +13,10 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { DefaultSpinner } from "../client/DefaultSpinner.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
@@ -645,7 +649,13 @@ export function createRequestHandler() {
 // a bounded suite-local allowance so local prep tests behavior, not scheduler
 // contention; focused runs normally complete well below this limit.
 describe("generateWorkerEntry", { timeout: 15_000 }, () => {
+  beforeEach(() => {
+    resetAppConfigForTests();
+    defineAppConfig({ app: { homePath: "/home" } });
+  });
+
   afterEach(() => {
+    resetAppConfigForTests();
     vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -849,6 +859,27 @@ export default (event) =>
     expect(await appResponse.text()).not.toContain(
       "data-agent-native-auth-redirect",
     );
+  });
+
+  it("resolves a custom app home from a generated config plugin", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "home-config.mjs");
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { homePath: "/inbox" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('var homePath = (root || "") + "/inbox"');
+    expect(html).toContain('"appHomePath":"/inbox"');
   });
 
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {

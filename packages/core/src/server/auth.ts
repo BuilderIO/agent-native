@@ -14,7 +14,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
-import { getAppConfig } from "../app-config/index.js";
+import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
@@ -3068,7 +3068,10 @@ function loginHtmlResponse(
   if (options.includeRootAuthRedirect) {
     html = injectHeadScript(
       html,
-      getSsrAuthRedirectScript(SESSION_HINT_COOKIE),
+      getSsrAuthRedirectScript(
+        SESSION_HINT_COOKIE,
+        resolveAppHomePath(getAppConfig().app),
+      ),
     );
   }
   return new Response(injectAnalyticsIntoHtml(html), {
@@ -3401,6 +3404,7 @@ function createAuthGuardFn(
           continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
           legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
           basePath: getAppBasePath(),
+          homePath: resolveAppHomePath(getAppConfig().app),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
@@ -3496,6 +3500,7 @@ function createAuthGuardFn(
         const { resumeHref } = signInJourney({
           at: url,
           basePath: getAppBasePath(),
+          homePath: resolveAppHomePath(getAppConfig().app),
         });
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;

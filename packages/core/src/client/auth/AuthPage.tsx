@@ -47,6 +47,7 @@ export interface AuthPageProps {
   initialPrompt: boolean;
   initialView: AuthView;
   appBasePath: string;
+  homePath: string;
   workspaceRuntime: boolean;
   trackingApp: string;
   defaultLocale: string;
@@ -609,6 +610,7 @@ export function AuthPage(props: AuthPageProps) {
     googleOnly,
     initialPrompt,
     appBasePath,
+    homePath,
     workspaceRuntime,
     trackingApp,
     defaultLocale,
@@ -702,6 +704,7 @@ export function AuthPage(props: AuthPageProps) {
       return signInJourney({
         at: `${runtimeAppBasePath}/`,
         basePath: runtimeAppBasePath,
+        homePath,
       });
     }
     return signInJourney({
@@ -712,8 +715,9 @@ export function AuthPage(props: AuthPageProps) {
       continuation: new URLSearchParams(window.location.search).get("c"),
       legacyReturn: new URLSearchParams(window.location.search).get("return"),
       basePath: runtimeAppBasePath,
+      homePath,
     });
-  }, [runtimeAppBasePath]);
+  }, [homePath, runtimeAppBasePath]);
   const resumeHref = React.useCallback(() => journey().resumeHref, [journey]);
   const redirectToSignedInApp = React.useCallback(
     (target?: string) => {
@@ -905,6 +909,7 @@ export function AuthPage(props: AuthPageProps) {
           continuation: params.get("c"),
           legacyReturn: params.get("return"),
           basePath: runtimeAppBasePath,
+          homePath,
         }).resumeHref;
         const landingPath = safeAttributionValue(returnPath);
         if (landingPath) attribution.landing_path = landingPath;
@@ -929,7 +934,7 @@ export function AuthPage(props: AuthPageProps) {
       auth_mode: authMode,
       auth_view: view,
     });
-  }, [authMode, runtimeAppBasePath, trackingApp]);
+  }, [authMode, homePath, runtimeAppBasePath, trackingApp]);
 
   React.useEffect(() => {
     const hostname = window.location.hostname.toLowerCase();

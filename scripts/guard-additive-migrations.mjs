@@ -55,10 +55,11 @@
  * SQL files may use either `//` or `--` for the pragma comment.
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { execGuardCommand } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -75,7 +76,7 @@ const PRAGMA_RE = /^\s*(?:\/\/|--)\s*guard:allow-destructive-ddl\b/i;
 const NOT_A_MIGRATION_LIST = new Set(["packages/core/src/db/migrations.ts"]);
 
 function findMigrationSourceFiles() {
-  const tracked = execFileSync("git", ["ls-files"], {
+  const tracked = execGuardCommand("git", ["ls-files"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     maxBuffer: 1 << 28,
