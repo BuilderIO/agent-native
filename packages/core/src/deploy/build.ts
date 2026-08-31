@@ -145,11 +145,15 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "BETTER_AUTH_URL",
   "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
+  "DATABASE_URL_UNPOOLED",
   "DB_OP_TIMEOUT_MS",
   "EMAIL_FROM",
   "EMAIL_AGENT_ADDRESS",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
   "ANTHROPIC_API_KEY",
+  "AGENT_NATIVE_BUILDER_RELAY_SECRET",
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS",
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES",
   "BUILDER_GATEWAY_SPACE_ID",
   "BUILDER_GATEWAY_TOKEN",
   "COHERE_API_KEY",
@@ -177,15 +181,23 @@ const AWS_AMPLIFY_CORE_RUNTIME_ENV_KEYS = [
   "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ] as const;
 
-function appScopedEncryptionKeyName(
-  appName: string | undefined,
-): string | undefined {
-  const normalized = appName
+function appScopedRuntimeEnvKeys(appName: string | undefined): string[] {
+  const databasePrefix = appName?.toUpperCase().replace(/-/g, "_");
+  const encryptionPrefix = appName
     ?.trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  return normalized ? `${normalized}_SECRETS_ENCRYPTION_KEY` : undefined;
+  return [
+    ...(databasePrefix
+      ? [
+          `${databasePrefix}_DATABASE_URL`,
+          `${databasePrefix}_DATABASE_AUTH_TOKEN`,
+          `${databasePrefix}_DATABASE_URL_UNPOOLED`,
+        ]
+      : []),
+    ...(encryptionPrefix ? [`${encryptionPrefix}_SECRETS_ENCRYPTION_KEY`] : []),
+  ];
 }
 
 function readEnvExampleKeys(filePath: string): string[] {
@@ -216,8 +228,9 @@ export function configureAwsAmplifyRuntimeOutput(
     ...declaredEnvKeys(),
     ...readEnvExampleKeys(path.join(appDir, ".env.example")),
   ]);
-  const appScopedKey = appScopedEncryptionKeyName(env.APP_NAME);
-  if (appScopedKey) declaredKeys.add(appScopedKey);
+  for (const key of appScopedRuntimeEnvKeys(env.APP_NAME)) {
+    declaredKeys.add(key);
+  }
   const runtimeEnv = [...declaredKeys].sort().flatMap((key) => {
     const value = env[key];
     return typeof value === "string" ? [`${key}=${JSON.stringify(value)}`] : [];

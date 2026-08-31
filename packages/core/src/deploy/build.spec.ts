@@ -164,6 +164,10 @@ describe("AWS Amplify runtime output", () => {
       OPENAI_API_KEY: "openai-example-key",
       APP_NAME: "my-calendar",
       MY_CALENDAR_SECRETS_ENCRYPTION_KEY: "app-scoped-example-key",
+      MY_CALENDAR_DATABASE_URL: "postgres://calendar.example/db",
+      MY_CALENDAR_DATABASE_AUTH_TOKEN: "calendar-database-token",
+      MY_CALENDAR_DATABASE_URL_UNPOOLED:
+        "postgres://calendar.example/direct-db",
       SECRETS_ENCRYPTION_KEY: "generic-encryption-key",
       WORKSPACE_SECRETS_ENCRYPTION_KEY: "workspace-encryption-key",
       WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS:
@@ -172,6 +176,10 @@ describe("AWS Amplify runtime output", () => {
       AGENT_NATIVE_WORKSPACE: "true",
       WEBHOOK_BASE_URL: "https://example.test/webhooks",
       AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      AGENT_NATIVE_BUILDER_RELAY_SECRET: "relay-example-secret",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS: "https://preview.example.test",
+      AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES:
+        ".builder-preview.example",
       UNDECLARED_SECRET: "must-not-ship",
       AWS_SECRET_ACCESS_KEY: "must-not-ship",
     });
@@ -190,6 +198,15 @@ describe("AWS Amplify runtime output", () => {
       'MY_CALENDAR_SECRETS_ENCRYPTION_KEY="app-scoped-example-key"',
     );
     expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL="postgres://calendar.example/db"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_AUTH_TOKEN="calendar-database-token"',
+    );
+    expect(runtimeEnv).toContain(
+      'MY_CALENDAR_DATABASE_URL_UNPOOLED="postgres://calendar.example/direct-db"',
+    );
+    expect(runtimeEnv).toContain(
       'SECRETS_ENCRYPTION_KEY="generic-encryption-key"',
     );
     expect(runtimeEnv).toContain(
@@ -204,6 +221,15 @@ describe("AWS Amplify runtime output", () => {
       'WEBHOOK_BASE_URL="https://example.test/webhooks"',
     );
     expect(runtimeEnv).toContain('AUTH_REQUIRE_EMAIL_VERIFICATION="1"');
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_SECRET="relay-example-secret"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS="https://preview.example.test"',
+    );
+    expect(runtimeEnv).toContain(
+      'AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES=".builder-preview.example"',
+    );
     expect(runtimeEnv).not.toContain("UNDECLARED_SECRET");
     expect(runtimeEnv).not.toContain("AWS_SECRET_ACCESS_KEY");
     expect(fs.readFileSync(path.join(serverDir, "server.js"), "utf8")).toBe(
