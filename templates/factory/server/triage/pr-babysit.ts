@@ -117,7 +117,7 @@ function isAnswered(
 
 export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   const botAuthors = new Set(input.botAuthors ?? []);
-  const checksCoverage = input.checksCoverage ?? "complete";
+  const checksCoverage = input.checksCoverage ?? "unknown";
   // Reply state, not a timestamp: a comment with any reply anywhere in the
   // set is answered, regardless of when it was posted relative to a prior
   // check. Filtering by "since" would re-hide an earlier unanswered round.
@@ -156,6 +156,7 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
     commentsTruncated,
     isClean:
       checksCoverage === "complete" &&
+      input.checks.length > 0 &&
       !commentsTruncated &&
       unansweredComments.length === 0 &&
       failingChecks.length === 0 &&

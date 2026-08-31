@@ -52,6 +52,13 @@ export interface BuilderBlogArticle {
   lastUpdated: string | null;
 }
 
+export interface BuilderBlogArticleListResult {
+  articles: BuilderBlogArticle[];
+  total: number;
+  truncated: boolean;
+  nextOffset: number | null;
+}
+
 function normalizeHandle(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -105,9 +112,9 @@ function requestContext(context?: ActionRunContext) {
 }
 
 export async function listBuilderBlogArticles(
-  args: { handles?: string[] },
+  args: { handles?: string[]; offset?: number },
   context?: ActionRunContext,
-): Promise<BuilderBlogArticle[]> {
+): Promise<BuilderBlogArticleListResult> {
   const credential = await resolveAnalyticsProviderCredential({
     provider: "builder",
     keys: BUILDER_ANALYTICS_CREDENTIAL_KEYS,
@@ -124,14 +131,22 @@ export async function listBuilderBlogArticles(
       .map((handle) => normalizeHandle(handle))
       .filter((handle): handle is string => Boolean(handle)),
   );
+  const startOffset = args.offset ?? 0;
+  if (!Number.isSafeInteger(startOffset) || startOffset < 0) {
+    throw new Error(
+      "Builder Content API offset must be a non-negative integer.",
+    );
+  }
   const found = new Map<string, BuilderBlogArticle>();
+  let nextOffset: number | null = null;
 
   for (let page = 0; page < BUILDER_MAX_PAGES; page += 1) {
+    const offset = startOffset + page * BUILDER_PAGE_SIZE;
     const url = new URL(BUILDER_CONTENT_API_URL);
     url.searchParams.set("apiKey", credential.value);
     url.searchParams.set("fields", BUILDER_CONTENT_FIELDS);
     url.searchParams.set("limit", String(BUILDER_PAGE_SIZE));
-    url.searchParams.set("offset", String(page * BUILDER_PAGE_SIZE));
+    url.searchParams.set("offset", String(offset));
     url.searchParams.set("sort.createdDate", "-1");
     url.searchParams.set("query.published", "published");
     url.searchParams.set("noTraverse", "true");
@@ -170,14 +185,22 @@ export async function listBuilderBlogArticles(
     ) {
       break;
     }
+    if (page === BUILDER_MAX_PAGES - 1) {
+      nextOffset = offset + BUILDER_PAGE_SIZE;
+    }
   }
 
-  return [...found.values()];
+  return {
+    articles: [...found.values()],
+    total: found.size,
+    truncated: nextOffset !== null,
+    nextOffset,
+  };
 }
 
 export default defineAction({
   description:
-    "List published Builder.io blog-article metadata, including each article handle and canonical data.date publish date. This is a read-only source for joining Builder content to Analytics warehouse metrics; it never returns article bodies.",
+    "List published Builder.io blog-article metadata, including each article handle and canonical data.date publish date. This is a read-only source for joining Builder content to Analytics warehouse metrics; it never returns article bodies. A bounded feed returns truncated=true and nextOffset when more pages remain.",
   schema: z.object({
     handles: z
       .array(z.string().trim().min(1))
@@ -186,12 +209,17 @@ export default defineAction({
       .describe(
         "Optional article handles to resolve. When omitted, paginate the published blog-article feed.",
       ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Optional zero-based offset for continuing a truncated feed."),
   }),
   http: { method: "GET" },
   readOnly: true,
   grounding: true,
   run: async (args, context) => {
-    const articles = await listBuilderBlogArticles(args, context);
-    return { articles, total: articles.length };
+    return listBuilderBlogArticles(args, context);
   },
 });

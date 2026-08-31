@@ -2911,6 +2911,65 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("does not use stateless JSON-RPC ids as retry identity", async () => {
+    const requestIdentityConfig = {
+      ...config,
+      actions: {
+        "request-identity": {
+          tool: {
+            description: "Return the request retry identity",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: true,
+          run: async () => {
+            const { getRequestContext } =
+              await import("../server/request-context.js");
+            return { mcpRequestId: getRequestContext()?.mcpRequestId ?? null };
+          },
+        },
+      },
+    };
+    const call = (retryToken?: string) =>
+      callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 17,
+          method: "tools/call",
+          params: { name: "request-identity", arguments: {} },
+        },
+        {
+          headers: {
+            "x-agent-native-mcp-full-catalog": "1",
+            ...(retryToken
+              ? { "x-agent-native-mcp-retry-token": retryToken }
+              : {}),
+          },
+          config: requestIdentityConfig,
+        },
+      );
+
+    const withoutToken = await call();
+    const withoutTokenAfterReconnect = await call();
+    expect(withoutToken.result.structuredContent).toEqual({
+      mcpRequestId: null,
+    });
+    expect(withoutTokenAfterReconnect.result.structuredContent).toEqual({
+      mcpRequestId: null,
+    });
+
+    const retry = await call("retry-17");
+    const retryAfterReconnect = await call("retry-17");
+    expect(retry.result.structuredContent).toEqual({
+      mcpRequestId: "stateless:retry-17",
+    });
+    expect(retryAfterReconnect.result.structuredContent).toEqual(
+      retry.result.structuredContent,
+    );
+    expect((await call("retry-18")).result.structuredContent).not.toEqual(
+      retry.result.structuredContent,
+    );
+  });
+
   it("runs `tools/call` with org scope resolved from the verified token email", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
     const scopedConfig = {

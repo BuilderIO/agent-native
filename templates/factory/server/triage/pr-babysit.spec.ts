@@ -28,7 +28,8 @@ const comment = (
 
 const baseInput: BabysitInput = {
   comments: [],
-  checks: [],
+  checks: [check("ci", "passed")],
+  checksCoverage: "complete",
 };
 
 describe("reconcileBabysitState", () => {
@@ -245,15 +246,24 @@ describe("reconcileBabysitState", () => {
     expect(result.isClean).toBe(false);
   });
 
-  it("is clean when nothing is outstanding and nothing was truncated", () => {
-    const result = reconcileBabysitState({
-      ...baseInput,
+  it("requires explicit complete, non-empty check evidence", () => {
+    const missingCoverage = reconcileBabysitState({
       comments: [],
       checks: [],
     });
+    expect(missingCoverage.checksCoverage).toBe("unknown");
+    expect(missingCoverage.isClean).toBe(false);
 
-    expect(result.commentsTruncated).toBe(false);
-    expect(result.isClean).toBe(true);
+    const emptyCompleteCoverage = reconcileBabysitState({
+      comments: [],
+      checks: [],
+      checksCoverage: "complete",
+    });
+    expect(emptyCompleteCoverage.isClean).toBe(false);
+
+    const complete = reconcileBabysitState(baseInput);
+    expect(complete.commentsTruncated).toBe(false);
+    expect(complete.isClean).toBe(true);
   });
 });
 

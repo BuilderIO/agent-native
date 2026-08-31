@@ -303,6 +303,8 @@ export interface MCPRequestMeta {
   clientName?: string;
   /** Explicit framework client hint from `x-agent-native-mcp-client`. */
   clientHint?: string;
+  /** Optional retry token for stateless HTTP MCP calls. */
+  mcpRetryToken?: string;
   /** Explicit opt-in to the full tool catalog for code/stdio style clients. */
   fullCatalog?: boolean;
   /**
@@ -2148,11 +2150,23 @@ export async function createMCPServerForRequest(
       // Set at each failure return below so the emitted event carries the
       // reason, not just `isError: true` recovered from the rendered result.
       let failure: { errorType: string; errorMessage: string } | undefined;
-      const mcpRequestId =
-        typeof request.id === "string" ||
-        (typeof request.id === "number" && Number.isFinite(request.id))
-          ? `${ctx.sessionId ?? "stateless"}:${String(request.id)}`
+      const jsonRpcRequestId =
+        typeof ctx.mcpReq.id === "string" ||
+        (typeof ctx.mcpReq.id === "number" && Number.isFinite(ctx.mcpReq.id))
+          ? String(ctx.mcpReq.id)
           : undefined;
+      // Stateless HTTP has no connection identity. JSON-RPC ids are commonly
+      // reused after a client reconnects, so they cannot identify a replay on
+      // their own. A caller that needs stateless retry safety supplies a
+      // per-logical-request token through the transport header.
+      const mcpRequestId =
+        jsonRpcRequestId === undefined
+          ? undefined
+          : ctx.sessionId
+            ? `${ctx.sessionId}:${jsonRpcRequestId}`
+            : requestMeta?.mcpRetryToken
+              ? `stateless:${requestMeta.mcpRetryToken}`
+              : undefined;
       const result = await withCallerContext(async () => {
         const { name, arguments: args } = request.params;
 

@@ -73,6 +73,8 @@ describe("builder-blog-articles", () => {
     )) as any;
 
     expect(result.total).toBe(2);
+    expect(result.truncated).toBe(false);
+    expect(result.nextOffset).toBeNull();
     expect(result.articles).toEqual([
       expect.objectContaining({
         id: "article-1",
@@ -94,5 +96,32 @@ describe("builder-blog-articles", () => {
     expect(firstUrl.searchParams.get("fields")).toContain("data.date");
     expect(firstUrl.searchParams.get("limit")).toBe("100");
     expect(firstUrl.searchParams.get("offset")).toBe("0");
+  });
+
+  it("exposes a continuation when the bounded feed is still full at the page cap", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const offset = new URL(String(input)).searchParams.get("offset");
+        return new Response(
+          JSON.stringify({
+            results: Array.from({ length: 100 }, (_, index) => ({
+              id: `article-${offset}-${index}`,
+              data: { handle: `article-${offset}-${index}` },
+            })),
+          }),
+          { status: 200 },
+        );
+      });
+
+    const result = (await builderBlogArticles.run({}, {
+      userEmail: "ada@example.com",
+      orgId: "org-1",
+    } as any)) as any;
+
+    expect(fetchMock).toHaveBeenCalledTimes(200);
+    expect(result.total).toBe(20_000);
+    expect(result.truncated).toBe(true);
+    expect(result.nextOffset).toBe(20_000);
   });
 });
