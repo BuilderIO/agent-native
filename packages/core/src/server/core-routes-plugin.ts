@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   assertBodySize,
   defineEventHandler,
@@ -228,6 +230,10 @@ import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
+import {
+  isHostedRealtimeTransport,
+  resolveRegisteredRealtimeChannel,
+} from "./realtime-registration.js";
 import { createRealtimeTokenHandler } from "./realtime-token.js";
 import {
   getRequestContext,
@@ -560,6 +566,35 @@ export interface DbHealthProbeResult {
     authTokenConfigured: boolean;
     netlifyDatabaseUrlConfigured: boolean;
   };
+  /**
+   * Hosted-realtime wiring, so a deploy can be verified without signing in.
+   *
+   * Registration is otherwise lazy behind the session-gated token mint, which
+   * made "is this deploy actually on the gateway?" unanswerable until a real
+   * user showed up. Resolving it here answers that with a curl — and, because
+   * resolution registers on a miss, performs the registration too, the same way
+   * this probe already warms a cold database.
+   */
+  realtime: {
+    /** `"hosted"` only when the transport env var is set. */
+    transport: "hosted" | "local";
+    /** A channel resolved — injected by the pipeline, or self-registered. */
+    registered: boolean;
+    /**
+     * First 8 chars of a SHA-256 of the channel id. This endpoint is public and
+     * the channel id is half the gateway's auth story, so it is fingerprinted
+     * rather than published — enough to tell two deploys apart or confirm a
+     * rotation, useless for connecting. Mirrors `database.urlHash`.
+     */
+    channelHash?: string;
+    /**
+     * Resolution FAILED, reported separately from `registered: false`. On a
+     * diagnostic endpoint the difference is the whole point: "this deploy has
+     * no channel" and "we could not find out" send you to different places.
+     * Same split as `dbTimedOut` above.
+     */
+    unavailable?: true;
+  };
   /** Optional metadata-only schema compatibility check. */
   schema?: DatabaseSchemaHealthResult;
   /**
@@ -579,6 +614,36 @@ export interface DbHealthProbeResult {
  * is still live, so the probe reports `db: false` rather than throwing. The
  * `exec` parameter is injectable purely for tests.
  */
+/**
+ * Never throws and never blocks the probe: a gateway that is slow or refusing
+ * must not make an app look unhealthy. `resolveRegisteredRealtimeChannel`
+ * already bounds itself (4s abort, memo, single-flight, failure backoff).
+ */
+async function resolveRealtimeHealth(): Promise<
+  DbHealthProbeResult["realtime"]
+> {
+  const transport = isHostedRealtimeTransport() ? "hosted" : "local";
+  if (transport === "local") return { transport, registered: false };
+  let channelId: string | undefined;
+  try {
+    // The pipeline's injected channel wins, exactly as in the token mint.
+    channelId =
+      (await resolveBuilderBranchProjectId()) ||
+      (await resolveRegisteredRealtimeChannel())?.channelId;
+  } catch {
+    return { transport, registered: false, unavailable: true };
+  }
+  if (!channelId) return { transport, registered: false };
+  return {
+    transport,
+    registered: true,
+    channelHash: createHash("sha256")
+      .update(channelId)
+      .digest("hex")
+      .slice(0, 8),
+  };
+}
+
 export async function runDbHealthProbe(
   exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
   options: { schema?: boolean; pressure?: boolean } = {},
@@ -628,12 +693,14 @@ export async function runDbHealthProbe(
       ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
       : { measured: false, reason: "database unreachable" };
   }
+  const realtime = await resolveRealtimeHealth();
   return {
     ok: true,
     ready: db && (!schema || schema.ok),
     db,
     ...(dbTimedOut ? { dbTimedOut: true } : {}),
     ms: Date.now() - startedAt,
+    realtime,
     database: {
       configured: database.configured,
       source: database.source,
