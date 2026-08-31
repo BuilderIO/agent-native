@@ -48,4 +48,44 @@ describe("emailMessageMatchesSearch", () => {
       ),
     ).toBe(true);
   });
+
+  it("matches Gmail from operators in the local mailbox fallback", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+        }),
+        "from:notifications@github.com",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({ from: { name: "Other", email: "other@example.com" } }),
+        "from:notifications@github.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("applies common negative and state Gmail operators", () => {
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+          isRead: false,
+          labelIds: ["inbox"],
+        }),
+        "from:notifications@github.com is:unread in:inbox",
+      ),
+    ).toBe(true);
+    expect(
+      emailMessageMatchesSearch(
+        message({
+          from: { name: "GitHub", email: "notifications@github.com" },
+          isRead: true,
+          labelIds: ["inbox"],
+        }),
+        "from:notifications@github.com -is:unread",
+      ),
+    ).toBe(true);
+  });
 });
