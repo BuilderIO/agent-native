@@ -77,6 +77,73 @@
   }
 }
 
+@keyframes factory-inbox-from-end {
+  from {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes factory-inbox-from-end-rtl {
+  from {
+    opacity: 0;
+    transform: translateX(-1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes factory-inbox-from-start {
+  from {
+    opacity: 0;
+    transform: translateX(-0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes factory-inbox-from-start-rtl {
+  from {
+    opacity: 0;
+    transform: translateX(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.factory-inbox-pane-detail {
+  animation: factory-inbox-from-end 260ms var(--ease-drawer);
+}
+
+.factory-inbox-pane-list-return {
+  animation: factory-inbox-from-start 260ms var(--ease-drawer);
+}
+
+[dir="rtl"] .factory-inbox-pane-detail {
+  animation-name: factory-inbox-from-end-rtl;
+}
+
+[dir="rtl"] .factory-inbox-pane-list-return {
+  animation-name: factory-inbox-from-start-rtl;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .factory-inbox-pane-detail,
+  .factory-inbox-pane-list-return {
+    animation: none;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -90,4 +157,43 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
+}
+
+.factory-audit-split {
+  display: grid;
+  gap: 1rem;
+}
+
+.factory-audit-split > * {
+  min-width: 0;
+}
+
+@container agent-native-main (min-width: 50rem) {
+  .factory-audit-split {
+    grid-template-columns: minmax(16rem, 0.4fr) minmax(0, 1fr);
+  }
+}
+
+.factory-audit-run-list {
+  container: audit-run / inline-size;
+  min-width: 0;
+}
+
+.factory-audit-run-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.25rem;
+}
+
+.factory-audit-run-fields > :nth-child(2) {
+  justify-self: end;
+}
+
+@container audit-run (min-width: 20rem) {
+  .factory-audit-run-fields {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 0.75rem;
+    row-gap: 0.25rem;
+  }
 }

@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { factoryUrlForTab } from "@/lib/factory-tab-params";
 
 import type {
   FactoryCanvasEdge,
@@ -105,20 +106,12 @@ export function FactoryInspector({
     (node) => node.id !== selectedNode?.id,
   );
   const auditHref = useMemo(() => {
-    const next = new URLSearchParams(searchParams);
-    next.set("tab", "audit");
-    next.delete("node");
-    next.delete("edge");
-    if (factoryId) next.set("factoryId", factoryId);
-    return `/factory?${next.toString()}`;
+    if (!factoryId) return "/factory?tab=audit";
+    return factoryUrlForTab(factoryId, "audit", searchParams);
   }, [factoryId, searchParams]);
   const reviewHref = useMemo(() => {
-    const next = new URLSearchParams(searchParams);
-    next.set("tab", "inbox");
-    next.delete("node");
-    next.delete("edge");
-    if (factoryId) next.set("factoryId", factoryId);
-    return `/factory?${next.toString()}`;
+    if (!factoryId) return "/factory";
+    return factoryUrlForTab(factoryId, "inbox", searchParams);
   }, [factoryId, searchParams]);
 
   function updateNode(patch: Partial<FactoryCanvasNode>) {
@@ -379,7 +372,7 @@ export function FactoryInspector({
               className="h-8 px-2 text-xs"
             >
               <a href={auditHref} aria-label={t("factoryRoute.auditTitle")}>
-                Activity
+                {t("factoryRoute.auditTab")}
                 <IconArrowRight className="size-3.5" />
               </a>
             </Button>
@@ -391,7 +384,7 @@ export function FactoryInspector({
               className="h-8 px-2 text-xs"
             >
               <a href={reviewHref} aria-label={t("factoryRoute.inboxTitle")}>
-                Review
+                {t("factoryRoute.inboxTab")}
                 <IconArrowRight className="size-3.5" />
               </a>
             </Button>

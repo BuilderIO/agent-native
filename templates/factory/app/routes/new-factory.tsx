@@ -13,14 +13,12 @@ export default function NewFactoryRoute() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
       <div className="flex items-center gap-3 px-4 py-4 lg:px-6">
-        <Button asChild type="button" variant="ghost" size="icon">
-          <Link to="/factory" aria-label={t("factoryRoute.backToFactories")}>
+        <Button asChild type="button" variant="ghost" className="gap-2 px-2">
+          <Link to="/factory">
             <IconArrowLeft className="size-4" />
+            {t("navigation.triage")}
           </Link>
         </Button>
-        <h1 className="text-sm font-medium sm:text-base">
-          {t("factoryRoute.createFactoryTitle")}
-        </h1>
         <div className="ms-auto">
           <FactoryWorkspaceActions />
         </div>
